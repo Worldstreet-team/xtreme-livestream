@@ -39,6 +39,7 @@ export async function apiFetch<T = unknown>(
   const res = await fetch(url, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   const data = await res.json();

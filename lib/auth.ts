@@ -32,15 +32,22 @@ export interface AuthenticatedUser {
 export async function authenticate(
   req: NextRequest
 ): Promise<AuthenticatedUser | NextResponse> {
+  // Try Authorization header first, then fall back to HttpOnly cookie
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  let token: string | undefined;
+
+  if (authHeader?.startsWith("Bearer ")) {
+    token = authHeader.slice(7);
+  } else {
+    token = req.cookies.get("accessToken")?.value;
+  }
+
+  if (!token) {
     return NextResponse.json(
       { success: false, message: "Authentication required" },
       { status: 401 }
     );
   }
-
-  const token = authHeader.slice(7);
 
   // Call external auth service to verify the token
   let authUser: AuthUser;

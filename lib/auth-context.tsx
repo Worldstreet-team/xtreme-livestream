@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { apiFetch, getAccessToken } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
 
 // Shape of the user object returned by GET /api/user/me
 export interface AppUser {
@@ -55,15 +55,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchUser = useCallback(async () => {
-    const token = getAccessToken();
-    if (!token) {
-      console.warn("[Auth] No accessToken cookie found");
-      setUser(null);
-      setIsLoading(false);
-      setError(null);
-      return;
-    }
-
     try {
       setIsLoading(true);
       const res = await apiFetch<{ success: boolean; data: { user: AppUser } }>(
@@ -72,9 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.data.user);
       setError(null);
     } catch (err) {
-      console.error("[Auth] Failed to fetch user:", err);
+      // 401 is expected for unauthenticated users — don't log as error
+      const isAuthError =
+        err instanceof Error && "status" in err && (err as { status: number }).status === 401;
+      if (!isAuthError) {
+        console.error("[Auth] Failed to fetch user:", err);
+      }
       setUser(null);
-      setError(err instanceof Error ? err.message : "Failed to load user");
+      setError(isAuthError ? null : err instanceof Error ? err.message : "Failed to load user");
     } finally {
       setIsLoading(false);
     }
