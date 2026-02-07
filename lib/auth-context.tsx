@@ -57,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = useCallback(async () => {
     const token = getAccessToken();
     if (!token) {
+      console.warn("[Auth] No accessToken cookie found");
       setUser(null);
       setIsLoading(false);
       setError(null);
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.data.user);
       setError(null);
     } catch (err) {
+      console.error("[Auth] Failed to fetch user:", err);
       setUser(null);
       setError(err instanceof Error ? err.message : "Failed to load user");
     } finally {
