@@ -60,7 +60,7 @@ export default function ExplorePage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<Category | "All">("All");
   const [sort, setSort] = useState<SortOption>("viewers");
-  const [showLiveOnly, setShowLiveOnly] = useState(false);
+  const [showLiveOnly, setShowLiveOnly] = useState(true);
   const [streams, setStreams] = useState<ReturnType<typeof toStreamCard>[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
