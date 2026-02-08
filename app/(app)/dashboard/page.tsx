@@ -1,60 +1,139 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import {
   Eye,
   Users,
   CurrencyDollar,
   Clock,
-  TrendUp,
   CalendarBlank,
   Play,
-  Trash,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import {
-  CURRENT_USER,
-  MOCK_PAST_STREAMS,
-  CATEGORY_COLORS,
-  formatNumber,
-} from "@/lib/mock-data";
+import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
+import { apiFetch } from "@/lib/api-client";
 
 type Tab = "overview" | "streams" | "analytics";
 
-export default function DashboardPage() {
-  const [tab, setTab] = useState<Tab>("overview");
+interface DashboardStats {
+  totalViews: number;
+  followers: number;
+  totalHours: number;
+  totalStreams: number;
+  currentlyLive: boolean;
+}
 
-  const stats = [
+interface RecentStream {
+  id: string;
+  title: string;
+  category: Category;
+  thumbnail: string;
+  viewers: number;
+  peakViewers: number;
+  duration: string;
+  date: string;
+  earnings: number;
+}
+
+interface DailyView {
+  date: string;
+  views: number;
+}
+
+interface DashboardData {
+  stats: DashboardStats;
+  recentStreams: RecentStream[];
+  dailyViews: DailyView[];
+}
+
+export default function DashboardPage() {
+  const { user } = useAuth();
+  const [tab, setTab] = useState<Tab>("overview");
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch<{ success: boolean; data: DashboardData }>(
+        "/api/dashboard/stats"
+      );
+      setData(res.data);
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
+  if (loading || !data || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { stats, recentStreams, dailyViews } = data;
+
+  const statCards = [
     {
       label: "Total Views",
-      value: formatNumber(CURRENT_USER.totalViews),
-      change: "+12.5%",
+      value: formatNumber(stats.totalViews),
       icon: Eye,
       color: "text-primary",
     },
     {
       label: "Followers",
-      value: formatNumber(CURRENT_USER.followers),
-      change: "+8.2%",
+      value: formatNumber(stats.followers),
       icon: Users,
       color: "text-blue-400",
     },
     {
       label: "Earnings",
-      value: "$512.90",
-      change: "+24.1%",
+      value: "$0.00",
       icon: CurrencyDollar,
       color: "text-green-400",
     },
     {
       label: "Stream Hours",
-      value: "42h",
-      change: "+5.3%",
+      value: `${stats.totalHours}h`,
       icon: Clock,
       color: "text-purple-400",
     },
   ];
+
+  const maxDailyViews = Math.max(...dailyViews.map((d) => d.views), 1);
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const avgViewers =
+    recentStreams.length > 0
+      ? Math.round(
+          recentStreams.reduce((sum, s) => sum + s.viewers, 0) /
+            recentStreams.length
+        )
+      : 0;
+
+  const topStreams = [...recentStreams]
+    .sort((a, b) => b.peakViewers - a.peakViewers)
+    .slice(0, 3);
+
+  function formatDate(dateStr: string) {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
 
   return (
     <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
@@ -62,28 +141,26 @@ export default function DashboardPage() {
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Image
-            src={CURRENT_USER.avatar}
-            alt={CURRENT_USER.username}
+            src={user.avatar}
+            alt={user.username}
             width={56}
             height={56}
             className="size-14 rounded-full bg-white/10"
           />
           <div>
             <h1 className="text-xl font-bold text-foreground">
-              {CURRENT_USER.displayName}
+              {user.displayName}
             </h1>
             <p className="text-sm text-muted-foreground">
-              @{CURRENT_USER.username} · Joined{" "}
-              {new Date(CURRENT_USER.joinedAt).toLocaleDateString("en-US", {
+              @{user.username} · Joined{" "}
+              {new Date(user.createdAt).toLocaleDateString("en-US", {
                 month: "short",
                 year: "numeric",
               })}
             </p>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          {CURRENT_USER.bio}
-        </p>
+        <p className="text-sm text-muted-foreground max-w-sm">{user.bio}</p>
       </div>
 
       {/* Tabs */}
@@ -107,9 +184,8 @@ export default function DashboardPage() {
       {/* ── Overview Tab ── */}
       {tab === "overview" && (
         <>
-          {/* Stats grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {stats.map((stat) => (
+            {statCards.map((stat) => (
               <div
                 key={stat.label}
                 className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
@@ -123,31 +199,93 @@ export default function DashboardPage() {
                 <div className="mt-2 text-2xl font-bold text-foreground">
                   {stat.value}
                 </div>
-                <div className="mt-1 flex items-center gap-1 text-xs text-green-400">
-                  <TrendUp size={12} />
-                  {stat.change} this month
-                </div>
               </div>
             ))}
           </div>
 
-          {/* Recent streams */}
           <div className="mt-8">
             <h2 className="mb-4 text-base font-semibold text-foreground">
               Recent Streams
             </h2>
+            {recentStreams.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                No streams yet. Go live from the Studio to get started!
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {recentStreams.slice(0, 3).map((stream) => (
+                  <div
+                    key={stream.id}
+                    className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
+                  >
+                    <Image
+                      src={
+                        stream.thumbnail ||
+                        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop"
+                      }
+                      alt={stream.title}
+                      width={120}
+                      height={68}
+                      className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-sm font-semibold text-foreground">
+                        {stream.title}
+                      </h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CalendarBlank size={12} />
+                          {formatDate(stream.date)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} />
+                          {stream.duration || "—"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Eye size={12} />
+                          {formatNumber(stream.viewers)} avg
+                        </span>
+                      </div>
+                      <span
+                        className={cn(
+                          "mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
+                          CATEGORY_COLORS[stream.category]
+                        )}
+                      >
+                        {stream.category}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Streams Tab ── */}
+      {tab === "streams" && (
+        <div>
+          {recentStreams.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              No streams yet. Go live from the Studio to get started!
+            </p>
+          ) : (
             <div className="space-y-3">
-              {MOCK_PAST_STREAMS.slice(0, 3).map((stream) => (
+              {recentStreams.map((stream) => (
                 <div
                   key={stream.id}
                   className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
                 >
                   <Image
-                    src={stream.thumbnail}
+                    src={
+                      stream.thumbnail ||
+                      "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop"
+                    }
                     alt={stream.title}
-                    width={120}
-                    height={68}
-                    className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
+                    width={140}
+                    height={79}
+                    className="h-[79px] w-[140px] shrink-0 rounded-lg object-cover"
                   />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-sm font-semibold text-foreground">
@@ -156,15 +294,16 @@ export default function DashboardPage() {
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <CalendarBlank size={12} />
-                        {stream.date}
+                        {formatDate(stream.date)}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={12} />
-                        {stream.duration}
+                        {stream.duration || "—"}
                       </span>
                       <span className="flex items-center gap-1">
                         <Eye size={12} />
-                        {formatNumber(stream.viewers)} avg
+                        {formatNumber(stream.viewers)} avg ·{" "}
+                        {formatNumber(stream.peakViewers)} peak
                       </span>
                     </div>
                     <span
@@ -176,153 +315,91 @@ export default function DashboardPage() {
                       {stream.category}
                     </span>
                   </div>
-                  <div className="hidden text-right sm:block">
-                    <p className="text-sm font-semibold text-green-400">
-                      {stream.earnings}
-                    </p>
-                    <p className="text-[0.65rem] text-muted-foreground">
-                      earned
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      title="Replay"
+                      className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Play size={14} />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Streams Tab ── */}
-      {tab === "streams" && (
-        <div className="space-y-3">
-          {MOCK_PAST_STREAMS.map((stream) => (
-            <div
-              key={stream.id}
-              className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
-            >
-              <Image
-                src={stream.thumbnail}
-                alt={stream.title}
-                width={140}
-                height={79}
-                className="h-[79px] w-[140px] shrink-0 rounded-lg object-cover"
-              />
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate text-sm font-semibold text-foreground">
-                  {stream.title}
-                </h3>
-                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <CalendarBlank size={12} />
-                    {stream.date}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock size={12} />
-                    {stream.duration}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Eye size={12} />
-                    {formatNumber(stream.viewers)} avg ·{" "}
-                    {formatNumber(stream.peakViewers)} peak
-                  </span>
-                </div>
-                <span
-                  className={cn(
-                    "mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
-                    CATEGORY_COLORS[stream.category]
-                  )}
-                >
-                  {stream.category}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="hidden text-sm font-semibold text-green-400 sm:block">
-                  {stream.earnings}
-                </span>
-                <button
-                  title="Replay"
-                  className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <Play size={14} />
-                </button>
-                <button
-                  title="Delete"
-                  className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-red-400 hover:border-red-500/20"
-                >
-                  <Trash size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
+          )}
         </div>
       )}
 
       {/* ── Analytics Tab ── */}
       {tab === "analytics" && (
         <div className="space-y-6">
-          {/* Analytics cards */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Avg. Stream Duration
+                Total Streams
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">2h 05m</p>
-              <p className="mt-1 text-xs text-green-400 flex items-center gap-1">
-                <TrendUp size={12} /> +12min vs last month
+              <p className="mt-2 text-3xl font-bold text-foreground">
+                {stats.totalStreams}
               </p>
             </div>
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Avg. Viewers
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">2,058</p>
-              <p className="mt-1 text-xs text-green-400 flex items-center gap-1">
-                <TrendUp size={12} /> +18.4% vs last month
+              <p className="mt-2 text-3xl font-bold text-foreground">
+                {formatNumber(avgViewers)}
               </p>
             </div>
             <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Tips Received
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">$512.90</p>
-              <p className="mt-1 text-xs text-green-400 flex items-center gap-1">
-                <TrendUp size={12} /> +24.1% vs last month
-              </p>
+              <p className="mt-2 text-3xl font-bold text-foreground">$0.00</p>
             </div>
           </div>
 
-          {/* Viewer chart placeholder */}
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
             <h3 className="mb-4 text-sm font-semibold text-foreground">
               Viewer Trend (Last 7 Days)
             </h3>
             <div className="flex h-48 items-end gap-2">
-              {[65, 45, 80, 55, 90, 72, 95].map((h, i) => (
-                <div key={i} className="flex flex-1 flex-col items-center gap-2">
+              {dailyViews.map((day) => {
+                const pct =
+                  maxDailyViews > 0
+                    ? Math.max((day.views / maxDailyViews) * 100, 4)
+                    : 4;
+                const d = new Date(day.date + "T00:00:00");
+                return (
                   <div
-                    className="w-full rounded-t-md bg-primary/30 transition-all hover:bg-primary/50"
-                    style={{ height: `${h}%` }}
-                  />
-                  <span className="text-[0.6rem] text-muted-foreground">
-                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
-                  </span>
-                </div>
-              ))}
+                    key={day.date}
+                    className="flex flex-1 flex-col items-center gap-2"
+                  >
+                    <div
+                      className="w-full rounded-t-md bg-primary/30 transition-all hover:bg-primary/50"
+                      style={{ height: `${pct}%` }}
+                      title={`${day.views} views`}
+                    />
+                    <span className="text-[0.6rem] text-muted-foreground">
+                      {dayLabels[d.getDay()]}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Top performing streams */}
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
             <h3 className="mb-4 text-sm font-semibold text-foreground">
               Top Performing Streams
             </h3>
-            <div className="space-y-3">
-              {MOCK_PAST_STREAMS.sort((a, b) => b.peakViewers - a.peakViewers)
-                .slice(0, 3)
-                .map((stream, i) => (
-                  <div
-                    key={stream.id}
-                    className="flex items-center gap-3"
-                  >
+            {topStreams.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No stream data yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {topStreams.map((stream, i) => (
+                  <div key={stream.id} className="flex items-center gap-3">
                     <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-xs font-bold text-muted-foreground">
                       {i + 1}
                     </span>
@@ -331,7 +408,7 @@ export default function DashboardPage() {
                         {stream.title}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {stream.date}
+                        {formatDate(stream.date)}
                       </p>
                     </div>
                     <span className="text-sm font-semibold text-foreground">
@@ -339,7 +416,8 @@ export default function DashboardPage() {
                     </span>
                   </div>
                 ))}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}

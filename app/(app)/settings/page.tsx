@@ -1,53 +1,122 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   User,
   Bell,
   Key,
   Shield,
-  Palette,
   Copy,
   Eye,
   EyeSlash,
   ArrowsClockwise,
+  Check,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { CURRENT_USER } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
+import { apiFetch } from "@/lib/api-client";
 
 type SettingsTab = "profile" | "stream" | "notifications" | "security";
 
 export default function SettingsPage() {
+  const { user, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
 
   // Profile state
-  const [displayName, setDisplayName] = useState(CURRENT_USER.displayName);
-  const [bio, setBio] = useState(CURRENT_USER.bio);
-  const [username, setUsername] = useState(CURRENT_USER.username);
+  const [displayName, setDisplayName] = useState("");
+  const [bio, setBio] = useState("");
+  const [username, setUsername] = useState("");
 
   // Stream state
-  const [streamKey, setStreamKey] = useState("xtws_live_a8f3k2m9x7b1n4p6");
   const [showStreamKey, setShowStreamKey] = useState(false);
-  const [autoRecord, setAutoRecord] = useState(true);
+  const [autoRecord, setAutoRecord] = useState(false);
   const [chatSlowMode, setChatSlowMode] = useState(false);
   const [subscriberOnlyChat, setSubscriberOnlyChat] = useState(false);
   const [profanityFilter, setProfanityFilter] = useState(true);
 
-  // Notification state
-  const [emailNotifs, setEmailNotifs] = useState(true);
-  const [followNotifs, setFollowNotifs] = useState(true);
-  const [tipNotifs, setTipNotifs] = useState(true);
-  const [goLiveNotifs, setGoLiveNotifs] = useState(true);
-  const [chatMentionNotifs, setChatMentionNotifs] = useState(true);
+  // Save state
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
+  // Initialize from user data
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName);
+      setBio(user.bio || "");
+      setUsername(user.username);
+      setAutoRecord(user.settings.autoRecord);
+      setChatSlowMode(user.settings.slowMode);
+      setSubscriberOnlyChat(user.settings.subscriberOnly);
+      setProfanityFilter(user.settings.profanityFilter);
+    }
+  }, [user]);
+
+  const saveProfile = async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+    try {
+      await apiFetch("/api/user/me", {
+        method: "PATCH",
+        body: JSON.stringify({ displayName, username, bio }),
+      });
+      await refreshUser();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save changes"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveStreamSettings = async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+    try {
+      await apiFetch("/api/user/me", {
+        method: "PATCH",
+        body: JSON.stringify({
+          settings: {
+            autoRecord,
+            slowMode: chatSlowMode,
+            subscriberOnly: subscriberOnlyChat,
+            profanityFilter,
+          },
+        }),
+      });
+      await refreshUser();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save settings"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tabs: { id: SettingsTab; label: string; icon: React.ElementType; comingSoon?: boolean }[] = [
     { id: "profile", label: "Profile", icon: User },
     { id: "stream", label: "Stream & Chat", icon: Key },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "security", label: "Security", icon: Shield },
+    { id: "notifications", label: "Notifications", icon: Bell, comingSoon: true },
+    { id: "security", label: "Security", icon: Shield, comingSoon: true },
   ];
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
@@ -69,12 +138,30 @@ export default function SettingsPage() {
             >
               <tab.icon size={18} />
               {tab.label}
+              {tab.comingSoon && (
+                <span className="ml-auto rounded-full bg-white/5 px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground">
+                  Soon
+                </span>
+              )}
             </button>
           ))}
         </nav>
 
         {/* Content */}
         <div className="flex-1 max-w-2xl">
+          {/* Save feedback */}
+          {saved && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-2.5 text-sm text-green-400">
+              <Check size={16} weight="bold" />
+              Changes saved successfully
+            </div>
+          )}
+          {saveError && (
+            <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+              {saveError}
+            </div>
+          )}
+
           {/* ── Profile ── */}
           {activeTab === "profile" && (
             <div className="space-y-6">
@@ -86,7 +173,7 @@ export default function SettingsPage() {
                 {/* Avatar */}
                 <div className="flex items-center gap-4">
                   <Image
-                    src={CURRENT_USER.avatar}
+                    src={user.avatar}
                     alt="Avatar"
                     width={64}
                     height={64}
@@ -148,8 +235,12 @@ export default function SettingsPage() {
                   </p>
                 </div>
 
-                <Button className="bg-primary text-primary-foreground hover:bg-primary/80">
-                  Save Changes
+                <Button
+                  onClick={saveProfile}
+                  disabled={saving}
+                  className="bg-primary text-primary-foreground hover:bg-primary/80"
+                >
+                  {saving ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
             </div>
@@ -170,7 +261,7 @@ export default function SettingsPage() {
                   <input
                     type={showStreamKey ? "text" : "password"}
                     readOnly
-                    value={streamKey}
+                    value={user.streamKey}
                     className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-mono text-foreground"
                   />
                   <button
@@ -180,17 +271,10 @@ export default function SettingsPage() {
                     {showStreamKey ? <EyeSlash size={16} /> : <Eye size={16} />}
                   </button>
                   <button
-                    onClick={() => navigator.clipboard?.writeText(streamKey)}
+                    onClick={() => navigator.clipboard?.writeText(user.streamKey)}
                     className="flex size-10 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <Copy size={16} />
-                  </button>
-                  <button
-                    onClick={() => setStreamKey("xtws_live_" + Math.random().toString(36).slice(2, 18))}
-                    className="flex size-10 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
-                    title="Regenerate key"
-                  >
-                    <ArrowsClockwise size={16} />
                   </button>
                 </div>
               </div>
@@ -232,100 +316,48 @@ export default function SettingsPage() {
                   onChange={setProfanityFilter}
                 />
               </div>
+
+              <Button
+                onClick={saveStreamSettings}
+                disabled={saving}
+                className="bg-primary text-primary-foreground hover:bg-primary/80"
+              >
+                {saving ? "Saving..." : "Save Stream Settings"}
+              </Button>
             </div>
           )}
 
-          {/* ── Notifications ── */}
+          {/* ── Notifications (Coming Soon) ── */}
           {activeTab === "notifications" && (
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-              <h2 className="text-base font-semibold text-foreground">
-                Notification Preferences
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">
+              <Bell size={40} className="mx-auto text-muted-foreground/40" />
+              <h2 className="mt-4 text-base font-semibold text-foreground">
+                Notifications
               </h2>
-              <Toggle
-                label="Email notifications"
-                description="Receive important updates via email"
-                checked={emailNotifs}
-                onChange={setEmailNotifs}
-              />
-              <Toggle
-                label="New followers"
-                description="Get notified when someone follows you"
-                checked={followNotifs}
-                onChange={setFollowNotifs}
-              />
-              <Toggle
-                label="Tips & donations"
-                description="Get notified for crypto tips"
-                checked={tipNotifs}
-                onChange={setTipNotifs}
-              />
-              <Toggle
-                label="Followed streamers go live"
-                description="Get notified when streamers you follow start a stream"
-                checked={goLiveNotifs}
-                onChange={setGoLiveNotifs}
-              />
-              <Toggle
-                label="Chat mentions"
-                description="Get notified when someone mentions you in chat"
-                checked={chatMentionNotifs}
-                onChange={setChatMentionNotifs}
-              />
+              <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
+                Notification preferences are coming soon. You&apos;ll be able to
+                control email alerts, follow notifications, and more.
+              </p>
+              <span className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Coming Soon
+              </span>
             </div>
           )}
 
-          {/* ── Security ── */}
+          {/* ── Security (Coming Soon) ── */}
           {activeTab === "security" && (
-            <div className="space-y-6">
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-foreground">
-                  Connected Wallet
-                </h2>
-                <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] p-4">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      0x1a2B...9cD4
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Ethereum Mainnet
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    Disconnect
-                  </Button>
-                </div>
-                <Button variant="outline" size="sm">
-                  Connect Another Wallet
-                </Button>
-              </div>
-
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-foreground">
-                  Two-Factor Authentication
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Add an extra layer of security to your account.
-                </p>
-                <Button variant="outline" size="sm">
-                  Enable 2FA
-                </Button>
-              </div>
-
-              <div className="rounded-xl border border-red-500/10 bg-red-500/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-red-400">
-                  Danger Zone
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Permanently delete your channel and all associated data.
-                </p>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
-                >
-                  Delete Channel
-                </Button>
-              </div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">
+              <Shield size={40} className="mx-auto text-muted-foreground/40" />
+              <h2 className="mt-4 text-base font-semibold text-foreground">
+                Security
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
+                Wallet connections, two-factor authentication, and account
+                security settings are coming soon.
+              </p>
+              <span className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                Coming Soon
+              </span>
             </div>
           )}
         </div>
