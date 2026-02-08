@@ -49,6 +49,14 @@ const AuthContext = createContext<AuthContextValue>({
   refreshUser: async () => {},
 });
 
+const LOGIN_URL = "https://worldstreetgold.com/login";
+
+function redirectToLogin() {
+  const currentUrl = window.location.href;
+  const loginUrl = `${LOGIN_URL}?redirect=${encodeURIComponent(currentUrl)}`;
+  window.location.href = loginUrl;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,14 +71,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.data.user);
       setError(null);
     } catch (err) {
-      // 401 is expected for unauthenticated users — don't log as error
       const isAuthError =
         err instanceof Error && "status" in err && (err as { status: number }).status === 401;
-      if (!isAuthError) {
-        console.error("[Auth] Failed to fetch user:", err);
-      }
       setUser(null);
-      setError(isAuthError ? null : err instanceof Error ? err.message : "Failed to load user");
+
+      if (isAuthError) {
+        // Unauthorized — redirect to login with return URL
+        redirectToLogin();
+        return;
+      }
+
+      console.error("[Auth] Failed to fetch user:", err);
+      setError(err instanceof Error ? err.message : "Failed to load user");
     } finally {
       setIsLoading(false);
     }

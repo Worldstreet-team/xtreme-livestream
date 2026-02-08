@@ -1,23 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/app/sidebar";
 import { useAuth } from "@/lib/auth-context";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    // Once loading finishes, if not authenticated redirect back
-    if (!isLoading && !isAuthenticated) {
-      router.back();
-    }
-  }, [isLoading, isAuthenticated, router]);
+  const { isLoading, isAuthenticated } = useAuth();
 
   // Show a loading state while checking auth
-  if (isLoading) {
+  // (AuthProvider handles redirect to login if unauthorized)
+  if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -26,11 +17,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
-  }
-
-  // Not authenticated — render nothing while redirect happens
-  if (!isAuthenticated) {
-    return null;
   }
 
   return (
