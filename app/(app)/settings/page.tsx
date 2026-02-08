@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
   User,
@@ -12,11 +12,13 @@ import {
   EyeSlash,
   ArrowsClockwise,
   Check,
+  Camera,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
+import { compressImage } from "@/lib/image-utils";
 
 type SettingsTab = "profile" | "stream" | "notifications" | "security";
 
@@ -28,6 +30,8 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [username, setUsername] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Stream state
   const [showStreamKey, setShowStreamKey] = useState(false);
@@ -54,16 +58,36 @@ export default function SettingsPage() {
     }
   }, [user]);
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveError("Image must be under 5MB");
+      return;
+    }
+    try {
+      const base64 = await compressImage(file, 256, 0.85);
+      setAvatarPreview(base64);
+    } catch {
+      setSaveError("Failed to process image");
+    }
+  };
+
   const saveProfile = async () => {
     setSaving(true);
     setSaveError(null);
     setSaved(false);
     try {
+      const payload: Record<string, string> = { displayName, username, bio };
+      if (avatarPreview) {
+        payload.avatar = avatarPreview;
+      }
       await apiFetch("/api/user/me", {
         method: "PATCH",
-        body: JSON.stringify({ displayName, username, bio }),
+        body: JSON.stringify(payload),
       });
       await refreshUser();
+      setAvatarPreview(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -172,19 +196,38 @@ export default function SettingsPage() {
 
                 {/* Avatar */}
                 <div className="flex items-center gap-4">
-                  <Image
-                    src={user.avatar}
-                    alt="Avatar"
-                    width={64}
-                    height={64}
-                    className="size-16 rounded-full bg-white/10"
-                  />
+                  <div className="relative">
+                    <Image
+                      src={avatarPreview || user.avatar}
+                      alt="Avatar"
+                      width={64}
+                      height={64}
+                      className="size-16 rounded-full bg-white/10 object-cover"
+                    />
+                    {avatarPreview && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+                        <span className="text-[0.6rem] font-medium text-white">New</span>
+                      </div>
+                    )}
+                  </div>
                   <div>
-                    <Button variant="outline" size="sm">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      <Camera size={14} className="mr-1.5" />
                       Change Avatar
                     </Button>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      JPG, PNG, GIF. Max 2MB.
+                      JPG, PNG, GIF, WebP. Max 5MB.
                     </p>
                   </div>
                 </div>

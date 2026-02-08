@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { title, category, tags } = body;
+  const { title, category, tags, thumbnail } = body;
 
   if (!title || !category) {
     return NextResponse.json(
@@ -131,6 +131,7 @@ export async function POST(req: NextRequest) {
     title,
     category,
     tags: tags || [],
+    thumbnail: thumbnail || "",
     livekitRoomName: roomName,
     isLive: true,
     startedAt: new Date(),

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
+import { captureVideoFrame } from "@/lib/image-utils";
 import type {
   Room,
   LocalVideoTrack,
@@ -136,6 +137,12 @@ export default function StudioPage() {
         .map((t) => t.trim())
         .filter(Boolean);
 
+      // Auto-capture thumbnail from camera preview
+      let thumbnail: string | undefined;
+      if (videoElRef.current) {
+        thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
+      }
+
       const res = await apiFetch<{
         success: boolean;
         data: {
@@ -145,7 +152,7 @@ export default function StudioPage() {
         };
       }>("/api/streams", {
         method: "POST",
-        body: JSON.stringify({ title, category, tags: tagList }),
+        body: JSON.stringify({ title, category, tags: tagList, thumbnail }),
       });
 
       const { livekitToken, livekitUrl } = res.data;
