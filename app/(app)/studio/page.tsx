@@ -14,6 +14,8 @@ import {
   Copy,
   Eye,
   Info,
+  ChatText,
+  UsersThree,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,7 @@ import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { captureVideoFrame } from "@/lib/image-utils";
+import { LiveChat } from "@/components/app/live-chat";
 import type {
   Room,
   LocalVideoTrack,
@@ -28,6 +31,7 @@ import type {
 } from "livekit-client";
 
 type SourceType = "camera" | "screen";
+type StudioTab = "settings" | "chat" | "viewers";
 
 export default function StudioPage() {
   const { user } = useAuth();
@@ -43,6 +47,11 @@ export default function StudioPage() {
   const [viewerCount, setViewerCount] = useState(0);
   const [streamId, setStreamId] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState("0:00");
+  const [activeTab, setActiveTab] = useState<StudioTab>("settings");
+  const [liveRoom, setLiveRoom] = useState<Room | null>(null);
+  const [connectedViewers, setConnectedViewers] = useState<
+    Array<{ identity: string; name: string; joinedAt: Date }>
+  >([]);
 
   // LiveKit refs
   const roomRef = useRef<Room | null>(null);
@@ -176,15 +185,27 @@ export default function StudioPage() {
         },
       });
 
-      room.on(RoomEvent.ParticipantConnected, () => {
+      room.on(RoomEvent.ParticipantConnected, (participant) => {
         setViewerCount(room.remoteParticipants.size);
+        setConnectedViewers((prev) => [
+          ...prev,
+          {
+            identity: participant.identity,
+            name: participant.name || participant.identity,
+            joinedAt: new Date(),
+          },
+        ]);
       });
-      room.on(RoomEvent.ParticipantDisconnected, () => {
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
         setViewerCount(room.remoteParticipants.size);
+        setConnectedViewers((prev) =>
+          prev.filter((v) => v.identity !== participant.identity)
+        );
       });
 
       await room.connect(livekitUrl, livekitToken);
       roomRef.current = room;
+      setLiveRoom(room);
 
       // Step 4: Publish camera/screen + audio (this triggers browser permission prompts)
       if (source === "camera") {
@@ -211,6 +232,7 @@ export default function StudioPage() {
       });
 
       setIsLive(true);
+      setActiveTab("chat");
     } catch (err) {
       // Cleanup: if stream was created but connection/publish failed, end it
       if (createdStreamId) {
@@ -266,6 +288,9 @@ export default function StudioPage() {
     setIsLive(false);
     setStreamId(null);
     setViewerCount(0);
+    setLiveRoom(null);
+    setConnectedViewers([]);
+    setActiveTab("settings");
 
     // Restart preview
     startPreview();
@@ -463,126 +488,262 @@ export default function StudioPage() {
           </div>
         </div>
 
-        {/* Settings panel (1/3) */}
-        <div className="space-y-5">
-          {/* Stream info */}
-          <div className="space-y-4 rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <h2 className="text-sm font-semibold text-foreground">
-              Stream Details
-            </h2>
-
-            {/* Title */}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Title *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g., BTC Live Trading & Analysis"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={100}
-                disabled={isLive}
-                className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50"
-              />
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                {title.length}/100
-              </p>
-            </div>
-
-            {/* Category */}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as Category)}
-                disabled={isLive}
-                className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none disabled:opacity-50"
-              >
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Tags */}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Tags (comma-separated)
-              </label>
-              <input
-                type="text"
-                placeholder="bitcoin, trading, analysis"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                disabled={isLive}
-                className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50"
-              />
-            </div>
+        {/* Right panel (1/3) — tabbed */}
+        <div className="flex flex-col">
+          {/* Tab bar */}
+          <div className="flex rounded-t-xl border border-white/5 bg-white/[0.02]">
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded-tl-xl py-2.5 text-xs font-medium transition-colors",
+                activeTab === "settings"
+                  ? "border-b-2 border-primary bg-primary/5 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Gear size={14} />
+              Settings
+            </button>
+            <button
+              onClick={() => setActiveTab("chat")}
+              className={cn(
+                "relative flex flex-1 items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors",
+                activeTab === "chat"
+                  ? "border-b-2 border-primary bg-primary/5 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <ChatText size={14} />
+              Chat
+              {isLive && activeTab !== "chat" && (
+                <span className="absolute top-1.5 right-3 size-1.5 animate-pulse rounded-full bg-green-400" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("viewers")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-1.5 rounded-tr-xl py-2.5 text-xs font-medium transition-colors",
+                activeTab === "viewers"
+                  ? "border-b-2 border-primary bg-primary/5 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <UsersThree size={14} />
+              {isLive ? viewerCount : 0}
+            </button>
           </div>
 
-          {/* Preview card */}
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Stream Preview
-            </h3>
-            <div className="flex items-center gap-3">
-              {user && (
-                <Image
-                  src={user.avatar}
-                  alt={user.displayName}
-                  width={36}
-                  height={36}
-                  className="size-9 rounded-full bg-white/10"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {title || "Untitled Stream"}
-                </p>
-                <span
-                  className={cn(
-                    "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
-                    CATEGORY_COLORS[category]
-                  )}
-                >
-                  {category}
-                </span>
+          {/* Tab content */}
+          <div className="rounded-b-xl border border-t-0 border-white/5">
+            {/* Settings tab */}
+            {activeTab === "settings" && (
+              <div className="max-h-[480px] space-y-4 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                <h2 className="text-sm font-semibold text-foreground">
+                  Stream Details
+                </h2>
+
+                {/* Title */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Title *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g., BTC Live Trading & Analysis"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    maxLength={100}
+                    disabled={isLive}
+                    className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    {title.length}/100
+                  </p>
+                </div>
+
+                {/* Category */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Category
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as Category)}
+                    disabled={isLive}
+                    className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none disabled:opacity-50"
+                  >
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tags */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Tags (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="bitcoin, trading, analysis"
+                    value={tags}
+                    onChange={(e) => setTags(e.target.value)}
+                    disabled={isLive}
+                    className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Preview card */}
+                <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Stream Preview
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    {user && (
+                      <Image
+                        src={user.avatar}
+                        alt={user.displayName}
+                        width={36}
+                        height={36}
+                        className="size-9 rounded-full bg-white/10"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {title || "Untitled Stream"}
+                      </p>
+                      <span
+                        className={cn(
+                          "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
+                          CATEGORY_COLORS[category]
+                        )}
+                      >
+                        {category}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Chat tab */}
+            {activeTab === "chat" && (
+              <div className="h-[480px]">
+                {streamId ? (
+                  <LiveChat
+                    streamId={streamId}
+                    room={liveRoom}
+                    isLive={isLive}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="text-center">
+                      <ChatText
+                        size={32}
+                        className="mx-auto text-muted-foreground/20"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground/50">
+                        Go live to enable chat
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Viewers tab */}
+            {activeTab === "viewers" && (
+              <div className="h-[480px] overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                {!isLive ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="text-center">
+                      <UsersThree
+                        size={32}
+                        className="mx-auto text-muted-foreground/20"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground/50">
+                        Go live to see viewers
+                      </p>
+                    </div>
+                  </div>
+                ) : connectedViewers.length === 0 ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="text-center">
+                      <UsersThree
+                        size={32}
+                        className="mx-auto text-muted-foreground/20"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground/50">
+                        No viewers yet
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="mb-3 text-xs font-medium text-muted-foreground">
+                      {connectedViewers.length} viewer
+                      {connectedViewers.length !== 1 ? "s" : ""} connected
+                    </p>
+                    {connectedViewers.map((v) => (
+                      <div
+                        key={v.identity}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {v.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground/80">
+                            {v.name}
+                          </p>
+                          <p className="text-[0.6rem] text-muted-foreground/50">
+                            Joined{" "}
+                            {v.joinedAt.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                        <span className="size-2 rounded-full bg-green-400" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Go Live / End Stream button */}
-          {isLive ? (
-            <Button
-              onClick={endStream}
-              className="h-12 w-full gap-2 rounded-xl bg-red-600 text-base font-semibold text-white transition-colors hover:bg-red-700"
-            >
-              End Stream
-            </Button>
-          ) : (
-            <Button
-              onClick={goLive}
-              disabled={!title.trim() || isConnecting}
-              className="h-12 w-full gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isConnecting ? (
-                <>
-                  <div className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Lightning size={20} weight="fill" />
-                  Go Live
-                </>
-              )}
-            </Button>
-          )}
+          <div className="mt-4">
+            {isLive ? (
+              <Button
+                onClick={endStream}
+                className="h-12 w-full gap-2 rounded-xl bg-red-600 text-base font-semibold text-white transition-colors hover:bg-red-700"
+              >
+                End Stream
+              </Button>
+            ) : (
+              <Button
+                onClick={goLive}
+                disabled={!title.trim() || isConnecting}
+                className="h-12 w-full gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isConnecting ? (
+                  <>
+                    <div className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Lightning size={20} weight="fill" />
+                    Go Live
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
