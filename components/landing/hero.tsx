@@ -32,8 +32,8 @@ export function Hero() {
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none" />
 
       {/* Red accent glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 size-[600px] rounded-full bg-primary/15 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 size-[400px] rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] sm:w-[400px] sm:h-[400px] md:size-[600px] rounded-full bg-primary/15 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-0 left-1/4 w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:size-[400px] rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
 
       {/* Content */}
       <div className="relative z-10 mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8 pt-16">

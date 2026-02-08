@@ -78,9 +78,9 @@ const topStreamers = [
 
 export function TopStreamers() {
   return (
-    <section id="top-streamers" className="relative py-20 sm:py-28">
+    <section id="top-streamers" className="relative py-20 sm:py-28 overflow-hidden">
       {/* Background glow */}
-      <div className="absolute bottom-0 left-1/3 size-[500px] rounded-full bg-primary/5 blur-[120px]" />
+      <div className="absolute bottom-0 left-1/3 w-[250px] h-[250px] sm:w-[350px] sm:h-[350px] md:size-[500px] rounded-full bg-primary/5 blur-[120px]" />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section header */}

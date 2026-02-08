@@ -74,9 +74,9 @@ const featuredStreams = [
 
 export function FeaturedStreams() {
   return (
-    <section id="explore" className="relative py-20 sm:py-28">
+    <section id="explore" className="relative py-20 sm:py-28 overflow-hidden">
       {/* Background glow */}
-      <div className="absolute top-0 right-1/4 size-[500px] rounded-full bg-primary/5 blur-[120px]" />
+      <div className="absolute top-0 right-1/4 w-[250px] h-[250px] sm:w-[350px] sm:h-[350px] md:size-[500px] rounded-full bg-primary/5 blur-[120px]" />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section header */}
