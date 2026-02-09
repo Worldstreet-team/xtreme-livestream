@@ -46,9 +46,11 @@ interface LiveChatProps {
   streamId: string;
   room: Room | null;
   isLive: boolean;
+  /** Hide the tip button (host doesn't tip themselves) */
+  isHost?: boolean;
 }
 
-export function LiveChat({ streamId, room, isLive }: LiveChatProps) {
+export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -474,20 +476,22 @@ export function LiveChat({ streamId, room, isLive }: LiveChatProps) {
             >
               <Smiley size={18} />
             </button>
-            <button
-              onClick={() => {
-                setShowTipModal(!showTipModal);
-                setShowReactions(false);
-              }}
-              className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
-                showTipModal
-                  ? "bg-yellow-500/10 text-yellow-400"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              )}
-            >
-              <Lightning size={18} weight="fill" />
-            </button>
+            {!isHost && (
+              <button
+                onClick={() => {
+                  setShowTipModal(!showTipModal);
+                  setShowReactions(false);
+                }}
+                className={cn(
+                  "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                  showTipModal
+                    ? "bg-yellow-500/10 text-yellow-400"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                )}
+              >
+                <Lightning size={18} weight="fill" />
+              </button>
+            )}
             <input
               type="text"
               placeholder={

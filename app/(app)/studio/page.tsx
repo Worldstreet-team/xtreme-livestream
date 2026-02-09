@@ -11,11 +11,13 @@ import {
   CameraSlash,
   Gear,
   Lightning,
-  Copy,
   Eye,
-  Info,
   ChatText,
   UsersThree,
+  MonitorArrowUp,
+  UserCirclePlus,
+  X,
+  HandPalm,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -51,6 +53,13 @@ export default function StudioPage() {
   const [liveRoom, setLiveRoom] = useState<Room | null>(null);
   const [connectedViewers, setConnectedViewers] = useState<
     Array<{ identity: string; name: string; joinedAt: Date }>
+  >([]);
+  const [screenShareActive, setScreenShareActive] = useState(false);
+  const [guests, setGuests] = useState<
+    Array<{ identity: string; name: string; joinedAt: Date }>
+  >([]);
+  const [guestRequests, setGuestRequests] = useState<
+    Array<{ identity: string; name: string; requestedAt: Date }>
   >([]);
 
   // LiveKit refs
@@ -291,6 +300,9 @@ export default function StudioPage() {
     setLiveRoom(null);
     setConnectedViewers([]);
     setActiveTab("settings");
+    setScreenShareActive(false);
+    setGuests([]);
+    setGuestRequests([]);
 
     // Restart preview
     startPreview();
@@ -309,6 +321,125 @@ export default function StudioPage() {
     }
     setCamEnabled(!camEnabled);
   };
+
+  // Toggle screen share while live
+  const toggleScreenShare = async () => {
+    if (!isLive || !roomRef.current) return;
+    try {
+      if (screenShareActive) {
+        await roomRef.current.localParticipant.setScreenShareEnabled(false);
+        setScreenShareActive(false);
+      } else {
+        await roomRef.current.localParticipant.setScreenShareEnabled(true);
+        setScreenShareActive(true);
+      }
+    } catch {
+      // User cancelled screen share picker — that's fine
+    }
+  };
+
+  // Guest management — invite a viewer
+  const inviteGuest = (viewer: { identity: string; name: string }) => {
+    if (guests.length >= 6) return;
+    if (!roomRef.current) return;
+
+    // Send invite via LiveKit data message
+    const invite = { type: "guest-invite", identity: viewer.identity };
+    const data = new TextEncoder().encode(JSON.stringify(invite));
+    roomRef.current.localParticipant.publishData(data, { reliable: true });
+
+    setGuests((prev) => [
+      ...prev,
+      { identity: viewer.identity, name: viewer.name, joinedAt: new Date() },
+    ]);
+    // Remove from requests if it was a request
+    setGuestRequests((prev) =>
+      prev.filter((r) => r.identity !== viewer.identity)
+    );
+  };
+
+  // Accept a guest request
+  const acceptGuestRequest = (identity: string) => {
+    const request = guestRequests.find((r) => r.identity === identity);
+    if (request) {
+      inviteGuest({ identity: request.identity, name: request.name });
+    }
+  };
+
+  // Decline a guest request
+  const declineGuestRequest = (identity: string) => {
+    if (!roomRef.current) return;
+    const decline = { type: "guest-decline", identity };
+    const data = new TextEncoder().encode(JSON.stringify(decline));
+    roomRef.current.localParticipant.publishData(data, { reliable: true });
+    setGuestRequests((prev) => prev.filter((r) => r.identity !== identity));
+  };
+
+  // Remove a guest
+  const removeGuest = (identity: string) => {
+    if (!roomRef.current) return;
+    const remove = { type: "guest-remove", identity };
+    const data = new TextEncoder().encode(JSON.stringify(remove));
+    roomRef.current.localParticipant.publishData(data, { reliable: true });
+    setGuests((prev) => prev.filter((g) => g.identity !== identity));
+  };
+
+  // Listen for guest requests from viewers
+  useEffect(() => {
+    if (!liveRoom) return;
+    let eventName: string | undefined;
+
+    const setup = async () => {
+      const { RoomEvent } = await import("livekit-client");
+      eventName = RoomEvent.DataReceived;
+
+      const handleGuestData = (
+        payload: Uint8Array,
+        participant?: { identity: string; name?: string }
+      ) => {
+        try {
+          const decoded = new TextDecoder().decode(payload);
+          const msg = JSON.parse(decoded);
+          if (msg.type === "guest-request" && participant) {
+            setGuestRequests((prev) => {
+              if (prev.some((r) => r.identity === participant.identity))
+                return prev;
+              return [
+                ...prev,
+                {
+                  identity: participant.identity,
+                  name:
+                    participant.name || msg.name || participant.identity,
+                  requestedAt: new Date(),
+                },
+              ];
+            });
+          }
+        } catch {
+          // ignore non-guest messages
+        }
+      };
+
+      liveRoom.on(RoomEvent.DataReceived, handleGuestData);
+      (liveRoom as unknown as Record<string, unknown>).__guestHandler =
+        handleGuestData;
+    };
+
+    setup();
+
+    return () => {
+      if (eventName && liveRoom) {
+        const handler = (liveRoom as unknown as Record<string, unknown>)
+          .__guestHandler;
+        if (handler) {
+          liveRoom.off(
+            eventName as Parameters<typeof liveRoom.off>[0],
+            handler as Parameters<typeof liveRoom.off>[1]
+          );
+        }
+      }
+    };
+  }, [liveRoom]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -425,12 +556,50 @@ export default function StudioPage() {
                   <CameraSlash size={20} />
                 )}
               </button>
+              {isLive && (
+                <button
+                  onClick={toggleScreenShare}
+                  title={screenShareActive ? "Stop screen share" : "Share screen"}
+                  className={cn(
+                    "flex size-10 items-center justify-center rounded-full transition-colors",
+                    screenShareActive
+                      ? "bg-primary/20 text-primary hover:bg-primary/30"
+                      : "bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
+                  )}
+                >
+                  <MonitorArrowUp size={20} />
+                </button>
+              )}
               <button className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20">
                 <Gear size={20} />
               </button>
             </div>
-          </div>
 
+          {/* Guests on stream */}
+          {isLive && guests.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {guests.map((g) => (
+                <div
+                  key={g.identity}
+                  className="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1"
+                >
+                  <div className="flex size-5 items-center justify-center rounded-full bg-primary/20 text-[0.55rem] font-bold text-primary">
+                    {g.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-medium text-primary">
+                    {g.name}
+                  </span>
+                  <button
+                    onClick={() => removeGuest(g.identity)}
+                    className="ml-0.5 rounded-full p-0.5 text-primary/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                    title="Remove guest"
+                  >
+                    <X size={10} weight="bold" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {/* Source selection (disabled when live) */}
           <div className="mt-4 flex gap-3">
             <button
@@ -461,30 +630,6 @@ export default function StudioPage() {
               <Monitor size={18} />
               Screen Share
             </button>
-          </div>
-
-          {/* Stream key */}
-          <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <Info size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Stream Key (for OBS / external software)
-              </h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 rounded-md bg-white/5 px-3 py-2 font-mono text-xs text-muted-foreground">
-                {"•".repeat(24)}
-              </code>
-              <button
-                onClick={() =>
-                  user?.streamKey &&
-                  navigator.clipboard?.writeText(user.streamKey)
-                }
-                className="flex size-8 items-center justify-center rounded-md border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Copy size={14} />
-              </button>
-            </div>
           </div>
         </div>
 
@@ -536,8 +681,10 @@ export default function StudioPage() {
           {/* Tab content */}
           <div className="rounded-b-xl border border-t-0 border-white/5">
             {/* Settings tab */}
-            {activeTab === "settings" && (
-              <div className="max-h-[480px] space-y-4 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+            <div className={cn(
+              "max-h-[480px] space-y-4 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10",
+              activeTab !== "settings" && "hidden"
+            )}>
                 <h2 className="text-sm font-semibold text-foreground">
                   Stream Details
                 </h2>
@@ -626,38 +773,80 @@ export default function StudioPage() {
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Chat tab */}
-            {activeTab === "chat" && (
-              <div className="h-[480px]">
-                {streamId ? (
-                  <LiveChat
-                    streamId={streamId}
-                    room={liveRoom}
-                    isLive={isLive}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <ChatText
-                        size={32}
-                        className="mx-auto text-muted-foreground/20"
-                      />
-                      <p className="mt-2 text-xs text-muted-foreground/50">
-                        Go live to enable chat
-                      </p>
-                    </div>
+            {/* Chat tab — always mounted so messages persist */}
+            <div className={cn("h-[480px]", activeTab !== "chat" && "hidden")}>
+              {streamId ? (
+                <LiveChat
+                  streamId={streamId}
+                  room={liveRoom}
+                  isLive={isLive}
+                  isHost
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <div className="text-center">
+                    <ChatText
+                      size={32}
+                      className="mx-auto text-muted-foreground/20"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground/50">
+                      Go live to enable chat
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
 
             {/* Viewers tab */}
-            {activeTab === "viewers" && (
-              <div className="h-[480px] overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+            <div
+              className={cn(
+                "h-[480px] overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10",
+                activeTab !== "viewers" && "hidden"
+              )}
+            >
+              {/* Guest requests banner */}
+              {isLive && guestRequests.length > 0 && (
+                <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
+                  <p className="mb-2 text-xs font-semibold text-yellow-400">
+                    <HandPalm size={12} className="mr-1 inline" />
+                    {guestRequests.length} hand{guestRequests.length !== 1 ? "s" : ""} raised
+                  </p>
+                  <div className="space-y-1.5">
+                    {guestRequests.map((r) => (
+                      <div
+                        key={r.identity}
+                        className="flex items-center gap-2"
+                      >
+                        <div className="flex size-6 items-center justify-center rounded-full bg-yellow-500/20 text-[0.55rem] font-bold text-yellow-400">
+                          {r.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="flex-1 truncate text-xs font-medium text-yellow-300">
+                          {r.name}
+                        </span>
+                        <button
+                          onClick={() => acceptGuestRequest(r.identity)}
+                          disabled={guests.length >= 6}
+                          className="rounded bg-green-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-green-400 transition-colors hover:bg-green-500/30 disabled:opacity-40"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => declineGuestRequest(r.identity)}
+                          className="rounded bg-red-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-red-400 transition-colors hover:bg-red-500/30"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="p-4">
                 {!isLive ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex h-full items-center justify-center pt-20">
                     <div className="text-center">
                       <UsersThree
                         size={32}
@@ -669,7 +858,7 @@ export default function StudioPage() {
                     </div>
                   </div>
                 ) : connectedViewers.length === 0 ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex h-full items-center justify-center pt-20">
                     <div className="text-center">
                       <UsersThree
                         size={32}
@@ -686,33 +875,67 @@ export default function StudioPage() {
                       {connectedViewers.length} viewer
                       {connectedViewers.length !== 1 ? "s" : ""} connected
                     </p>
-                    {connectedViewers.map((v) => (
-                      <div
-                        key={v.identity}
-                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
-                      >
-                        <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                          {v.name.charAt(0).toUpperCase()}
+                    {connectedViewers.map((v) => {
+                      const isGuest = guests.some(
+                        (g) => g.identity === v.identity
+                      );
+                      return (
+                        <div
+                          key={v.identity}
+                          className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
+                        >
+                          <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {v.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="truncate text-sm font-medium text-foreground/80">
+                                {v.name}
+                              </p>
+                              {isGuest && (
+                                <span className="rounded bg-primary/10 px-1 py-0.5 text-[0.5rem] font-semibold text-primary">
+                                  GUEST
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[0.6rem] text-muted-foreground/50">
+                              Joined{" "}
+                              {v.joinedAt.toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                          {isGuest ? (
+                            <button
+                              onClick={() => removeGuest(v.identity)}
+                              title="Remove guest"
+                              className="flex size-6 items-center justify-center rounded-md text-red-400/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                            >
+                              <X size={12} weight="bold" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                inviteGuest({
+                                  identity: v.identity,
+                                  name: v.name,
+                                })
+                              }
+                              disabled={guests.length >= 6}
+                              title="Invite as guest speaker"
+                              className="flex size-6 items-center justify-center rounded-md text-primary/60 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-30"
+                            >
+                              <UserCirclePlus size={14} />
+                            </button>
+                          )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground/80">
-                            {v.name}
-                          </p>
-                          <p className="text-[0.6rem] text-muted-foreground/50">
-                            Joined{" "}
-                            {v.joinedAt.toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        </div>
-                        <span className="size-2 rounded-full bg-green-400" />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Go Live / End Stream button */}

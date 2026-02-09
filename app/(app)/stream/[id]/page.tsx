@@ -10,6 +10,8 @@ import {
   UserPlus,
   UserMinus,
   Clock,
+  CornersOut,
+  HandPalm,
 } from "@phosphor-icons/react";
 import { LiveChat } from "@/components/app/live-chat";
 import {
@@ -19,6 +21,7 @@ import {
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { use } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import type { Room } from "livekit-client";
@@ -51,6 +54,7 @@ export default function StreamPage({
 }) {
   const { id } = use(params);
   const { user } = useAuth();
+  const router = useRouter();
   const [stream, setStream] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +68,15 @@ export default function StreamPage({
   const [connected, setConnected] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const elapsedInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
+
+  // Like & share state
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [handRaised, setHandRaised] = useState(false);
+  const [streamEnded, setStreamEnded] = useState(false);
+  const [countdown, setCountdown] = useState(3);
 
   // Fetch stream data
   useEffect(() => {
@@ -174,6 +187,8 @@ export default function StreamPage({
       });
       room.on(RoomEvent.Disconnected, () => {
         setConnected(false);
+        // Host ended the stream — show modal
+        setStreamEnded(true);
       });
 
       await room.connect(res.data.livekitUrl, res.data.token);
@@ -213,6 +228,24 @@ export default function StreamPage({
       }
     };
   }, [stream?.isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track fullscreen exits (e.g. pressing Escape)
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  // Stream-ended countdown & redirect
+  useEffect(() => {
+    if (!streamEnded) return;
+    if (countdown <= 0) {
+      router.push("/explore");
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [streamEnded, countdown, router]);
 
   // Follow / unfollow
   const toggleFollow = async () => {
@@ -268,7 +301,7 @@ export default function StreamPage({
         {/* Main content */}
         <div className="flex-1 overflow-y-auto">
           {/* Video player */}
-          <div className="relative aspect-video w-full bg-black">
+          <div className="relative aspect-video w-full bg-black" ref={videoContainerRef}>
             <video
               ref={videoElRef}
               autoPlay
@@ -314,6 +347,24 @@ export default function StreamPage({
                 </div>
               )}
             </div>
+
+            {/* Fullscreen button */}
+            <button
+              onClick={() => {
+                if (!videoContainerRef.current) return;
+                if (!document.fullscreenElement) {
+                  videoContainerRef.current.requestFullscreen();
+                  setIsFullscreen(true);
+                } else {
+                  document.exitFullscreen();
+                  setIsFullscreen(false);
+                }
+              }}
+              className="absolute bottom-4 right-4 flex size-8 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white"
+              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            >
+              <CornersOut size={18} />
+            </button>
           </div>
 
           {/* Stream info below player */}
@@ -334,14 +385,61 @@ export default function StreamPage({
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
-                  <Heart size={14} />
-                  Like
+                <button
+                  onClick={() => {
+                    setLiked(!liked);
+                    setLikeCount((c) => (liked ? c - 1 : c + 1));
+                  }}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
+                    liked
+                      ? "border-red-500/30 bg-red-500/10 text-red-400"
+                      : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Heart size={14} weight={liked ? "fill" : "regular"} />
+                  {likeCount > 0 ? likeCount : "Like"}
                 </button>
-                <button className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <button
+                  onClick={() => {
+                    const url = window.location.href;
+                    const text = `Watch ${stream.title} live on Xtreme!`;
+                    if (navigator.share) {
+                      navigator.share({ title: stream.title, text, url }).catch(() => {});
+                    } else {
+                      navigator.clipboard?.writeText(url);
+                    }
+                  }}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
                   <ShareNetwork size={14} />
                   Share
                 </button>
+                {stream.isLive && (
+                  <button
+                    onClick={() => {
+                      setHandRaised(!handRaised);
+                      // Send raise/lower hand via LiveKit data message
+                      if (roomRef.current?.localParticipant) {
+                        const msg = {
+                          type: handRaised ? "guest-lower" : "guest-request",
+                          name: user?.displayName || user?.username || "Viewer",
+                        };
+                        const data = new TextEncoder().encode(JSON.stringify(msg));
+                        roomRef.current.localParticipant.publishData(data, { reliable: true });
+                      }
+                    }}
+                    className={cn(
+                      "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
+                      handRaised
+                        ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                        : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <HandPalm size={14} weight={handRaised ? "fill" : "regular"} />
+                    {handRaised ? "Hand raised" : "Raise hand"}
+                  </button>
+                )}
                 <button className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                   <Flag size={14} />
                   Report
@@ -419,6 +517,35 @@ export default function StreamPage({
           />
         </div>
       </div>
+
+      {/* Stream ended modal */}
+      {streamEnded && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-white/10 bg-background p-8 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-red-500/10">
+              <Eye size={28} className="text-red-400" />
+            </div>
+            <h2 className="text-xl font-bold text-foreground">
+              Stream Has Ended
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The host has ended this livestream.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/60">
+              Redirecting to Explore in{" "}
+              <span className="font-semibold text-foreground">
+                {countdown}s
+              </span>
+            </p>
+            <button
+              onClick={() => router.push("/explore")}
+              className="mt-6 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+            >
+              Go to Explore Now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
