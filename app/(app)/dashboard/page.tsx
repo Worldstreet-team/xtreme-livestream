@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 type Tab = "overview" | "streams" | "analytics";
 
@@ -140,12 +141,11 @@ export default function DashboardPage() {
       {/* Profile header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Image
+          <UserAvatar
             src={user.avatar}
-            alt={user.username}
-            width={56}
-            height={56}
-            className="size-14 rounded-full bg-white/10"
+            name={user.displayName || user.username}
+            size={56}
+            className="size-14"
           />
           <div>
             <h1 className="text-xl font-bold text-foreground">

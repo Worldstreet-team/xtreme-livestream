@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Image from "next/image";
 import {
   User,
   Bell,
@@ -19,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { compressImage } from "@/lib/image-utils";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 type SettingsTab = "profile" | "stream" | "notifications" | "security";
 
@@ -197,12 +197,11 @@ export default function SettingsPage() {
                 {/* Avatar */}
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    <Image
+                    <UserAvatar
                       src={avatarPreview || user.avatar}
-                      alt="Avatar"
-                      width={64}
-                      height={64}
-                      className="size-16 rounded-full bg-white/10 object-cover"
+                      name={user.displayName || user.username}
+                      size={64}
+                      className="size-16"
                     />
                     {avatarPreview && (
                       <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">

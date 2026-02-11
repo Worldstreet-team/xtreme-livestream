@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Eye, Users } from "@phosphor-icons/react/dist/ssr";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 const featuredStreams = [
   {
@@ -134,12 +135,11 @@ export function FeaturedStreams() {
 
               {/* Info */}
               <div className="flex gap-3 p-3">
-                <Image
+                <UserAvatar
                   src={stream.avatar}
-                  alt={stream.streamer}
-                  width={36}
-                  height={36}
-                  className="size-9 rounded-full bg-white/10"
+                  name={stream.streamer}
+                  size={36}
+                  className="size-9"
                 />
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">

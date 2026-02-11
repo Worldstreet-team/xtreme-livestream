@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Eye } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
 import { type Stream, CATEGORY_COLORS, formatNumber } from "@/lib/mock-data";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 export function StreamCard({ stream }: { stream: Stream }) {
   return (
@@ -45,12 +46,11 @@ export function StreamCard({ stream }: { stream: Stream }) {
 
         {/* Info */}
         <div className="flex gap-3 p-3">
-          <Image
+          <UserAvatar
             src={stream.streamer.avatar}
-            alt={stream.streamer.username}
-            width={36}
-            height={36}
-            className="size-9 shrink-0 rounded-full bg-white/10"
+            name={stream.streamer.displayName || stream.streamer.username}
+            size={36}
+            className="size-9"
           />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">

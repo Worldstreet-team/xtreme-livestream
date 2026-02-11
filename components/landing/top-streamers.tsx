@@ -1,5 +1,5 @@
-import Image from "next/image";
 import { Crown, TrendUp, Eye } from "@phosphor-icons/react/dist/ssr";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 const topStreamers = [
   {
@@ -121,12 +121,11 @@ export function TopStreamers() {
 
               {/* Avatar */}
               <div className="relative">
-                <Image
+                <UserAvatar
                   src={streamer.avatar}
-                  alt={streamer.name}
-                  width={44}
-                  height={44}
-                  className="size-11 rounded-full bg-white/10"
+                  name={streamer.name}
+                  size={44}
+                  className="size-11"
                 />
                 {streamer.isLive && (
                   <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-red-500">

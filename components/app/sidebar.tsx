@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import Image from "next/image";
 import {
   Flame,
   Compass,
@@ -18,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { useState } from "react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 const sidebarLinks = [
   { label: "Explore", href: "/explore", icon: Compass },
@@ -120,12 +120,11 @@ export function Sidebar() {
         <div className="border-t border-white/5 p-3">
           <div className="flex items-center gap-3">
             {user ? (
-              <Image
+              <UserAvatar
                 src={user.avatar}
-                alt={user.username}
-                width={32}
-                height={32}
-                className="size-8 shrink-0 rounded-full bg-white/10"
+                name={user.displayName || user.username}
+                size={32}
+                className="size-8"
               />
             ) : (
               <div className="size-8 shrink-0 animate-pulse rounded-full bg-white/10" />

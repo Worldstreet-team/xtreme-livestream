@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Flame, List, X } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -56,12 +56,11 @@ export function Navbar() {
               href="/dashboard"
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3 transition-all hover:border-white/20 hover:bg-white/10"
             >
-              <Image
+              <UserAvatar
                 src={user.avatar}
-                alt={user.displayName}
-                width={28}
-                height={28}
-                className="size-7 rounded-full bg-white/10"
+                name={user.displayName || user.username}
+                size={28}
+                className="size-7"
               />
               <span className="text-sm font-medium text-foreground">
                 {user.displayName}
@@ -104,12 +103,11 @@ export function Navbar() {
                 className="mt-3 flex items-center gap-3 rounded-lg border-t border-white/5 px-3 py-3"
                 onClick={() => setMobileOpen(false)}
               >
-                <Image
+                <UserAvatar
                   src={user.avatar}
-                  alt={user.displayName}
-                  width={32}
-                  height={32}
-                  className="size-8 rounded-full bg-white/10"
+                  name={user.displayName || user.username}
+                  size={32}
+                  className="size-8"
                 />
                 <div>
                   <p className="text-sm font-medium text-foreground">
