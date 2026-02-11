@@ -422,12 +422,16 @@ export default function StreamPage({
                       setHandRaised(!handRaised);
                       // Send raise/lower hand via LiveKit data message
                       if (roomRef.current?.localParticipant) {
-                        const msg = {
-                          type: handRaised ? "guest-lower" : "guest-request",
-                          name: user?.displayName || user?.username || "Viewer",
-                        };
-                        const data = new TextEncoder().encode(JSON.stringify(msg));
-                        roomRef.current.localParticipant.publishData(data, { reliable: true });
+                        try {
+                          const msg = {
+                            type: handRaised ? "guest-lower" : "guest-request",
+                            name: user?.displayName || user?.username || "Viewer",
+                          };
+                          const data = new TextEncoder().encode(JSON.stringify(msg));
+                          roomRef.current.localParticipant.publishData(data, { reliable: true });
+                        } catch {
+                          // Room may be disconnected
+                        }
                       }
                     }}
                     className={cn(
