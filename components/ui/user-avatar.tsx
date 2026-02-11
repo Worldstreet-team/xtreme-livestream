@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +66,11 @@ function getColorFromName(name: string): string {
  */
 export function UserAvatar({ src, name, size = 32, className }: UserAvatarProps) {
   const [hasError, setHasError] = useState(false);
+
+  // Reset error state when src changes (e.g., after uploading a new avatar)
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
 
   const showInitials = !src || hasError;
   const initials = getInitials(name);
