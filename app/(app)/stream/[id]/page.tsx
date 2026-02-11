@@ -11,7 +11,6 @@ import {
   UserMinus,
   Clock,
   CornersOut,
-  HandPalm,
 } from "@phosphor-icons/react";
 import { LiveChat } from "@/components/app/live-chat";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -75,7 +74,6 @@ export default function StreamPage({
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [handRaised, setHandRaised] = useState(false);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -416,35 +414,6 @@ export default function StreamPage({
                   <ShareNetwork size={14} />
                   Share
                 </button>
-                {stream.isLive && (
-                  <button
-                    onClick={() => {
-                      setHandRaised(!handRaised);
-                      // Send raise/lower hand via LiveKit data message
-                      if (roomRef.current?.localParticipant) {
-                        try {
-                          const msg = {
-                            type: handRaised ? "guest-lower" : "guest-request",
-                            name: user?.displayName || user?.username || "Viewer",
-                          };
-                          const data = new TextEncoder().encode(JSON.stringify(msg));
-                          roomRef.current.localParticipant.publishData(data, { reliable: true });
-                        } catch {
-                          // Room may be disconnected
-                        }
-                      }
-                    }}
-                    className={cn(
-                      "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
-                      handRaised
-                        ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-                        : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <HandPalm size={14} weight={handRaised ? "fill" : "regular"} />
-                    {handRaised ? "Hand raised" : "Raise hand"}
-                  </button>
-                )}
                 <button className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                   <Flag size={14} />
                   Report

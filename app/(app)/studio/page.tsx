@@ -15,9 +15,6 @@ import {
   ChatText,
   UsersThree,
   MonitorArrowUp,
-  UserCirclePlus,
-  X,
-  HandPalm,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -56,12 +53,6 @@ export default function StudioPage() {
     Array<{ identity: string; name: string; joinedAt: Date }>
   >([]);
   const [screenShareActive, setScreenShareActive] = useState(false);
-  const [guests, setGuests] = useState<
-    Array<{ identity: string; name: string; joinedAt: Date }>
-  >([]);
-  const [guestRequests, setGuestRequests] = useState<
-    Array<{ identity: string; name: string; requestedAt: Date }>
-  >([]);
 
   // LiveKit refs
   const roomRef = useRef<Room | null>(null);
@@ -302,8 +293,6 @@ export default function StudioPage() {
     setConnectedViewers([]);
     setActiveTab("settings");
     setScreenShareActive(false);
-    setGuests([]);
-    setGuestRequests([]);
 
     // Restart preview
     startPreview();
@@ -338,109 +327,6 @@ export default function StudioPage() {
       // User cancelled screen share picker — that's fine
     }
   };
-
-  // Guest management — invite a viewer
-  const inviteGuest = (viewer: { identity: string; name: string }) => {
-    if (guests.length >= 6) return;
-    if (!roomRef.current) return;
-
-    // Send invite via LiveKit data message
-    const invite = { type: "guest-invite", identity: viewer.identity };
-    const data = new TextEncoder().encode(JSON.stringify(invite));
-    roomRef.current.localParticipant.publishData(data, { reliable: true });
-
-    setGuests((prev) => [
-      ...prev,
-      { identity: viewer.identity, name: viewer.name, joinedAt: new Date() },
-    ]);
-    // Remove from requests if it was a request
-    setGuestRequests((prev) =>
-      prev.filter((r) => r.identity !== viewer.identity)
-    );
-  };
-
-  // Accept a guest request
-  const acceptGuestRequest = (identity: string) => {
-    const request = guestRequests.find((r) => r.identity === identity);
-    if (request) {
-      inviteGuest({ identity: request.identity, name: request.name });
-    }
-  };
-
-  // Decline a guest request
-  const declineGuestRequest = (identity: string) => {
-    if (!roomRef.current) return;
-    const decline = { type: "guest-decline", identity };
-    const data = new TextEncoder().encode(JSON.stringify(decline));
-    roomRef.current.localParticipant.publishData(data, { reliable: true });
-    setGuestRequests((prev) => prev.filter((r) => r.identity !== identity));
-  };
-
-  // Remove a guest
-  const removeGuest = (identity: string) => {
-    if (!roomRef.current) return;
-    const remove = { type: "guest-remove", identity };
-    const data = new TextEncoder().encode(JSON.stringify(remove));
-    roomRef.current.localParticipant.publishData(data, { reliable: true });
-    setGuests((prev) => prev.filter((g) => g.identity !== identity));
-  };
-
-  // Listen for guest requests from viewers
-  useEffect(() => {
-    if (!liveRoom) return;
-    let eventName: string | undefined;
-
-    const setup = async () => {
-      const { RoomEvent } = await import("livekit-client");
-      eventName = RoomEvent.DataReceived;
-
-      const handleGuestData = (
-        payload: Uint8Array,
-        participant?: { identity: string; name?: string }
-      ) => {
-        try {
-          const decoded = new TextDecoder().decode(payload);
-          const msg = JSON.parse(decoded);
-          if (msg.type === "guest-request" && participant) {
-            setGuestRequests((prev) => {
-              if (prev.some((r) => r.identity === participant.identity))
-                return prev;
-              return [
-                ...prev,
-                {
-                  identity: participant.identity,
-                  name:
-                    participant.name || msg.name || participant.identity,
-                  requestedAt: new Date(),
-                },
-              ];
-            });
-          }
-        } catch {
-          // ignore non-guest messages
-        }
-      };
-
-      liveRoom.on(RoomEvent.DataReceived, handleGuestData);
-      (liveRoom as unknown as Record<string, unknown>).__guestHandler =
-        handleGuestData;
-    };
-
-    setup();
-
-    return () => {
-      if (eventName && liveRoom) {
-        const handler = (liveRoom as unknown as Record<string, unknown>)
-          .__guestHandler;
-        if (handler) {
-          liveRoom.off(
-            eventName as Parameters<typeof liveRoom.off>[0],
-            handler as Parameters<typeof liveRoom.off>[1]
-          );
-        }
-      }
-    };
-  }, [liveRoom]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -576,31 +462,6 @@ export default function StudioPage() {
               </button>
             </div>
 
-          {/* Guests on stream */}
-          {isLive && guests.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {guests.map((g) => (
-                <div
-                  key={g.identity}
-                  className="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1"
-                >
-                  <div className="flex size-5 items-center justify-center rounded-full bg-primary/20 text-[0.55rem] font-bold text-primary">
-                    {g.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-xs font-medium text-primary">
-                    {g.name}
-                  </span>
-                  <button
-                    onClick={() => removeGuest(g.identity)}
-                    className="ml-0.5 rounded-full p-0.5 text-primary/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                    title="Remove guest"
-                  >
-                    <X size={10} weight="bold" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
           {/* Source selection (disabled when live) */}
           <div className="mt-4 flex gap-3">
             <button
@@ -806,44 +667,6 @@ export default function StudioPage() {
                 activeTab !== "viewers" && "hidden"
               )}
             >
-              {/* Guest requests banner */}
-              {isLive && guestRequests.length > 0 && (
-                <div className="border-b border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
-                  <p className="mb-2 text-xs font-semibold text-yellow-400">
-                    <HandPalm size={12} className="mr-1 inline" />
-                    {guestRequests.length} hand{guestRequests.length !== 1 ? "s" : ""} raised
-                  </p>
-                  <div className="space-y-1.5">
-                    {guestRequests.map((r) => (
-                      <div
-                        key={r.identity}
-                        className="flex items-center gap-2"
-                      >
-                        <div className="flex size-6 items-center justify-center rounded-full bg-yellow-500/20 text-[0.55rem] font-bold text-yellow-400">
-                          {r.name.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="flex-1 truncate text-xs font-medium text-yellow-300">
-                          {r.name}
-                        </span>
-                        <button
-                          onClick={() => acceptGuestRequest(r.identity)}
-                          disabled={guests.length >= 6}
-                          className="rounded bg-green-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-green-400 transition-colors hover:bg-green-500/30 disabled:opacity-40"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => declineGuestRequest(r.identity)}
-                          className="rounded bg-red-500/20 px-2 py-0.5 text-[0.6rem] font-semibold text-red-400 transition-colors hover:bg-red-500/30"
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div className="p-4">
                 {!isLive ? (
                   <div className="flex h-full items-center justify-center pt-20">
@@ -875,63 +698,28 @@ export default function StudioPage() {
                       {connectedViewers.length} viewer
                       {connectedViewers.length !== 1 ? "s" : ""} connected
                     </p>
-                    {connectedViewers.map((v) => {
-                      const isGuest = guests.some(
-                        (g) => g.identity === v.identity
-                      );
-                      return (
-                        <div
-                          key={v.identity}
-                          className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
-                        >
-                          <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                            {v.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <p className="truncate text-sm font-medium text-foreground/80">
-                                {v.name}
-                              </p>
-                              {isGuest && (
-                                <span className="rounded bg-primary/10 px-1 py-0.5 text-[0.5rem] font-semibold text-primary">
-                                  GUEST
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[0.6rem] text-muted-foreground/50">
-                              Joined{" "}
-                              {v.joinedAt.toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
-                          </div>
-                          {isGuest ? (
-                            <button
-                              onClick={() => removeGuest(v.identity)}
-                              title="Remove guest"
-                              className="flex size-6 items-center justify-center rounded-md text-red-400/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                            >
-                              <X size={12} weight="bold" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() =>
-                                inviteGuest({
-                                  identity: v.identity,
-                                  name: v.name,
-                                })
-                              }
-                              disabled={guests.length >= 6}
-                              title="Invite as guest speaker"
-                              className="flex size-6 items-center justify-center rounded-md text-primary/60 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-30"
-                            >
-                              <UserCirclePlus size={14} />
-                            </button>
-                          )}
+                    {connectedViewers.map((v) => (
+                      <div
+                        key={v.identity}
+                        className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
+                      >
+                        <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {v.name.charAt(0).toUpperCase()}
                         </div>
-                      );
-                    })}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground/80">
+                            {v.name}
+                          </p>
+                          <p className="text-[0.6rem] text-muted-foreground/50">
+                            Joined{" "}
+                            {v.joinedAt.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
