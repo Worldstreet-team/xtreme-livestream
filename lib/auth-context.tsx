@@ -8,9 +8,8 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { apiFetch } from "@/lib/api-client";
 
-// Shape of the user object returned by GET /api/user/me
+// Shape of the user object returned by /api/auth/verify
 export interface AppUser {
   id: string;
   authUserId: string;
@@ -39,6 +38,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   error: string | null;
   refreshUser: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -47,6 +47,7 @@ const AuthContext = createContext<AuthContextValue>({
   isAuthenticated: false,
   error: null,
   refreshUser: async () => {},
+  logout: async () => {},
 });
 
 const LOGIN_URL = "https://worldstreetgold.com/login";
@@ -62,35 +63,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUser = useCallback(async () => {
+  const verifyUser = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await apiFetch<{ success: boolean; data: { user: AppUser } }>(
-        "/api/user/me"
-      );
-      setUser(res.data.user);
       setError(null);
-    } catch (err) {
-      const isAuthError =
-        err instanceof Error && "status" in err && (err as { status: number }).status === 401;
-      setUser(null);
 
-      if (isAuthError) {
-        // Unauthorized — redirect to login with return URL
+      // Call our verify endpoint which reads httpOnly cookies server-side
+      const res = await fetch("/api/auth/verify", {
+        credentials: "include",
+      });
+      const data = await res.json();
+
+      if (data.success && data.user) {
+        setUser(data.user);
+      } else {
+        // Not authenticated — redirect to external login
+        setUser(null);
         redirectToLogin();
-        return;
       }
-
-      console.error("[Auth] Failed to fetch user:", err);
-      setError(err instanceof Error ? err.message : "Failed to load user");
+    } catch (err) {
+      console.error("[Auth] Verification failed:", err);
+      setUser(null);
+      setError("Failed to verify identity");
+      // On error, redirect to login
+      redirectToLogin();
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Best-effort
+    } finally {
+      setUser(null);
+      redirectToLogin();
+    }
+  }, []);
+
   useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
+    verifyUser();
+  }, [verifyUser]);
 
   return (
     <AuthContext.Provider
@@ -99,7 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         error,
-        refreshUser: fetchUser,
+        refreshUser: verifyUser,
+        logout,
       }}
     >
       {children}
