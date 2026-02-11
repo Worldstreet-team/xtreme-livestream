@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import Image from "next/image";
 import {
   PaperPlaneRight,
   Smiley,
@@ -11,6 +10,7 @@ import {
   Clock,
   Lightning,
 } from "@phosphor-icons/react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -328,12 +328,11 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             {msg.type === "tip" ? (
               <div className="my-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <Image
+                  <UserAvatar
                     src={msg.avatar}
-                    alt={msg.username}
-                    width={20}
-                    height={20}
-                    className="size-5 rounded-full"
+                    name={msg.username}
+                    size={20}
+                    className="size-5"
                   />
                   <span className="text-xs font-semibold text-yellow-400">
                     {msg.username}
@@ -347,12 +346,11 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
               </div>
             ) : msg.type === "reaction" ? (
               <div className="flex items-center gap-2 py-0.5">
-                <Image
+                <UserAvatar
                   src={msg.avatar}
-                  alt={msg.username}
-                  width={18}
-                  height={18}
-                  className="size-[18px] rounded-full"
+                  name={msg.username}
+                  size={18}
+                  className="size-4.5"
                 />
                 <span className="text-xs text-muted-foreground">
                   {msg.username}
@@ -360,13 +358,12 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                 <span className="text-base">{msg.emoji}</span>
               </div>
             ) : (
-              <div className="flex gap-2 rounded-md px-1 py-1 hover:bg-white/[0.02]">
-                <Image
+              <div className="flex gap-2 rounded-md px-1 py-1 hover:bg-white/2">
+                <UserAvatar
                   src={msg.avatar}
-                  alt={msg.username}
-                  width={22}
-                  height={22}
-                  className="mt-0.5 size-[22px] shrink-0 rounded-full"
+                  name={msg.username}
+                  size={22}
+                  className="mt-0.5 size-5.5"
                 />
                 <div className="min-w-0 flex-1">
                   <span className="inline-flex items-center gap-1.5">

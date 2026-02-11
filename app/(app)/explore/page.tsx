@@ -60,7 +60,6 @@ export default function ExplorePage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<Category | "All">("All");
   const [sort, setSort] = useState<SortOption>("viewers");
-  const [showLiveOnly, setShowLiveOnly] = useState(true);
   const [streams, setStreams] = useState<ReturnType<typeof toStreamCard>[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -69,7 +68,7 @@ export default function ExplorePage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (showLiveOnly) params.set("live", "true");
+      params.set("live", "true");
       if (selectedCategory !== "All") params.set("category", selectedCategory);
       if (search) params.set("search", search);
       params.set("sort", sort);
@@ -88,7 +87,7 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  }, [search, selectedCategory, sort, showLiveOnly]);
+  }, [search, selectedCategory, sort]);
 
   useEffect(() => {
     // Debounce search, instant for other filters
@@ -96,15 +95,13 @@ export default function ExplorePage() {
     return () => clearTimeout(timer);
   }, [fetchStreams, search]);
 
-  const liveCount = streams.filter((s) => s.isLive).length;
-
   return (
     <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground">Explore Streams</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {loading ? "Loading..." : showLiveOnly ? `${liveCount} streams live now` : `${total} streams`}
+          {loading ? "Loading..." : `${total} streams live now`}
         </p>
       </div>
 
@@ -127,33 +124,6 @@ export default function ExplorePage() {
 
         {/* Controls */}
         <div className="flex items-center gap-3">
-          {/* Live only toggle */}
-          <button
-            onClick={() => setShowLiveOnly(!showLiveOnly)}
-            className={cn(
-              "flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors",
-              showLiveOnly
-                ? "border-red-500/30 bg-red-500/10 text-red-400"
-                : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <span className="relative flex size-2">
-              <span
-                className={cn(
-                  "absolute inline-flex size-full rounded-full opacity-75",
-                  showLiveOnly ? "animate-ping bg-red-500" : "bg-muted-foreground"
-                )}
-              />
-              <span
-                className={cn(
-                  "relative inline-flex size-2 rounded-full",
-                  showLiveOnly ? "bg-red-500" : "bg-muted-foreground"
-                )}
-              />
-            </span>
-            Live Only
-          </button>
-
           {/* Sort */}
           <div className="relative">
             <select

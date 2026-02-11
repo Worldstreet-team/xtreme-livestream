@@ -20,6 +20,7 @@ import {
   HandPalm,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
@@ -749,12 +750,11 @@ export default function StudioPage() {
                   </h3>
                   <div className="flex items-center gap-3">
                     {user && (
-                      <Image
+                      <UserAvatar
                         src={user.avatar}
-                        alt={user.displayName}
-                        width={36}
-                        height={36}
-                        className="size-9 rounded-full bg-white/10"
+                        name={user.displayName}
+                        size={36}
+                        className="size-9"
                       />
                     )}
                     <div className="min-w-0 flex-1">

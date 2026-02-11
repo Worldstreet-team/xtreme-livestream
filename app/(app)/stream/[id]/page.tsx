@@ -14,6 +14,7 @@ import {
   HandPalm,
 } from "@phosphor-icons/react";
 import { LiveChat } from "@/components/app/live-chat";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import {
   CATEGORY_COLORS,
   formatNumber,
@@ -448,14 +449,13 @@ export default function StreamPage({
             </div>
 
             {/* Streamer info */}
-            <div className="mt-5 flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="mt-5 flex items-center justify-between rounded-xl border border-white/5 bg-white/2 p-4">
               <div className="flex items-center gap-3">
-                <Image
+                <UserAvatar
                   src={streamer.avatar}
-                  alt={streamer.username}
-                  width={44}
-                  height={44}
-                  className="size-11 rounded-full bg-white/10"
+                  name={streamer.displayName || streamer.username}
+                  size={44}
+                  className="size-11"
                 />
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">
