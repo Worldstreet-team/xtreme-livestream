@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const LOGIN_URL = "https://worldstreetgold.com/login";
+const LOGIN_URL = "https://www.worldstreetgold.com/login";
 
 /**
  * Paths that don't require authentication.

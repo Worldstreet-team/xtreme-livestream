@@ -50,12 +50,13 @@ const AuthContext = createContext<AuthContextValue>({
   logout: async () => {},
 });
 
-const LOGIN_URL = "https://worldstreetgold.com/login";
+const LOGIN_URL = "https://www.worldstreetgold.com/login";
 
 function redirectToLogin() {
   const currentUrl = window.location.href;
   const loginUrl = `${LOGIN_URL}?redirect=${encodeURIComponent(currentUrl)}`;
-  window.location.href = loginUrl;
+  // Use replace to do a full page navigation, avoiding RSC fetch issues
+  window.location.replace(loginUrl);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
