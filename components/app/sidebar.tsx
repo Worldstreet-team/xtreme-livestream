@@ -13,6 +13,9 @@ import {
   X,
   CaretLeft,
   CaretRight,
+  Users,
+  Storefront,
+  GraduationCap,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -24,6 +27,12 @@ const sidebarLinks = [
   { label: "Go Live", href: "/studio", icon: VideoCamera },
   { label: "Dashboard", href: "/dashboard", icon: ChartLineUp },
   { label: "Settings", href: "/settings", icon: Gear },
+];
+
+const externalLinks = [
+  { label: "Social", href: "https://social.worldstreetgold.com", icon: Users, subtitle: "Connect with the community" },
+  { label: "Store", href: "https://shop.worldstreetgold.com", icon: Storefront, subtitle: "Browse merch & gear" },
+  { label: "Academy", href: "https://academy.worldstreetgold.com", icon: GraduationCap, subtitle: "Learn & level up" },
 ];
 
 export function Sidebar() {
@@ -106,6 +115,33 @@ export function Sidebar() {
               </Link>
             );
           })}
+
+          {/* External links */}
+          <div className="mt-4 border-t border-white/5 pt-4">
+            {!collapsed && (
+              <p className="mb-2 px-3 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                World Street
+              </p>
+            )}
+            {externalLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              >
+                <link.icon size={20} className="shrink-0" />
+                {!collapsed && (
+                  <div className="min-w-0">
+                    <span className="block leading-tight">{link.label}</span>
+                    <span className="block truncate text-[0.65rem] font-normal text-muted-foreground/60">
+                      {link.subtitle}
+                    </span>
+                  </div>
+                )}
+              </a>
+            ))}
+          </div>
         </nav>
 
         {/* Collapse toggle (desktop only) */}
