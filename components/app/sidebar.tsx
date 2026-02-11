@@ -140,9 +140,19 @@ export function Sidebar() {
               </div>
             )}
             {!collapsed && (
-              <button className="text-muted-foreground transition-colors hover:text-foreground">
-                <SignOut size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href="https://dashboard.worldstreetgold.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Dashboard
+                </a>
+                <button className="text-muted-foreground transition-colors hover:text-foreground">
+                  <SignOut size={16} />
+                </button>
+              </div>
             )}
           </div>
         </div>

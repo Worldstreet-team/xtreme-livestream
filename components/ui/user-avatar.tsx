@@ -91,6 +91,23 @@ export function UserAvatar({ src, name, size = 32, className }: UserAvatarProps)
     );
   }
 
+  // Use regular img tag for data URIs (base64 images) since Next.js Image doesn't support them
+  const isDataUri = src.startsWith("data:");
+
+  if (isDataUri) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={name}
+        width={size}
+        height={size}
+        className={cn("shrink-0 rounded-full bg-white/10 object-cover", className)}
+        onError={() => setHasError(true)}
+      />
+    );
+  }
+
   return (
     <Image
       src={src}

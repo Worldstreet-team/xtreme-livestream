@@ -67,6 +67,16 @@ export function Navbar() {
               </span>
             </Link>
           )}
+          {isAuthenticated && (
+            <a
+              href="https://dashboard.worldstreetgold.com"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Dashboard
+            </a>
+          )}
           {isLoading && (
             <div className="size-7 animate-pulse rounded-full bg-white/10" />
           )}
@@ -118,6 +128,18 @@ export function Navbar() {
                   </p>
                 </div>
               </Link>
+            )}
+
+            {isAuthenticated && (
+              <a
+                href="https://dashboard.worldstreetgold.com"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
+                onClick={() => setMobileOpen(false)}
+              >
+                Go to Dashboard
+              </a>
             )}
 
             <div className="flex flex-col gap-2 border-t border-white/5 pt-3">

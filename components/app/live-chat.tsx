@@ -465,13 +465,13 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                 setShowTipModal(false);
               }}
               className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
                 showReactions
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
-              <Smiley size={18} />
+              <Smiley size={20} />
             </button>
             {!isHost && (
               <button
@@ -480,13 +480,13 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                   setShowReactions(false);
                 }}
                 className={cn(
-                  "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                  "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
                   showTipModal
                     ? "bg-yellow-500/10 text-yellow-400"
                     : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                 )}
               >
-                <Lightning size={18} weight="fill" />
+                <Lightning size={20} weight="fill" />
               </button>
             )}
             <input
@@ -497,13 +497,13 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              className="h-8 flex-1 rounded-md border border-white/10 bg-white/5 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none"
+              className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none"
             />
             <button
               onClick={sendMessage}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/20"
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors hover:bg-primary/20"
             >
-              <PaperPlaneRight size={16} weight="fill" />
+              <PaperPlaneRight size={18} weight="fill" />
             </button>
           </div>
         ) : (

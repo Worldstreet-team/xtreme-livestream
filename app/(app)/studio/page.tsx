@@ -481,7 +481,7 @@ export default function StudioPage() {
               autoPlay
               muted
               playsInline
-              className="size-full object-cover"
+              className="size-full object-cover -scale-x-100"
             />
 
             {/* LIVE badge overlay */}
