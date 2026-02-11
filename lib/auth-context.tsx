@@ -72,7 +72,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch("/api/auth/verify", {
         credentials: "include",
       });
-      const data = await res.json();
+
+      // Handle non-OK responses
+      if (!res.ok) {
+        console.error("[Auth] Verify returned status:", res.status);
+        setUser(null);
+        redirectToLogin();
+        return;
+      }
+
+      // Safely parse JSON
+      const text = await res.text();
+      if (!text) {
+        console.error("[Auth] Empty response from verify endpoint");
+        setUser(null);
+        redirectToLogin();
+        return;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.error("[Auth] Invalid JSON response:", text.slice(0, 100));
+        setUser(null);
+        redirectToLogin();
+        return;
+      }
 
       if (data.success && data.user) {
         setUser(data.user);
