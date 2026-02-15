@@ -10,7 +10,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const result = await authenticate(req);
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { id } = await params;

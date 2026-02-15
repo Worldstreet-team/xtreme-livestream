@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { authenticate, isErrorResponse } from "@/lib/auth";
 
 /**
  * GET /api/user/me — Get current user's profile
  */
-export async function GET(req: NextRequest) {
-  const result = await authenticate(req);
+export async function GET() {
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { dbUser } = result;
@@ -36,8 +36,8 @@ export async function GET(req: NextRequest) {
 /**
  * PATCH /api/user/me — Update current user's profile
  */
-export async function PATCH(req: NextRequest) {
-  const result = await authenticate(req);
+export async function PATCH(req: Request) {
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { dbUser } = result;

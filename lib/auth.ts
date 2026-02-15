@@ -1,20 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { connectDB } from "@/lib/db";
 import { User, IUser } from "@/lib/models";
-
-const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL!;
-
-// Shape returned by the external auth service's /api/auth/verify
-interface AuthUser {
-  userId: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  role: string;
-  isVerified: boolean;
-  createdAt: string;
-}
 
 export interface AuthenticatedUser {
   authUserId: string;
@@ -26,62 +14,43 @@ export interface AuthenticatedUser {
 }
 
 /**
- * Verify JWT by calling the external auth service.
- * On first visit, auto-provisions a local user profile.
+ * Verify the current user via Clerk's server-side auth().
+ * On first visit, auto-provisions a local user profile in MongoDB.
  */
-export async function authenticate(
-  req: NextRequest
-): Promise<AuthenticatedUser | NextResponse> {
-  // Try Authorization header first, then fall back to HttpOnly cookie
-  const authHeader = req.headers.get("authorization");
-  let token: string | undefined;
+export async function authenticate(): Promise<AuthenticatedUser | NextResponse> {
+  const { userId } = await auth();
 
-  if (authHeader?.startsWith("Bearer ")) {
-    token = authHeader.slice(7);
-  } else {
-    token = req.cookies.get("accessToken")?.value;
-  }
-
-  if (!token) {
+  if (!userId) {
     return NextResponse.json(
       { success: false, message: "Authentication required" },
       { status: 401 }
     );
   }
 
-  // Call external auth service to verify the token
-  let authUser: AuthUser;
-  try {
-    const res = await fetch(`${AUTH_SERVICE_URL}/api/auth/verify`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+  // Fetch full Clerk user to get name/email
+  const clerkUser = await currentUser();
 
-    if (!res.ok) {
-      return NextResponse.json(
-        { success: false, message: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
-
-    const body = await res.json();
-    authUser = body.data.user;
-  } catch {
+  if (!clerkUser) {
     return NextResponse.json(
-      { success: false, message: "Auth service unavailable" },
-      { status: 503 }
+      { success: false, message: "Authentication required" },
+      { status: 401 }
     );
   }
+
+  const email = clerkUser.emailAddresses[0]?.emailAddress ?? "";
+  const firstName = clerkUser.firstName ?? "";
+  const lastName = clerkUser.lastName ?? "";
 
   // Connect to MongoDB and find or create local user profile
   await connectDB();
 
-  let dbUser = await User.findOne({ authUserId: authUser.userId });
+  let dbUser = await User.findOne({ authUserId: userId });
 
   if (!dbUser) {
     // Auto-provision on first visit
     const baseUsername = (
-      authUser.firstName.toLowerCase() + authUser.lastName.toLowerCase()
-    ).replace(/[^a-z0-9]/g, "");
+      firstName.toLowerCase() + lastName.toLowerCase()
+    ).replace(/[^a-z0-9]/g, "") || `user${Date.now()}`;
 
     // Ensure username is unique
     let username = baseUsername;
@@ -92,28 +61,28 @@ export async function authenticate(
     }
 
     dbUser = await User.create({
-      authUserId: authUser.userId,
-      email: authUser.email,
+      authUserId: userId,
+      email,
       username,
-      displayName: `${authUser.firstName} ${authUser.lastName}`,
-      avatar: `https://api.dicebear.com/9.x/avataaars/svg?seed=${authUser.userId}`,
+      displayName: `${firstName} ${lastName}`.trim() || "Anonymous",
+      avatar: clerkUser.imageUrl || `https://api.dicebear.com/9.x/avataaars/svg?seed=${userId}`,
       bio: "",
       streamKey: crypto.randomUUID(),
     });
   }
 
   return {
-    authUserId: authUser.userId,
-    email: authUser.email,
-    firstName: authUser.firstName,
-    lastName: authUser.lastName,
-    role: authUser.role,
+    authUserId: userId,
+    email,
+    firstName,
+    lastName,
+    role: (clerkUser.publicMetadata?.role as string) ?? "user",
     dbUser,
   };
 }
 
 /**
- * Helper: returns 401 if authentication failed, otherwise the authenticated user.
+ * Helper: returns true if authentication failed (result is a NextResponse error).
  */
 export function isErrorResponse(
   result: AuthenticatedUser | NextResponse

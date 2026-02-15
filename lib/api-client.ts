@@ -1,9 +1,9 @@
 /**
  * Client-side API helper.
  * 
- * Authentication is handled via httpOnly cookies that are automatically
- * sent with requests (credentials: "include"). The server reads the
- * accessToken cookie and verifies it with the external auth service.
+ * Authentication is handled by Clerk — the Clerk session cookie is
+ * automatically included with same-origin requests. The server uses
+ * Clerk's auth() to verify the caller.
  */
 
 interface FetchOptions extends Omit<RequestInit, "headers"> {

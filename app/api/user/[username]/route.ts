@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { User, Follow } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
+import { auth } from "@clerk/nextjs/server";
 
 /**
  * GET /api/user/[username] — Public profile
@@ -24,9 +25,9 @@ export async function GET(
 
   // Check if the caller follows this user (optional — only if authenticated)
   let isFollowing = false;
-  const authHeader = req.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const result = await authenticate(req);
+  const { userId } = await auth();
+  if (userId) {
+    const result = await authenticate();
     if (!isErrorResponse(result)) {
       const follow = await Follow.findOne({
         followerId: result.dbUser._id,

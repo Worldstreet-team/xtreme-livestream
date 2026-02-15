@@ -37,7 +37,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { authenticate, isErrorResponse } = await import("@/lib/auth");
-  const result = await authenticate(req);
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { id } = await params;

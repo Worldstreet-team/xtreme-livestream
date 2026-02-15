@@ -8,8 +8,9 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useUser, useClerk } from "@clerk/nextjs";
 
-// Shape of the user object returned by /api/auth/verify
+// Shape of the local DB user object returned by /api/user/me
 export interface AppUser {
   id: string;
   authUserId: string;
@@ -50,101 +51,71 @@ const AuthContext = createContext<AuthContextValue>({
   logout: async () => {},
 });
 
-const LOGIN_URL = "https://www.worldstreetgold.com/login";
-
-function redirectToLogin() {
-  const currentUrl = window.location.href;
-  const loginUrl = `${LOGIN_URL}?redirect=${encodeURIComponent(currentUrl)}`;
-  // Use replace to do a full page navigation, avoiding RSC fetch issues
-  window.location.replace(loginUrl);
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { isLoaded: clerkLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerk();
+
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const verifyUser = useCallback(async () => {
+  const fetchProfile = useCallback(async () => {
+    if (!isSignedIn) {
+      setUser(null);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
 
-      // Call our verify endpoint which reads httpOnly cookies server-side
-      const res = await fetch("/api/auth/verify", {
-        credentials: "include",
-      });
+      const res = await fetch("/api/user/me");
 
-      // Handle non-OK responses
       if (!res.ok) {
-        console.error("[Auth] Verify returned status:", res.status);
+        console.error("[Auth] /api/user/me returned status:", res.status);
         setUser(null);
-        redirectToLogin();
+        setError("Failed to load profile");
         return;
       }
 
-      // Safely parse JSON
-      const text = await res.text();
-      if (!text) {
-        console.error("[Auth] Empty response from verify endpoint");
-        setUser(null);
-        redirectToLogin();
-        return;
-      }
+      const data = await res.json();
 
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        console.error("[Auth] Invalid JSON response:", text.slice(0, 100));
-        setUser(null);
-        redirectToLogin();
-        return;
-      }
-
-      if (data.success && data.user) {
-        setUser(data.user);
+      if (data.success && data.data?.user) {
+        setUser(data.data.user);
       } else {
-        // Not authenticated — redirect to external login
         setUser(null);
-        redirectToLogin();
+        setError("Failed to load profile");
       }
     } catch (err) {
-      console.error("[Auth] Verification failed:", err);
+      console.error("[Auth] Profile fetch failed:", err);
       setUser(null);
-      setError("Failed to verify identity");
-      // On error, redirect to login
-      redirectToLogin();
+      setError("Failed to load profile");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isSignedIn]);
 
   const logout = useCallback(async () => {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Best-effort
-    } finally {
-      setUser(null);
-      redirectToLogin();
-    }
-  }, []);
+    setUser(null);
+    await signOut({ redirectUrl: "https://www.worldstreetgold.com/login" });
+  }, [signOut]);
 
+  // Fetch local DB profile once Clerk confirms sign-in
   useEffect(() => {
-    verifyUser();
-  }, [verifyUser]);
+    if (clerkLoaded) {
+      fetchProfile();
+    }
+  }, [clerkLoaded, isSignedIn, fetchProfile]);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isLoading,
-        isAuthenticated: !!user,
+        isLoading: !clerkLoaded || isLoading,
+        isAuthenticated: !!isSignedIn && !!user,
         error,
-        refreshUser: verifyUser,
+        refreshUser: fetchProfile,
         logout,
       }}
     >

@@ -10,7 +10,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
-  const result = await authenticate(req);
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { username } = await params;
@@ -66,7 +66,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
-  const result = await authenticate(req);
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { username } = await params;

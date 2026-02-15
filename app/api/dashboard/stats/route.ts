@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Stream, Follow } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
@@ -11,8 +11,8 @@ import { authenticate, isErrorResponse } from "@/lib/auth";
  *   - Recent past streams
  *   - Daily view breakdown (last 7 days)
  */
-export async function GET(req: NextRequest) {
-  const result = await authenticate(req);
+export async function GET() {
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { dbUser } = result;

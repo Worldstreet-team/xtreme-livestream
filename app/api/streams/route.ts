@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
  * Body: { title, category, tags?: string[] }
  */
 export async function POST(req: NextRequest) {
-  const result = await authenticate(req);
+  const result = await authenticate();
   if (isErrorResponse(result)) return result;
 
   const { dbUser } = result;
