@@ -131,9 +131,9 @@ export default function ExplorePage() {
               onChange={(e) => setSort(e.target.value as SortOption)}
               className="h-9 appearance-none rounded-lg border border-white/10 bg-white/5 pl-3 pr-8 text-sm text-muted-foreground focus:border-primary/50 focus:outline-none cursor-pointer"
             >
-              <option value="viewers">Most Viewers</option>
-              <option value="recent">Most Recent</option>
-              <option value="trending">Trending</option>
+              <option className="bg-background text-foreground" value="viewers">Most Viewers</option>
+              <option className="bg-background text-foreground" value="recent">Most Recent</option>
+              <option className="bg-background text-foreground" value="trending">Trending</option>
             </select>
             <SortAscending
               size={14}

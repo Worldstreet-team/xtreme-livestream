@@ -440,10 +440,10 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
               onChange={(e) => setTipCurrency(e.target.value)}
               className="h-8 cursor-pointer rounded-md border border-white/10 bg-white/5 px-2 text-xs text-foreground"
             >
-              <option value="USDC">USDC</option>
-              <option value="ETH">ETH</option>
-              <option value="SOL">SOL</option>
-              <option value="BTC">BTC</option>
+              <option className="bg-background text-foreground" value="USDC">USDC</option>
+              <option className="bg-background text-foreground" value="ETH">ETH</option>
+              <option className="bg-background text-foreground" value="SOL">SOL</option>
+              <option className="bg-background text-foreground" value="BTC">BTC</option>
             </select>
             <button
               onClick={sendTip}

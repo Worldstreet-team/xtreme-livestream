@@ -582,7 +582,7 @@ export default function StudioPage() {
                     className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none disabled:opacity-50"
                   >
                     {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
+                      <option className="bg-background text-foreground" key={cat} value={cat}>
                         {cat}
                       </option>
                     ))}
