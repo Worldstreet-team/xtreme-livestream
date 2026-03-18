@@ -66,33 +66,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    try {
-      setIsLoading(true);
-      setError(null);
+    const MAX_RETRIES = 3;
+    const BACKOFF_MS = [500, 1000, 2000];
 
-      const res = await fetch("/api/user/me");
+    setIsLoading(true);
+    setError(null);
 
-      if (!res.ok) {
-        console.error("[Auth] /api/user/me returned status:", res.status);
-        setUser(null);
-        setError("Failed to load profile");
-        return;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch("/api/user/me");
+
+        if (!res.ok) {
+          console.error(`[Auth] /api/user/me returned status: ${res.status} (attempt ${attempt + 1})`);
+          // Don't retry 4xx client errors (except 408/429)
+          if (res.status < 500 && res.status !== 408 && res.status !== 429) {
+            setUser(null);
+            setError("Failed to load profile");
+            setIsLoading(false);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        if (data.success && data.data?.user) {
+          setUser(data.data.user);
+          setError(null);
+          setIsLoading(false);
+          return;
+        } else {
+          setUser(null);
+          setError("Failed to load profile");
+          setIsLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error(`[Auth] Profile fetch failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, err);
+
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+        } else {
+          setUser(null);
+          setError("Failed to load profile");
+          setIsLoading(false);
+        }
       }
-
-      const data = await res.json();
-
-      if (data.success && data.data?.user) {
-        setUser(data.data.user);
-      } else {
-        setUser(null);
-        setError("Failed to load profile");
-      }
-    } catch (err) {
-      console.error("[Auth] Profile fetch failed:", err);
-      setUser(null);
-      setError("Failed to load profile");
-    } finally {
-      setIsLoading(false);
     }
   }, [isSignedIn]);
 
