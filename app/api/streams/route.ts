@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
-import { Stream, User } from "@/lib/models";
+import { Stream } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
 import { createToken } from "@/lib/livekit";
+import { markStreamEnded, reconcileLeanStreams } from "@/lib/stream-service";
 
 /**
  * GET /api/streams — List streams (with optional filters)
@@ -47,15 +48,32 @@ export async function GET(req: NextRequest) {
     Stream.countDocuments(filter),
   ]);
 
+  // Safety net: reconcile this page against LiveKit so streams whose
+  // broadcaster has silently disconnected don't keep showing as live.
+  // (The webhook is the primary mechanism; this catches anything it misses
+  // and cleans up rows created before the webhook was configured.)
+  const staleIds = await reconcileLeanStreams(streams);
+
+  // When the caller asked for live streams only, drop the ones we just ended.
+  const visible =
+    live === "true" && staleIds.size > 0
+      ? streams.filter((s) => !staleIds.has(String(s._id)))
+      : streams.map((s) =>
+          staleIds.has(String(s._id)) ? { ...s, isLive: false } : s
+        );
+
+  const adjustedTotal =
+    live === "true" ? Math.max(0, total - staleIds.size) : total;
+
   return NextResponse.json({
     success: true,
     data: {
-      streams,
+      streams: visible,
       pagination: {
         page,
         limit,
-        total,
-        pages: Math.ceil(total / limit),
+        total: adjustedTotal,
+        pages: Math.ceil(adjustedTotal / limit),
       },
     },
   });
@@ -80,22 +98,7 @@ export async function POST(req: NextRequest) {
       isLive: true,
     });
     if (staleStream) {
-      staleStream.isLive = false;
-      staleStream.endedAt = new Date();
-      const secs = staleStream.startedAt
-        ? Math.floor(
-            (Date.now() - new Date(staleStream.startedAt).getTime()) / 1000
-          )
-        : 0;
-      const hh = Math.floor(secs / 3600);
-      const mm = Math.floor((secs % 3600) / 60);
-      const ss = secs % 60;
-      staleStream.duration =
-        hh > 0
-          ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
-          : `${mm}:${String(ss).padStart(2, "0")}`;
-      await staleStream.save();
-
+      await markStreamEnded(staleStream); // also flips dbUser.isLive via streamerId
       // LiveKit room will auto-expire via emptyTimeout
     }
 

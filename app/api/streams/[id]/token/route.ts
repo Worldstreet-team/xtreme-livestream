@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/db";
 import { Stream } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
 import { createToken } from "@/lib/livekit";
+import { reconcileStream } from "@/lib/stream-service";
 
 /**
  * GET /api/streams/[id]/token — Get a LiveKit viewer token
@@ -28,7 +29,10 @@ export async function GET(
     );
   }
 
-  if (!stream.isLive) {
+  // Verify against LiveKit's real room state before letting a viewer in, so a
+  // silently-disconnected stream can't keep handing out join tokens.
+  const stillLive = await reconcileStream(stream);
+  if (!stillLive) {
     return NextResponse.json(
       { success: false, message: "Stream is not live" },
       { status: 400 }

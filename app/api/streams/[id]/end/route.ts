@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
-import { Stream, User } from "@/lib/models";
+import { Stream } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
+import { markStreamEnded } from "@/lib/stream-service";
 
 /**
  * POST /api/streams/[id]/end — End a live stream
@@ -39,25 +40,8 @@ export async function POST(
     );
   }
 
-  // Calculate duration
-  const durationMs = Date.now() - stream.startedAt.getTime();
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const duration =
-    hours > 0
-      ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-      : `${minutes}:${String(seconds).padStart(2, "0")}`;
-
-  // Update stream
-  stream.isLive = false;
-  stream.endedAt = new Date();
-  stream.duration = duration;
-  await stream.save();
-
-  // Mark user as not live
-  await User.updateOne({ _id: result.dbUser._id }, { isLive: false });
+  // End the stream + flip the streamer's live flag (computes duration).
+  await markStreamEnded(stream);
 
   // LiveKit room will auto-expire via emptyTimeout when all participants leave
 

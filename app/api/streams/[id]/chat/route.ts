@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { ChatMessage, Stream } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
+import { reconcileStream } from "@/lib/stream-service";
 
 /**
  * GET /api/streams/[id]/chat — Get chat history for a stream
@@ -74,7 +75,9 @@ export async function POST(
     );
   }
 
-  if (!stream.isLive) {
+  // Reconcile against LiveKit so a stale stream can't keep accepting chat.
+  const stillLive = await reconcileStream(stream);
+  if (!stillLive) {
     return NextResponse.json(
       { success: false, message: "Stream is not live — chat is disabled" },
       { status: 400 }
