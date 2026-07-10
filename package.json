@@ -2,11 +2,19 @@
   "name": "xtreme-livestream",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
     "dev": "next dev",
+    "dev:api": "npm run dev --workspace @xtreme/api",
     "build": "next build",
+    "build:api": "npm run build --workspace @xtreme/contracts && npm run build --workspace @xtreme/api",
     "start": "next start",
-    "lint": "eslint"
+    "start:api": "npm run start --workspace @xtreme/api",
+    "lint": "eslint",
+    "test:api": "npm run test --workspace @xtreme/api"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",

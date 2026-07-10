@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Xtreme Worldstreet
 
-## Getting Started
+Xtreme Worldstreet is a livestreaming platform with a Next.js web client and a
+standalone Fastify API designed to serve both web and React Native clients.
 
-First, run the development server:
+## Repository layout
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+app/                  Next.js web application
+components/           Web UI
+lib/                  Legacy/in-process Next.js backend helpers
+packages/contracts/   Shared validation schemas and TypeScript contracts
+services/api/         Standalone Fastify service
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The existing Next.js route handlers remain available during migration. New
+clients should use the standalone service's `/v1` API. The service also exposes
+the old route shape under `/api`, which lets the web client migrate without
+changing every path at once.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Web application
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+The web application runs on `http://localhost:3000`.
 
-To learn more about Next.js, take a look at the following resources:
+## API service
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Copy `services/api/.env.example` to `services/api/.env`, fill in the values,
+then run:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run build:api
+npm run dev:api
+```
 
-## Deploy on Vercel
+The API defaults to `http://localhost:3001`:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- API: `http://localhost:3001/v1`
+- OpenAPI UI: `http://localhost:3001/docs`
+- Liveness: `http://localhost:3001/health/live`
+- Readiness: `http://localhost:3001/health/ready`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [services/api/README.md](services/api/README.md) for authentication,
+endpoint, mobile-client, and Coolify deployment details.
+
+## Checks
+
+```bash
+npm run build:api
+npm run test:api
+npm run lint
+```
