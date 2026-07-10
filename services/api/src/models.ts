@@ -13,6 +13,12 @@ export interface IUser extends Document {
   totalViews: number;
   isLive: boolean;
   streamKey: string;
+  /**
+   * Lifetime gift earnings (net of commission), USD cents. Display/stats only —
+   * the money itself is credited straight to the streamer's central wallet by
+   * the charge split, so there is nothing to withdraw here.
+   */
+  earningsUsdMinor: number;
   settings: {
     autoRecord: boolean;
     slowMode: boolean;
@@ -42,6 +48,7 @@ const userSchema = new Schema<IUser>(
     totalViews: { type: Number, default: 0, min: 0 },
     isLive: { type: Boolean, default: false },
     streamKey: { type: String, required: true },
+    earningsUsdMinor: { type: Number, default: 0, min: 0 },
     settings: {
       autoRecord: { type: Boolean, default: false },
       slowMode: { type: Boolean, default: false },
@@ -139,6 +146,43 @@ const chatMessageSchema = new Schema<IChatMessage>(
 
 chatMessageSchema.index({ streamId: 1, createdAt: -1 });
 
+export interface IGiftTransaction extends Document {
+  senderId: mongoose.Types.ObjectId;
+  streamerId: mongoose.Types.ObjectId;
+  streamId: mongoose.Types.ObjectId | null;
+  giftName: string;
+  emoji: string;
+  /** All amounts in USD cents. gross = commission + net. */
+  grossUsdMinor: number;
+  commissionUsdMinor: number;
+  netUsdMinor: number;
+  /** Charge id returned by the central wallet service. */
+  walletChargeId: string;
+  /** Client idempotency key — replays return the original transaction. */
+  idempotencyKey: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const giftTransactionSchema = new Schema<IGiftTransaction>(
+  {
+    senderId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    streamerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", default: null },
+    giftName: { type: String, default: "", maxlength: 50 },
+    emoji: { type: String, default: "", maxlength: 20 },
+    grossUsdMinor: { type: Number, required: true, min: 1 },
+    commissionUsdMinor: { type: Number, required: true, min: 0 },
+    netUsdMinor: { type: Number, required: true, min: 0 },
+    walletChargeId: { type: String, default: "" },
+    idempotencyKey: { type: String, required: true, unique: true },
+  },
+  { timestamps: true },
+);
+
+giftTransactionSchema.index({ streamerId: 1, createdAt: -1 });
+giftTransactionSchema.index({ senderId: 1, createdAt: -1 });
+
 export interface IFollow extends Document {
   followerId: mongoose.Types.ObjectId;
   followingId: mongoose.Types.ObjectId;
@@ -168,3 +212,7 @@ export const ChatMessage: Model<IChatMessage> =
 
 export const Follow: Model<IFollow> =
   mongoose.models.Follow ?? mongoose.model<IFollow>("Follow", followSchema);
+
+export const GiftTransaction: Model<IGiftTransaction> =
+  mongoose.models.GiftTransaction ??
+  mongoose.model<IGiftTransaction>("GiftTransaction", giftTransactionSchema);

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { dashboardRoutes } from "./dashboard.js";
+import { giftRoutes } from "./gifts.js";
 import { streamActionRoutes } from "./stream-actions.js";
 import { streamRoutes } from "./streams.js";
 import { userRoutes } from "./users.js";
@@ -10,5 +11,6 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(streamRoutes);
   await fastify.register(streamActionRoutes);
   await fastify.register(dashboardRoutes);
+  await fastify.register(giftRoutes);
   await fastify.register(webhookRoutes);
 };

@@ -23,6 +23,12 @@ const envSchema = z.object({
   LIVEKIT_URL: z.string().url(),
   LIVEKIT_API_KEY: z.string().min(1),
   LIVEKIT_API_SECRET: z.string().min(1),
+  // Central wallet service (gifting). Leave unset to disable the gift routes —
+  // the rest of the API works without them.
+  WALLET_API_URL: z.string().default(""),
+  WALLET_SERVICE_TOKEN: z.string().default(""),
+  // Platform cut of every gift, in percent (0-100).
+  GIFT_COMMISSION_PERCENT: z.coerce.number().min(0).max(100).default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(200),
   RATE_LIMIT_WINDOW: z.string().default("1 minute"),
 });
