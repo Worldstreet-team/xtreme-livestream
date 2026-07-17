@@ -28,6 +28,21 @@ export const streamIdParamsSchema = z.object({
   id: objectIdSchema,
 });
 
+/**
+ * Accepts an http(s) URL or an inline base64 image data URI. Web clients
+ * upload thumbnails/avatars as compressed data URIs rather than hosted files.
+ */
+export const imageSourceSchema = z
+  .string()
+  .max(500_000)
+  .refine(
+    (value) =>
+      value === "" ||
+      (/^https?:\/\/\S+$/.test(value) && value.length <= 2048) ||
+      /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value),
+    "Must be an http(s) URL or a base64 image data URI",
+  );
+
 export const usernameParamsSchema = z.object({
   username: usernameSchema,
 });
@@ -49,7 +64,7 @@ export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,
   tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
-  thumbnail: z.url().max(2048).or(z.literal("")).default(""),
+  thumbnail: imageSourceSchema.default(""),
 });
 
 export const updateStreamBodySchema = createStreamBodySchema
@@ -71,11 +86,30 @@ export const createChatMessageBodySchema = z.object({
   emoji: z.string().trim().max(20).optional(),
 });
 
+export const REPORT_REASONS = [
+  "spam",
+  "harassment",
+  "hate_speech",
+  "violence",
+  "sexual_content",
+  "scam_or_fraud",
+  "copyright",
+  "other",
+] as const;
+
+export const reportReasonSchema = z.enum(REPORT_REASONS);
+export type ReportReason = z.infer<typeof reportReasonSchema>;
+
+export const createReportBodySchema = z.object({
+  reason: reportReasonSchema,
+  details: z.string().trim().max(500).optional(),
+});
+
 export const updateProfileBodySchema = z
   .object({
     displayName: z.string().trim().min(1).max(80).optional(),
     username: usernameSchema.optional(),
-    avatar: z.url().max(2048).or(z.literal("")).optional(),
+    avatar: imageSourceSchema.optional(),
     bio: z.string().trim().max(200).optional(),
     settings: z
       .object({

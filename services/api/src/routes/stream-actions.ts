@@ -1,15 +1,17 @@
+import crypto from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
   chatQuerySchema,
   createChatMessageBodySchema,
+  createReportBodySchema,
   streamIdParamsSchema,
 } from "@xtreme/contracts";
-import { authenticate } from "../auth.js";
+import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { createToken } from "../livekit.js";
-import { ChatMessage, Stream } from "../models.js";
+import { ChatMessage, Report, Stream, StreamLike } from "../models.js";
 import { markStreamEnded, reconcileStream } from "../stream-service.js";
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
@@ -20,8 +22,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Streams"],
-        summary: "Create a LiveKit viewer token",
-        security: [{ bearerAuth: [] }],
+        summary:
+          "Create a LiveKit viewer token (anonymous viewers get a read-only guest token)",
         params: streamIdParamsSchema,
       },
       config: {
@@ -29,7 +31,11 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { dbUser } = await authenticate(request);
+      // Signed-in viewers join under their identity; anonymous visitors get a
+      // guest identity that can watch but cannot broadcast data messages.
+      const viewer = getOptionalAuthUserId(request)
+        ? await authenticate(request)
+        : null;
       const stream = await Stream.findById(request.params.id);
 
       if (!stream) {
@@ -41,12 +47,12 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
 
       const token = await createToken(
         stream.livekitRoomName,
-        dbUser._id.toString(),
-        dbUser.displayName,
+        viewer ? viewer.dbUser._id.toString() : `guest-${crypto.randomUUID()}`,
+        viewer ? viewer.dbUser.displayName : "Guest",
         {
           canPublish: false,
           canSubscribe: true,
-          canPublishData: true,
+          canPublishData: viewer !== null,
         },
       );
 
@@ -99,6 +105,168 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
             peakViewers: stream.peakViewers,
           },
         },
+      };
+    },
+  );
+
+  app.get(
+    "/streams/:id/like",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Get like count and whether the caller liked the stream",
+        security: [{ bearerAuth: [] }],
+        params: streamIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select("likes");
+
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+
+      const liked = Boolean(
+        await StreamLike.exists({ streamId: stream._id, userId: dbUser._id }),
+      );
+
+      return { success: true, data: { likes: stream.likes, liked } };
+    },
+  );
+
+  app.post(
+    "/streams/:id/like",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Like a stream",
+        security: [{ bearerAuth: [] }],
+        params: streamIdParamsSchema,
+      },
+      config: {
+        rateLimit: { max: 30, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select("likes");
+
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+
+      const result = await StreamLike.updateOne(
+        { streamId: stream._id, userId: dbUser._id },
+        { $setOnInsert: { streamId: stream._id, userId: dbUser._id } },
+        { upsert: true },
+      );
+
+      let likes = stream.likes;
+      if (result.upsertedCount > 0) {
+        const updated = await Stream.findByIdAndUpdate(
+          stream._id,
+          { $inc: { likes: 1 } },
+          { new: true, select: "likes" },
+        );
+        likes = updated?.likes ?? likes + 1;
+      }
+
+      return { success: true, data: { likes, liked: true } };
+    },
+  );
+
+  app.delete(
+    "/streams/:id/like",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Remove a like from a stream",
+        security: [{ bearerAuth: [] }],
+        params: streamIdParamsSchema,
+      },
+      config: {
+        rateLimit: { max: 30, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select("likes");
+
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+
+      const deleted = await StreamLike.findOneAndDelete({
+        streamId: stream._id,
+        userId: dbUser._id,
+      });
+
+      let likes = stream.likes;
+      if (deleted) {
+        const updated = await Stream.findOneAndUpdate(
+          { _id: stream._id, likes: { $gt: 0 } },
+          { $inc: { likes: -1 } },
+          { new: true, select: "likes" },
+        );
+        likes = updated?.likes ?? Math.max(0, likes - 1);
+      }
+
+      return { success: true, data: { likes, liked: false } };
+    },
+  );
+
+  app.post(
+    "/streams/:id/report",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Report a stream",
+        security: [{ bearerAuth: [] }],
+        params: streamIdParamsSchema,
+        body: createReportBodySchema,
+      },
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select(
+        "streamerId",
+      );
+
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+      if (stream.streamerId.equals(dbUser._id)) {
+        throw new ApiError(
+          400,
+          "You cannot report your own stream",
+          "SELF_REPORT",
+        );
+      }
+
+      await Report.updateOne(
+        { streamId: stream._id, reporterId: dbUser._id },
+        {
+          $set: {
+            reason: request.body.reason,
+            details: request.body.details ?? "",
+            status: "open",
+          },
+          $setOnInsert: {
+            streamId: stream._id,
+            streamerId: stream.streamerId,
+            reporterId: dbUser._id,
+          },
+        },
+        { upsert: true },
+      );
+
+      return {
+        success: true,
+        message: "Report submitted. Our moderation team will review it.",
       };
     },
   );

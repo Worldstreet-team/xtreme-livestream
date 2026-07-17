@@ -1,8 +1,33 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ApiError } from "../errors.js";
-import { webhookReceiver } from "../livekit.js";
-import { Stream } from "../models.js";
+import { roomService, webhookReceiver } from "../livekit.js";
+import { Stream, type IStream } from "../models.js";
 import { markStreamEnded } from "../stream-service.js";
+
+/**
+ * Refresh a live stream's current/peak viewer counts. Viewer count is the
+ * room's participant count minus the broadcaster.
+ */
+async function updateViewerCounts(
+  stream: IStream,
+  numParticipants: number | undefined,
+) {
+  let participants = numParticipants;
+
+  if (participants === undefined) {
+    try {
+      const list = await roomService.listParticipants(stream.livekitRoomName);
+      participants = list.length;
+    } catch {
+      return;
+    }
+  }
+
+  const viewers = Math.max(0, participants - 1);
+  stream.viewers = viewers;
+  if (viewers > stream.peakViewers) stream.peakViewers = viewers;
+  await stream.save();
+}
 
 export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
@@ -49,6 +74,18 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           isLive: true,
         });
         if (stream) await markStreamEnded(stream);
+      } else if (event.event === "participant_joined") {
+        const identity = event.participant?.identity;
+        const stream = await Stream.findOne({
+          livekitRoomName: roomName,
+          isLive: true,
+        });
+        if (stream && identity && stream.streamerId.toString() !== identity) {
+          await updateViewerCounts(
+            stream,
+            event.room?.numParticipants,
+          );
+        }
       } else if (
         event.event === "participant_left" ||
         event.event === "participant_connection_aborted"
@@ -59,8 +96,15 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
             livekitRoomName: roomName,
             isLive: true,
           });
-          if (stream && stream.streamerId.toString() === identity) {
-            await markStreamEnded(stream);
+          if (stream) {
+            if (stream.streamerId.toString() === identity) {
+              await markStreamEnded(stream);
+            } else {
+              await updateViewerCounts(
+                stream,
+                event.room?.numParticipants,
+              );
+            }
           }
         }
       }

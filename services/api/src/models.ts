@@ -72,6 +72,7 @@ export interface IStream extends Document {
   livekitRoomName: string;
   viewers: number;
   peakViewers: number;
+  likes: number;
   startedAt: Date;
   endedAt: Date | null;
   duration: string;
@@ -96,6 +97,7 @@ const streamSchema = new Schema<IStream>(
     livekitRoomName: { type: String, required: true, unique: true },
     viewers: { type: Number, default: 0, min: 0 },
     peakViewers: { type: Number, default: 0, min: 0 },
+    likes: { type: Number, default: 0, min: 0 },
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null },
     duration: { type: String, default: "0:00" },
@@ -186,6 +188,65 @@ const giftTransactionSchema = new Schema<IGiftTransaction>(
 giftTransactionSchema.index({ streamerId: 1, createdAt: -1 });
 giftTransactionSchema.index({ senderId: 1, createdAt: -1 });
 
+export interface IStreamLike extends Document {
+  streamId: mongoose.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const streamLikeSchema = new Schema<IStreamLike>(
+  {
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  },
+  { timestamps: true },
+);
+
+streamLikeSchema.index({ streamId: 1, userId: 1 }, { unique: true });
+
+export interface IReport extends Document {
+  streamId: mongoose.Types.ObjectId;
+  streamerId: mongoose.Types.ObjectId;
+  reporterId: mongoose.Types.ObjectId;
+  reason: string;
+  details: string;
+  status: "open" | "reviewed" | "dismissed";
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const reportSchema = new Schema<IReport>(
+  {
+    streamId: {
+      type: Schema.Types.ObjectId,
+      ref: "Stream",
+      required: true,
+    },
+    streamerId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    reporterId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    reason: { type: String, required: true, maxlength: 50 },
+    details: { type: String, default: "", maxlength: 500 },
+    status: {
+      type: String,
+      enum: ["open", "reviewed", "dismissed"],
+      default: "open",
+    },
+  },
+  { timestamps: true },
+);
+
+// One report per user per stream — repeat submissions update the original.
+reportSchema.index({ streamId: 1, reporterId: 1 }, { unique: true });
+reportSchema.index({ status: 1, createdAt: -1 });
+
 export interface IFollow extends Document {
   followerId: mongoose.Types.ObjectId;
   followingId: mongoose.Types.ObjectId;
@@ -215,6 +276,13 @@ export const ChatMessage: Model<IChatMessage> =
 
 export const Follow: Model<IFollow> =
   mongoose.models.Follow ?? mongoose.model<IFollow>("Follow", followSchema);
+
+export const StreamLike: Model<IStreamLike> =
+  mongoose.models.StreamLike ??
+  mongoose.model<IStreamLike>("StreamLike", streamLikeSchema);
+
+export const Report: Model<IReport> =
+  mongoose.models.Report ?? mongoose.model<IReport>("Report", reportSchema);
 
 export const GiftTransaction: Model<IGiftTransaction> =
   mongoose.models.GiftTransaction ??
