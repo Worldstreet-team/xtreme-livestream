@@ -67,8 +67,32 @@ export function Footer() {
           ))}
         </div>
 
+        {/* Disclaimers */}
+        <div className="mt-12 space-y-3 border-t border-white/5 pt-8">
+          <p className="text-xs leading-relaxed text-muted-foreground/70">
+            <span className="font-semibold text-muted-foreground">
+              Not financial advice.
+            </span>{" "}
+            Content on Xtreme Worldstreet — including trading calls, market
+            commentary, and price predictions — reflects the opinions of
+            individual creators and is provided for entertainment and
+            educational purposes only. Crypto assets are highly volatile; never
+            risk money you can&apos;t afford to lose. Tips and gifts are
+            voluntary payments to creators, not investments, and carry no
+            expectation of return.
+          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground/70">
+            <span className="font-semibold text-muted-foreground">
+              Zero tolerance for market manipulation.
+            </span>{" "}
+            Promoting pump-and-dump schemes, undisclosed paid promotion, or
+            coordinated market manipulation violates our Creator Guidelines and
+            results in permanent removal from the platform.
+          </p>
+        </div>
+
         {/* Bottom bar */}
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-8 sm:flex-row">
+        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-8 sm:flex-row">
           <p className="text-sm text-muted-foreground">
             &copy; {new Date().getFullYear()} Xtreme Worldstreet. All rights
             reserved.

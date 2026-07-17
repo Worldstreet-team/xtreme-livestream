@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Flame, List, X } from "@phosphor-icons/react";
+import { Flame, List, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/user-avatar";
+
+const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -16,7 +19,16 @@ const navLinks = [
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const router = useRouter();
   const { user, isLoading, isAuthenticated } = useAuth();
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    router.push(q ? `/explore?search=${encodeURIComponent(q)}` : "/explore");
+    setMobileOpen(false);
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-background/80 backdrop-blur-xl">
@@ -46,6 +58,31 @@ export function Navbar() {
 
         {/* Desktop CTAs + User */}
         <div className="hidden items-center gap-3 md:flex">
+          {/* Search */}
+          <form onSubmit={submitSearch} className="relative hidden lg:block">
+            <MagnifyingGlass
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search streams"
+              className="h-9 w-48 rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/50 focus:outline-none xl:w-56"
+            />
+          </form>
+
+          {!isLoading && !isAuthenticated && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="border-white/10 bg-white/5 hover:bg-white/10"
+            >
+              <a href={SIGN_IN_URL}>Sign In</a>
+            </Button>
+          )}
           <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/80">
             <Link href="/studio">Start Streaming</Link>
           </Button>
@@ -95,6 +132,21 @@ export function Navbar() {
       {mobileOpen && (
         <div className="border-t border-white/5 bg-background/95 backdrop-blur-xl md:hidden">
           <div className="flex flex-col gap-1 px-4 py-4">
+            {/* Mobile search */}
+            <form onSubmit={submitSearch} className="relative mb-2">
+              <MagnifyingGlass
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search streams"
+                className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/50 focus:outline-none"
+              />
+            </form>
+
             {navLinks.map((link) => (
               <Link
                 key={link.label}
@@ -143,6 +195,16 @@ export function Navbar() {
             )}
 
             <div className="flex flex-col gap-2 border-t border-white/5 pt-3">
+              {!isLoading && !isAuthenticated && (
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className="border-white/10 bg-white/5 hover:bg-white/10"
+                >
+                  <a href={SIGN_IN_URL}>Sign In</a>
+                </Button>
+              )}
               <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/80">
                 <Link href="/studio">Start Streaming</Link>
               </Button>

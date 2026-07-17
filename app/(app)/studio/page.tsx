@@ -15,6 +15,10 @@ import {
   ChatText,
   UsersThree,
   MonitorArrowUp,
+  ShareNetwork,
+  UploadSimple,
+  X,
+  Warning,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -22,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
-import { captureVideoFrame } from "@/lib/image-utils";
+import { captureVideoFrame, compressImage } from "@/lib/image-utils";
 import { LiveChat } from "@/components/app/live-chat";
 import type {
   Room,
@@ -53,6 +57,23 @@ export default function StudioPage() {
     Array<{ identity: string; name: string; joinedAt: Date }>
   >([]);
   const [screenShareActive, setScreenShareActive] = useState(false);
+
+  // Go Live / End Stream confirmation dialog
+  const [confirmDialog, setConfirmDialog] = useState<"golive" | "end" | null>(
+    null
+  );
+
+  // Custom thumbnail (base64 data URI) chosen by the host
+  const [customThumbnail, setCustomThumbnail] = useState<string | null>(null);
+  const [thumbError, setThumbError] = useState<string | null>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
+
+  // Host share feedback
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Auto-hide overlay controls while live
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // LiveKit refs
   const roomRef = useRef<Room | null>(null);
@@ -147,9 +168,9 @@ export default function StudioPage() {
         .map((t) => t.trim())
         .filter(Boolean);
 
-      // Auto-capture thumbnail from camera preview
-      let thumbnail: string | undefined;
-      if (videoElRef.current) {
+      // Custom uploaded thumbnail wins; otherwise auto-capture from preview
+      let thumbnail: string | undefined = customThumbnail ?? undefined;
+      if (!thumbnail && videoElRef.current) {
         thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
       }
 
@@ -337,18 +358,125 @@ export default function StudioPage() {
     };
   }, []);
 
+  // Show overlay controls, then hide them after 3s of inactivity (live only)
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  useEffect(() => {
+    if (isLive) {
+      showControls();
+    } else {
+      setControlsVisible(true);
+      if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    }
+    return () => {
+      if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    };
+  }, [isLive, showControls]);
+
+  // Warn before closing/refreshing the tab while live — leaving stops the broadcast
+  useEffect(() => {
+    if (!isLive) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isLive]);
+
+  // Warn before in-app navigation while live (the browser is the publisher,
+  // so leaving the studio page ends the broadcast)
+  useEffect(() => {
+    if (!isLive) return;
+    const handler = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname) return;
+      const leave = window.confirm(
+        "You're live! Leaving the studio will end your stream for all viewers. Leave anyway?"
+      );
+      if (!leave) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener("click", handler, true);
+    return () => document.removeEventListener("click", handler, true);
+  }, [isLive]);
+
+  // Host share: share/copy the public stream link
+  const shareStream = async () => {
+    if (!streamId) return;
+    const url = `${window.location.origin}/stream/${streamId}`;
+    const text = `I'm live on Xtreme — ${title}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return;
+      } catch {
+        // Fall through to clipboard
+      }
+    }
+    try {
+      await navigator.clipboard?.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable
+    }
+  };
+
+  // Thumbnail upload
+  const handleThumbnailFile = async (file: File | undefined) => {
+    if (!file) return;
+    setThumbError(null);
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      setThumbError("Please choose a JPEG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setThumbError("Image is too large (max 10MB).");
+      return;
+    }
+    try {
+      const dataUri = await compressImage(file, 640, 0.75);
+      setCustomThumbnail(dataUri);
+    } catch {
+      setThumbError("Could not process that image. Try another file.");
+    }
+  };
+
   return (
     <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">
-          {isLive ? "You're Live!" : "Go Live"}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {isLive
-            ? `Broadcasting for ${elapsed}  •  ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""}`
-            : "Set up your stream and go live to the world"}
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            {isLive ? "You're Live!" : "Go Live"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isLive
+              ? `Broadcasting for ${elapsed}  •  ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""}`
+              : "Set up your stream and go live to the world"}
+          </p>
+        </div>
+        {isLive && streamId && (
+          <button
+            onClick={shareStream}
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ShareNetwork size={16} />
+            {shareCopied ? "Link copied!" : "Share stream"}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -361,7 +489,11 @@ export default function StudioPage() {
         {/* Preview panel (2/3) */}
         <div className="lg:col-span-2">
           {/* Video preview */}
-          <div className="relative aspect-video overflow-hidden rounded-xl border border-white/5 bg-black">
+          <div
+            className="relative aspect-video overflow-hidden rounded-xl border border-white/5 bg-black"
+            onMouseMove={isLive ? showControls : undefined}
+            onTouchStart={isLive ? showControls : undefined}
+          >
             <video
               ref={videoElRef}
               autoPlay
@@ -412,7 +544,12 @@ export default function StudioPage() {
             )}
 
             {/* Stream overlay controls */}
-            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2">
+            <div
+              className={cn(
+                "absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 transition-opacity duration-300",
+                isLive && !controlsVisible && "pointer-events-none opacity-0"
+              )}
+            >
               <button
                 onClick={toggleMic}
                 className={cn(
@@ -457,7 +594,11 @@ export default function StudioPage() {
                   <MonitorArrowUp size={20} />
                 </button>
               )}
-              <button className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20">
+              <button
+                onClick={() => setActiveTab("settings")}
+                title="Stream settings"
+                className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              >
                 <Gear size={20} />
               </button>
             </div>
@@ -604,6 +745,59 @@ export default function StudioPage() {
                   />
                 </div>
 
+                {/* Thumbnail */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Thumbnail
+                  </label>
+                  <input
+                    ref={thumbInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleThumbnailFile(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                  {customThumbnail ? (
+                    <div className="relative overflow-hidden rounded-lg border border-white/10">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={customThumbnail}
+                        alt="Stream thumbnail"
+                        className="aspect-video w-full object-cover"
+                      />
+                      <button
+                        onClick={() => setCustomThumbnail(null)}
+                        disabled={isLive}
+                        title="Remove thumbnail"
+                        className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white disabled:opacity-50"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => thumbInputRef.current?.click()}
+                      disabled={isLive}
+                      className="flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 bg-white/[0.03] py-6 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <UploadSimple size={20} />
+                      <span className="text-xs font-medium">
+                        Upload a custom thumbnail
+                      </span>
+                      <span className="text-[0.6rem] text-muted-foreground/60">
+                        JPEG, PNG or WebP — otherwise we capture one from your
+                        camera
+                      </span>
+                    </button>
+                  )}
+                  {thumbError && (
+                    <p className="mt-1.5 text-xs text-red-400">{thumbError}</p>
+                  )}
+                </div>
+
                 {/* Preview card */}
                 <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3">
                   <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -730,14 +924,14 @@ export default function StudioPage() {
           <div className="mt-4">
             {isLive ? (
               <Button
-                onClick={endStream}
+                onClick={() => setConfirmDialog("end")}
                 className="h-12 w-full gap-2 rounded-xl bg-red-600 text-base font-semibold text-white transition-colors hover:bg-red-700"
               >
                 End Stream
               </Button>
             ) : (
               <Button
-                onClick={goLive}
+                onClick={() => setConfirmDialog("golive")}
                 disabled={!title.trim() || isConnecting}
                 className="h-12 w-full gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -757,6 +951,58 @@ export default function StudioPage() {
           </div>
         </div>
       </div>
+
+      {/* Go Live / End Stream confirmation dialog */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-white/10 bg-background p-6 text-center shadow-2xl">
+            <div
+              className={cn(
+                "mx-auto mb-4 flex size-14 items-center justify-center rounded-full",
+                confirmDialog === "golive" ? "bg-primary/10" : "bg-red-500/10"
+              )}
+            >
+              {confirmDialog === "golive" ? (
+                <Lightning size={26} weight="fill" className="text-primary" />
+              ) : (
+                <Warning size={26} className="text-red-400" />
+              )}
+            </div>
+            <h2 className="text-lg font-bold text-foreground">
+              {confirmDialog === "golive" ? "Ready to go live?" : "End stream?"}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {confirmDialog === "golive"
+                ? `You're about to broadcast "${title}" to everyone on Xtreme.`
+                : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
+            </p>
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="h-11 flex-1 rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const action = confirmDialog;
+                  setConfirmDialog(null);
+                  if (action === "golive") goLive();
+                  else endStream();
+                }}
+                className={cn(
+                  "h-11 flex-1 rounded-lg text-sm font-semibold text-white transition-colors",
+                  confirmDialog === "golive"
+                    ? "bg-primary text-primary-foreground hover:bg-primary/80"
+                    : "bg-red-600 hover:bg-red-700"
+                )}
+              >
+                {confirmDialog === "golive" ? "Go Live" : "End Stream"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

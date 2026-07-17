@@ -317,8 +317,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      title="Replay"
-                      className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
+                      disabled
+                      title="Replays coming soon — stream recording isn't available yet"
+                      className="flex size-8 cursor-not-allowed items-center justify-center rounded-lg border border-white/10 text-muted-foreground/30"
                     >
                       <Play size={14} />
                     </button>

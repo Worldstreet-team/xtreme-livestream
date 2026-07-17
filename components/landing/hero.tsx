@@ -1,32 +1,56 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Lightning, Play } from "@phosphor-icons/react";
+import { Lightning, Play, VideoCamera, VideoCameraSlash } from "@phosphor-icons/react";
 import { WebcamPixelGrid } from "@/components/ui/webcam-pixel-grid";
 
 export function Hero() {
+  // Camera effect is strictly opt-in — no permission prompt until the user asks for it
+  const [camOn, setCamOn] = useState(false);
+
   return (
     <section className="relative flex min-h-screen items-center justify-center overflow-hidden">
-      {/* Webcam pixel grid background */}
+      {/* Background: static grid by default, webcam pixel grid when enabled */}
       <div className="absolute inset-0">
-        <WebcamPixelGrid
-          gridCols={60}
-          gridRows={40}
-          maxElevation={50}
-          motionSensitivity={0.25}
-          elevationSmoothing={0.2}
-          colorMode="webcam"
-          backgroundColor="#030303"
-          mirror={true}
-          gapRatio={0.05}
-          invertColors={false}
-          darken={0.6}
-          borderColor="#ffffff"
-          borderOpacity={0.06}
-          className="w-full h-full"
-        />
+        {camOn ? (
+          <WebcamPixelGrid
+            gridCols={60}
+            gridRows={40}
+            maxElevation={50}
+            motionSensitivity={0.25}
+            elevationSmoothing={0.2}
+            colorMode="webcam"
+            backgroundColor="#030303"
+            mirror={true}
+            gapRatio={0.05}
+            invertColors={false}
+            darken={0.6}
+            borderColor="#ffffff"
+            borderOpacity={0.06}
+            className="w-full h-full"
+          />
+        ) : (
+          <div
+            className="h-full w-full bg-[#030303]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+            }}
+          />
+        )}
       </div>
+
+      {/* Camera effect toggle */}
+      <button
+        onClick={() => setCamOn((v) => !v)}
+        className="absolute bottom-6 right-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1.5 text-xs font-medium text-white/60 backdrop-blur-sm transition-colors hover:border-white/20 hover:text-white/90"
+      >
+        {camOn ? <VideoCameraSlash size={14} /> : <VideoCamera size={14} />}
+        {camOn ? "Disable camera effect" : "Try the camera effect"}
+      </button>
 
       {/* Gradient overlay for readability */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none" />
@@ -43,7 +67,7 @@ export function Hero() {
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-primary" />
           </span>
-          Live Now — 2.4K+ Streamers Online
+          Now in Early Access — Go Live First
         </div>
 
         {/* Heading */}
@@ -87,12 +111,15 @@ export function Hero() {
           </Button>
         </div>
 
-        {/* Stats row */}
-        <div className="mt-16 flex flex-wrap items-center justify-center gap-8 sm:gap-12">
+        {/* Targets row */}
+        <p className="mt-16 text-[0.7rem] font-medium uppercase tracking-widest text-muted-foreground/70">
+          Where we&apos;re headed — year-one targets
+        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-8 sm:gap-12">
           {[
-            { value: "50K+", label: "Active Streamers" },
-            { value: "1.2M+", label: "Monthly Viewers" },
-            { value: "$4.8M", label: "Creator Earnings" },
+            { value: "50K", label: "Streamers" },
+            { value: "1.2M", label: "Monthly Viewers" },
+            { value: "$4.8M", label: "Paid to Creators" },
             { value: "24/7", label: "Live Content" },
           ].map((stat) => (
             <div key={stat.label} className="text-center">

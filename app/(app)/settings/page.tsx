@@ -35,6 +35,7 @@ export default function SettingsPage() {
 
   // Stream state
   const [showStreamKey, setShowStreamKey] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
   const [autoRecord, setAutoRecord] = useState(false);
   const [chatSlowMode, setChatSlowMode] = useState(false);
   const [subscriberOnlyChat, setSubscriberOnlyChat] = useState(false);
@@ -313,10 +314,40 @@ export default function SettingsPage() {
                     {showStreamKey ? <EyeSlash size={16} /> : <Eye size={16} />}
                   </button>
                   <button
-                    onClick={() => navigator.clipboard?.writeText(user.streamKey)}
-                    className="flex size-10 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={async () => {
+                      let ok = false;
+                      try {
+                        await navigator.clipboard.writeText(user.streamKey);
+                        ok = true;
+                      } catch {
+                        // Clipboard API unavailable (e.g. non-HTTPS) — fallback
+                        const ta = document.createElement("textarea");
+                        ta.value = user.streamKey;
+                        ta.style.position = "fixed";
+                        ta.style.opacity = "0";
+                        document.body.appendChild(ta);
+                        ta.select();
+                        try {
+                          ok = document.execCommand("copy");
+                        } catch {
+                          ok = false;
+                        }
+                        ta.remove();
+                      }
+                      if (ok) {
+                        setKeyCopied(true);
+                        setTimeout(() => setKeyCopied(false), 2000);
+                      }
+                    }}
+                    title={keyCopied ? "Copied!" : "Copy stream key"}
+                    className={cn(
+                      "flex size-10 items-center justify-center rounded-lg border transition-colors",
+                      keyCopied
+                        ? "border-green-500/30 text-green-400"
+                        : "border-white/10 text-muted-foreground hover:text-foreground"
+                    )}
                   >
-                    <Copy size={16} />
+                    {keyCopied ? <Check size={16} /> : <Copy size={16} />}
                   </button>
                 </div>
               </div>
@@ -328,7 +359,7 @@ export default function SettingsPage() {
                 </h2>
                 <Toggle
                   label="Auto-record streams"
-                  description="Automatically save a VOD of your streams"
+                  description="Automatically save a VOD of your streams (coming soon — recordings are not yet available)"
                   checked={autoRecord}
                   onChange={setAutoRecord}
                 />
