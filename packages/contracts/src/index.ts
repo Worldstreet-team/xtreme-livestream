@@ -41,6 +41,10 @@ export const listStreamsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
 });
 
+export const topStreamersQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(20).default(8),
+});
+
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,

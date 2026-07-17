@@ -26,6 +26,7 @@ interface APIStream {
     displayName: string;
     avatar: string;
     isLive: boolean;
+    verified?: boolean;
   };
 }
 
@@ -36,7 +37,7 @@ function toStreamCard(s: APIStream) {
     title: s.title,
     category: s.category,
     tags: s.tags,
-    thumbnail: s.thumbnail || "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop",
+    thumbnail: s.thumbnail || "",
     isLive: s.isLive,
     viewers: s.viewers,
     startedAt: s.startedAt,
@@ -47,6 +48,7 @@ function toStreamCard(s: APIStream) {
       displayName: s.streamerId.displayName,
       avatar: s.streamerId.avatar,
       isLive: s.streamerId.isLive,
+      verified: s.streamerId.verified ?? false,
       bio: "",
       followers: 0,
       following: 0,
@@ -63,6 +65,12 @@ export default function ExplorePage() {
   const [streams, setStreams] = useState<ReturnType<typeof toStreamCard>[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+
+  // Pick up ?search= from the landing-page search bar
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("search");
+    if (q) setSearch(q);
+  }, []);
 
   const fetchStreams = useCallback(async () => {
     setLoading(true);

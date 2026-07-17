@@ -12,6 +12,8 @@ export interface IUser extends Document {
   following: number;
   totalViews: number;
   isLive: boolean;
+  /** Platform-granted trust badge; set by admins/ops, not user-editable. */
+  verified: boolean;
   streamKey: string;
   /**
    * Lifetime gift earnings (net of commission), USD cents. Display/stats only —
@@ -47,6 +49,7 @@ const userSchema = new Schema<IUser>(
     following: { type: Number, default: 0, min: 0 },
     totalViews: { type: Number, default: 0, min: 0 },
     isLive: { type: Boolean, default: false },
+    verified: { type: Boolean, default: false },
     streamKey: { type: String, required: true },
     earningsUsdMinor: { type: Number, default: 0, min: 0 },
     settings: {

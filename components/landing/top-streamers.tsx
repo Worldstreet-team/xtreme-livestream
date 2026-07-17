@@ -1,82 +1,155 @@
-import { Crown, TrendUp, Eye } from "@phosphor-icons/react/dist/ssr";
-import { UserAvatar } from "@/components/ui/user-avatar";
+"use client";
 
-const topStreamers = [
+import { useEffect, useState } from "react";
+import { Crown, TrendUp, Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
+import { UserAvatar } from "@/components/ui/user-avatar";
+import { apiFetch } from "@/lib/api-client";
+import { formatNumber } from "@/lib/mock-data";
+
+type TopStreamer = {
+  rank: number;
+  name: string;
+  avatar: string;
+  followers: string;
+  totalViews: string;
+  category: string;
+  isLive: boolean;
+  verified: boolean;
+};
+
+// Curated fallback shown until real streamers exist
+const demoStreamers: TopStreamer[] = [
   {
     rank: 1,
-    name: "CryptoKing",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=CryptoKing",
-    followers: "245K",
-    totalViews: "12.8M",
+    name: "Marcus Delgado",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=marcustrades",
+    followers: "12.4K",
+    totalViews: "471K",
     category: "Bitcoin Trading",
     isLive: true,
+    verified: true,
   },
   {
     rank: 2,
-    name: "DeFiDegen",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=DeFiDegen",
-    followers: "189K",
-    totalViews: "9.2M",
+    name: "0xKenji",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=0xKenji",
+    followers: "8.9K",
+    totalViews: "356K",
     category: "DeFi Protocols",
     isLive: true,
+    verified: true,
   },
   {
     rank: 3,
-    name: "NFTWhale",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=NFTWhale",
-    followers: "156K",
-    totalViews: "7.5M",
-    category: "NFT Markets",
+    name: "LenaChartLab",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=LenaChartLab",
+    followers: "8.1K",
+    totalViews: "289K",
+    category: "Market Analysis",
     isLive: false,
+    verified: true,
   },
   {
     rank: 4,
-    name: "AltHunter",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=AltHunter",
-    followers: "134K",
-    totalViews: "6.1M",
-    category: "Altcoin Scouting",
+    name: "SatsPerDay",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=SatsPerDay",
+    followers: "6.7K",
+    totalViews: "232K",
+    category: "Bitcoin Trading",
     isLive: true,
+    verified: false,
   },
   {
     rank: 5,
-    name: "ChainAnalyst",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=ChainAnalyst",
-    followers: "112K",
-    totalViews: "5.4M",
-    category: "On-Chain Data",
+    name: "priya.hodl",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=priya.hodl",
+    followers: "5.9K",
+    totalViews: "178K",
+    category: "Crypto Education",
     isLive: false,
+    verified: true,
   },
   {
     rank: 6,
-    name: "MevBot_",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=MevBot",
-    followers: "98K",
-    totalViews: "4.8M",
-    category: "MEV & Bots",
+    name: "TheQuietTrader",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TheQuietTrader",
+    followers: "4.2K",
+    totalViews: "149K",
+    category: "Futures & Perps",
     isLive: true,
+    verified: false,
   },
   {
     rank: 7,
-    name: "YieldFarmer",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=YieldFarmer",
-    followers: "87K",
-    totalViews: "3.9M",
-    category: "Yield Strategies",
+    name: "block_amara",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=block_amara",
+    followers: "3.8K",
+    totalViews: "117K",
+    category: "NFT Markets",
     isLive: false,
+    verified: false,
   },
   {
     rank: 8,
-    name: "TaxGuru",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TaxGuru",
-    followers: "76K",
-    totalViews: "3.2M",
-    category: "Crypto Education",
+    name: "DeFiDante",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=DeFiDante",
+    followers: "3.4K",
+    totalViews: "94K",
+    category: "Yield Strategies",
     isLive: false,
+    verified: false,
   },
 ];
 
+interface APITopStreamer {
+  rank: number;
+  id: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+  followers: number;
+  totalViews: number;
+  isLive: boolean;
+  verified: boolean;
+  category: string | null;
+}
+
 export function TopStreamers() {
+  const [topStreamers, setTopStreamers] = useState<TopStreamer[]>(demoStreamers);
+
+  // Swap in real streamers when the platform has them
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { streamers: APITopStreamer[] };
+        }>("/api/users/top?limit=8");
+        const streamers = res.data?.streamers ?? [];
+        if (!cancelled && streamers.length > 0) {
+          setTopStreamers(
+            streamers.map((s) => ({
+              rank: s.rank,
+              name: s.displayName || s.username,
+              avatar: s.avatar,
+              followers: formatNumber(s.followers),
+              totalViews: formatNumber(s.totalViews),
+              category: s.category ?? "New Streamer",
+              isLive: s.isLive,
+              verified: s.verified,
+            })),
+          );
+        }
+      } catch {
+        // API unavailable — keep the curated fallback
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <section id="top-streamers" className="relative py-20 sm:py-28 overflow-hidden">
       {/* Background glow */}
@@ -140,6 +213,14 @@ export function TopStreamers() {
                   <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
                     {streamer.name}
                   </h3>
+                  {streamer.verified && (
+                    <SealCheck
+                      size={14}
+                      weight="fill"
+                      className="shrink-0 text-sky-400"
+                      aria-label="Verified streamer"
+                    />
+                  )}
                   {streamer.isLive && (
                     <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[0.6rem] font-semibold text-red-400">
                       LIVE

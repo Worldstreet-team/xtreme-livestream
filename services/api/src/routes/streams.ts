@@ -54,7 +54,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           .sort(sortObject)
           .skip(skip)
           .limit(limit)
-          .populate("streamerId", "username displayName avatar isLive")
+          .populate("streamerId", "username displayName avatar isLive verified")
           .lean(),
         Stream.countDocuments(filter),
       ]);
@@ -163,7 +163,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const stream = await Stream.findById(request.params.id)
         .populate(
           "streamerId",
-          "username displayName avatar bio followers isLive",
+          "username displayName avatar bio followers isLive verified",
         )
         .lean();
 

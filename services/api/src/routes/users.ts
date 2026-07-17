@@ -1,12 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
+  topStreamersQuerySchema,
   updateProfileBodySchema,
   usernameParamsSchema,
 } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
-import { Follow, User, type IUser } from "../models.js";
+import { Follow, Stream, User, type IUser } from "../models.js";
 
 function privateUser(user: IUser) {
   return {
@@ -21,6 +22,7 @@ function privateUser(user: IUser) {
     following: user.following,
     totalViews: user.totalViews,
     isLive: user.isLive,
+    verified: user.verified,
     streamKey: user.streamKey,
     settings: user.settings,
     createdAt: user.createdAt,
@@ -29,6 +31,58 @@ function privateUser(user: IUser) {
 
 export const userRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  app.get(
+    "/users/top",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Leaderboard of top streamers by followers and total views",
+        querystring: topStreamersQuerySchema,
+      },
+    },
+    async (request) => {
+      const { limit } = request.query;
+
+      const users = await User.find({})
+        .sort({ followers: -1, totalViews: -1 })
+        .limit(limit)
+        .select(
+          "username displayName avatar followers totalViews isLive verified",
+        )
+        .lean();
+
+      // Latest stream per user supplies the category shown on the leaderboard.
+      const latestStreams = users.length
+        ? await Stream.aggregate<{ _id: unknown; category: string }>([
+            { $match: { streamerId: { $in: users.map((u) => u._id) } } },
+            { $sort: { startedAt: -1 } },
+            { $group: { _id: "$streamerId", category: { $first: "$category" } } },
+          ])
+        : [];
+      const categoryByUser = new Map(
+        latestStreams.map((s) => [String(s._id), s.category]),
+      );
+
+      return {
+        success: true,
+        data: {
+          streamers: users.map((user, index) => ({
+            rank: index + 1,
+            id: user._id,
+            username: user.username,
+            displayName: user.displayName,
+            avatar: user.avatar,
+            followers: user.followers,
+            totalViews: user.totalViews,
+            isLive: user.isLive,
+            verified: user.verified,
+            category: categoryByUser.get(String(user._id)) ?? null,
+          })),
+        },
+      };
+    },
+  );
 
   app.get(
     "/user/me",
@@ -144,6 +198,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
             following: user.following,
             totalViews: user.totalViews,
             isLive: user.isLive,
+            verified: user.verified,
             createdAt: user.createdAt,
           },
           isFollowing,

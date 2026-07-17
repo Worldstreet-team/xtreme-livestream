@@ -1,9 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Eye } from "@phosphor-icons/react/dist/ssr";
+import { Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
 import { type Stream, CATEGORY_COLORS, formatNumber } from "@/lib/mock-data";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 
 export function StreamCard({ stream }: { stream: Stream }) {
   return (
@@ -11,12 +12,16 @@ export function StreamCard({ stream }: { stream: Stream }) {
       <article className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]">
         {/* Thumbnail */}
         <div className="relative aspect-video overflow-hidden">
-          <Image
-            src={stream.thumbnail}
-            alt={stream.title}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-          />
+          {stream.thumbnail ? (
+            <Image
+              src={stream.thumbnail}
+              alt={stream.title}
+              fill
+              className="object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+          ) : (
+            <StreamPreviewThumb seed={stream.id + stream.title} />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
 
           {/* Live badge */}
@@ -56,8 +61,16 @@ export function StreamCard({ stream }: { stream: Stream }) {
             <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
               {stream.title}
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               {stream.streamer.displayName}
+              {stream.streamer.verified && (
+                <SealCheck
+                  size={13}
+                  weight="fill"
+                  className="shrink-0 text-sky-400"
+                  aria-label="Verified streamer"
+                />
+              )}
             </p>
             <span
               className={cn(

@@ -1,79 +1,154 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Eye, Users } from "@phosphor-icons/react/dist/ssr";
+import { Eye, SealCheck } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
+import { apiFetch } from "@/lib/api-client";
+import { formatNumber } from "@/lib/mock-data";
 
-const featuredStreams = [
+type FeaturedStream = {
+  id: string;
+  title: string;
+  streamer: string;
+  viewers: number;
+  category: string;
+  // Empty thumbnail → generated chart preview
+  thumbnail: string;
+  pair?: string;
+  avatar: string;
+  isLive: boolean;
+  verified?: boolean;
+};
+
+// Curated fallback shown until real live streams exist
+const demoStreams: FeaturedStream[] = [
   {
-    id: 1,
-    title: "BTC Analysis: Bull Run Incoming?",
-    streamer: "CryptoKing",
-    viewers: "12.4K",
-    category: "Bitcoin",
-    thumbnail:
-      "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=CryptoKing",
+    id: "demo-1",
+    title: "BTC at Resistance: Reading the 4H Chart",
+    streamer: "Marcus Delgado",
+    viewers: 1284,
+    category: "Bitcoin Trading",
+    thumbnail: "",
+    pair: "BTC/USDT",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=marcustrades",
+    isLive: true,
+    verified: true,
+  },
+  {
+    id: "demo-2",
+    title: "Solana DeFi Deep Dive: LP Risks Explained",
+    streamer: "0xKenji",
+    viewers: 947,
+    category: "Altcoins & DeFi",
+    thumbnail: "",
+    pair: "SOL/USDT",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=0xKenji",
+    isLive: true,
+    verified: true,
+  },
+  {
+    id: "demo-3",
+    title: "Reading On-Chain Flows Before the Fed",
+    streamer: "LenaChartLab",
+    viewers: 613,
+    category: "Market Analysis",
+    thumbnail: "",
+    pair: "ETH/USDT",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=LenaChartLab",
+    isLive: true,
+    verified: true,
+  },
+  {
+    id: "demo-4",
+    title: "NFT Market Check: Floor Prices & Volume",
+    streamer: "block_amara",
+    viewers: 402,
+    category: "NFTs & Web3",
+    thumbnail: "",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=block_amara",
     isLive: true,
   },
   {
-    id: 2,
-    title: "Solana DeFi Deep Dive",
-    streamer: "DeFiDegen",
-    viewers: "8.1K",
-    category: "Solana",
-    thumbnail:
-      "https://images.unsplash.com/photo-1639762681057-408e52192e55?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=DeFiDegen",
+    id: "demo-5",
+    title: "Small-Cap Watchlist + My Risk Rules",
+    streamer: "TheQuietTrader",
+    viewers: 355,
+    category: "Altcoins & DeFi",
+    thumbnail: "",
+    pair: "AVAX/USDT",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TheQuietTrader",
     isLive: true,
   },
   {
-    id: 3,
-    title: "NFT Minting Strategy 2026",
-    streamer: "NFTWhale",
-    viewers: "5.7K",
-    category: "NFTs",
-    thumbnail:
-      "https://images.unsplash.com/photo-1644143379190-08a5f055de1d?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=NFTWhale",
-    isLive: true,
-  },
-  {
-    id: 4,
-    title: "Ethereum Merge Update & Yield Farming",
-    streamer: "ETHMaxi",
-    viewers: "3.9K",
-    category: "Ethereum",
-    thumbnail:
-      "https://images.unsplash.com/photo-1642104704074-907c0698b98d?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=ETHMaxi",
+    id: "demo-6",
+    title: "Crypto Taxes 101: What Traders Get Wrong",
+    streamer: "priya.hodl",
+    viewers: 218,
+    category: "Crypto Education",
+    thumbnail: "",
+    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=priya.hodl",
     isLive: false,
-  },
-  {
-    id: 5,
-    title: "Altcoin Gems: 100x Potential Picks",
-    streamer: "AltHunter",
-    viewers: "6.2K",
-    category: "Altcoins",
-    thumbnail:
-      "https://images.unsplash.com/photo-1622630998477-20aa696ecb05?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=AltHunter",
-    isLive: true,
-  },
-  {
-    id: 6,
-    title: "Crypto Tax Strategies for Traders",
-    streamer: "TaxGuru",
-    viewers: "2.3K",
-    category: "Education",
-    thumbnail:
-      "https://images.unsplash.com/photo-1633158829585-23ba8f7c8caf?q=80&w=800&auto=format&fit=crop",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TaxGuru",
-    isLive: false,
+    verified: true,
   },
 ];
 
+interface APIStream {
+  _id: string;
+  title: string;
+  category: string;
+  thumbnail: string;
+  isLive: boolean;
+  viewers: number;
+  streamerId: {
+    _id: string;
+    username: string;
+    displayName: string;
+    avatar: string;
+    verified?: boolean;
+  };
+}
+
 export function FeaturedStreams() {
+  const [streams, setStreams] = useState<FeaturedStream[]>(demoStreams);
+
+  // Swap in real live streams when the platform has them
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { streams: APIStream[] };
+        }>("/api/streams?live=true&sort=viewers&limit=6");
+        const live = res.data?.streams ?? [];
+        if (!cancelled && live.length > 0) {
+          setStreams(
+            live.map((s) => ({
+              id: s._id,
+              title: s.title,
+              streamer: s.streamerId.displayName || s.streamerId.username,
+              viewers: s.viewers,
+              category: s.category,
+              thumbnail: s.thumbnail || "",
+              avatar: s.streamerId.avatar,
+              isLive: s.isLive,
+              verified: s.streamerId.verified ?? false,
+            })),
+          );
+        }
+      } catch {
+        // API unavailable — keep the curated fallback
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <section id="explore" className="relative py-20 sm:py-28 overflow-hidden">
       {/* Background glow */}
@@ -100,19 +175,26 @@ export function FeaturedStreams() {
 
         {/* Stream grid */}
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featuredStreams.map((stream) => (
+          {streams.map((stream) => (
             <Link key={stream.id} href={`/stream/${stream.id}`}>
             <article
               className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]"
             >
               {/* Thumbnail */}
               <div className="relative aspect-video overflow-hidden">
-                <Image
-                  src={stream.thumbnail}
-                  alt={stream.title}
-                  fill
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                />
+                {stream.thumbnail ? (
+                  <Image
+                    src={stream.thumbnail}
+                    alt={stream.title}
+                    fill
+                    className="object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                ) : (
+                  <StreamPreviewThumb
+                    seed={stream.id + stream.title}
+                    pair={stream.pair}
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
 
                 {/* Live badge */}
@@ -129,7 +211,7 @@ export function FeaturedStreams() {
                 {/* Viewers */}
                 <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-xs font-medium text-white/90 backdrop-blur-sm">
                   <Eye size={14} />
-                  {stream.viewers}
+                  {formatNumber(stream.viewers)}
                 </div>
               </div>
 
@@ -145,8 +227,16 @@ export function FeaturedStreams() {
                   <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
                     {stream.title}
                   </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                     {stream.streamer}
+                    {stream.verified && (
+                      <SealCheck
+                        size={13}
+                        weight="fill"
+                        className="shrink-0 text-sky-400"
+                        aria-label="Verified streamer"
+                      />
+                    )}
                   </p>
                   <Badge
                     variant="secondary"

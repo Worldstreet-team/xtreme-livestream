@@ -39,6 +39,7 @@ export type User = {
   totalViews: number;
   isLive: boolean;
   joinedAt: string;
+  verified?: boolean;
 };
 
 export type Stream = {
