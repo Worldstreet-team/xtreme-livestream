@@ -16,6 +16,7 @@ import {
   Users,
   Storefront,
   GraduationCap,
+  SignIn,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -39,7 +40,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
   return (
     <>
@@ -154,43 +155,53 @@ export function Sidebar() {
 
         {/* User info */}
         <div className="border-t border-white/5 p-3">
-          <div className="flex items-center gap-3">
-            {user ? (
+          {user ? (
+            <div className="flex items-center gap-3">
               <UserAvatar
                 src={user.avatar}
                 name={user.displayName || user.username}
                 size={32}
                 className="size-8"
               />
-            ) : (
+              {!collapsed && (
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {user.displayName}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    @{user.username}
+                  </p>
+                </div>
+              )}
+              {!collapsed && (
+                <div className="flex items-center gap-2">
+                  <a
+                    href="https://dashboard.worldstreetgold.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Dashboard
+                  </a>
+                  <button className="text-muted-foreground transition-colors hover:text-foreground">
+                    <SignOut size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : isLoading ? (
+            <div className="flex items-center gap-3">
               <div className="size-8 shrink-0 animate-pulse rounded-full bg-white/10" />
-            )}
-            {!collapsed && user && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {user.displayName}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  @{user.username}
-                </p>
-              </div>
-            )}
-            {!collapsed && (
-              <div className="flex items-center gap-2">
-                <a
-                  href="https://dashboard.worldstreetgold.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[0.65rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Dashboard
-                </a>
-                <button className="text-muted-foreground transition-colors hover:text-foreground">
-                  <SignOut size={16} />
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <a
+              href="https://www.worldstreetgold.com/login"
+              className="flex items-center justify-center gap-2 rounded-lg bg-primary/10 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              <SignIn size={16} />
+              {!collapsed && "Sign In"}
+            </a>
+          )}
         </div>
       </aside>
     </>

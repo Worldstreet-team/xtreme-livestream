@@ -5,6 +5,9 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * All other routes are protected by default.
  */
 const isPublicRoute = createRouteMatcher([
+  "/",                       // Marketing landing page
+  "/explore",                // Public stream browsing
+  "/stream/(.*)",            // Public stream watching (interactions still require auth)
   "/api/streams(.*)",        // Public stream listing & details
   "/api/user/:username",     // Public user profiles
   "/api/webhooks/(.*)",      // Server-to-server webhooks (verified by signature)

@@ -1,10 +1,45 @@
 "use client";
 
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/app/sidebar";
 import { useAuth } from "@/lib/auth-context";
 
+const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
+
+/** Routes browsable without an account (interactions still require sign-in). */
+function isPublicPath(pathname: string) {
+  return (
+    pathname === "/explore" ||
+    pathname.startsWith("/explore/") ||
+    pathname.startsWith("/stream/")
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { isLoading, isAuthenticated, error, refreshUser } = useAuth();
+  const pathname = usePathname();
+  const publicPath = isPublicPath(pathname);
+
+  // Signed out on a protected page — actually send the visitor to sign-in
+  // (the fallback UI below only shows while the navigation happens)
+  useEffect(() => {
+    if (!publicPath && !isLoading && !isAuthenticated && !error) {
+      window.location.href = SIGN_IN_URL;
+    }
+  }, [publicPath, isLoading, isAuthenticated, error]);
+
+  // Public pages render immediately for everyone — no auth gate
+  if (publicPath) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Sidebar />
+        <main className="transition-all duration-300 md:ml-60 min-h-screen">
+          {children}
+        </main>
+      </div>
+    );
+  }
 
   // Still loading — show spinner
   if (isLoading) {

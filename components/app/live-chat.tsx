@@ -6,15 +6,17 @@ import {
   Smiley,
   CurrencyEth,
   ShieldStar,
-  Prohibit,
   Clock,
   Lightning,
+  SignIn,
 } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import type { Room } from "livekit-client";
+
+const SLOW_MODE_SECONDS = 30;
 
 const QUICK_REACTIONS = [
   "🔥",
@@ -59,8 +61,28 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
   const [tipAmount, setTipAmount] = useState("");
   const [tipCurrency, setTipCurrency] = useState("USDC");
   const [slowMode, setSlowMode] = useState(false);
+  const [showModTools, setShowModTools] = useState(false);
+  const [cooldownLeft, setCooldownLeft] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const attachedRef = useRef(false);
+  const slowModeRef = useRef(false);
+  slowModeRef.current = slowMode;
+
+  // Host: seed slow mode from the saved profile setting
+  const seededSlowMode = useRef(false);
+  useEffect(() => {
+    if (isHost && user && !seededSlowMode.current) {
+      seededSlowMode.current = true;
+      setSlowMode(user.settings?.slowMode ?? false);
+    }
+  }, [isHost, user]);
+
+  // Countdown ticker while a slow-mode cooldown is active
+  useEffect(() => {
+    if (cooldownLeft <= 0) return;
+    const t = setTimeout(() => setCooldownLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [cooldownLeft]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -132,7 +154,19 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         if (participant?.identity === user?.id) return;
         try {
           const decoded = new TextDecoder().decode(payload);
-          const data = JSON.parse(decoded) as ChatMsg;
+          const data = JSON.parse(decoded) as ChatMsg & {
+            __evt?: string;
+            enabled?: boolean;
+          };
+
+          // Engagement/moderation events — not chat messages
+          if (data.__evt) {
+            if (data.__evt === "slowmode" && !isHost) {
+              setSlowMode(!!data.enabled);
+            }
+            return;
+          }
+
           setMessages((prev) => [
             ...prev,
             { ...data, id: `rt-${Date.now()}-${Math.random()}` },
@@ -145,6 +179,25 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
       room.on(RoomEvent.DataReceived, handleData);
       // Store for cleanup
       (room as unknown as Record<string, unknown>).__chatHandler = handleData;
+
+      // Host: sync current slow-mode state to viewers who join mid-stream
+      if (isHost) {
+        const handleJoin = () => {
+          try {
+            const payload = new TextEncoder().encode(
+              JSON.stringify({
+                __evt: "slowmode",
+                enabled: slowModeRef.current,
+              })
+            );
+            room.localParticipant.publishData(payload, { reliable: true });
+          } catch {
+            // Room may be disconnected
+          }
+        };
+        room.on(RoomEvent.ParticipantConnected, handleJoin);
+        (room as unknown as Record<string, unknown>).__joinHandler = handleJoin;
+      }
     };
 
     setup();
@@ -155,10 +208,14 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         if (handler) {
           room.off(eventName as Parameters<typeof room.off>[0], handler as Parameters<typeof room.off>[1]);
         }
+        const joinHandler = (room as unknown as Record<string, unknown>).__joinHandler;
+        if (joinHandler) {
+          room.off("participantConnected" as Parameters<typeof room.off>[0], joinHandler as Parameters<typeof room.off>[1]);
+        }
       }
       attachedRef.current = false;
     };
-  }, [room, user?.id]);
+  }, [room, user?.id, isHost]);
 
   // Broadcast message via LiveKit data messages
   const broadcastMessage = useCallback(
@@ -174,8 +231,36 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     [room]
   );
 
+  // Host-only: toggle slow mode, broadcast to viewers, persist the setting
+  const toggleSlowMode = useCallback(
+    (enabled: boolean) => {
+      setSlowMode(enabled);
+
+      if (room?.localParticipant) {
+        try {
+          const payload = new TextEncoder().encode(
+            JSON.stringify({ __evt: "slowmode", enabled })
+          );
+          room.localParticipant.publishData(payload, { reliable: true });
+        } catch {
+          // Room may be disconnected
+        }
+      }
+
+      // Persist so the preference sticks for future streams (best-effort)
+      apiFetch("/api/user/me", {
+        method: "PATCH",
+        body: JSON.stringify({ settings: { slowMode: enabled } }),
+      }).catch(() => {});
+    },
+    [room]
+  );
+
   const sendMessage = async () => {
     if (!input.trim() || !user) return;
+
+    // Slow mode: viewers must wait between messages (host is exempt)
+    if (slowMode && !isHost && cooldownLeft > 0) return;
 
     const msg: ChatMsg = {
       id: `local-${Date.now()}`,
@@ -192,6 +277,10 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     // Add locally immediately
     setMessages((prev) => [...prev, msg]);
     setInput("");
+
+    if (slowMode && !isHost) {
+      setCooldownLeft(SLOW_MODE_SECONDS);
+    }
 
     // Broadcast via LiveKit
     broadcastMessage(msg);
@@ -285,28 +374,86 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     <div className="flex h-full flex-col border-l border-white/5 bg-background">
       {/* Chat header */}
       <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-        <h3 className="text-sm font-semibold text-foreground">Live Chat</h3>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-foreground">Live Chat</h3>
+          {slowMode && (
+            <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[0.6rem] font-medium text-primary">
+              <Clock size={10} />
+              Slow mode
+            </span>
+          )}
+        </div>
+        {isHost && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => toggleSlowMode(!slowMode)}
+              title={slowMode ? "Disable slow mode" : "Enable slow mode"}
+              className={cn(
+                "flex size-7 items-center justify-center rounded-md transition-colors",
+                slowMode
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              )}
+            >
+              <Clock size={16} />
+            </button>
+            <button
+              onClick={() => setShowModTools(!showModTools)}
+              title="Mod Tools"
+              className={cn(
+                "flex size-7 items-center justify-center rounded-md transition-colors",
+                showModTools
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              )}
+            >
+              <ShieldStar size={16} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Mod tools panel (host only) */}
+      {isHost && showModTools && (
+        <div className="border-b border-white/5 bg-white/[0.02] px-4 py-3">
+          <p className="mb-2 text-xs font-semibold text-foreground">
+            Moderation
+          </p>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              Slow mode
+              <span className="block text-[0.6rem] text-muted-foreground/60">
+                Viewers wait {SLOW_MODE_SECONDS}s between messages
+              </span>
+            </span>
+            <button
+              onClick={() => toggleSlowMode(!slowMode)}
+              className={cn(
+                "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                slowMode ? "bg-primary" : "bg-white/10"
+              )}
+              role="switch"
+              aria-checked={slowMode}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-4 rounded-full bg-white transition-all",
+                  slowMode ? "left-[calc(100%-1.125rem)]" : "left-0.5"
+                )}
+              />
+            </button>
+          </label>
           <button
-            onClick={() => setSlowMode(!slowMode)}
-            title="Slow Mode"
-            className={cn(
-              "flex size-7 items-center justify-center rounded-md transition-colors",
-              slowMode
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-            )}
+            onClick={() => {
+              setMessages([]);
+              setShowModTools(false);
+            }}
+            className="mt-3 h-8 w-full rounded-md border border-white/10 text-xs font-medium text-muted-foreground transition-colors hover:border-red-500/30 hover:text-red-400"
           >
-            <Clock size={16} />
-          </button>
-          <button
-            title="Mod Tools"
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-          >
-            <ShieldStar size={16} />
+            Clear chat (local)
           </button>
         </div>
-      </div>
+      )}
 
       {/* Messages */}
       <div
@@ -392,12 +539,6 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                     {msg.content}
                   </p>
                 </div>
-                <button
-                  title="Ban user"
-                  className="hidden size-5 shrink-0 items-center justify-center rounded text-muted-foreground/30 hover:bg-red-500/10 hover:text-red-400 group-hover:flex"
-                >
-                  <Prohibit size={12} />
-                </button>
               </div>
             )}
           </div>
@@ -457,7 +598,15 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
 
       {/* Input bar */}
       <div className="border-t border-white/5 px-3 py-3">
-        {isLive ? (
+        {isLive && !user ? (
+          <a
+            href="https://www.worldstreetgold.com/login"
+            className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 text-sm font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
+          >
+            <SignIn size={16} />
+            Sign in to chat
+          </a>
+        ) : isLive ? (
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -492,18 +641,28 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             <input
               type="text"
               placeholder={
-                slowMode ? "Slow mode (30s)" : "Send a message..."
+                cooldownLeft > 0
+                  ? `Slow mode — wait ${cooldownLeft}s`
+                  : slowMode && !isHost
+                    ? `Slow mode (${SLOW_MODE_SECONDS}s between messages)`
+                    : "Send a message..."
               }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none"
+              disabled={cooldownLeft > 0}
+              className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               onClick={sendMessage}
-              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors hover:bg-primary/20"
+              disabled={cooldownLeft > 0}
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <PaperPlaneRight size={18} weight="fill" />
+              {cooldownLeft > 0 ? (
+                <span className="text-xs font-semibold">{cooldownLeft}</span>
+              ) : (
+                <PaperPlaneRight size={18} weight="fill" />
+              )}
             </button>
           </div>
         ) : (

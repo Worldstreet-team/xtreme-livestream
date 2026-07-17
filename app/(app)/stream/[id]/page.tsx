@@ -11,6 +11,7 @@ import {
   UserMinus,
   Clock,
   CornersOut,
+  X,
 } from "@phosphor-icons/react";
 import { LiveChat } from "@/components/app/live-chat";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -26,6 +27,17 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import type { Room } from "livekit-client";
 
+const REPORT_REASONS: Array<{ value: string; label: string }> = [
+  { value: "spam", label: "Spam or misleading" },
+  { value: "harassment", label: "Harassment or bullying" },
+  { value: "hate_speech", label: "Hate speech" },
+  { value: "violence", label: "Violence or dangerous acts" },
+  { value: "sexual_content", label: "Sexual content" },
+  { value: "scam_or_fraud", label: "Scam or fraud" },
+  { value: "copyright", label: "Copyright violation" },
+  { value: "other", label: "Other" },
+];
+
 interface StreamData {
   _id: string;
   title: string;
@@ -33,6 +45,7 @@ interface StreamData {
   tags: string[];
   isLive: boolean;
   viewers: number;
+  likes?: number;
   duration: string;
   startedAt: string;
   livekitRoomName: string;
@@ -73,9 +86,35 @@ export default function StreamPage({
   // Like & share state
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
+  const [likeBusy, setLikeBusy] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
+
+  // Report modal state
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState<string>("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportDone, setReportDone] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  // Auto-hide video controls after mouse inactivity
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    controlsTimer.current = setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  useEffect(() => {
+    showControls();
+    return () => {
+      if (controlsTimer.current) clearTimeout(controlsTimer.current);
+    };
+  }, [showControls]);
 
   // Fetch stream data
   useEffect(() => {
@@ -87,6 +126,7 @@ export default function StreamPage({
           data: { stream: StreamData };
         }>(`/api/streams/${id}`);
         setStream(res.data.stream);
+        setLikeCount(res.data.stream.likes ?? 0);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load stream"
@@ -105,15 +145,33 @@ export default function StreamPage({
       try {
         const res = await apiFetch<{
           success: boolean;
-          data: { user: { isFollowing?: boolean } };
+          data: { isFollowing?: boolean };
         }>(`/api/user/${stream!.streamerId.username}`);
-        setIsFollowing(res.data.user.isFollowing ?? false);
+        setIsFollowing(res.data.isFollowing ?? false);
       } catch {
         // ignore
       }
     }
     checkFollow();
   }, [stream?.streamerId?.username, user]);
+
+  // Load whether the current user already liked this stream
+  useEffect(() => {
+    if (!user) return;
+    async function checkLiked() {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { likes: number; liked: boolean };
+        }>(`/api/streams/${id}/like`);
+        setLikeCount(res.data.likes);
+        setLiked(res.data.liked);
+      } catch {
+        // Endpoint unavailable — keep local-only state
+      }
+    }
+    checkLiked();
+  }, [id, user]);
 
   // Elapsed timer
   useEffect(() => {
@@ -186,8 +244,25 @@ export default function StreamPage({
       });
       room.on(RoomEvent.Disconnected, () => {
         setConnected(false);
-        // Host ended the stream — show modal
+        // Host ended the stream — sync UI state and show modal
+        setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
         setStreamEnded(true);
+      });
+
+      // Real-time engagement events (likes) broadcast by other viewers.
+      // Chat messages are handled inside LiveChat; events carry `__evt`.
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+        try {
+          const data = JSON.parse(new TextDecoder().decode(payload)) as {
+            __evt?: string;
+            delta?: number;
+          };
+          if (data.__evt === "like" && typeof data.delta === "number") {
+            setLikeCount((c) => Math.max(0, c + Math.sign(data.delta!)));
+          }
+        } catch {
+          // Not an event payload
+        }
       });
 
       await room.connect(res.data.livekitUrl, res.data.token);
@@ -256,16 +331,100 @@ export default function StreamPage({
           method: "DELETE",
         });
         setIsFollowing(false);
+        setStream((prev) =>
+          prev
+            ? {
+                ...prev,
+                streamerId: {
+                  ...prev.streamerId,
+                  followers: Math.max(0, prev.streamerId.followers - 1),
+                },
+              }
+            : prev
+        );
       } else {
         await apiFetch(`/api/user/${stream.streamerId.username}/follow`, {
           method: "POST",
         });
         setIsFollowing(true);
+        setStream((prev) =>
+          prev
+            ? {
+                ...prev,
+                streamerId: {
+                  ...prev.streamerId,
+                  followers: prev.streamerId.followers + 1,
+                },
+              }
+            : prev
+        );
       }
     } catch {
       // ignore
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  // Like / unlike — persists via API and broadcasts to other viewers
+  const toggleLike = async () => {
+    if (!user || likeBusy) return;
+    setLikeBusy(true);
+
+    const nowLiked = !liked;
+    const delta = nowLiked ? 1 : -1;
+    setLiked(nowLiked);
+    setLikeCount((c) => Math.max(0, c + delta));
+
+    // Broadcast so other connected viewers update in real time
+    try {
+      const room = roomRef.current;
+      if (room?.localParticipant) {
+        const payload = new TextEncoder().encode(
+          JSON.stringify({ __evt: "like", delta })
+        );
+        room.localParticipant.publishData(payload, { reliable: true });
+      }
+    } catch {
+      // Room may be disconnected
+    }
+
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        data: { likes: number; liked: boolean };
+      }>(`/api/streams/${id}/like`, {
+        method: nowLiked ? "POST" : "DELETE",
+      });
+      setLikeCount(res.data.likes);
+      setLiked(res.data.liked);
+    } catch {
+      // Endpoint unavailable — keep the optimistic local state
+    } finally {
+      setLikeBusy(false);
+    }
+  };
+
+  // Submit a report
+  const submitReport = async () => {
+    if (!reportReason || reportBusy) return;
+    setReportBusy(true);
+    setReportError(null);
+    try {
+      await apiFetch(`/api/streams/${id}/report`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: reportReason,
+          ...(reportDetails.trim() ? { details: reportDetails.trim() } : {}),
+        }),
+      });
+      setReportDone(true);
+    } catch (err) {
+      setReportError(
+        err instanceof Error ? err.message : "Failed to submit report"
+      );
+    } finally {
+      setReportBusy(false);
     }
   };
 
@@ -300,7 +459,15 @@ export default function StreamPage({
         {/* Main content */}
         <div className="flex-1 overflow-y-auto">
           {/* Video player */}
-          <div className="relative aspect-video w-full bg-black" ref={videoContainerRef}>
+          <div
+            className={cn(
+              "relative aspect-video w-full bg-black",
+              !controlsVisible && stream.isLive && "cursor-none"
+            )}
+            ref={videoContainerRef}
+            onMouseMove={showControls}
+            onTouchStart={showControls}
+          >
             <video
               ref={videoElRef}
               autoPlay
@@ -323,7 +490,12 @@ export default function StreamPage({
             )}
 
             {/* Stream overlay info */}
-            <div className="absolute top-4 left-4 flex items-center gap-2">
+            <div
+              className={cn(
+                "absolute top-4 left-4 flex items-center gap-2 transition-opacity duration-300",
+                !controlsVisible && stream.isLive && "opacity-0"
+              )}
+            >
               {stream.isLive && (
                 <div className="flex items-center gap-1.5 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white">
                   <span className="relative flex size-1.5">
@@ -359,7 +531,10 @@ export default function StreamPage({
                   setIsFullscreen(false);
                 }
               }}
-              className="absolute bottom-4 right-4 flex size-8 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white"
+              className={cn(
+                "absolute bottom-4 right-4 flex size-8 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-all duration-300 hover:bg-black/80 hover:text-white",
+                !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
+              )}
               title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
               <CornersOut size={18} />
@@ -385,10 +560,9 @@ export default function StreamPage({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button
-                  onClick={() => {
-                    setLiked(!liked);
-                    setLikeCount((c) => (liked ? c - 1 : c + 1));
-                  }}
+                  onClick={toggleLike}
+                  disabled={!user || likeBusy}
+                  title={user ? (liked ? "Unlike" : "Like") : "Sign in to like"}
                   className={cn(
                     "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
                     liked
@@ -414,10 +588,21 @@ export default function StreamPage({
                   <ShareNetwork size={14} />
                   Share
                 </button>
-                <button className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
-                  <Flag size={14} />
-                  Report
-                </button>
+                {user && streamer._id !== user.id && (
+                  <button
+                    onClick={() => {
+                      setReportReason("");
+                      setReportDetails("");
+                      setReportDone(false);
+                      setReportError(null);
+                      setShowReport(true);
+                    }}
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Flag size={14} />
+                    Report
+                  </button>
+                )}
               </div>
             </div>
 
@@ -478,6 +663,13 @@ export default function StreamPage({
                 ))}
               </div>
             )}
+
+            {/* Disclaimer */}
+            <p className="mt-4 text-xs leading-relaxed text-muted-foreground/60">
+              Content is creator opinion, not financial advice. Crypto assets
+              are volatile — always do your own research. Tips are voluntary
+              gifts to the creator, not investments.
+            </p>
           </div>
         </div>
 
@@ -490,6 +682,98 @@ export default function StreamPage({
           />
         </div>
       </div>
+
+      {/* Report modal */}
+      {showReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-white/10 bg-background p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-foreground">
+                Report Stream
+              </h2>
+              <button
+                onClick={() => setShowReport(false)}
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {reportDone ? (
+              <div className="mt-4 text-center">
+                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-green-500/10">
+                  <Flag size={22} className="text-green-400" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">
+                  Report submitted
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Thanks for helping keep Xtreme safe. Our moderation team
+                  will review this stream.
+                </p>
+                <button
+                  onClick={() => setShowReport(false)}
+                  className="mt-5 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Why are you reporting this stream?
+                </p>
+
+                <div className="mt-4 space-y-1.5">
+                  {REPORT_REASONS.map((r) => (
+                    <button
+                      key={r.value}
+                      onClick={() => setReportReason(r.value)}
+                      className={cn(
+                        "w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+                        reportReason === r.value
+                          ? "border-primary/40 bg-primary/10 text-foreground"
+                          : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  value={reportDetails}
+                  onChange={(e) => setReportDetails(e.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  placeholder="Additional details (optional)"
+                  className="mt-4 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+                />
+
+                {reportError && (
+                  <p className="mt-2 text-xs text-red-400">{reportError}</p>
+                )}
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => setShowReport(false)}
+                    className="h-10 flex-1 rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitReport}
+                    disabled={!reportReason || reportBusy}
+                    className="h-10 flex-1 rounded-lg bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {reportBusy ? "Submitting..." : "Submit Report"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Stream ended modal */}
       {streamEnded && (

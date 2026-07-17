@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Stream } from "@/lib/models";
@@ -15,8 +16,10 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Signed-in viewers join under their identity; anonymous visitors fall back
+  // to a read-only guest identity that cannot broadcast data messages.
   const result = await authenticate();
-  if (isErrorResponse(result)) return result;
+  const viewer = isErrorResponse(result) ? null : result;
 
   const { id } = await params;
   await connectDB();
@@ -39,15 +42,16 @@ export async function GET(
     );
   }
 
-  // Viewer token — can subscribe & send data, but cannot publish media
+  // Viewer token — can subscribe (and, when signed in, send data messages for
+  // chat), but cannot publish media
   const token = await createToken(
     stream.livekitRoomName,
-    result.dbUser._id.toString(),
-    result.dbUser.displayName,
+    viewer ? viewer.dbUser._id.toString() : `guest-${crypto.randomUUID()}`,
+    viewer ? viewer.dbUser.displayName : "Guest",
     {
       canPublish: false,
       canSubscribe: true,
-      canPublishData: true, // for chat via data messages
+      canPublishData: viewer !== null,
     }
   );
 
