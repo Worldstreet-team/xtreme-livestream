@@ -1,17 +1,37 @@
 /**
  * Client-side API helper.
- * 
- * Authentication is handled by Clerk — the Clerk session cookie is
- * automatically included with same-origin requests. The server uses
- * Clerk's auth() to verify the caller.
+ *
+ * Authentication is handled by Clerk. When NEXT_PUBLIC_API_URL is set,
+ * requests go to the standalone Fastify API with the Clerk session JWT as
+ * a Bearer token (cross-origin, cookies won't ride along). When unset,
+ * requests fall back to the same-origin Next.js routes where the Clerk
+ * session cookie is included automatically.
  */
+
+/** Base URL of the standalone API service; empty string = same-origin. */
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+
+interface ClerkGlobal {
+  session?: { getToken(): Promise<string | null> } | null;
+}
+
+/** Clerk session JWT for cross-origin requests to the API service. */
+async function getSessionToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const clerk = (window as { Clerk?: ClerkGlobal }).Clerk;
+    return (await clerk?.session?.getToken()) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface FetchOptions extends Omit<RequestInit, "headers"> {
   headers?: Record<string, string>;
 }
 
 /**
- * Wrapper around fetch that sends credentials (httpOnly cookies).
+ * Wrapper around fetch that attaches auth (Bearer token or cookies).
  * Returns the parsed JSON body.
  */
 export async function apiFetch<T = unknown>(
@@ -23,7 +43,14 @@ export async function apiFetch<T = unknown>(
     ...options.headers,
   };
 
-  const res = await fetch(url, {
+  const target = API_BASE && url.startsWith("/") ? `${API_BASE}${url}` : url;
+
+  if (API_BASE) {
+    const token = await getSessionToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(target, {
     ...options,
     headers,
     credentials: "include", // Send httpOnly cookies automatically

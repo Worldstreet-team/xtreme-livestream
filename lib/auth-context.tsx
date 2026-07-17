@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
+import { apiFetch, ApiError } from "@/lib/api-client";
 
 // Shape of the local DB user object returned by /api/user/me
 export interface AppUser {
@@ -74,21 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const res = await fetch("/api/user/me");
-
-        if (!res.ok) {
-          console.error(`[Auth] /api/user/me returned status: ${res.status} (attempt ${attempt + 1})`);
-          // Don't retry 4xx client errors (except 408/429)
-          if (res.status < 500 && res.status !== 408 && res.status !== 429) {
-            setUser(null);
-            setError("Failed to load profile");
-            setIsLoading(false);
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
-
-        const data = await res.json();
+        const data = await apiFetch<{
+          success: boolean;
+          data?: { user?: AppUser };
+        }>("/api/user/me");
 
         if (data.success && data.data?.user) {
           setUser(data.data.user);
@@ -103,6 +93,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error(`[Auth] Profile fetch failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, err);
+
+        // Don't retry 4xx client errors (except 408/429)
+        if (
+          err instanceof ApiError &&
+          err.status < 500 &&
+          err.status !== 408 &&
+          err.status !== 429
+        ) {
+          setUser(null);
+          setError("Failed to load profile");
+          setIsLoading(false);
+          return;
+        }
 
         if (attempt < MAX_RETRIES) {
           await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
