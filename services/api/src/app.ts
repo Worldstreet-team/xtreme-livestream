@@ -19,8 +19,18 @@ import { isDatabaseReady } from "./database.js";
 import { ApiError } from "./errors.js";
 import { apiRoutes } from "./routes/index.js";
 
+// Known first-party web origins that call this API. These are always allowed
+// so CORS doesn't silently break if CORS_ORIGINS is unset or incomplete in a
+// given environment; CORS_ORIGINS adds any additional origins on top.
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://xtreme.worldstreetgold.com",
+  "https://worldstreetgold.com",
+  "https://www.worldstreetgold.com",
+];
+
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) return true;
+  if (DEFAULT_ALLOWED_ORIGINS.includes(origin)) return true;
   if (config.corsOrigins.includes(origin)) return true;
   if (
     config.NODE_ENV !== "production" &&
