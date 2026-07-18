@@ -332,6 +332,16 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const body = request.body;
+      if (body.type === "tip") {
+        // Tip announcements are only written by the gifts route after a
+        // successful wallet charge — never directly by clients.
+        throw new ApiError(
+          400,
+          "Tips are sent via the gifts endpoint",
+          "TIP_VIA_GIFTS",
+        );
+      }
+
       const message = await ChatMessage.create({
         streamId: stream._id,
         userId: dbUser._id,

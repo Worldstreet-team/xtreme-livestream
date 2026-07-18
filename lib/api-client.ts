@@ -56,10 +56,32 @@ export async function apiFetch<T = unknown>(
     credentials: "include", // Send httpOnly cookies automatically
   });
 
-  const data = await res.json();
+  // Parse defensively: an error page, a misrouted request, or a gateway
+  // failure can return HTML or an empty body. Calling res.json() directly
+  // in those cases throws an opaque "Unexpected token '<'" error that hides
+  // the real HTTP status, so read the text first and only parse if it's JSON.
+  const raw = await res.text();
+  let data: unknown = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      if (res.ok) {
+        throw new ApiError(
+          "The server returned an unexpected response.",
+          res.status,
+          raw
+        );
+      }
+    }
+  }
 
   if (!res.ok) {
-    throw new ApiError(data.message || "Request failed", res.status, data);
+    const message =
+      (data && typeof data === "object" && "message" in data
+        ? (data as { message?: string }).message
+        : undefined) ?? `Request failed (${res.status} ${res.statusText})`;
+    throw new ApiError(message, res.status, data ?? raw);
   }
 
   return data as T;

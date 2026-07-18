@@ -4,19 +4,31 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   PaperPlaneRight,
   Smiley,
-  CurrencyEth,
+  CurrencyDollar,
   ShieldStar,
   Clock,
-  Lightning,
+  Gift,
   SignIn,
 } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import type { Room } from "livekit-client";
 
 const SLOW_MODE_SECONDS = 30;
+
+/** Wallet-funded gifts — amounts in USD cents, charged to the central dollar wallet. */
+const GIFT_OPTIONS = [
+  { emoji: "👏", name: "Clap", usdMinor: 50 },
+  { emoji: "🔥", name: "Fire", usdMinor: 100 },
+  { emoji: "🚀", name: "Rocket", usdMinor: 500 },
+  { emoji: "💎", name: "Diamond", usdMinor: 1000 },
+  { emoji: "👑", name: "Crown", usdMinor: 5000 },
+] as const;
+
+const centsToDollars = (minor: number) =>
+  minor % 100 === 0 ? `$${minor / 100}` : `$${(minor / 100).toFixed(2)}`;
 
 const QUICK_REACTIONS = [
   "🔥",
@@ -57,9 +69,11 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [showReactions, setShowReactions] = useState(false);
-  const [showTipModal, setShowTipModal] = useState(false);
-  const [tipAmount, setTipAmount] = useState("");
-  const [tipCurrency, setTipCurrency] = useState("USDC");
+  const [showGiftPanel, setShowGiftPanel] = useState(false);
+  const [selectedGift, setSelectedGift] = useState<number | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
+  const [giftBusy, setGiftBusy] = useState(false);
+  const [giftError, setGiftError] = useState<string | null>(null);
   const [slowMode, setSlowMode] = useState(false);
   const [showModTools, setShowModTools] = useState(false);
   const [cooldownLeft, setCooldownLeft] = useState(0);
@@ -331,43 +345,85 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     }
   };
 
-  const sendTip = async () => {
-    if (!tipAmount || !user) return;
+  /** Resolve the gift amount in USD cents from the selection or custom input. */
+  const giftAmountUsdMinor = (): number | null => {
+    if (selectedGift !== null) return GIFT_OPTIONS[selectedGift].usdMinor;
+    const dollars = parseFloat(customAmount);
+    if (!Number.isFinite(dollars)) return null;
+    return Math.round(dollars * 100);
+  };
 
-    const msg: ChatMsg = {
-      id: `local-${Date.now()}`,
-      username: user.username,
-      avatar: user.avatar,
-      content: "Sent a tip!",
-      type: "tip",
-      tipAmount,
-      tipCurrency,
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-
-    setMessages((prev) => [...prev, msg]);
-    setShowTipModal(false);
-
-    broadcastMessage(msg);
-
-    try {
-      await apiFetch(`/api/streams/${streamId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          content: "Sent a tip!",
-          type: "tip",
-          tipAmount,
-          tipCurrency,
-        }),
-      });
-    } catch {
-      // Best-effort
+  // Send a wallet-funded gift. The money moves server-side (central dollar
+  // wallet); the API also persists the chat announcement. Nothing is shown
+  // locally unless the charge actually succeeded.
+  const sendGift = async () => {
+    if (!user || giftBusy) return;
+    const amountUsdMinor = giftAmountUsdMinor();
+    if (amountUsdMinor === null) return;
+    if (amountUsdMinor < 50 || amountUsdMinor > 50_000) {
+      setGiftError("Gifts must be between $0.50 and $500.");
+      return;
     }
 
-    setTipAmount("");
+    const gift = selectedGift !== null ? GIFT_OPTIONS[selectedGift] : null;
+    setGiftBusy(true);
+    setGiftError(null);
+
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        data: {
+          chatMessage: {
+            content: string;
+            tipAmount: string;
+            emoji: string | null;
+          };
+        };
+      }>(`/api/streams/${streamId}/gifts`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({
+          amountUsdMinor,
+          ...(gift ? { giftName: gift.name, emoji: gift.emoji } : {}),
+        }),
+      });
+
+      const announcement = res.data.chatMessage;
+      const msg: ChatMsg = {
+        id: `local-${Date.now()}`,
+        username: user.username,
+        avatar: user.avatar,
+        content: announcement.content,
+        type: "tip",
+        tipAmount: announcement.tipAmount,
+        tipCurrency: "USD",
+        emoji: announcement.emoji ?? undefined,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+
+      setMessages((prev) => [...prev, msg]);
+      broadcastMessage(msg);
+      setShowGiftPanel(false);
+      setSelectedGift(null);
+      setCustomAmount("");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) {
+        setGiftError(
+          "Insufficient balance — top up your dollar wallet to send gifts."
+        );
+      } else if (err instanceof ApiError && err.status === 503) {
+        setGiftError("Gifting isn't available right now. Try again later.");
+      } else {
+        setGiftError(
+          err instanceof Error ? err.message : "Could not send the gift."
+        );
+      }
+    } finally {
+      setGiftBusy(false);
+    }
   };
 
   return (
@@ -484,11 +540,16 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                   <span className="text-xs font-semibold text-yellow-400">
                     {msg.username}
                   </span>
-                  <span className="text-xs text-yellow-400/70">tipped</span>
-                  <span className="text-xs font-bold text-yellow-300">
-                    {msg.tipAmount} {msg.tipCurrency}
+                  <span className="text-xs text-yellow-400/70">
+                    {msg.content || "tipped"}
                   </span>
-                  <CurrencyEth size={14} className="text-yellow-400" />
+                  {msg.emoji && <span className="text-sm">{msg.emoji}</span>}
+                  <span className="text-xs font-bold text-yellow-300">
+                    {msg.tipCurrency === "USD" || !msg.tipCurrency
+                      ? `$${msg.tipAmount}`
+                      : `${msg.tipAmount} ${msg.tipCurrency}`}
+                  </span>
+                  <CurrencyDollar size={14} className="text-yellow-400" />
                 </div>
               </div>
             ) : msg.type === "reaction" ? (
@@ -562,37 +623,73 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         </div>
       )}
 
-      {/* Tip modal */}
-      {showTipModal && (
+      {/* Gift panel — wallet-funded, USD */}
+      {showGiftPanel && (
         <div className="border-t border-yellow-500/20 bg-yellow-500/5 px-3 py-3">
-          <p className="mb-2 text-xs font-semibold text-yellow-400">
-            Send a Crypto Tip
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              placeholder="Amount"
-              value={tipAmount}
-              onChange={(e) => setTipAmount(e.target.value)}
-              className="h-8 flex-1 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-yellow-500/30 focus:outline-none"
-            />
-            <select
-              value={tipCurrency}
-              onChange={(e) => setTipCurrency(e.target.value)}
-              className="h-8 cursor-pointer rounded-md border border-white/10 bg-white/5 px-2 text-xs text-foreground"
-            >
-              <option className="bg-background text-foreground" value="USDC">USDC</option>
-              <option className="bg-background text-foreground" value="ETH">ETH</option>
-              <option className="bg-background text-foreground" value="SOL">SOL</option>
-              <option className="bg-background text-foreground" value="BTC">BTC</option>
-            </select>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-yellow-400">
+              Send a Gift
+            </p>
+            <p className="text-[0.6rem] text-muted-foreground/60">
+              Paid from your dollar wallet
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {GIFT_OPTIONS.map((gift, i) => (
+              <button
+                key={gift.name}
+                onClick={() => {
+                  setSelectedGift(selectedGift === i ? null : i);
+                  setCustomAmount("");
+                  setGiftError(null);
+                }}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 rounded-lg border px-2.5 py-1.5 transition-colors",
+                  selectedGift === i
+                    ? "border-yellow-500/40 bg-yellow-500/10"
+                    : "border-white/10 bg-white/5 hover:border-white/20"
+                )}
+              >
+                <span className="text-lg">{gift.emoji}</span>
+                <span className="text-[0.6rem] font-medium text-muted-foreground">
+                  {centsToDollars(gift.usdMinor)}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                $
+              </span>
+              <input
+                type="number"
+                min="0.5"
+                max="500"
+                step="0.5"
+                placeholder="Custom amount"
+                value={customAmount}
+                onChange={(e) => {
+                  setCustomAmount(e.target.value);
+                  setSelectedGift(null);
+                  setGiftError(null);
+                }}
+                className="h-8 w-full rounded-md border border-white/10 bg-white/5 pl-5 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-yellow-500/30 focus:outline-none"
+              />
+            </div>
             <button
-              onClick={sendTip}
-              className="h-8 rounded-md bg-yellow-500/20 px-3 text-xs font-semibold text-yellow-400 transition-colors hover:bg-yellow-500/30"
+              onClick={sendGift}
+              disabled={
+                giftBusy || (selectedGift === null && !customAmount.trim())
+              }
+              className="h-8 rounded-md bg-yellow-500/20 px-3 text-xs font-semibold text-yellow-400 transition-colors hover:bg-yellow-500/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Send
+              {giftBusy ? "Sending..." : "Send"}
             </button>
           </div>
+          {giftError && (
+            <p className="mt-1.5 text-[0.65rem] text-red-400">{giftError}</p>
+          )}
         </div>
       )}
 
@@ -611,7 +708,7 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             <button
               onClick={() => {
                 setShowReactions(!showReactions);
-                setShowTipModal(false);
+                setShowGiftPanel(false);
               }}
               className={cn(
                 "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
@@ -625,17 +722,19 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             {!isHost && (
               <button
                 onClick={() => {
-                  setShowTipModal(!showTipModal);
+                  setShowGiftPanel(!showGiftPanel);
                   setShowReactions(false);
+                  setGiftError(null);
                 }}
+                title="Send a gift"
                 className={cn(
                   "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
-                  showTipModal
+                  showGiftPanel
                     ? "bg-yellow-500/10 text-yellow-400"
                     : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                 )}
               >
-                <Lightning size={20} weight="fill" />
+                <Gift size={20} weight="fill" />
               </button>
             )}
             <input
