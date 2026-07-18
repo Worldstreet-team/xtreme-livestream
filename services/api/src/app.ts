@@ -114,6 +114,11 @@ export async function buildApp() {
 
   await app.register(cors, {
     credentials: true,
+    // Must be explicit: the default only advertises the "simple" methods
+    // (GET/HEAD/POST), so browsers preflight-block DELETE and PATCH — which
+    // silently breaks unfollow, unlike, and profile/stream updates.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
     origin(origin, callback) {
       if (isAllowedOrigin(origin)) {
         callback(null, true);

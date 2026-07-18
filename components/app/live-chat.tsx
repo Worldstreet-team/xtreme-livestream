@@ -74,6 +74,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
   const [customAmount, setCustomAmount] = useState("");
   const [giftBusy, setGiftBusy] = useState(false);
   const [giftError, setGiftError] = useState<string | null>(null);
+  /** Spendable wallet balance in USD cents; null until loaded (or unavailable). */
+  const [walletMinor, setWalletMinor] = useState<number | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
   const [slowMode, setSlowMode] = useState(false);
   const [showModTools, setShowModTools] = useState(false);
   const [cooldownLeft, setCooldownLeft] = useState(0);
@@ -345,6 +348,33 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     }
   };
 
+  /**
+   * Load the spendable wallet balance so the viewer knows what they can gift.
+   * Best-effort: if the wallet service is down we just hide the figure rather
+   * than blocking gifting, since the charge itself is authoritative.
+   */
+  const loadWalletBalance = useCallback(async () => {
+    if (!user) return;
+    setWalletLoading(true);
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        data: { availableUsdMinor: number };
+      }>("/api/wallet/balance");
+      setWalletMinor(res.data.availableUsdMinor);
+    } catch {
+      setWalletMinor(null);
+    } finally {
+      setWalletLoading(false);
+    }
+  }, [user]);
+
+  // Refresh the balance each time the gift panel opens, so it reflects gifts
+  // sent elsewhere (other tabs/streams) rather than a stale first read.
+  useEffect(() => {
+    if (showGiftPanel) loadWalletBalance();
+  }, [showGiftPanel, loadWalletBalance]);
+
   /** Resolve the gift amount in USD cents from the selection or custom input. */
   const giftAmountUsdMinor = (): number | null => {
     if (selectedGift !== null) return GIFT_OPTIONS[selectedGift].usdMinor;
@@ -409,11 +439,17 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
       setShowGiftPanel(false);
       setSelectedGift(null);
       setCustomAmount("");
+      // Reflect the spend immediately, then reconcile with the wallet service.
+      setWalletMinor((prev) =>
+        prev === null ? prev : Math.max(0, prev - amountUsdMinor)
+      );
+      loadWalletBalance();
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) {
         setGiftError(
           "Insufficient balance — top up your dollar wallet to send gifts."
         );
+        loadWalletBalance();
       } else if (err instanceof ApiError && err.status === 503) {
         setGiftError("Gifting isn't available right now. Try again later.");
       } else {
@@ -425,6 +461,14 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
       setGiftBusy(false);
     }
   };
+
+  // Compare the pending selection against the known balance so we can warn
+  // before attempting a charge the wallet would reject anyway.
+  const pendingGiftMinor = giftAmountUsdMinor();
+  const exceedsBalance =
+    walletMinor !== null &&
+    pendingGiftMinor !== null &&
+    pendingGiftMinor > walletMinor;
 
   return (
     <div className="flex h-full flex-col border-l border-white/5 bg-background">
@@ -631,7 +675,11 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
               Send a Gift
             </p>
             <p className="text-[0.6rem] text-muted-foreground/60">
-              Paid from your dollar wallet
+              {walletLoading && walletMinor === null
+                ? "Checking balance..."
+                : walletMinor !== null
+                  ? `${centsToDollars(walletMinor)} available`
+                  : "Paid from your dollar wallet"}
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -680,13 +728,21 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             <button
               onClick={sendGift}
               disabled={
-                giftBusy || (selectedGift === null && !customAmount.trim())
+                giftBusy ||
+                exceedsBalance ||
+                (selectedGift === null && !customAmount.trim())
               }
               className="h-8 rounded-md bg-yellow-500/20 px-3 text-xs font-semibold text-yellow-400 transition-colors hover:bg-yellow-500/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {giftBusy ? "Sending..." : "Send"}
             </button>
           </div>
+          {exceedsBalance && !giftError && (
+            <p className="mt-1.5 text-[0.65rem] text-yellow-400/80">
+              That&apos;s more than your {centsToDollars(walletMinor!)} balance —
+              top up to send this gift.
+            </p>
+          )}
           {giftError && (
             <p className="mt-1.5 text-[0.65rem] text-red-400">{giftError}</p>
           )}

@@ -359,8 +359,11 @@ export default function StreamPage({
             : prev
         );
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // Leaves the button in its previous state, which is correct — but log it,
+      // since swallowing this silently is what made the CORS-blocked unfollow
+      // look like "the button does nothing".
+      console.error("[Follow] toggle failed:", err);
     } finally {
       setFollowLoading(false);
     }

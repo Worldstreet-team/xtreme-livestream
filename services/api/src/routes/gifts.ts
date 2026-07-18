@@ -8,7 +8,12 @@ import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
 import { reconcileStream } from "../stream-service.js";
-import { chargeWalletWithSplit, isWalletConfigured, refundWalletCharge } from "../wallet.js";
+import {
+  chargeWalletWithSplit,
+  getWalletUsdBalance,
+  isWalletConfigured,
+  refundWalletCharge,
+} from "../wallet.js";
 
 // Candidate for @xtreme/contracts once the web client adopts gifting too.
 const sendGiftBodySchema = z.object({
@@ -161,6 +166,54 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         }
         throw new ApiError(500, "Could not record the gift — you have not been charged", "GIFT_FAILED");
       }
+    },
+  );
+
+  app.get(
+    "/wallet/balance",
+    {
+      schema: {
+        tags: ["Gifts"],
+        summary: "Spendable USD wallet balance for the signed-in user",
+        security: [{ bearerAuth: [] }],
+      },
+      config: {
+        rateLimit: { max: 60, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      if (!isWalletConfigured()) {
+        throw new ApiError(
+          503,
+          "The wallet service is unavailable",
+          "WALLET_UNAVAILABLE",
+        );
+      }
+
+      const { authUserId } = await authenticate(request);
+      const result = await getWalletUsdBalance(authUserId);
+
+      if (!result.ok) {
+        request.log.error(
+          { code: result.code, msg: result.message },
+          "wallet balance lookup failed",
+        );
+        throw new ApiError(
+          503,
+          "Could not read your wallet balance",
+          "WALLET_UNAVAILABLE",
+        );
+      }
+
+      const usd = result.data.balances.USD;
+      return {
+        success: true,
+        data: {
+          availableUsdMinor: usd.availableMinor,
+          lockedUsdMinor: usd.lockedMinor,
+          currency: "USD",
+        },
+      };
     },
   );
 

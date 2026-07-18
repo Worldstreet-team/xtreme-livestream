@@ -20,6 +20,13 @@ export type WalletCharge = {
   createdAt: string;
 };
 
+export type WalletCurrencyBalance = {
+  availableMinor: number;
+  lockedMinor: number;
+  available: number;
+  locked: number;
+};
+
 export function isWalletConfigured(): boolean {
   return Boolean(config.WALLET_API_URL && config.WALLET_SERVICE_TOKEN);
 }
@@ -88,6 +95,19 @@ export function chargeWalletWithSplit(params: {
         metadata: params.metadata ?? {},
       },
     },
+  );
+}
+
+/**
+ * The user's spendable USD balance — what they can actually gift with.
+ * `availableMinor` excludes funds locked by pending holds.
+ */
+export function getWalletUsdBalance(
+  clerkUserId: string,
+): Promise<WalletResult<{ balances: { USD: WalletCurrencyBalance } }>> {
+  return walletCall(
+    "GET",
+    `/v1/wallet/${encodeURIComponent(clerkUserId)}/balances`,
   );
 }
 

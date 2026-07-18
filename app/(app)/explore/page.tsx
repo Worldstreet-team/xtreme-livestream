@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 
 type SortOption = "viewers" | "recent" | "trending";
 
+/** How often the live grid re-polls so viewer counts stay current. */
+const VIEWER_REFRESH_MS = 15_000;
+
 interface APIStream {
   _id: string;
   title: string;
@@ -72,8 +75,11 @@ export default function ExplorePage() {
     if (q) setSearch(q);
   }, []);
 
-  const fetchStreams = useCallback(async () => {
-    setLoading(true);
+  // `silent` powers the background refresh: it must not flash the skeleton or
+  // clear the grid on a transient failure, otherwise the page flickers every
+  // time viewer counts are polled.
+  const fetchStreams = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams();
       params.set("live", "true");
@@ -90,10 +96,14 @@ export default function ExplorePage() {
       setStreams(res.data.streams.map(toStreamCard));
       setTotal(res.data.pagination.total);
     } catch {
-      setStreams([]);
-      setTotal(0);
+      // Keep the current grid on a failed background refresh — only a
+      // user-initiated load should surface the empty state.
+      if (!silent) {
+        setStreams([]);
+        setTotal(0);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [search, selectedCategory, sort]);
 
@@ -102,6 +112,16 @@ export default function ExplorePage() {
     const timer = setTimeout(fetchStreams, search ? 300 : 0);
     return () => clearTimeout(timer);
   }, [fetchStreams, search]);
+
+  // Viewer counts change constantly while streams are live, so the grid has to
+  // re-poll — a single fetch on mount goes stale the moment it renders. Paused
+  // while the tab is hidden to avoid pointless background traffic.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") fetchStreams(true);
+    }, VIEWER_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [fetchStreams]);
 
   return (
     <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
