@@ -19,11 +19,23 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 type Tab = "overview" | "streams" | "analytics";
 
 interface DashboardStats {
+  /** Sum of peak concurrent viewers across streams. */
+  totalPeakViewers?: number;
+  /** Legacy alias for `totalPeakViewers`. */
   totalViews: number;
   followers: number;
   totalHours: number;
   totalStreams: number;
   currentlyLive: boolean;
+  /** Time-weighted mean concurrent viewers across all streams. */
+  avgViewers?: number;
+  /**
+   * Money fields are USD minor units, and are absent on the legacy in-process
+   * API (gifting lives only in the standalone service) — hence optional.
+   */
+  earningsUsdMinor?: number;
+  tipsGrossUsdMinor?: number;
+  tipsCount?: number;
 }
 
 interface RecentStream {
@@ -31,11 +43,13 @@ interface RecentStream {
   title: string;
   category: Category;
   thumbnail: string;
+  /** Current concurrent viewers — 0 for any stream that has ended. */
   viewers: number;
   peakViewers: number;
+  avgViewers?: number;
   duration: string;
   date: string;
-  earnings: number;
+  earningsUsdMinor?: number;
 }
 
 interface DailyView {
@@ -47,6 +61,29 @@ interface DashboardData {
   stats: DashboardStats;
   recentStreams: RecentStream[];
   dailyViews: DailyView[];
+}
+
+/** Format USD minor units (cents) as "$12.34". */
+function formatUsd(minor: number) {
+  return `$${(minor / 100).toFixed(2)}`;
+}
+
+/**
+ * The API stores durations as "m:ss" or "h:mm:ss", which reads as hours and
+ * minutes at a glance ("2:09" is 2 minutes 9 seconds, not 2 hours 9 minutes).
+ * Add units so short streams aren't mistaken for long ones.
+ */
+function formatStreamDuration(duration: string) {
+  const parts = duration.split(":");
+  if (parts.length === 3) {
+    const [h, m] = parts;
+    return `${Number(h)}h ${m}m`;
+  }
+  if (parts.length === 2) {
+    const [m, s] = parts;
+    return `${Number(m)}m ${s}s`;
+  }
+  return duration;
 }
 
 export default function DashboardPage() {
@@ -88,41 +125,55 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      label: "Total Views",
-      value: formatNumber(stats.totalViews),
+      label: "Peak Viewers",
+      value: formatNumber(stats.totalPeakViewers ?? stats.totalViews),
       icon: Eye,
       color: "text-primary",
+      hint: "Highest concurrent viewers, summed across your streams",
     },
     {
       label: "Followers",
       value: formatNumber(stats.followers),
       icon: Users,
       color: "text-blue-400",
+      hint: undefined,
     },
     {
       label: "Earnings",
-      value: "$0.00",
+      // Absent (rather than zero) when the backend doesn't track gifting.
+      value:
+        stats.earningsUsdMinor === undefined
+          ? "—"
+          : formatUsd(stats.earningsUsdMinor),
       icon: CurrencyDollar,
       color: "text-green-400",
+      hint:
+        stats.earningsUsdMinor === undefined
+          ? "Earnings aren't available from this API"
+          : "Gift earnings, net of commission",
     },
     {
       label: "Stream Hours",
       value: `${stats.totalHours}h`,
       icon: Clock,
       color: "text-purple-400",
+      hint: undefined,
     },
   ];
 
   const maxDailyViews = Math.max(...dailyViews.map((d) => d.views), 1);
   const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+  // Prefer the server's time-weighted average; fall back to averaging the
+  // per-stream averages when talking to an API that doesn't send it.
   const avgViewers =
-    recentStreams.length > 0
+    stats.avgViewers ??
+    (recentStreams.length > 0
       ? Math.round(
-          recentStreams.reduce((sum, s) => sum + s.viewers, 0) /
+          recentStreams.reduce((sum, s) => sum + (s.avgViewers ?? 0), 0) /
             recentStreams.length
         )
-      : 0;
+      : 0);
 
   const topStreams = [...recentStreams]
     .sort((a, b) => b.peakViewers - a.peakViewers)
@@ -188,6 +239,7 @@ export default function DashboardPage() {
             {statCards.map((stat) => (
               <div
                 key={stat.label}
+                title={stat.hint}
                 className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
               >
                 <div className="flex items-center justify-between">
@@ -239,12 +291,20 @@ export default function DashboardPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
-                          {stream.duration || "—"}
+                          {stream.duration
+                            ? formatStreamDuration(stream.duration)
+                            : "—"}
                         </span>
                         <span className="flex items-center gap-1">
                           <Eye size={12} />
-                          {formatNumber(stream.viewers)} avg
+                          {formatNumber(stream.peakViewers)} peak
                         </span>
+                        {stream.earningsUsdMinor ? (
+                          <span className="flex items-center gap-1 text-green-400">
+                            <CurrencyDollar size={12} />
+                            {formatUsd(stream.earningsUsdMinor)}
+                          </span>
+                        ) : null}
                       </div>
                       <span
                         className={cn(
@@ -298,13 +358,21 @@ export default function DashboardPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={12} />
-                        {stream.duration || "—"}
+                        {stream.duration
+                          ? formatStreamDuration(stream.duration)
+                          : "—"}
                       </span>
                       <span className="flex items-center gap-1">
                         <Eye size={12} />
-                        {formatNumber(stream.viewers)} avg ·{" "}
+                        {formatNumber(stream.avgViewers ?? 0)} avg ·{" "}
                         {formatNumber(stream.peakViewers)} peak
                       </span>
+                      {stream.earningsUsdMinor ? (
+                        <span className="flex items-center gap-1 text-green-400">
+                          <CurrencyDollar size={12} />
+                          {formatUsd(stream.earningsUsdMinor)}
+                        </span>
+                      ) : null}
                     </div>
                     <span
                       className={cn(
@@ -355,13 +423,23 @@ export default function DashboardPage() {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Tips Received
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">$0.00</p>
+              <p className="mt-2 text-3xl font-bold text-foreground">
+                {stats.tipsGrossUsdMinor === undefined
+                  ? "—"
+                  : formatUsd(stats.tipsGrossUsdMinor)}
+              </p>
+              {stats.tipsCount !== undefined && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {stats.tipsCount} {stats.tipsCount === 1 ? "gift" : "gifts"} ·
+                  before commission
+                </p>
+              )}
             </div>
           </div>
 
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
             <h3 className="mb-4 text-sm font-semibold text-foreground">
-              Viewer Trend (Last 7 Days)
+              Peak Viewers (Last 7 Days)
             </h3>
             <div className="flex h-48 items-end gap-2">
               {dailyViews.map((day) => {
@@ -369,7 +447,9 @@ export default function DashboardPage() {
                   maxDailyViews > 0
                     ? Math.max((day.views / maxDailyViews) * 100, 4)
                     : 4;
-                const d = new Date(day.date + "T00:00:00");
+                // Buckets are UTC days on the server; label them in UTC too,
+                // or the weekday shifts by one for negative-offset viewers.
+                const d = new Date(day.date + "T00:00:00Z");
                 return (
                   <div
                     key={day.date}
@@ -378,10 +458,10 @@ export default function DashboardPage() {
                     <div
                       className="w-full rounded-t-md bg-primary/30 transition-all hover:bg-primary/50"
                       style={{ height: `${pct}%` }}
-                      title={`${day.views} views`}
+                      title={`${day.date} · ${day.views} peak viewers`}
                     />
                     <span className="text-[0.6rem] text-muted-foreground">
-                      {dayLabels[d.getDay()]}
+                      {dayLabels[d.getUTCDay()]}
                     </span>
                   </div>
                 );

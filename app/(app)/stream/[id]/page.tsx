@@ -44,7 +44,9 @@ interface StreamData {
   category: Category;
   tags: string[];
   isLive: boolean;
+  /** Current concurrent viewers — 0 once a stream has ended. */
   viewers: number;
+  peakViewers?: number;
   likes?: number;
   duration: string;
   startedAt: string;
@@ -512,7 +514,9 @@ export default function StreamPage({
                 <Eye size={14} />
                 {stream.isLive
                   ? `${viewerCount + 1} watching`
-                  : `${formatNumber(stream.viewers)} watched`}
+                  : // `viewers` is the live concurrent count and is 0 for an
+                    // ended stream; peak is what actually describes it.
+                    `${formatNumber(stream.peakViewers ?? 0)} peak`}
               </div>
               {stream.isLive && (
                 <div className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-mono text-white/80 backdrop-blur-sm">

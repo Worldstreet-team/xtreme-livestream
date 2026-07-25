@@ -2,26 +2,34 @@ import type { FastifyPluginAsync } from "fastify";
 import { ApiError } from "../errors.js";
 import { roomService, webhookReceiver } from "../livekit.js";
 import { Stream, type IStream } from "../models.js";
-import { markStreamEnded } from "../stream-service.js";
+import { accrueViewerSeconds, markStreamEnded } from "../stream-service.js";
 
 /**
- * Refresh a live stream's current/peak viewer counts. Viewer count is the
- * room's participant count minus the broadcaster.
+ * Refresh a live stream's current/peak viewer counts and bank the viewer-time
+ * accrued at the previous count. Viewer count is the room's participant count
+ * minus the broadcaster.
+ *
+ * The room roster is queried rather than trusting the event's
+ * `numParticipants`, which is a snapshot taken at event time and is ambiguous
+ * for `participant_left` (it may or may not still include the leaver).
+ * `numParticipants` is the fallback when the roster lookup fails.
  */
 async function updateViewerCounts(
   stream: IStream,
   numParticipants: number | undefined,
 ) {
-  let participants = numParticipants;
+  let participants: number | undefined;
 
-  if (participants === undefined) {
-    try {
-      const list = await roomService.listParticipants(stream.livekitRoomName);
-      participants = list.length;
-    } catch {
-      return;
-    }
+  try {
+    const list = await roomService.listParticipants(stream.livekitRoomName);
+    participants = list.length;
+  } catch {
+    participants = numParticipants;
   }
+
+  if (participants === undefined) return;
+
+  accrueViewerSeconds(stream);
 
   const viewers = Math.max(0, participants - 1);
   stream.viewers = viewers;

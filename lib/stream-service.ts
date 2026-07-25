@@ -26,13 +26,50 @@ export function formatDuration(startedAt?: Date | null): string {
 }
 
 /**
+ * Bank the viewer-seconds accrued since the last sample, then reopen the
+ * window at `now`. Call this *before* overwriting `stream.viewers` — the
+ * elapsed window belongs to the count that was in effect during it.
+ */
+export function accrueViewerSeconds(stream: IStream, now = Date.now()): void {
+  const windowStart = stream.viewerSampledAt ?? stream.startedAt;
+  const elapsed = Math.max(0, now - new Date(windowStart).getTime()) / 1000;
+
+  stream.viewerSeconds += stream.viewers * elapsed;
+  stream.viewerSampledAt = new Date(now);
+}
+
+/** Shape needed to derive an average — satisfied by hydrated and lean docs alike. */
+interface ViewerAverageInput {
+  viewerSeconds?: number;
+  startedAt?: Date | string | null;
+  endedAt?: Date | string | null;
+}
+
+/**
+ * Mean concurrent viewers over the stream's lifetime. Returns 0 for streams
+ * that predate viewer-second tracking (no accrued seconds recorded).
+ */
+export function averageViewers(stream: ViewerAverageInput): number {
+  if (!stream.viewerSeconds || !stream.startedAt) return 0;
+
+  const end = stream.endedAt ? new Date(stream.endedAt).getTime() : Date.now();
+  const seconds = (end - new Date(stream.startedAt).getTime()) / 1000;
+  if (seconds <= 0) return 0;
+
+  return Math.round(stream.viewerSeconds / seconds);
+}
+
+/**
  * Mark a stream (and its streamer) as no longer live. Idempotent — safe to
  * call from the webhook, the explicit "end" route, and reconciliation.
  */
 export async function markStreamEnded(stream: IStream): Promise<void> {
   if (!stream.isLive) return;
+  const endedAt = new Date();
+  // Bank the final window before the stream stops accruing.
+  accrueViewerSeconds(stream, endedAt.getTime());
   stream.isLive = false;
-  stream.endedAt = new Date();
+  stream.endedAt = endedAt;
   stream.duration = formatDuration(stream.startedAt);
   await stream.save();
   await User.updateOne({ _id: stream.streamerId }, { isLive: false });

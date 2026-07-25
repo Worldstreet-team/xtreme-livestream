@@ -75,6 +75,15 @@ export interface IStream extends Document {
   livekitRoomName: string;
   viewers: number;
   peakViewers: number;
+  /**
+   * Accumulated viewer-seconds. `viewers` is the *current* concurrent count and
+   * decays to 0 as an audience leaves, so it says nothing about a finished
+   * stream. Integrating it over time does: average viewers is
+   * `viewerSeconds / streamDurationSeconds`.
+   */
+  viewerSeconds: number;
+  /** Start of the current accrual window — when `viewers` was last sampled. */
+  viewerSampledAt: Date | null;
   startedAt: Date;
   endedAt: Date | null;
   duration: string;
@@ -93,6 +102,8 @@ const streamSchema = new Schema<IStream>(
     livekitRoomName: { type: String, required: true },
     viewers: { type: Number, default: 0 },
     peakViewers: { type: Number, default: 0 },
+    viewerSeconds: { type: Number, default: 0 },
+    viewerSampledAt: { type: Date, default: null },
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null },
     duration: { type: String, default: "0:00" },

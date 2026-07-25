@@ -1,8 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
-import { Stream } from "@/lib/models";
-import { webhookReceiver } from "@/lib/livekit";
-import { markStreamEnded } from "@/lib/stream-service";
+import { Stream, IStream } from "@/lib/models";
+import { roomService, webhookReceiver } from "@/lib/livekit";
+import { accrueViewerSeconds, markStreamEnded } from "@/lib/stream-service";
+
+/**
+ * Refresh a live stream's current/peak viewer counts and bank the viewer-time
+ * accrued at the previous count. Viewer count is the room's participant count
+ * minus the broadcaster.
+ *
+ * The room roster is queried rather than trusting the event's
+ * `numParticipants`, which is a snapshot taken at event time and is ambiguous
+ * for `participant_left` (it may or may not still include the leaver).
+ */
+async function updateViewerCounts(
+  stream: IStream,
+  numParticipants: number | undefined
+): Promise<void> {
+  let participants: number | undefined;
+
+  try {
+    const list = await roomService.listParticipants(stream.livekitRoomName);
+    participants = list.length;
+  } catch {
+    participants = numParticipants;
+  }
+
+  if (participants === undefined) return;
+
+  accrueViewerSeconds(stream);
+
+  const viewers = Math.max(0, participants - 1);
+  stream.viewers = viewers;
+  if (viewers > stream.peakViewers) stream.peakViewers = viewers;
+  await stream.save();
+}
 
 /**
  * POST /api/webhooks/livekit — LiveKit server webhook.
@@ -16,7 +48,9 @@ import { markStreamEnded } from "@/lib/stream-service";
  * (Settings → Webhooks): https://<your-domain>/api/webhooks/livekit
  *
  * Handled events:
- *   - participant_left: if the leaver is the broadcaster, end the stream now.
+ *   - participant_joined: refresh the stream's viewer counts.
+ *   - participant_left: if the leaver is the broadcaster, end the stream now;
+ *                       otherwise refresh the viewer counts.
  *   - room_finished:    end the stream when the room closes (empty timeout).
  */
 export async function POST(req: NextRequest) {
@@ -49,6 +83,15 @@ export async function POST(req: NextRequest) {
         isLive: true,
       });
       if (stream) await markStreamEnded(stream);
+    } else if (event.event === "participant_joined") {
+      const identity = event.participant?.identity;
+      const stream = await Stream.findOne({
+        livekitRoomName: roomName,
+        isLive: true,
+      });
+      if (stream && identity && stream.streamerId.toString() !== identity) {
+        await updateViewerCounts(stream, event.room?.numParticipants);
+      }
     } else if (
       event.event === "participant_left" ||
       event.event === "participant_connection_aborted"
@@ -62,8 +105,12 @@ export async function POST(req: NextRequest) {
         // End only when the broadcaster leaves — viewers leaving is normal.
         // The broadcaster's participant identity is their user id, which is
         // also embedded in the room name (`stream-<userId>-<ts>`).
-        if (stream && stream.streamerId.toString() === identity) {
-          await markStreamEnded(stream);
+        if (stream) {
+          if (stream.streamerId.toString() === identity) {
+            await markStreamEnded(stream);
+          } else {
+            await updateViewerCounts(stream, event.room?.numParticipants);
+          }
         }
       }
     }

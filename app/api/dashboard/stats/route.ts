@@ -2,14 +2,19 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Stream, Follow } from "@/lib/models";
 import { authenticate, isErrorResponse } from "@/lib/auth";
+import { averageViewers } from "@/lib/stream-service";
 
 /**
  * GET /api/dashboard/stats — Creator analytics
  *
  * Returns:
- *   - Total views, followers, estimated earnings, stream hours
+ *   - Peak/average viewers, followers, stream hours
  *   - Recent past streams
  *   - Daily view breakdown (last 7 days)
+ *
+ * Legacy in-process route: gifting (and therefore earnings) lives only in the
+ * standalone API service, so the earnings fields are absent here and the
+ * dashboard renders them as unavailable rather than as a misleading $0.00.
  */
 export async function GET() {
   const result = await authenticate();
@@ -26,8 +31,13 @@ export async function GET() {
   const liveStreams = allStreams.filter((s) => s.isLive);
   const pastStreams = allStreams.filter((s) => !s.isLive);
 
-  // Total views across all streams
-  const totalViews = allStreams.reduce((sum, s) => sum + (s.peakViewers || s.viewers), 0);
+  // Peak concurrent viewers summed across streams — an audience-size measure,
+  // not a count of views.
+  const totalPeakViewers = allStreams.reduce((sum, s) => sum + (s.peakViewers || s.viewers), 0);
+
+  // Time-weighted mean across all streams, so a long stream counts for more
+  // than a brief one that happened to spike.
+  const totalViewerSeconds = allStreams.reduce((sum, s) => sum + (s.viewerSeconds ?? 0), 0);
 
   // Total stream hours
   const totalSeconds = pastStreams.reduce((sum, s) => {
@@ -47,17 +57,18 @@ export async function GET() {
     thumbnail: s.thumbnail,
     viewers: s.viewers,
     peakViewers: s.peakViewers,
+    avgViewers: averageViewers(s),
     duration: s.duration,
     date: s.startedAt,
-    earnings: s.earnings,
   }));
 
-  // Daily views for last 7 days (approximation from stream start dates)
+  // Daily views for last 7 days (approximation from stream start dates).
+  // Buckets are UTC days — the client labels them in UTC to match.
   const now = new Date();
   const dailyViews: { date: string; views: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const day = new Date(now);
-    day.setDate(day.getDate() - i);
+    day.setUTCDate(day.getUTCDate() - i);
     const dayStr = day.toISOString().split("T")[0];
 
     const dayViews = allStreams
@@ -74,11 +85,15 @@ export async function GET() {
     success: true,
     data: {
       stats: {
-        totalViews,
+        totalPeakViewers,
+        // Retained under the old name for existing clients.
+        totalViews: totalPeakViewers,
         followers: followerCount,
         totalHours,
         totalStreams: allStreams.length,
         currentlyLive: liveStreams.length > 0,
+        avgViewers:
+          totalSeconds > 0 ? Math.round(totalViewerSeconds / totalSeconds) : 0,
       },
       recentStreams,
       dailyViews,
