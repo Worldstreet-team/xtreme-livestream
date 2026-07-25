@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { RemoteImage } from "@/components/ui/remote-image";
 
 interface UserAvatarProps {
   src?: string | null;
@@ -65,62 +64,33 @@ function getColorFromName(name: string): string {
  * Avatar component that shows an image or falls back to initials.
  */
 export function UserAvatar({ src, name, size = 32, className }: UserAvatarProps) {
-  const [hasError, setHasError] = useState(false);
+  const initials = (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
+        getColorFromName(name),
+        className
+      )}
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      title={name}
+    >
+      {getInitials(name)}
+    </div>
+  );
 
-  // Reset error state when src changes (e.g., after uploading a new avatar)
-  useEffect(() => {
-    setHasError(false);
-  }, [src]);
-
-  const showInitials = !src || hasError;
-  const initials = getInitials(name);
-  const bgColor = getColorFromName(name);
-
-  if (showInitials) {
-    return (
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
-          bgColor,
-          className
-        )}
-        style={{
-          width: size,
-          height: size,
-          fontSize: size * 0.4,
-        }}
-        title={name}
-      >
-        {initials}
-      </div>
-    );
-  }
-
-  // Use regular img tag for data URIs (base64 images) since Next.js Image doesn't support them
-  const isDataUri = src.startsWith("data:");
-
-  if (isDataUri) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src}
-        alt={name}
-        width={size}
-        height={size}
-        className={cn("shrink-0 rounded-full bg-white/10 object-cover", className)}
-        onError={() => setHasError(true)}
-      />
-    );
-  }
+  if (!src) return initials;
 
   return (
-    <Image
+    <RemoteImage
       src={src}
       alt={name}
       width={size}
       height={size}
-      className={cn("shrink-0 rounded-full bg-white/10", className)}
-      onError={() => setHasError(true)}
+      className={cn(
+        "shrink-0 rounded-full bg-white/10 object-cover",
+        className
+      )}
+      fallback={initials}
     />
   );
 }

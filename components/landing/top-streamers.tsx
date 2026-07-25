@@ -1,105 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Crown, TrendUp, Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { apiFetch } from "@/lib/api-client";
-import { formatNumber } from "@/lib/mock-data";
+import { formatNumber } from "@/lib/categories";
 
 type TopStreamer = {
   rank: number;
+  username: string;
   name: string;
   avatar: string;
   followers: string;
-  totalViews: string;
+  /** Peak concurrent viewers, summed across their streams. */
+  peakViewers: string;
   category: string;
   isLive: boolean;
   verified: boolean;
 };
-
-// Curated fallback shown until real streamers exist
-const demoStreamers: TopStreamer[] = [
-  {
-    rank: 1,
-    name: "Marcus Delgado",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=marcustrades",
-    followers: "12.4K",
-    totalViews: "471K",
-    category: "Bitcoin Trading",
-    isLive: true,
-    verified: true,
-  },
-  {
-    rank: 2,
-    name: "0xKenji",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=0xKenji",
-    followers: "8.9K",
-    totalViews: "356K",
-    category: "DeFi Protocols",
-    isLive: true,
-    verified: true,
-  },
-  {
-    rank: 3,
-    name: "LenaChartLab",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=LenaChartLab",
-    followers: "8.1K",
-    totalViews: "289K",
-    category: "Market Analysis",
-    isLive: false,
-    verified: true,
-  },
-  {
-    rank: 4,
-    name: "SatsPerDay",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=SatsPerDay",
-    followers: "6.7K",
-    totalViews: "232K",
-    category: "Bitcoin Trading",
-    isLive: true,
-    verified: false,
-  },
-  {
-    rank: 5,
-    name: "priya.hodl",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=priya.hodl",
-    followers: "5.9K",
-    totalViews: "178K",
-    category: "Crypto Education",
-    isLive: false,
-    verified: true,
-  },
-  {
-    rank: 6,
-    name: "TheQuietTrader",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TheQuietTrader",
-    followers: "4.2K",
-    totalViews: "149K",
-    category: "Futures & Perps",
-    isLive: true,
-    verified: false,
-  },
-  {
-    rank: 7,
-    name: "block_amara",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=block_amara",
-    followers: "3.8K",
-    totalViews: "117K",
-    category: "NFT Markets",
-    isLive: false,
-    verified: false,
-  },
-  {
-    rank: 8,
-    name: "DeFiDante",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=DeFiDante",
-    followers: "3.4K",
-    totalViews: "94K",
-    category: "Yield Strategies",
-    isLive: false,
-    verified: false,
-  },
-];
 
 interface APITopStreamer {
   rank: number;
@@ -108,16 +27,18 @@ interface APITopStreamer {
   displayName: string;
   avatar: string;
   followers: number;
-  totalViews: number;
+  totalPeakViewers: number;
   isLive: boolean;
   verified: boolean;
   category: string | null;
 }
 
 export function TopStreamers() {
-  const [topStreamers, setTopStreamers] = useState<TopStreamer[]>(demoStreamers);
+  // `null` = still loading. Previously seeded with eight invented streamers
+  // (fabricated follower and view counts) that stayed on screen whenever the
+  // platform had no real users or the API was unreachable.
+  const [topStreamers, setTopStreamers] = useState<TopStreamer[] | null>(null);
 
-  // Swap in real streamers when the platform has them
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -127,22 +48,22 @@ export function TopStreamers() {
           data: { streamers: APITopStreamer[] };
         }>("/api/users/top?limit=8");
         const streamers = res.data?.streamers ?? [];
-        if (!cancelled && streamers.length > 0) {
-          setTopStreamers(
-            streamers.map((s) => ({
-              rank: s.rank,
-              name: s.displayName || s.username,
-              avatar: s.avatar,
-              followers: formatNumber(s.followers),
-              totalViews: formatNumber(s.totalViews),
-              category: s.category ?? "New Streamer",
-              isLive: s.isLive,
-              verified: s.verified,
-            })),
-          );
-        }
+        if (cancelled) return;
+        setTopStreamers(
+          streamers.map((s) => ({
+            rank: s.rank,
+            username: s.username,
+            name: s.displayName || s.username,
+            avatar: s.avatar,
+            followers: formatNumber(s.followers),
+            peakViewers: formatNumber(s.totalPeakViewers),
+            category: s.category ?? "New Streamer",
+            isLive: s.isLive,
+            verified: s.verified,
+          })),
+        );
       } catch {
-        // API unavailable — keep the curated fallback
+        if (!cancelled) setTopStreamers([]);
       }
     })();
     return () => {
@@ -166,16 +87,45 @@ export function TopStreamers() {
             Top Streamers
           </h2>
           <p className="mt-2 text-muted-foreground">
-            The most-watched crypto streamers this month
+            Ranked by followers across the platform
           </p>
         </div>
 
+        {/* Nobody on the board yet */}
+        {topStreamers !== null && topStreamers.length === 0 && (
+          <div className="mx-auto mt-10 max-w-3xl rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-14 text-center">
+            <Crown size={36} className="mx-auto text-muted-foreground/30" />
+            <p className="mt-4 text-base font-medium text-foreground">
+              The leaderboard is wide open
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              No streamers yet — the first to build an audience takes the top
+              spot.
+            </p>
+          </div>
+        )}
+
         {/* Streamer list */}
         <div className="mx-auto mt-10 max-w-3xl space-y-3">
-          {topStreamers.map((streamer) => (
-            <div
+          {topStreamers === null &&
+            Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4"
+              >
+                <div className="size-8 shrink-0 animate-pulse rounded-lg bg-white/5" />
+                <div className="size-11 shrink-0 animate-pulse rounded-full bg-white/5" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-1/3 animate-pulse rounded bg-white/5" />
+                  <div className="h-3 w-1/4 animate-pulse rounded bg-white/5" />
+                </div>
+              </div>
+            ))}
+          {(topStreamers ?? []).map((streamer) => (
+            <Link
               key={streamer.rank}
-              className="group flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-white/10 hover:bg-white/[0.04] cursor-pointer"
+              href={`/explore?search=${encodeURIComponent(streamer.username)}`}
+              className="group flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-white/10 hover:bg-white/[0.04]"
             >
               {/* Rank */}
               <div
@@ -246,14 +196,14 @@ export function TopStreamers() {
                 <div className="text-right">
                   <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
                     <Eye size={14} className="text-primary" />
-                    {streamer.totalViews}
+                    {streamer.peakViewers}
                   </div>
                   <div className="text-[0.65rem] text-muted-foreground">
-                    Total Views
+                    Peak Viewers
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

@@ -40,7 +40,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
 
   return (
     <>
@@ -183,7 +183,12 @@ export function Sidebar() {
                   >
                     Dashboard
                   </a>
-                  <button className="text-muted-foreground transition-colors hover:text-foreground">
+                  <button
+                    onClick={() => logout()}
+                    title="Sign out"
+                    aria-label="Sign out"
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
                     <SignOut size={16} />
                   </button>
                 </div>

@@ -205,12 +205,15 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      const usd = result.data.balances.USD;
+      // A user who has never held USD has no USD entry at all. Reading
+      // `.availableMinor` off `undefined` threw a TypeError and surfaced as a
+      // 500; an empty balance is a legitimate answer, not a server fault.
+      const usd = result.data.balances?.USD;
       return {
         success: true,
         data: {
-          availableUsdMinor: usd.availableMinor,
-          lockedUsdMinor: usd.lockedMinor,
+          availableUsdMinor: usd?.availableMinor ?? 0,
+          lockedUsdMinor: usd?.lockedMinor ?? 0,
           currency: "USD",
         },
       };

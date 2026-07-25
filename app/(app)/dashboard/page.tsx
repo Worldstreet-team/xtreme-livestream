@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Image from "next/image";
 import {
   Eye,
   Users,
@@ -11,10 +10,12 @@ import {
   Play,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/mock-data";
+import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/categories";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { RemoteImage } from "@/components/ui/remote-image";
+import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 
 type Tab = "overview" | "streams" | "analytics";
 
@@ -270,15 +271,17 @@ export default function DashboardPage() {
                     key={stream.id}
                     className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
                   >
-                    <Image
-                      src={
-                        stream.thumbnail ||
-                        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop"
-                      }
+                    <RemoteImage
+                      src={stream.thumbnail}
                       alt={stream.title}
                       width={120}
                       height={68}
                       className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
+                      fallback={
+                        <div className="h-[68px] w-[120px] shrink-0 overflow-hidden rounded-lg">
+                          <StreamPreviewThumb seed={stream.id + stream.title} />
+                        </div>
+                      }
                     />
                     <div className="min-w-0 flex-1">
                       <h3 className="truncate text-sm font-semibold text-foreground">
@@ -337,15 +340,17 @@ export default function DashboardPage() {
                   key={stream.id}
                   className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
                 >
-                  <Image
-                    src={
-                      stream.thumbnail ||
-                      "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=800&auto=format&fit=crop"
-                    }
+                  <RemoteImage
+                    src={stream.thumbnail}
                     alt={stream.title}
                     width={140}
                     height={79}
                     className="h-[79px] w-[140px] shrink-0 rounded-lg object-cover"
+                    fallback={
+                      <div className="h-[79px] w-[140px] shrink-0 overflow-hidden rounded-lg">
+                        <StreamPreviewThumb seed={stream.id + stream.title} />
+                      </div>
+                    }
                   />
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate text-sm font-semibold text-foreground">

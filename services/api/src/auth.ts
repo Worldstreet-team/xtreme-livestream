@@ -19,9 +19,16 @@ export interface AuthenticatedUser {
 function makeBaseUsername(firstName: string, lastName: string) {
   const fromName = `${firstName}${lastName}`
     .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "");
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 24);
 
-  return fromName.slice(0, 24) || `user${Date.now()}`;
+  // `usernameSchema` (min 3) governs every later update, but nothing enforced
+  // it at provisioning time — so a short name like "Jo" produced a 2-character
+  // username that the profile PATCH then rejected, locking the user out of
+  // editing their own display name or bio forever.
+  if (fromName.length < 3) return `user${Date.now()}`;
+
+  return fromName;
 }
 
 async function findAvailableUsername(base: string) {

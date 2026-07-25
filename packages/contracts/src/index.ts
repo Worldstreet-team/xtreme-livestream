@@ -31,10 +31,17 @@ export const streamIdParamsSchema = z.object({
 /**
  * Accepts an http(s) URL or an inline base64 image data URI. Web clients
  * upload thumbnails/avatars as compressed data URIs rather than hosted files.
+ *
+ * The 200KB ceiling is deliberate. Data URIs live in the document and are
+ * returned inline by the list endpoint, which Explore re-polls every 15s at
+ * up to 50 streams a page — the old 500KB limit put a 25MB worst case on a
+ * request that repeats indefinitely. Client-side compression produces
+ * ~40-80KB, so this is still generous. Moving thumbnails to object storage
+ * and returning URLs is the real fix.
  */
 export const imageSourceSchema = z
   .string()
-  .max(500_000)
+  .max(200_000)
   .refine(
     (value) =>
       value === "" ||

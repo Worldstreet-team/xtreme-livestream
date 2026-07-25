@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Eye, SealCheck } from "@phosphor-icons/react";
+import { Eye, Lightning, SealCheck, VideoCamera } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
+import { RemoteImage } from "@/components/ui/remote-image";
 import { apiFetch } from "@/lib/api-client";
-import { formatNumber } from "@/lib/mock-data";
+import { formatNumber } from "@/lib/categories";
 
 type FeaturedStream = {
   id: string;
@@ -18,83 +18,10 @@ type FeaturedStream = {
   category: string;
   // Empty thumbnail → generated chart preview
   thumbnail: string;
-  pair?: string;
   avatar: string;
   isLive: boolean;
   verified?: boolean;
 };
-
-// Curated fallback shown until real live streams exist
-const demoStreams: FeaturedStream[] = [
-  {
-    id: "demo-1",
-    title: "BTC at Resistance: Reading the 4H Chart",
-    streamer: "Marcus Delgado",
-    viewers: 1284,
-    category: "Bitcoin Trading",
-    thumbnail: "",
-    pair: "BTC/USDT",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=marcustrades",
-    isLive: true,
-    verified: true,
-  },
-  {
-    id: "demo-2",
-    title: "Solana DeFi Deep Dive: LP Risks Explained",
-    streamer: "0xKenji",
-    viewers: 947,
-    category: "Altcoins & DeFi",
-    thumbnail: "",
-    pair: "SOL/USDT",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=0xKenji",
-    isLive: true,
-    verified: true,
-  },
-  {
-    id: "demo-3",
-    title: "Reading On-Chain Flows Before the Fed",
-    streamer: "LenaChartLab",
-    viewers: 613,
-    category: "Market Analysis",
-    thumbnail: "",
-    pair: "ETH/USDT",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=LenaChartLab",
-    isLive: true,
-    verified: true,
-  },
-  {
-    id: "demo-4",
-    title: "NFT Market Check: Floor Prices & Volume",
-    streamer: "block_amara",
-    viewers: 402,
-    category: "NFTs & Web3",
-    thumbnail: "",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=block_amara",
-    isLive: true,
-  },
-  {
-    id: "demo-5",
-    title: "Small-Cap Watchlist + My Risk Rules",
-    streamer: "TheQuietTrader",
-    viewers: 355,
-    category: "Altcoins & DeFi",
-    thumbnail: "",
-    pair: "AVAX/USDT",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=TheQuietTrader",
-    isLive: true,
-  },
-  {
-    id: "demo-6",
-    title: "Crypto Taxes 101: What Traders Get Wrong",
-    streamer: "priya.hodl",
-    viewers: 218,
-    category: "Crypto Education",
-    thumbnail: "",
-    avatar: "https://api.dicebear.com/9.x/avataaars/svg?seed=priya.hodl",
-    isLive: false,
-    verified: true,
-  },
-];
 
 interface APIStream {
   _id: string;
@@ -113,9 +40,13 @@ interface APIStream {
 }
 
 export function FeaturedStreams() {
-  const [streams, setStreams] = useState<FeaturedStream[]>(demoStreams);
+  // `null` = still loading. This used to seed six fabricated streams as a
+  // "curated fallback", which shipped invented viewer counts to the landing
+  // page and — because each card linked to /stream/demo-N, an id the API
+  // rejects as a malformed ObjectId — meant every card was a dead link
+  // whenever nobody was actually live.
+  const [streams, setStreams] = useState<FeaturedStream[] | null>(null);
 
-  // Swap in real live streams when the platform has them
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -125,23 +56,23 @@ export function FeaturedStreams() {
           data: { streams: APIStream[] };
         }>("/api/streams?live=true&sort=viewers&limit=6");
         const live = res.data?.streams ?? [];
-        if (!cancelled && live.length > 0) {
-          setStreams(
-            live.map((s) => ({
-              id: s._id,
-              title: s.title,
-              streamer: s.streamerId.displayName || s.streamerId.username,
-              viewers: s.viewers,
-              category: s.category,
-              thumbnail: s.thumbnail || "",
-              avatar: s.streamerId.avatar,
-              isLive: s.isLive,
-              verified: s.streamerId.verified ?? false,
-            })),
-          );
-        }
+        if (cancelled) return;
+        setStreams(
+          live.map((s) => ({
+            id: s._id,
+            title: s.title,
+            streamer: s.streamerId.displayName || s.streamerId.username,
+            viewers: s.viewers,
+            category: s.category,
+            thumbnail: s.thumbnail || "",
+            avatar: s.streamerId.avatar,
+            isLive: s.isLive,
+            verified: s.streamerId.verified ?? false,
+          })),
+        );
       } catch {
-        // API unavailable — keep the curated fallback
+        // Nothing to show is the honest answer when the API is unreachable.
+        if (!cancelled) setStreams([]);
       }
     })();
     return () => {
@@ -173,9 +104,51 @@ export function FeaturedStreams() {
           </Link>
         </div>
 
+        {/* Loading skeleton */}
+        {streams === null && (
+          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="overflow-hidden rounded-xl border border-white/5 bg-white/[0.02]"
+              >
+                <div className="aspect-video animate-pulse bg-white/5" />
+                <div className="flex gap-3 p-3">
+                  <div className="size-9 shrink-0 animate-pulse rounded-full bg-white/5" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-white/5" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-white/5" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Nobody live yet */}
+        {streams !== null && streams.length === 0 && (
+          <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-16 text-center">
+            <VideoCamera size={40} className="text-muted-foreground/30" />
+            <p className="mt-4 text-base font-medium text-foreground">
+              Nobody&apos;s live right now
+            </p>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              The platform is quiet at the moment. Be the first to go live and
+              you&apos;ll show up right here.
+            </p>
+            <Link
+              href="/studio"
+              className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+            >
+              <Lightning size={16} weight="fill" />
+              Start Streaming
+            </Link>
+          </div>
+        )}
+
         {/* Stream grid */}
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {streams.map((stream) => (
+          {(streams ?? []).map((stream) => (
             <Link key={stream.id} href={`/stream/${stream.id}`}>
             <article
               className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]"
@@ -183,17 +156,17 @@ export function FeaturedStreams() {
               {/* Thumbnail */}
               <div className="relative aspect-video overflow-hidden">
                 {stream.thumbnail ? (
-                  <Image
+                  <RemoteImage
                     src={stream.thumbnail}
                     alt={stream.title}
                     fill
                     className="object-cover transition-transform duration-300 group-hover:scale-105"
+                    fallback={
+                      <StreamPreviewThumb seed={stream.id + stream.title} />
+                    }
                   />
                 ) : (
-                  <StreamPreviewThumb
-                    seed={stream.id + stream.title}
-                    pair={stream.pair}
-                  />
+                  <StreamPreviewThumb seed={stream.id + stream.title} />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
 

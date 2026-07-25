@@ -44,41 +44,62 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { limit } = request.query;
 
+      // `totalViews` used to be the secondary sort and was surfaced on the
+      // landing leaderboard as "Total Views" — but nothing in either backend
+      // has ever written to it, so it was always 0 for every real streamer.
+      // Peak concurrent viewers, summed across a streamer's streams, is a
+      // number we actually record, and matches what the creator dashboard
+      // already calls "Peak Viewers".
       const users = await User.find({})
-        .sort({ followers: -1, totalViews: -1 })
+        .sort({ followers: -1, createdAt: 1 })
         .limit(limit)
-        .select(
-          "username displayName avatar followers totalViews isLive verified",
-        )
+        .select("username displayName avatar followers isLive verified")
         .lean();
 
-      // Latest stream per user supplies the category shown on the leaderboard.
-      const latestStreams = users.length
-        ? await Stream.aggregate<{ _id: unknown; category: string }>([
+      // One pass over the streamers' streams supplies both the category shown
+      // on the leaderboard (from their most recent stream) and their peak.
+      const streamStats = users.length
+        ? await Stream.aggregate<{
+            _id: unknown;
+            category: string;
+            totalPeakViewers: number;
+          }>([
             { $match: { streamerId: { $in: users.map((u) => u._id) } } },
             { $sort: { startedAt: -1 } },
-            { $group: { _id: "$streamerId", category: { $first: "$category" } } },
+            {
+              $group: {
+                _id: "$streamerId",
+                category: { $first: "$category" },
+                totalPeakViewers: {
+                  $sum: { $ifNull: ["$peakViewers", "$viewers"] },
+                },
+              },
+            },
           ])
         : [];
-      const categoryByUser = new Map(
-        latestStreams.map((s) => [String(s._id), s.category]),
+      const statsByUser = new Map(
+        streamStats.map((row) => [String(row._id), row]),
       );
 
       return {
         success: true,
         data: {
-          streamers: users.map((user, index) => ({
-            rank: index + 1,
-            id: user._id,
-            username: user.username,
-            displayName: user.displayName,
-            avatar: user.avatar,
-            followers: user.followers,
-            totalViews: user.totalViews,
-            isLive: user.isLive,
-            verified: user.verified,
-            category: categoryByUser.get(String(user._id)) ?? null,
-          })),
+          streamers: users.map((user, index) => {
+            const stats = statsByUser.get(String(user._id));
+
+            return {
+              rank: index + 1,
+              id: user._id,
+              username: user.username,
+              displayName: user.displayName,
+              avatar: user.avatar,
+              followers: user.followers,
+              totalPeakViewers: stats?.totalPeakViewers ?? 0,
+              isLive: user.isLive,
+              verified: user.verified,
+              category: stats?.category ?? null,
+            };
+          }),
         },
       };
     },

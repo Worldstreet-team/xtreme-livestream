@@ -14,6 +14,7 @@ import { Stream } from "../models.js";
 import {
   markStreamEnded,
   reconcileLeanStreams,
+  reconcileStream,
 } from "../stream-service.js";
 
 function escapeRegex(value: string) {
@@ -151,6 +152,48 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   app.get(
+    "/streams/active/mine",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary:
+          "The caller's currently-live stream, if any (null when not live)",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findOne({
+        streamerId: dbUser._id,
+        isLive: true,
+      });
+
+      // Reconcile before answering: a stream orphaned by a studio refresh or
+      // a crashed tab stays flagged live in Mongo until something checks
+      // LiveKit. Without this the studio would offer to "resume" a room that
+      // no longer exists.
+      if (!stream || !(await reconcileStream(stream))) {
+        return { success: true, data: { stream: null } };
+      }
+
+      return {
+        success: true,
+        data: {
+          stream: {
+            id: stream._id,
+            title: stream.title,
+            category: stream.category,
+            startedAt: stream.startedAt,
+            viewers: stream.viewers,
+            peakViewers: stream.peakViewers,
+            livekitRoomName: stream.livekitRoomName,
+          },
+        },
+      };
+    },
+  );
+
+  app.get(
     "/streams/:id",
     {
       schema: {
@@ -160,18 +203,25 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const stream = await Stream.findById(request.params.id)
-        .populate(
-          "streamerId",
-          "username displayName avatar bio followers isLive verified",
-        )
-        .lean();
+      const stream = await Stream.findById(request.params.id);
 
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
 
-      return { success: true, data: { stream } };
+      // The list route and the token route both reconcile; this one didn't,
+      // so a direct link to a stream whose broadcaster had silently dropped
+      // returned isLive: true. The page then rendered a LIVE badge and a
+      // running timer over a player that could never connect, because the
+      // token request it fires next *does* reconcile and rejects with 400.
+      await reconcileStream(stream);
+
+      await stream.populate(
+        "streamerId",
+        "username displayName avatar bio followers isLive verified",
+      );
+
+      return { success: true, data: { stream: stream.toJSON() } };
     },
   );
 

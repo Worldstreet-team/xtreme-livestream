@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import Image from "next/image";
 import {
   VideoCamera,
   Monitor,
@@ -23,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
-import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
+import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/categories";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -358,6 +357,54 @@ export default function StudioPage() {
     };
   }, []);
 
+  /**
+   * Recover from an orphaned stream.
+   *
+   * The browser is the publisher, so refreshing or crashing this tab kills the
+   * broadcast — but the Mongo row stays flagged live until reconciliation
+   * notices, and the host lands back on a studio that looks idle. There's no
+   * way to resume (the tracks are gone), so the honest option is to tell them
+   * and let them close it out before starting fresh.
+   */
+  const [orphan, setOrphan] = useState<{ id: string; title: string } | null>(
+    null
+  );
+  const [endingOrphan, setEndingOrphan] = useState(false);
+
+  useEffect(() => {
+    if (!user || isLive) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { stream: { id: string; title: string } | null };
+        }>("/api/streams/active/mine");
+        if (!cancelled) setOrphan(res.data.stream);
+      } catch {
+        // Non-critical — the Go Live path ends any stale stream anyway.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isLive]);
+
+  const endOrphan = async () => {
+    if (!orphan) return;
+    setEndingOrphan(true);
+    try {
+      await apiFetch(`/api/streams/${orphan.id}/end`, { method: "POST" });
+      setOrphan(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not end the previous stream"
+      );
+    } finally {
+      setEndingOrphan(false);
+    }
+  };
+
   // Show overlay controls, then hide them after 3s of inactivity (live only)
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -482,6 +529,30 @@ export default function StudioPage() {
       {error && (
         <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {orphan && !isLive && (
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5">
+            <Warning size={18} className="mt-0.5 shrink-0 text-amber-400" />
+            <div>
+              <p className="text-sm font-medium text-amber-300">
+                &ldquo;{orphan.title}&rdquo; is still marked live
+              </p>
+              <p className="mt-0.5 text-xs text-amber-400/70">
+                The broadcast stopped when this tab closed, but the stream was
+                never ended. Close it out before going live again.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={endOrphan}
+            disabled={endingOrphan}
+            className="h-9 shrink-0 rounded-lg bg-amber-500/20 px-4 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
+          >
+            {endingOrphan ? "Ending..." : "End it"}
+          </button>
         </div>
       )}
 

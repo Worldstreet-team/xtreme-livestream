@@ -9,7 +9,6 @@ import {
   Copy,
   Eye,
   EyeSlash,
-  ArrowsClockwise,
   Check,
   Camera,
 } from "@phosphor-icons/react";
@@ -75,13 +74,24 @@ export default function SettingsPage() {
   };
 
   const saveProfile = async () => {
+    if (!user) return;
     setSaving(true);
     setSaveError(null);
     setSaved(false);
     try {
-      const payload: Record<string, string> = { displayName, username, bio };
-      if (avatarPreview) {
-        payload.avatar = avatarPreview;
+      // Send only what actually changed. Posting every field meant an
+      // untouched username still had to satisfy the API's validation — so a
+      // profile carrying a legacy short username couldn't save a bio edit.
+      const payload: Record<string, string> = {};
+      if (displayName !== user.displayName) payload.displayName = displayName;
+      if (username !== user.username) payload.username = username;
+      if (bio !== (user.bio || "")) payload.bio = bio;
+      if (avatarPreview) payload.avatar = avatarPreview;
+
+      if (Object.keys(payload).length === 0) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+        return;
       }
       await apiFetch("/api/user/me", {
         method: "PATCH",
@@ -362,6 +372,7 @@ export default function SettingsPage() {
                   description="Automatically save a VOD of your streams (coming soon — recordings are not yet available)"
                   checked={autoRecord}
                   onChange={setAutoRecord}
+                  disabled
                 />
               </div>
 
@@ -372,21 +383,22 @@ export default function SettingsPage() {
                 </h2>
                 <Toggle
                   label="Slow mode"
-                  description="Require 30 seconds between messages"
+                  description="Require 30 seconds between messages. Enforced on the server — you're exempt on your own stream."
                   checked={chatSlowMode}
                   onChange={setChatSlowMode}
                 />
                 <Toggle
-                  label="Subscriber-only chat"
-                  description="Only followers can send messages"
+                  label="Followers-only chat"
+                  description="Only people who follow you can send messages"
                   checked={subscriberOnlyChat}
                   onChange={setSubscriberOnlyChat}
                 />
                 <Toggle
                   label="Profanity filter"
-                  description="Automatically censor inappropriate language"
+                  description="Automatically censor inappropriate language (coming soon — no filtering is applied yet)"
                   checked={profanityFilter}
                   onChange={setProfanityFilter}
+                  disabled
                 />
               </div>
 
@@ -448,22 +460,30 @@ function Toggle({
   description,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  /** For settings that are persisted but not yet acted on anywhere. */
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className={cn("flex items-center justify-between gap-4", disabled && "opacity-50")}>
       <div>
         <p className="text-sm font-medium text-foreground">{label}</p>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <button
-        onClick={() => onChange(!checked)}
+        onClick={() => !disabled && onChange(!checked)}
+        disabled={disabled}
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         className={cn(
-          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
+          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors",
+          disabled ? "cursor-not-allowed" : "cursor-pointer",
           checked ? "bg-primary" : "bg-white/10"
         )}
       >

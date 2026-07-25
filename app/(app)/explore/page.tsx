@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { MagnifyingGlass, FunnelSimple, SortAscending } from "@phosphor-icons/react";
 import { StreamCard } from "@/components/app/stream-card";
-import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/mock-data";
+import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/categories";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -52,11 +52,6 @@ function toStreamCard(s: APIStream) {
       avatar: s.streamerId.avatar,
       isLive: s.streamerId.isLive,
       verified: s.streamerId.verified ?? false,
-      bio: "",
-      followers: 0,
-      following: 0,
-      totalViews: 0,
-      joinedAt: "",
     },
   };
 }

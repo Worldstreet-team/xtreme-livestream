@@ -3,13 +3,16 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 /**
  * Public routes that don't require Clerk authentication.
  * All other routes are protected by default.
+ *
+ * The data API lives in the standalone Fastify service (services/api) and is
+ * reached cross-origin with a Clerk bearer token, so it never passes through
+ * this middleware. The only route left under /api here is the LiveKit
+ * webhook, which authenticates itself by signature.
  */
 const isPublicRoute = createRouteMatcher([
   "/",                       // Marketing landing page
   "/explore",                // Public stream browsing
   "/stream/(.*)",            // Public stream watching (interactions still require auth)
-  "/api/streams(.*)",        // Public stream listing & details
-  "/api/user/:username",     // Public user profiles
   "/api/webhooks/(.*)",      // Server-to-server webhooks (verified by signature)
 ]);
 

@@ -11,8 +11,22 @@ import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { createToken } from "../livekit.js";
-import { ChatMessage, Report, Stream, StreamLike } from "../models.js";
+import {
+  ChatMessage,
+  Follow,
+  Report,
+  Stream,
+  StreamLike,
+  User,
+} from "../models.js";
 import { markStreamEnded, reconcileStream } from "../stream-service.js";
+
+/**
+ * Cooldown between messages when the streamer has slow mode on.
+ * Mirrored client-side as SLOW_MODE_SECONDS in components/app/live-chat.tsx —
+ * keep the two in step so the countdown matches what the server enforces.
+ */
+const CHAT_SLOW_MODE_SECONDS = 30;
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -342,12 +356,54 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
+      // The streamer's moderation settings were being collected in Settings
+      // and saved to the profile, but nothing ever read them — slow mode was
+      // enforced only by client-side state (trivially bypassed by posting
+      // directly) and subscriber-only chat did nothing at all. The host is
+      // exempt from their own restrictions.
+      const isHost = stream.streamerId.equals(dbUser._id);
+      if (!isHost) {
+        const streamer = await User.findById(stream.streamerId).select(
+          "settings",
+        );
+
+        if (streamer?.settings.subscriberOnly) {
+          const follows = await Follow.exists({
+            followerId: dbUser._id,
+            followingId: stream.streamerId,
+          });
+          if (!follows) {
+            throw new ApiError(
+              403,
+              "This chat is for followers only — follow the streamer to join in",
+              "FOLLOWERS_ONLY",
+            );
+          }
+        }
+
+        if (streamer?.settings.slowMode) {
+          const since = new Date(Date.now() - CHAT_SLOW_MODE_SECONDS * 1000);
+          const recent = await ChatMessage.exists({
+            streamId: stream._id,
+            userId: dbUser._id,
+            createdAt: { $gt: since },
+          });
+          if (recent) {
+            throw new ApiError(
+              429,
+              `Slow mode is on — wait ${CHAT_SLOW_MODE_SECONDS}s between messages`,
+              "SLOW_MODE",
+            );
+          }
+        }
+      }
+
       const message = await ChatMessage.create({
         streamId: stream._id,
         userId: dbUser._id,
         username: dbUser.username,
         avatar: dbUser.avatar,
-        isMod: stream.streamerId.equals(dbUser._id),
+        isMod: isHost,
         content: body.content,
         type: body.type,
         tipAmount: body.tipAmount ?? null,

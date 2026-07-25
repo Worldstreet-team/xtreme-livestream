@@ -1,8 +1,8 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
-import { type Stream, CATEGORY_COLORS, formatNumber } from "@/lib/mock-data";
+import { type Stream, CATEGORY_COLORS, formatNumber } from "@/lib/categories";
+import { RemoteImage } from "@/components/ui/remote-image";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 
@@ -13,11 +13,12 @@ export function StreamCard({ stream }: { stream: Stream }) {
         {/* Thumbnail */}
         <div className="relative aspect-video overflow-hidden">
           {stream.thumbnail ? (
-            <Image
+            <RemoteImage
               src={stream.thumbnail}
               alt={stream.title}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
+              fallback={<StreamPreviewThumb seed={stream.id + stream.title} />}
             />
           ) : (
             <StreamPreviewThumb seed={stream.id + stream.title} />

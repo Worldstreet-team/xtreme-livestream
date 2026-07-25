@@ -1,14 +1,19 @@
 /**
  * Client-side API helper.
  *
- * Authentication is handled by Clerk. When NEXT_PUBLIC_API_URL is set,
- * requests go to the standalone Fastify API with the Clerk session JWT as
- * a Bearer token (cross-origin, cookies won't ride along). When unset,
- * requests fall back to the same-origin Next.js routes where the Clerk
- * session cookie is included automatically.
+ * Every data request goes to the standalone Fastify API (services/api) with
+ * the Clerk session JWT as a Bearer token — cross-origin, so cookies won't
+ * ride along. NEXT_PUBLIC_API_URL is therefore required, not optional: the
+ * in-process Next.js routes it used to fall back to have been removed, since
+ * they had drifted out of sync with the real API (missing likes, reports,
+ * gifts and the wallet, and accepting client-supplied tip amounts).
+ *
+ * A missing base URL used to degrade silently — likes and reports 404'd into
+ * empty catch blocks and the landing page quietly showed placeholder data.
+ * It now throws, so a misconfigured deploy is obvious immediately.
  */
 
-/** Base URL of the standalone API service; empty string = same-origin. */
+/** Base URL of the standalone API service. Required. */
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
 interface ClerkGlobal {
@@ -43,12 +48,18 @@ export async function apiFetch<T = unknown>(
     ...options.headers,
   };
 
-  const target = API_BASE && url.startsWith("/") ? `${API_BASE}${url}` : url;
-
-  if (API_BASE) {
-    const token = await getSessionToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+  if (!API_BASE && url.startsWith("/")) {
+    throw new ApiError(
+      "The app is misconfigured: NEXT_PUBLIC_API_URL is not set, so there is no API to talk to.",
+      0,
+      null
+    );
   }
+
+  const target = url.startsWith("/") ? `${API_BASE}${url}` : url;
+
+  const token = await getSessionToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(target, {
     ...options,

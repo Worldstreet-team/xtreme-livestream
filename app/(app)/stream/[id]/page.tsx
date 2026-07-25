@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import Image from "next/image";
 import {
   Eye,
   Heart,
@@ -19,12 +18,12 @@ import {
   CATEGORY_COLORS,
   formatNumber,
   type Category,
-} from "@/lib/mock-data";
+} from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import type { Room } from "livekit-client";
 
 const REPORT_REASONS: Array<{ value: string; label: string }> = [
@@ -81,9 +80,21 @@ export default function StreamPage({
   const roomRef = useRef<Room | null>(null);
   const videoElRef = useRef<HTMLVideoElement>(null);
   const [connected, setConnected] = useState(false);
+  /**
+   * Concurrent watchers, derived from the room roster.
+   *
+   * `remoteParticipants` is everyone *except* me — i.e. the broadcaster plus
+   * the other viewers. Swapping the broadcaster out for myself leaves the
+   * count unchanged, so `remoteParticipants.size` *is* the watcher count.
+   * It previously rendered as `viewerCount + 1`, which counted the
+   * broadcaster as a viewer and read one higher than both the studio and the
+   * server-side count (`participants - 1`, see the LiveKit webhook).
+   */
   const [viewerCount, setViewerCount] = useState(0);
   const elapsedInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  /** Set when joining the room fails, so the player doesn't just sit black. */
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   // Like & share state
   const [liked, setLiked] = useState(false);
@@ -287,8 +298,18 @@ export default function StreamPage({
           }
         });
       });
-    } catch {
-      // Stream may have ended or token request failed
+      setPlaybackError(null);
+    } catch (err) {
+      // Swallowing this is what produced the worst failure mode on this page:
+      // a stale stream still flagged live rendered the LIVE badge and a ticking
+      // timer over a permanently black player, with no indication anything had
+      // gone wrong. Surface it instead.
+      console.error("[Stream] Failed to join the LiveKit room:", err);
+      setPlaybackError(
+        err instanceof ApiError && err.status === 400
+          ? "This stream has ended."
+          : "Couldn't connect to this stream. It may have ended."
+      );
     }
   }, [stream?.isLive, id, connected]);
 
@@ -494,6 +515,23 @@ export default function StreamPage({
               </div>
             )}
 
+            {/* Flagged live, but we couldn't actually join the room */}
+            {stream.isLive && playbackError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                <div className="px-6 text-center">
+                  <p className="text-lg font-semibold text-white/60">
+                    {playbackError}
+                  </p>
+                  <button
+                    onClick={() => router.push("/explore")}
+                    className="mt-4 h-9 rounded-lg border border-white/15 px-4 text-sm font-medium text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                  >
+                    Browse live streams
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Stream overlay info */}
             <div
               className={cn(
@@ -513,7 +551,10 @@ export default function StreamPage({
               <div className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white/80 backdrop-blur-sm">
                 <Eye size={14} />
                 {stream.isLive
-                  ? `${viewerCount + 1} watching`
+                  ? // Prefer the room roster once we're actually in the room;
+                    // until then (or if the join failed) the server's last
+                    // known count beats showing a confident "0 watching".
+                    `${formatNumber(connected ? viewerCount : stream.viewers)} watching`
                   : // `viewers` is the live concurrent count and is 0 for an
                     // ended stream; peak is what actually describes it.
                     `${formatNumber(stream.peakViewers ?? 0)} peak`}

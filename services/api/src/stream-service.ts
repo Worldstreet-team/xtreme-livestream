@@ -35,8 +35,44 @@ export function accrueViewerSeconds(stream: IStream, now = Date.now()) {
 /** Shape needed to derive an average — satisfied by both hydrated and lean docs. */
 interface ViewerAverageInput {
   viewerSeconds?: number;
+  viewers?: number;
+  isLive?: boolean;
+  viewerSampledAt?: Date | string | null;
   startedAt?: Date | string | null;
   endedAt?: Date | string | null;
+}
+
+/**
+ * Wall-clock seconds the stream has run: to `endedAt`, or to now while live.
+ *
+ * Read-side counterpart to the fields the webhook maintains. Anything
+ * averaging over a stream's lifetime must use this as the denominator —
+ * measuring a live stream against zero elapsed time is what made a
+ * first-time streamer's dashboard read "0 avg viewers" mid-broadcast.
+ */
+export function streamSeconds(stream: ViewerAverageInput) {
+  if (!stream.startedAt) return 0;
+
+  const end = stream.endedAt ? new Date(stream.endedAt).getTime() : Date.now();
+  return Math.max(0, (end - new Date(stream.startedAt).getTime()) / 1000);
+}
+
+/**
+ * Viewer-seconds *including* the accrual window still open on a live stream.
+ *
+ * `viewerSeconds` is only banked when a LiveKit webhook fires, so for a live
+ * stream everything since the last participant event is missing from the
+ * stored value. This adds it back without writing to the document — reads
+ * shouldn't have side effects, and the next webhook banks it properly.
+ */
+export function accruedViewerSeconds(stream: ViewerAverageInput) {
+  const banked = stream.viewerSeconds ?? 0;
+  if (!stream.isLive || !stream.startedAt) return banked;
+
+  const windowStart = stream.viewerSampledAt ?? stream.startedAt;
+  const open = Math.max(0, Date.now() - new Date(windowStart).getTime()) / 1000;
+
+  return banked + (stream.viewers ?? 0) * open;
 }
 
 /**
@@ -44,13 +80,13 @@ interface ViewerAverageInput {
  * that predate viewer-second tracking (no accrued seconds recorded).
  */
 export function averageViewers(stream: ViewerAverageInput) {
-  if (!stream.viewerSeconds || !stream.startedAt) return 0;
+  const viewerSeconds = accruedViewerSeconds(stream);
+  if (!viewerSeconds) return 0;
 
-  const end = stream.endedAt ? new Date(stream.endedAt).getTime() : Date.now();
-  const seconds = (end - new Date(stream.startedAt).getTime()) / 1000;
+  const seconds = streamSeconds(stream);
   if (seconds <= 0) return 0;
 
-  return Math.round(stream.viewerSeconds / seconds);
+  return Math.round(viewerSeconds / seconds);
 }
 
 export async function markStreamEnded(stream: IStream) {

@@ -1,7 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import { authenticate } from "../auth.js";
 import { Follow, GiftTransaction, Stream } from "../models.js";
-import { averageViewers } from "../stream-service.js";
+import {
+  accruedViewerSeconds,
+  averageViewers,
+  streamSeconds,
+} from "../stream-service.js";
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
@@ -25,19 +29,21 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         (sum, stream) => sum + (stream.peakViewers || stream.viewers),
         0,
       );
-      const totalSeconds = pastStreams.reduce((sum, stream) => {
-        if (!stream.startedAt || !stream.endedAt) return sum;
-        return (
-          sum +
-          (new Date(stream.endedAt).getTime() -
-            new Date(stream.startedAt).getTime()) /
-            1000
-        );
-      }, 0);
+      // Both sides of the average must cover the same set of streams. They
+      // didn't: the denominator summed past streams only while the numerator
+      // summed all of them, so a live stream's viewer-time was divided by a
+      // duration that excluded it — inflating the average mid-broadcast, and
+      // reading 0 for anyone whose only stream was the one currently running.
+      // `streamSeconds` counts a live stream up to now; `accruedViewerSeconds`
+      // adds the accrual window the webhook hasn't banked yet.
+      const totalSeconds = allStreams.reduce(
+        (sum, stream) => sum + streamSeconds(stream),
+        0,
+      );
       // Time-weighted mean across every stream, so long streams count for more
       // than a brief one that happened to spike.
       const totalViewerSeconds = allStreams.reduce(
-        (sum, stream) => sum + (stream.viewerSeconds ?? 0),
+        (sum, stream) => sum + accruedViewerSeconds(stream),
         0,
       );
 
@@ -119,6 +125,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
             // Retained under the old name for existing clients.
             totalViews: totalPeakViewers,
             followers,
+            // Includes the in-progress stream, so this ticks up while live
+            // and stays consistent with the average above.
             totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
             totalStreams: allStreams.length,
             currentlyLive: allStreams.some((stream) => stream.isLive),
@@ -126,8 +134,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
               totalSeconds > 0
                 ? Math.round(totalViewerSeconds / totalSeconds)
                 : 0,
-            // Net of commission — what the creator actually keeps.
-            earningsUsdMinor: dbUser.earningsUsdMinor,
+            // Net of commission — what the creator actually keeps. Derived
+            // from the GiftTransaction ledger rather than the denormalized
+            // `user.earningsUsdMinor` counter: the counter is a separate
+            // $inc after the transaction is written, so a failure between the
+            // two would leave the headline figure permanently disagreeing
+            // with the per-stream earnings below (which come from the ledger).
+            earningsUsdMinor: tips.net,
             tipsGrossUsdMinor: tips.gross,
             tipsNetUsdMinor: tips.net,
             tipsCount: tips.count,

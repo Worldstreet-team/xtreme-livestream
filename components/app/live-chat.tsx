@@ -80,6 +80,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
   const [slowMode, setSlowMode] = useState(false);
   const [showModTools, setShowModTools] = useState(false);
   const [cooldownLeft, setCooldownLeft] = useState(0);
+  const [sending, setSending] = useState(false);
+  /** Why the last send was rejected (slow mode, followers-only, offline...). */
+  const [chatError, setChatError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const attachedRef = useRef(false);
   const slowModeRef = useRef(false);
@@ -273,79 +276,91 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     [room]
   );
 
+  /**
+   * Persist first, then show and broadcast.
+   *
+   * This used to run the other way round — render locally, publish over the
+   * LiveKit data channel, then POST as fire-and-forget. That made the
+   * server's moderation rules cosmetic: a message rejected for slow mode or
+   * followers-only chat had already reached every viewer in the room, and the
+   * rejection was swallowed, so the sender saw it succeed. Waiting for the
+   * write costs a round-trip but means "rejected" actually means rejected.
+   */
+  const submitMessage = async (
+    msg: Omit<ChatMsg, "id" | "timestamp">,
+    body: Record<string, unknown>
+  ) => {
+    setChatError(null);
+    try {
+      await apiFetch(`/api/streams/${streamId}/chat`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      setChatError(
+        err instanceof Error ? err.message : "Couldn't send that message."
+      );
+      // Slow mode rejections carry the remaining wait; start the countdown so
+      // the input reflects it rather than letting the user hammer the button.
+      if (err instanceof ApiError && err.status === 429) {
+        setCooldownLeft(SLOW_MODE_SECONDS);
+      }
+      return false;
+    }
+
+    const full: ChatMsg = {
+      ...msg,
+      id: `local-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+    setMessages((prev) => [...prev, full]);
+    broadcastMessage(full);
+    return true;
+  };
+
   const sendMessage = async () => {
-    if (!input.trim() || !user) return;
+    const content = input.trim();
+    if (!content || !user || sending) return;
 
     // Slow mode: viewers must wait between messages (host is exempt)
     if (slowMode && !isHost && cooldownLeft > 0) return;
 
-    const msg: ChatMsg = {
-      id: `local-${Date.now()}`,
-      username: user.username,
-      avatar: user.avatar,
-      content: input.trim(),
-      type: "text",
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-
-    // Add locally immediately
-    setMessages((prev) => [...prev, msg]);
+    setSending(true);
     setInput("");
 
-    if (slowMode && !isHost) {
-      setCooldownLeft(SLOW_MODE_SECONDS);
-    }
+    const ok = await submitMessage(
+      { username: user.username, avatar: user.avatar, content, type: "text" },
+      { content, type: "text" }
+    );
 
-    // Broadcast via LiveKit
-    broadcastMessage(msg);
+    // Restore the draft so a rejected message isn't silently lost.
+    if (!ok) setInput(content);
+    else if (slowMode && !isHost) setCooldownLeft(SLOW_MODE_SECONDS);
 
-    // Persist to API (fire and forget)
-    try {
-      await apiFetch(`/api/streams/${streamId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ content: msg.content, type: "text" }),
-      });
-    } catch {
-      // Best-effort persistence
-    }
+    setSending(false);
   };
 
   const sendReaction = async (emoji: string) => {
-    if (!user) return;
+    if (!user || sending) return;
 
-    const msg: ChatMsg = {
-      id: `local-${Date.now()}`,
-      username: user.username,
-      avatar: user.avatar,
-      content: emoji,
-      type: "reaction",
-      emoji,
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-
-    setMessages((prev) => [...prev, msg]);
+    setSending(true);
     setShowReactions(false);
 
-    broadcastMessage(msg);
+    await submitMessage(
+      {
+        username: user.username,
+        avatar: user.avatar,
+        content: emoji,
+        type: "reaction",
+        emoji,
+      },
+      { content: emoji, type: "reaction", emoji }
+    );
 
-    try {
-      await apiFetch(`/api/streams/${streamId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          content: emoji,
-          type: "reaction",
-          emoji,
-        }),
-      });
-    } catch {
-      // Best-effort
-    }
+    setSending(false);
   };
 
   /**
@@ -751,6 +766,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
 
       {/* Input bar */}
       <div className="border-t border-white/5 px-3 py-3">
+        {chatError && isLive && user && (
+          <p className="mb-2 text-[0.65rem] text-red-400">{chatError}</p>
+        )}
         {isLive && !user ? (
           <a
             href="https://www.worldstreetgold.com/login"
@@ -805,16 +823,18 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              disabled={cooldownLeft > 0}
+              disabled={cooldownLeft > 0 || sending}
               className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               onClick={sendMessage}
-              disabled={cooldownLeft > 0}
+              disabled={cooldownLeft > 0 || sending}
               className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {cooldownLeft > 0 ? (
                 <span className="text-xs font-semibold">{cooldownLeft}</span>
+              ) : sending ? (
+                <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
               ) : (
                 <PaperPlaneRight size={18} weight="fill" />
               )}
