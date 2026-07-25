@@ -22,16 +22,26 @@ type Candle = { x: number; open: number; close: number; high: number; low: numbe
 /**
  * Chart-style stream preview used when a stream has no real thumbnail.
  * Renders a seeded candlestick chart that reads like a trading-stream frame
- * instead of a stock photo. Fills its (relative) parent.
+ * instead of a stock photo.
+ *
+ * Sizes itself to its parent box via `size-full` rather than `absolute
+ * inset-0`. The absolute version silently required every caller to be
+ * `position: relative` — and a caller that forgot didn't get a subtly
+ * misplaced chart, it got one anchored to the viewport, escaping its
+ * `overflow-hidden` (which can't clip a descendant whose containing block
+ * sits outside it) and covering the entire page.
  */
 export function StreamPreviewThumb({
   seed,
   pair,
   className,
+  /** Drop the ticker chip where the box is too small to fit it legibly. */
+  showTicker = true,
 }: {
   seed: string;
   pair?: string;
   className?: string;
+  showTicker?: boolean;
 }) {
   const rng = seededRandom(seed);
   const tickerPair = pair ?? PAIRS[Math.floor(rng() * PAIRS.length)];
@@ -52,7 +62,7 @@ export function StreamPreviewThumb({
   }
 
   return (
-    <div className={cn("absolute inset-0 overflow-hidden bg-[#0b0d10]", className)}>
+    <div className={cn("relative size-full overflow-hidden bg-[#0b0d10]", className)}>
       <svg
         viewBox="0 0 800 450"
         preserveAspectRatio="xMidYMid slice"
@@ -125,13 +135,15 @@ export function StreamPreviewThumb({
       </svg>
 
       {/* Ticker chip */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-0.5 font-mono text-[0.65rem] font-medium backdrop-blur-sm">
-        <span className="text-white/80">{tickerPair}</span>
-        <span className={up ? "text-emerald-400" : "text-red-400"}>
-          {up ? "+" : ""}
-          {percent.toFixed(1)}%
-        </span>
-      </div>
+      {showTicker && (
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-0.5 font-mono text-[0.65rem] font-medium backdrop-blur-sm">
+          <span className="text-white/80">{tickerPair}</span>
+          <span className={up ? "text-emerald-400" : "text-red-400"}>
+            {up ? "+" : ""}
+            {percent.toFixed(1)}%
+          </span>
+        </div>
+      )}
     </div>
   );
 }

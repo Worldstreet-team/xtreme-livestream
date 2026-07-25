@@ -279,8 +279,11 @@ export default function DashboardPage() {
                       height={68}
                       className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
                       fallback={
-                        <div className="h-[68px] w-[120px] shrink-0 overflow-hidden rounded-lg">
-                          <StreamPreviewThumb seed={stream.id + stream.title} />
+                        <div className="relative h-[68px] w-[120px] shrink-0 overflow-hidden rounded-lg">
+                          <StreamPreviewThumb
+                            seed={stream.id + stream.title}
+                            showTicker={false}
+                          />
                         </div>
                       }
                     />
@@ -348,8 +351,11 @@ export default function DashboardPage() {
                     height={79}
                     className="h-[79px] w-[140px] shrink-0 rounded-lg object-cover"
                     fallback={
-                      <div className="h-[79px] w-[140px] shrink-0 overflow-hidden rounded-lg">
-                        <StreamPreviewThumb seed={stream.id + stream.title} />
+                      <div className="relative h-[79px] w-[140px] shrink-0 overflow-hidden rounded-lg">
+                        <StreamPreviewThumb
+                          seed={stream.id + stream.title}
+                          showTicker={false}
+                        />
                       </div>
                     }
                   />
