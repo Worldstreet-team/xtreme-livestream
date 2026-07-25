@@ -74,6 +74,8 @@ export default function StreamPage({
   const [error, setError] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  /** Why the last follow/unfollow was refused, shown next to the button. */
+  const [followError, setFollowError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState("0:00");
 
   // LiveKit
@@ -161,8 +163,12 @@ export default function StreamPage({
           data: { isFollowing?: boolean };
         }>(`/api/user/${stream!.streamerId.username}`);
         setIsFollowing(res.data.isFollowing ?? false);
-      } catch {
-        // ignore
+      } catch (err) {
+        // Don't swallow this. If the status lookup fails the button renders
+        // "Follow" regardless of reality, and the follow request that follows
+        // is then rejected as a duplicate — which is exactly how the button
+        // ends up looking dead.
+        console.error("[Follow] status check failed:", err);
       }
     }
     checkFollow();
@@ -344,49 +350,62 @@ export default function StreamPage({
     return () => clearTimeout(timer);
   }, [streamEnded, countdown, router]);
 
+  /** Apply a follow outcome: the button state, plus the follower tally. */
+  const syncFollow = (following: boolean, delta: number) => {
+    setIsFollowing(following);
+    if (delta === 0) return;
+    setStream((prev) =>
+      prev
+        ? {
+            ...prev,
+            streamerId: {
+              ...prev.streamerId,
+              followers: Math.max(0, prev.streamerId.followers + delta),
+            },
+          }
+        : prev
+    );
+  };
+
   // Follow / unfollow
   const toggleFollow = async () => {
-    if (!stream?.streamerId?.username || followLoading) return;
+    const username = stream?.streamerId?.username;
+    if (!username || followLoading) return;
+
+    const wasFollowing = isFollowing;
     setFollowLoading(true);
+    setFollowError(null);
+
     try {
-      if (isFollowing) {
-        await apiFetch(`/api/user/${stream.streamerId.username}/follow`, {
-          method: "DELETE",
-        });
-        setIsFollowing(false);
-        setStream((prev) =>
-          prev
-            ? {
-                ...prev,
-                streamerId: {
-                  ...prev.streamerId,
-                  followers: Math.max(0, prev.streamerId.followers - 1),
-                },
-              }
-            : prev
-        );
+      await apiFetch(`/api/user/${username}/follow`, {
+        method: wasFollowing ? "DELETE" : "POST",
+      });
+      syncFollow(!wasFollowing, wasFollowing ? -1 : 1);
+    } catch (err) {
+      const code =
+        err instanceof ApiError &&
+        err.data &&
+        typeof err.data === "object" &&
+        "code" in err.data
+          ? (err.data as { code?: string }).code
+          : undefined;
+
+      // ALREADY_FOLLOWING and NOT_FOLLOWING don't mean the action failed —
+      // they mean our local state was stale, and the server is already in the
+      // state the user was asking for. Previously both were swallowed into a
+      // console log, so the button sat there looking broken however many
+      // times you pressed it. Adopt the server's answer instead; the tally
+      // doesn't move because it already accounts for us.
+      if (code === "ALREADY_FOLLOWING") {
+        syncFollow(true, 0);
+      } else if (code === "NOT_FOLLOWING") {
+        syncFollow(false, 0);
       } else {
-        await apiFetch(`/api/user/${stream.streamerId.username}/follow`, {
-          method: "POST",
-        });
-        setIsFollowing(true);
-        setStream((prev) =>
-          prev
-            ? {
-                ...prev,
-                streamerId: {
-                  ...prev.streamerId,
-                  followers: prev.streamerId.followers + 1,
-                },
-              }
-            : prev
+        console.error("[Follow] toggle failed:", err);
+        setFollowError(
+          err instanceof Error ? err.message : "Couldn't update follow."
         );
       }
-    } catch (err) {
-      // Leaves the button in its previous state, which is correct — but log it,
-      // since swallowing this silently is what made the CORS-blocked unfollow
-      // look like "the button does nothing".
-      console.error("[Follow] toggle failed:", err);
     } finally {
       setFollowLoading(false);
     }
@@ -672,7 +691,8 @@ export default function StreamPage({
                   </p>
                 </div>
               </div>
-              {user && streamer._id !== user.id && (
+              {user && String(streamer._id) !== String(user.id) && (
+                <div className="flex flex-col items-end gap-1">
                 <button
                   onClick={toggleFollow}
                   disabled={followLoading}
@@ -695,6 +715,12 @@ export default function StreamPage({
                     </>
                   )}
                 </button>
+                {followError && (
+                  <p className="max-w-[14rem] text-right text-[0.65rem] text-red-400">
+                    {followError}
+                  </p>
+                )}
+                </div>
               )}
             </div>
 

@@ -55,8 +55,26 @@ export const imageSourceSchema = z
     "Must be an http(s) URL or a base64 image data URI",
   );
 
+/**
+ * Username in a URL, for looking someone up — deliberately *not*
+ * `usernameSchema`.
+ *
+ * That schema's 3-character minimum is a rule about what you may register,
+ * and applying it to lookups made any shorter legacy username un-viewable
+ * and un-followable: `/user/jo` and `/user/jo/follow` both 400'd before
+ * reaching the database, so the follow button on that streamer's stream
+ * could never work. Provisioning no longer issues names that short, but
+ * accounts created before that fix still exist. Format and length ceiling
+ * still apply, so this doesn't widen what can reach a query.
+ */
 export const usernameParamsSchema = z.object({
-  username: usernameSchema,
+  username: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1)
+    .max(30)
+    .regex(/^[a-z0-9_]+$/, "Use letters, numbers, and underscores only"),
 });
 
 export const listStreamsQuerySchema = z.object({
