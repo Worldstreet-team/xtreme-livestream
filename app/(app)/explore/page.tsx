@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { MagnifyingGlass, FunnelSimple, SortAscending } from "@phosphor-icons/react";
 import { StreamCard } from "@/components/app/stream-card";
 import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/categories";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiUrl } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 type SortOption = "viewers" | "recent" | "trending";
@@ -17,7 +17,8 @@ interface APIStream {
   title: string;
   category: Category;
   tags: string[];
-  thumbnail: string;
+  /** API-relative path, or null when the stream has no thumbnail. */
+  thumbnailUrl: string | null;
   isLive: boolean;
   viewers: number;
   peakViewers: number;
@@ -40,7 +41,7 @@ function toStreamCard(s: APIStream) {
     title: s.title,
     category: s.category,
     tags: s.tags,
-    thumbnail: s.thumbnail || "",
+    thumbnailUrl: apiUrl(s.thumbnailUrl),
     isLive: s.isLive,
     viewers: s.viewers,
     startedAt: s.startedAt,

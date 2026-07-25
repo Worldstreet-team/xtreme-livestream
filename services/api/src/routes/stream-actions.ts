@@ -19,7 +19,11 @@ import {
   StreamLike,
   User,
 } from "../models.js";
-import { markStreamEnded, reconcileStream } from "../stream-service.js";
+import {
+  markStreamEnded,
+  parseImageDataUri,
+  reconcileStream,
+} from "../stream-service.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on.
@@ -120,6 +124,60 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
       };
+    },
+  );
+
+  app.get(
+    "/streams/:id/thumbnail",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Stream thumbnail as an image (long-lived, versioned cache)",
+        params: streamIdParamsSchema,
+      },
+      // Cacheable static-ish bytes; the rate limiter would only punish a
+      // first page load, which legitimately fetches a whole grid at once.
+      config: { rateLimit: false },
+    },
+    async (request, reply) => {
+      const stream = await Stream.findById(request.params.id)
+        .select("thumbnail thumbnailVersion")
+        .lean();
+
+      if (!stream?.thumbnail) {
+        throw new ApiError(404, "No thumbnail for this stream", "NO_THUMBNAIL");
+      }
+
+      // `imageSourceSchema` also permits a plain http(s) URL — hand those
+      // straight back rather than proxying someone else's bytes.
+      if (!stream.thumbnail.startsWith("data:")) {
+        return reply.redirect(stream.thumbnail, 302);
+      }
+
+      const image = parseImageDataUri(stream.thumbnail);
+      if (!image) {
+        throw new ApiError(
+          415,
+          "Stored thumbnail is not a readable image",
+          "THUMBNAIL_UNREADABLE",
+        );
+      }
+
+      // Version-based rather than content-hashed so the list endpoint can
+      // build the URL without loading the blob, and so we skip hashing on
+      // every request.
+      const etag = `"thumb-${stream.thumbnailVersion ?? 0}"`;
+      if (request.headers["if-none-match"] === etag) {
+        return reply.code(304).send();
+      }
+
+      return reply
+        .header("Content-Type", image.contentType)
+        .header("ETag", etag)
+        // The URL carries ?v=<thumbnailVersion>, so a replaced thumbnail is a
+        // different URL — this response can be kept indefinitely.
+        .header("Cache-Control", "public, max-age=31536000, immutable")
+        .send(image.body);
     },
   );
 

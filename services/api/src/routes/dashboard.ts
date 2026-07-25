@@ -5,6 +5,7 @@ import {
   accruedViewerSeconds,
   averageViewers,
   streamSeconds,
+  thumbnailUrlFor,
 } from "../stream-service.js";
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
@@ -20,6 +21,11 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const allStreams = await Stream.find({ streamerId: dbUser._id })
+        // Same reasoning as the list endpoint: the dashboard renders every
+        // stream this creator has ever run, so inlining the blobs made the
+        // payload scale with their history. Thumbnails come from the
+        // cacheable per-stream endpoint instead.
+        .select("-thumbnail")
         .sort({ startedAt: -1 })
         .lean();
       const pastStreams = allStreams.filter((stream) => !stream.isLive);
@@ -88,7 +94,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
           id: stream._id,
           title: stream.title,
           category: stream.category,
-          thumbnail: stream.thumbnail,
+          thumbnailUrl: thumbnailUrlFor(stream),
           viewers: stream.viewers,
           peakViewers: stream.peakViewers,
           avgViewers: averageViewers(stream),

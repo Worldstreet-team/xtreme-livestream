@@ -12,9 +12,9 @@ export function StreamCard({ stream }: { stream: Stream }) {
       <article className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]">
         {/* Thumbnail */}
         <div className="relative aspect-video overflow-hidden">
-          {stream.thumbnail ? (
+          {stream.thumbnailUrl ? (
             <RemoteImage
-              src={stream.thumbnail}
+              src={stream.thumbnailUrl}
               alt={stream.title}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"

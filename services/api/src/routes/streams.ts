@@ -15,6 +15,7 @@ import {
   markStreamEnded,
   reconcileLeanStreams,
   reconcileStream,
+  thumbnailUrlFor,
 } from "../stream-service.js";
 
 function escapeRegex(value: string) {
@@ -55,6 +56,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           .sort(sortObject)
           .skip(skip)
           .limit(limit)
+          // The thumbnail blob stays out of this response. Explore re-polls
+          // this endpoint every 15s purely to refresh viewer counts, and
+          // inlined base64 made each poll a multi-megabyte transfer of bytes
+          // that hadn't changed and couldn't be cached. Clients load
+          // `thumbnailUrl` instead, which is versioned and cacheable forever.
+          .select("-thumbnail")
           .populate("streamerId", "username displayName avatar isLive verified")
           .lean(),
         Stream.countDocuments(filter),
@@ -72,10 +79,15 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const adjustedTotal =
         live === "true" ? Math.max(0, total - staleIds.size) : total;
 
+      const withThumbnails = visible.map((stream) => ({
+        ...stream,
+        thumbnailUrl: thumbnailUrlFor(stream),
+      }));
+
       return {
         success: true,
         data: {
-          streams: visible,
+          streams: withThumbnails,
           pagination: {
             page,
             limit,
@@ -125,6 +137,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const stream = await Stream.create({
         streamerId: dbUser._id,
         ...request.body,
+        // Stamps the version the thumbnail URL is cache-busted on.
+        thumbnailVersion: request.body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,
         isLive: true,
         startedAt: new Date(),
@@ -247,13 +261,23 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(403, "Not authorized", "FORBIDDEN");
       }
 
+      // Bump the version only on an actual image change, so cached copies
+      // survive ordinary title/category edits.
+      if (
+        request.body.thumbnail !== undefined &&
+        request.body.thumbnail !== stream.thumbnail
+      ) {
+        stream.thumbnailVersion = request.body.thumbnail ? Date.now() : 0;
+      }
       Object.assign(stream, request.body);
       await stream.save();
 
       return {
         success: true,
         message: "Stream updated",
-        data: { stream },
+        data: {
+          stream: { ...stream.toJSON(), thumbnailUrl: thumbnailUrlFor(stream) },
+        },
       };
     },
   );

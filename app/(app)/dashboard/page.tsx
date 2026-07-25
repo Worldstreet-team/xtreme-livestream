@@ -12,7 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/categories";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiUrl } from "@/lib/api-client";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { RemoteImage } from "@/components/ui/remote-image";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
@@ -43,7 +43,8 @@ interface RecentStream {
   id: string;
   title: string;
   category: Category;
-  thumbnail: string;
+  /** API-relative path, or null when the stream has no thumbnail. */
+  thumbnailUrl: string | null;
   /** Current concurrent viewers — 0 for any stream that has ended. */
   viewers: number;
   peakViewers: number;
@@ -272,7 +273,7 @@ export default function DashboardPage() {
                     className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
                   >
                     <RemoteImage
-                      src={stream.thumbnail}
+                      src={apiUrl(stream.thumbnailUrl)}
                       alt={stream.title}
                       width={120}
                       height={68}
@@ -341,7 +342,7 @@ export default function DashboardPage() {
                   className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
                 >
                   <RemoteImage
-                    src={stream.thumbnail}
+                    src={apiUrl(stream.thumbnailUrl)}
                     alt={stream.title}
                     width={140}
                     height={79}

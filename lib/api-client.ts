@@ -16,6 +16,18 @@
 /** Base URL of the standalone API service. Required. */
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
+/**
+ * Absolute URL for an API-relative path, for things the browser fetches
+ * itself rather than through `apiFetch` — currently `<img>` thumbnail
+ * sources. Returns "" for a null/empty path so callers can fall through to
+ * their placeholder.
+ */
+export function apiUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  if (!path.startsWith("/")) return path;
+  return `${API_BASE}${path}`;
+}
+
 interface ClerkGlobal {
   session?: { getToken(): Promise<string | null> } | null;
 }

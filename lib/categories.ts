@@ -53,7 +53,8 @@ export type Stream = {
   streamer: StreamCardStreamer;
   /** Current concurrent viewers — 0 once a stream has ended. */
   viewers: number;
-  thumbnail: string;
+  /** Resolved URL of the stream's thumbnail; "" when it has none. */
+  thumbnailUrl: string;
   isLive: boolean;
   startedAt: string;
   duration: string;

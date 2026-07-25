@@ -7,7 +7,7 @@ import { Eye, Lightning, SealCheck, VideoCamera } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 import { RemoteImage } from "@/components/ui/remote-image";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiUrl } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
 
 type FeaturedStream = {
@@ -16,8 +16,8 @@ type FeaturedStream = {
   streamer: string;
   viewers: number;
   category: string;
-  // Empty thumbnail → generated chart preview
-  thumbnail: string;
+  // Empty → generated chart preview
+  thumbnailUrl: string;
   avatar: string;
   isLive: boolean;
   verified?: boolean;
@@ -27,7 +27,8 @@ interface APIStream {
   _id: string;
   title: string;
   category: string;
-  thumbnail: string;
+  /** API-relative path, or null when the stream has no thumbnail. */
+  thumbnailUrl: string | null;
   isLive: boolean;
   viewers: number;
   streamerId: {
@@ -64,7 +65,7 @@ export function FeaturedStreams() {
             streamer: s.streamerId.displayName || s.streamerId.username,
             viewers: s.viewers,
             category: s.category,
-            thumbnail: s.thumbnail || "",
+            thumbnailUrl: apiUrl(s.thumbnailUrl),
             avatar: s.streamerId.avatar,
             isLive: s.isLive,
             verified: s.streamerId.verified ?? false,
@@ -155,9 +156,9 @@ export function FeaturedStreams() {
             >
               {/* Thumbnail */}
               <div className="relative aspect-video overflow-hidden">
-                {stream.thumbnail ? (
+                {stream.thumbnailUrl ? (
                   <RemoteImage
-                    src={stream.thumbnail}
+                    src={stream.thumbnailUrl}
                     alt={stream.title}
                     fill
                     className="object-cover transition-transform duration-300 group-hover:scale-105"

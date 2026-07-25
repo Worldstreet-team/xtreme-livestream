@@ -68,6 +68,18 @@ export interface IStream extends Document {
   category: Category;
   tags: string[];
   thumbnail: string;
+  /**
+   * Bumped (to epoch ms) whenever `thumbnail` changes; 0 for streams that
+   * predate this field.
+   *
+   * Exists so list endpoints can build a cache-busting thumbnail URL without
+   * reading the blob itself — the whole point of moving thumbnails out of the
+   * list payload. Deliberately not derived from `updatedAt`: the LiveKit
+   * webhook saves this document on every viewer join and leave, so
+   * `updatedAt` would invalidate the cache constantly while the image is
+   * unchanged.
+   */
+  thumbnailVersion: number;
   isLive: boolean;
   livekitRoomName: string;
   viewers: number;
@@ -102,6 +114,7 @@ const streamSchema = new Schema<IStream>(
     category: { type: String, required: true, enum: CATEGORIES },
     tags: [{ type: String, trim: true, maxlength: 30 }],
     thumbnail: { type: String, default: "" },
+    thumbnailVersion: { type: Number, default: 0 },
     isLive: { type: Boolean, default: true, index: true },
     livekitRoomName: { type: String, required: true, unique: true },
     viewers: { type: Number, default: 0, min: 0 },

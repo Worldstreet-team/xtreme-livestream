@@ -3,6 +3,43 @@ import { Stream, User, type IStream } from "./models.js";
 
 export const STREAM_GRACE_MS = 90_000;
 
+/** Matches the inline images clients upload (see `imageSourceSchema`). */
+const DATA_URI_RE = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+
+export function parseImageDataUri(value: string) {
+  const match = DATA_URI_RE.exec(value);
+  const [, contentType, base64] = match ?? [];
+  if (!contentType || !base64) return null;
+
+  return { contentType, body: Buffer.from(base64, "base64") };
+}
+
+/**
+ * Path clients should load a stream's thumbnail from, or `null` when there
+ * isn't one. Versioned so it can be cached indefinitely: a replaced thumbnail
+ * bumps `thumbnailVersion`, which changes the URL.
+ *
+ * Relative on purpose — the API has no reliable knowledge of its own public
+ * origin, so the web client prefixes it with NEXT_PUBLIC_API_URL.
+ */
+export function thumbnailUrlFor(stream: {
+  _id: unknown;
+  thumbnail?: string;
+  thumbnailVersion?: number;
+}) {
+  // A lean doc with `thumbnail` projected out still has `thumbnailVersion`,
+  // which is enough to know one exists — so callers don't have to fetch the
+  // blob just to build the link.
+  const hasThumbnail =
+    stream.thumbnail !== undefined
+      ? Boolean(stream.thumbnail)
+      : (stream.thumbnailVersion ?? 0) > 0;
+
+  if (!hasThumbnail) return null;
+
+  return `/api/streams/${String(stream._id)}/thumbnail?v=${stream.thumbnailVersion ?? 0}`;
+}
+
 export function formatDuration(startedAt?: Date | null) {
   const seconds = startedAt
     ? Math.max(
