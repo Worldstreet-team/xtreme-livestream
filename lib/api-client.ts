@@ -55,8 +55,12 @@ export async function apiFetch<T = unknown>(
   url: string,
   options: FetchOptions = {}
 ): Promise<T> {
+  // Only claim a JSON body when there is one. Fastify (rightly) rejects a
+  // body-less POST/DELETE that arrives with Content-Type: application/json —
+  // "Body cannot be empty..." — which broke follow/unfollow, like, and
+  // end-stream, none of which send a payload.
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(options.body != null ? { "Content-Type": "application/json" } : {}),
     ...options.headers,
   };
 
