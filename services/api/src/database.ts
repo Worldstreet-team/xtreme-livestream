@@ -17,6 +17,10 @@ async function backfillThumbnailVersions() {
   const result = await Stream.updateMany(
     { thumbnail: { $nin: ["", null] }, thumbnailVersion: 0 },
     [{ $set: { thumbnailVersion: { $toLong: "$createdAt" } } }],
+    // Mongoose 9 requires opting in before it will forward an aggregation
+    // pipeline as the update; without it the array is rejected outright and
+    // the API cannot boot.
+    { updatePipeline: true },
   );
 
   return result.modifiedCount;
