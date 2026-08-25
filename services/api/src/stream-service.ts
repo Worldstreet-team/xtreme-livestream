@@ -1,5 +1,6 @@
 import { isBroadcasterConnected } from "./livekit.js";
 import { Stream, User, type IStream } from "./models.js";
+import { relayLiveEvent } from "./socials-relay.js";
 
 export const STREAM_GRACE_MS = 90_000;
 
@@ -137,6 +138,7 @@ export async function markStreamEnded(stream: IStream) {
   stream.duration = formatDuration(stream.startedAt);
   await stream.save();
   await User.updateOne({ _id: stream.streamerId }, { isLive: false });
+  void relayLiveEvent("ended", stream);
 }
 
 export async function reconcileStream(stream: IStream) {

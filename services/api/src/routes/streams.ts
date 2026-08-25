@@ -11,6 +11,7 @@ import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { createToken } from "../livekit.js";
 import { Stream } from "../models.js";
+import { relayLiveEvent } from "../socials-relay.js";
 import {
   markStreamEnded,
   reconcileLeanStreams,
@@ -146,6 +147,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
 
       dbUser.isLive = true;
       await dbUser.save();
+
+      void relayLiveEvent("started", stream);
 
       return {
         success: true,

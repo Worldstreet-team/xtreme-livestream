@@ -27,6 +27,10 @@ const envSchema = z.object({
   // the rest of the API works without them.
   WALLET_API_URL: z.string().default(""),
   WALLET_SERVICE_TOKEN: z.string().default(""),
+  // WorldStreet Social gateway. Leave unset to disable the live-post relay —
+  // streams still work, they just don't publish into the socials feed.
+  SOCIALS_GATEWAY_URL: z.string().default(""),
+  SOCIALS_WEBHOOK_SECRET: z.string().default(""),
   // Platform cut of every gift, in percent (0-100).
   GIFT_COMMISSION_PERCENT: z.coerce.number().min(0).max(100).default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(200),
