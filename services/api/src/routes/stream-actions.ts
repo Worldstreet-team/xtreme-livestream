@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
@@ -43,6 +44,12 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         summary:
           "Create a LiveKit viewer token (anonymous viewers get a read-only guest token)",
         params: streamIdParamsSchema,
+        querystring: z.object({
+          /** Which surface the viewer is on — badged on the join row. */
+          platform: z
+            .enum(["xstream", "socials", "worldspace"])
+            .default("xstream"),
+        }),
       },
       config: {
         rateLimit: { max: 60, timeWindow: "1 minute" },
@@ -78,6 +85,17 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           canPublishData: viewer !== null,
         },
       );
+
+      // "X joined" — the handshake viewers actually see. Announced for
+      // named viewers only: a guest row would just say "someone", and the
+      // broadcaster reclaiming their own room is not an arrival.
+      if (viewer && !isOwner) {
+        void sendRoomData(stream.livekitRoomName, {
+          __evt: "join",
+          username: viewer.dbUser.username,
+          platform: request.query.platform,
+        });
+      }
 
       return {
         success: true,

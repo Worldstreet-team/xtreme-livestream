@@ -9,6 +9,8 @@ import {
   Clock,
   Gift,
   SignIn,
+  HandWaving,
+  Heart,
 } from "@phosphor-icons/react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
@@ -50,8 +52,9 @@ interface ChatMsg {
   isMod?: boolean;
   /** Surface the sender was on; "socials" gets a badge here. */
   platform?: "xstream" | "socials" | "worldspace";
+  /** "join" and "like" are display-only system rows, never sent. */
   content: string;
-  type: "text" | "tip" | "reaction";
+  type: "text" | "tip" | "reaction" | "join" | "like";
   tipAmount?: string;
   tipCurrency?: string;
   emoji?: string;
@@ -189,6 +192,29 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
           if (data.__evt) {
             if (data.__evt === "slowmode" && !isHost) {
               setSlowMode(!!data.enabled);
+            }
+            // The shared handshake: arrivals and likes appear as quiet
+            // system rows on both platforms.
+            const evtUser = (data as { username?: string }).username;
+            if (
+              (data.__evt === "join" || data.__evt === "like") &&
+              evtUser
+            ) {
+              const row: ChatMsg = {
+                id: `${data.__evt}-${evtUser}-${Date.now()}`,
+                username: evtUser,
+                avatar: "",
+                content: "",
+                type: data.__evt as "join" | "like",
+                platform: (data as { platform?: ChatMsg["platform"] })
+                  .platform,
+                timestamp: new Date().toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              };
+              seenIdsRef.current.add(row.id);
+              setMessages((prev) => [...prev, row]);
             }
             return;
           }
@@ -600,7 +626,32 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             key={msg.id}
             className="group animate-in fade-in slide-in-from-bottom-1 duration-200"
           >
-            {msg.type === "tip" ? (
+            {msg.type === "join" || msg.type === "like" ? (
+              // System rows — the room's pulse, not someone speaking.
+              <div className="flex items-center gap-1.5 px-1 py-0.5">
+                {msg.type === "like" ? (
+                  <Heart size={11} weight="fill" className="shrink-0 text-red-400" />
+                ) : (
+                  <HandWaving
+                    size={11}
+                    weight="fill"
+                    className="shrink-0 text-muted-foreground/50"
+                  />
+                )}
+                <span className="truncate text-[0.7rem] text-muted-foreground/60">
+                  <span className="font-semibold text-muted-foreground/90">
+                    {msg.username}
+                  </span>{" "}
+                  {msg.type === "like" ? "liked this stream" : "joined"}
+                  {(msg.platform === "socials" ||
+                    msg.platform === "worldspace") && (
+                    <span className="ml-1.5 rounded-sm bg-sky-500/15 px-1 py-px text-[0.5rem] font-bold uppercase tracking-wide text-sky-400">
+                      WorldSpace
+                    </span>
+                  )}
+                </span>
+              </div>
+            ) : msg.type === "tip" ? (
               <div className="my-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <UserAvatar
