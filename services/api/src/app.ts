@@ -24,6 +24,12 @@ import { apiRoutes } from "./routes/index.js";
 // given environment; CORS_ORIGINS adds any additional origins on top.
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://xtreme.worldstreetgold.com",
+  // WorldStreet Social reaches this API from the BROWSER as well as from its
+  // server actions — LiveChatPanel fetches /v1/streams/:id/chat directly — so
+  // it needs an allowed Origin, not just server-to-server access. Its absence
+  // here is why live chat 403'd from social while the live rail (a server
+  // action, which sends no Origin header) worked.
+  "https://social.worldstreetgold.com",
   "https://worldstreetgold.com",
   "https://www.worldstreetgold.com",
 ];
