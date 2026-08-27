@@ -23,17 +23,46 @@ export const metadata: Metadata = {
   description: "Stream live, trade insights, and connect with the crypto community. Go live or explore streams on Xtreme Worldstreet.",
 };
 
+const isSatellite = process.env.NEXT_PUBLIC_CLERK_IS_SATELLITE === "true";
+const clerkDomain = process.env.NEXT_PUBLIC_CLERK_DOMAIN;
+const signInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || "/sign-in";
+const signUpUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL || "/sign-up";
+
+/**
+ * Satellite mode is a PRODUCTION arrangement: there this app is a satellite
+ * of the worldstreetgold.com hub and sign-in happens on the hub. Locally
+ * there is no hub to hand off to, so unless satellite is explicitly switched
+ * on the app runs standalone against the same Clerk test instance with its
+ * own /sign-in route. Two explicit branches — ClerkProvider's props are a
+ * discriminated union, so a conditional spread doesn't type-check.
+ */
+function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
+  if (isSatellite && clerkDomain) {
+    return (
+      <ClerkProvider
+        domain={clerkDomain}
+        isSatellite
+        signInUrl={signInUrl}
+        signUpUrl={signUpUrl}
+      >
+        {children}
+      </ClerkProvider>
+    );
+  }
+  return (
+    <ClerkProvider signInUrl={signInUrl} signUpUrl={signUpUrl}>
+      {children}
+    </ClerkProvider>
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      domain="worldstreetgold.com"
-      isSatellite={true}
-      signInUrl="https://www.worldstreetgold.com/login"
-    >
+    <ClerkAuthProvider>
       <html lang="en" className={`${dmSans.variable} ${spaceGrotesk.variable} dark`}>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
@@ -41,6 +70,6 @@ export default function RootLayout({
           <AuthProvider>{children}</AuthProvider>
         </body>
       </html>
-    </ClerkProvider>
+    </ClerkAuthProvider>
   );
 }

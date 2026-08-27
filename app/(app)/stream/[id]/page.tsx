@@ -82,6 +82,13 @@ export default function StreamPage({
   const roomRef = useRef<Room | null>(null);
   const videoElRef = useRef<HTMLVideoElement>(null);
   const [connected, setConnected] = useState(false);
+  // Joined-the-room and actually-receiving-video are different things: an
+  // OBS stream is flagged live the moment the key is issued, long before the
+  // encoder pushes. Track them apart so the player can say which it is.
+  const [hasVideo, setHasVideo] = useState(false);
+  const videoTrackRef = useRef<{ attach: (el: HTMLVideoElement) => void } | null>(
+    null,
+  );
   /**
    * Concurrent watchers, derived from the room roster.
    *
@@ -132,9 +139,9 @@ export default function StreamPage({
   }, [showControls]);
 
   // Fetch stream data
-  useEffect(() => {
-    async function fetchStream() {
-      setLoading(true);
+  const fetchStream = useCallback(
+    async (opts: { quiet?: boolean } = {}) => {
+      if (!opts.quiet) setLoading(true);
       try {
         const res = await apiFetch<{
           success: boolean;
@@ -143,15 +150,33 @@ export default function StreamPage({
         setStream(res.data.stream);
         setLikeCount(res.data.stream.likes ?? 0);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load stream"
-        );
+        if (!opts.quiet) {
+          setError(err instanceof Error ? err.message : "Failed to load stream");
+        }
       } finally {
-        setLoading(false);
+        if (!opts.quiet) setLoading(false);
       }
-    }
-    fetchStream();
-  }, [id]);
+    },
+    [id],
+  );
+
+  useEffect(() => {
+    void fetchStream();
+  }, [fetchStream]);
+
+  // Quiet re-checks in BOTH directions: a stream that starts after the page
+  // opened appears without a refresh, and a stream that ends while the page
+  // sits on "waiting for the broadcaster" flips to the ended state instead
+  // of spinning forever.
+  useEffect(() => {
+    if (loading) return;
+    const poll = setInterval(() => void fetchStream({ quiet: true }), 10_000);
+    return () => clearInterval(poll);
+  }, [loading, fetchStream]);
+
+  useEffect(() => {
+    if (stream && !stream.isLive) setStreamEnded(true);
+  }, [stream]);
 
   // Check follow status
   useEffect(() => {
@@ -238,8 +263,9 @@ export default function StreamPage({
         RoomEvent.TrackSubscribed,
         (track, _publication, participant) => {
           if (!track) return;
-          if (track.kind === Track.Kind.Video && videoElRef.current) {
-            track.attach(videoElRef.current);
+          if (track.kind === Track.Kind.Video) {
+            videoTrackRef.current = track;
+            setHasVideo(true);
           }
           if (track.kind === Track.Kind.Audio) {
             const audioEl = track.attach();
@@ -252,6 +278,10 @@ export default function StreamPage({
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
         if (track) {
           track.detach().forEach((el) => el.remove());
+          if (track.kind === Track.Kind.Video) {
+            videoTrackRef.current = null;
+            setHasVideo(false);
+          }
         }
       });
 
@@ -263,6 +293,8 @@ export default function StreamPage({
       });
       room.on(RoomEvent.Disconnected, () => {
         setConnected(false);
+        setHasVideo(false);
+        videoTrackRef.current = null;
         // Host ended the stream — sync UI state and show modal
         setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
         setStreamEnded(true);
@@ -293,8 +325,9 @@ export default function StreamPage({
       room.remoteParticipants.forEach((participant) => {
         participant.trackPublications.forEach((pub) => {
           if (pub.track && pub.isSubscribed) {
-            if (pub.track.kind === Track.Kind.Video && videoElRef.current) {
-              pub.track.attach(videoElRef.current);
+            if (pub.track.kind === Track.Kind.Video) {
+              videoTrackRef.current = pub.track;
+              setHasVideo(true);
             }
             if (pub.track.kind === Track.Kind.Audio) {
               const audioEl = pub.track.attach();
@@ -318,6 +351,16 @@ export default function StreamPage({
       );
     }
   }, [stream?.isLive, id, connected]);
+
+  // Attach the video track whenever BOTH it and the element exist. The old
+  // code attached inside the subscribe callback against a ref that could
+  // still be null (the element only renders after `stream` resolves), which
+  // lost the track for good and left a permanently black player.
+  useEffect(() => {
+    if (hasVideo && videoTrackRef.current && videoElRef.current) {
+      videoTrackRef.current.attach(videoElRef.current);
+    }
+  }, [hasVideo, connected]);
 
   // Auto-connect when stream loads
   useEffect(() => {
@@ -529,6 +572,23 @@ export default function StreamPage({
                   </p>
                   <p className="mt-1 text-sm text-white/40">
                     This stream is no longer live
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Live and joined, but nothing is being published yet — the
+                normal state for an OBS stream between getting the key and
+                the encoder connecting. Previously just a black rectangle. */}
+            {stream.isLive && connected && !hasVideo && !playbackError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                <div className="px-6 text-center">
+                  <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+                  <p className="text-base font-semibold text-white/70">
+                    Waiting for the broadcaster
+                  </p>
+                  <p className="mt-1 text-sm text-white/40">
+                    The video appears here the moment they start sending.
                   </p>
                 </div>
               </div>

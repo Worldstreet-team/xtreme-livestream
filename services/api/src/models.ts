@@ -1,5 +1,5 @@
 import mongoose, { type Document, type Model, Schema } from "mongoose";
-import { CATEGORIES, type Category } from "@xtreme/contracts";
+import { type Category } from "@xtreme/contracts";
 
 export interface IUser extends Document {
   authUserId: string;
@@ -82,6 +82,11 @@ export interface IStream extends Document {
   thumbnailVersion: number;
   isLive: boolean;
   livekitRoomName: string;
+  /** camera | screen | obs — how this stream is fed. */
+  source?: string;
+  /** LiveKit ingress id when source === "obs"; deleted at stream end. */
+  ingressId?: string;
+  notifyFollowers?: boolean;
   viewers: number;
   peakViewers: number;
   /**
@@ -111,12 +116,15 @@ const streamSchema = new Schema<IStream>(
       index: true,
     },
     title: { type: String, required: true, trim: true, maxlength: 100 },
-    category: { type: String, required: true, enum: CATEGORIES },
+    category: { type: String, required: true, trim: true, maxlength: 48 },
     tags: [{ type: String, trim: true, maxlength: 30 }],
     thumbnail: { type: String, default: "" },
     thumbnailVersion: { type: Number, default: 0 },
     isLive: { type: Boolean, default: true, index: true },
     livekitRoomName: { type: String, required: true, unique: true },
+    source: { type: String, enum: ["camera", "screen", "obs"], default: "camera" },
+    ingressId: { type: String },
+    notifyFollowers: { type: Boolean, default: true },
     viewers: { type: Number, default: 0, min: 0 },
     peakViewers: { type: Number, default: 0, min: 0 },
     viewerSeconds: { type: Number, default: 0, min: 0 },
@@ -134,6 +142,7 @@ streamSchema.index({ isLive: 1, viewers: -1 });
 streamSchema.index({ isLive: 1, category: 1 });
 
 export interface IChatMessage extends Document {
+  platform?: string;
   streamId: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
   username: string;
@@ -160,6 +169,7 @@ const chatMessageSchema = new Schema<IChatMessage>(
     username: { type: String, required: true },
     avatar: { type: String, default: "" },
     isMod: { type: Boolean, default: false },
+    platform: { type: String, enum: ["xstream", "socials"], default: "xstream" },
     content: { type: String, required: true, maxlength: 500 },
     type: {
       type: String,

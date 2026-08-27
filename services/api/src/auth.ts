@@ -71,6 +71,20 @@ export async function authenticate(
   }
 
   if (!dbUser) {
+    // Adopt-by-email before provisioning: accounts created under the legacy
+    // auth system carry this email but no Clerk authUserId. Same email =
+    // same person in the shared-identity ecosystem — link the existing
+    // account instead of colliding with the unique email index (E11000).
+    const legacy = await User.findOne({ email });
+    if (legacy) {
+      legacy.authUserId = userId;
+      if (!legacy.streamKey) legacy.streamKey = crypto.randomUUID();
+      await legacy.save();
+      dbUser = legacy;
+    }
+  }
+
+  if (!dbUser) {
     const baseUsername = makeBaseUsername(firstName, lastName);
     const username = await findAvailableUsername(baseUsername);
 

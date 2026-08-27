@@ -9,8 +9,20 @@ export const CATEGORIES = [
   "General / Just Chatting",
 ] as const;
 
-export const categorySchema = z.enum(CATEGORIES);
+/**
+ * Category is a free string now: the socials app streams with its curated
+ * 100-category taxonomy (labels like "Altcoins & DeFi" or "Football"), and
+ * forcing them through a 6-value enum was silently mislabeling streams.
+ * CATEGORIES above remains the Xstream web app's own quick-pick list.
+ */
+export const categorySchema = z.string().trim().min(1).max(48);
 export type Category = z.infer<typeof categorySchema>;
+
+/** How the broadcaster feeds the stream: browser camera, browser screen
+ *  share, or an external encoder (OBS et al) over RTMP ingress. */
+export const STREAM_SOURCES = ["camera", "screen", "obs"] as const;
+export const streamSourceSchema = z.enum(STREAM_SOURCES);
+export type StreamSource = z.infer<typeof streamSourceSchema>;
 
 export const objectIdSchema = z
   .string()
@@ -95,6 +107,9 @@ export const createStreamBodySchema = z.object({
   category: categorySchema,
   tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
   thumbnail: imageSourceSchema.default(""),
+  source: streamSourceSchema.default("camera"),
+  /** Fan out a "went live" notification to followers. */
+  notifyFollowers: z.boolean().default(true),
 });
 
 export const updateStreamBodySchema = createStreamBodySchema
@@ -114,6 +129,8 @@ export const createChatMessageBodySchema = z.object({
   tipAmount: z.string().trim().max(50).optional(),
   tipCurrency: z.string().trim().max(20).optional(),
   emoji: z.string().trim().max(20).optional(),
+  /** Which surface the sender was on. Rendered as a badge cross-platform. */
+  platform: z.enum(["xstream", "socials"]).default("xstream"),
 });
 
 export const REPORT_REASONS = [

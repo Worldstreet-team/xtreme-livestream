@@ -1,4 +1,6 @@
-import { isBroadcasterConnected } from "./livekit.js";
+import { isBroadcasterConnected,
+  deleteIngress,
+} from "./livekit.js";
 import { Stream, User, type IStream } from "./models.js";
 import { relayLiveEvent } from "./socials-relay.js";
 
@@ -138,6 +140,7 @@ export async function markStreamEnded(stream: IStream) {
   stream.duration = formatDuration(stream.startedAt);
   await stream.save();
   await User.updateOne({ _id: stream.streamerId }, { isLive: false });
+  if (stream.ingressId) void deleteIngress(stream.ingressId);
   void relayLiveEvent("ended", stream);
 }
 

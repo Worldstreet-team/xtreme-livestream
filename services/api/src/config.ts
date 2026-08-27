@@ -1,5 +1,7 @@
-import "dotenv/config";
+import "./env.js";
 import { z } from "zod";
+
+
 
 const booleanString = z
   .enum(["true", "false"])

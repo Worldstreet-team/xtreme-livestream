@@ -41,7 +41,14 @@ export default function StudioPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<Category>("Bitcoin Trading");
   const [tags, setTags] = useState("");
-  const [source, setSource] = useState<SourceType>("camera");
+  // Deep-linkable source: socials' Go Live sheet opens /studio?source=screen
+  // for screen-share sessions. Read from location (not useSearchParams) to
+  // avoid the Suspense boundary requirement in a client page.
+  const [source, setSource] = useState<SourceType>(() => {
+    if (typeof window === "undefined") return "camera";
+    const q = new URLSearchParams(window.location.search).get("source");
+    return q === "screen" ? "screen" : "camera";
+  });
   const [micEnabled, setMicEnabled] = useState(true);
   const [camEnabled, setCamEnabled] = useState(true);
   const [isLive, setIsLive] = useState(false);

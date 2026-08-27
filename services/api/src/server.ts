@@ -1,3 +1,5 @@
+// Env MUST load before @clerk/fastify evaluates — see env.ts.
+import "./env.js";
 import { buildApp } from "./app.js";
 import { config } from "./config.js";
 import { connectDatabase, disconnectDatabase } from "./database.js";

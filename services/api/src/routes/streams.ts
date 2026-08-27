@@ -9,7 +9,8 @@ import {
 import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createToken } from "../livekit.js";
+import { createRtmpIngress,
+  createToken } from "../livekit.js";
 import { Stream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
 import {
@@ -123,6 +124,22 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (existing) await markStreamEnded(existing);
 
       const roomName = `stream-${dbUser._id}-${Date.now()}`;
+
+      // OBS path: mint an RTMP ingress instead of expecting a browser
+      // publisher. The encoder's push joins the room as the broadcaster.
+      let ingress: {
+        ingressId: string;
+        url: string;
+        streamKey: string;
+      } | null = null;
+      if (request.body.source === "obs") {
+        ingress = await createRtmpIngress(
+          roomName,
+          dbUser._id.toString(),
+          dbUser.displayName,
+        );
+      }
+
       const livekitToken = await createToken(
         roomName,
         dbUser._id.toString(),
@@ -143,6 +160,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         livekitRoomName: roomName,
         isLive: true,
         startedAt: new Date(),
+        ...(ingress ? { ingressId: ingress.ingressId } : {}),
       });
 
       dbUser.isLive = true;
@@ -158,11 +176,16 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             id: stream._id,
             title: stream.title,
             category: stream.category,
+            source: stream.source,
             livekitRoomName: roomName,
             startedAt: stream.startedAt,
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
+          // OBS connection details — shown once to the broadcaster.
+          ...(ingress
+            ? { ingress: { url: ingress.url, streamKey: ingress.streamKey } }
+            : {}),
         },
       };
     },

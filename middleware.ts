@@ -14,6 +14,8 @@ const isPublicRoute = createRouteMatcher([
   "/explore",                // Public stream browsing
   "/stream/(.*)",            // Public stream watching (interactions still require auth)
   "/api/webhooks/(.*)",      // Server-to-server webhooks (verified by signature)
+  "/sign-in(.*)",            // Local standalone sign-in (non-satellite dev)
+  "/sign-up(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

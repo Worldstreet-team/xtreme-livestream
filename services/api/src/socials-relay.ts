@@ -26,6 +26,7 @@ export async function relayLiveEvent(kind: LiveRelayKind, stream: IStream) {
       username: streamer.username,
       title: stream.title,
       category: stream.category,
+    notifyFollowers: stream.notifyFollowers !== false,
       roomName: stream.livekitRoomName,
       startedAt: stream.startedAt,
       endedAt: stream.endedAt ?? null,

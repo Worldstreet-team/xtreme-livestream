@@ -48,6 +48,8 @@ interface ChatMsg {
   username: string;
   avatar: string;
   isMod?: boolean;
+  /** Surface the sender was on; "socials" gets a badge here. */
+  platform?: "xstream" | "socials";
   content: string;
   type: "text" | "tip" | "reaction";
   tipAmount?: string;
@@ -332,8 +334,14 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     setInput("");
 
     const ok = await submitMessage(
-      { username: user.username, avatar: user.avatar, content, type: "text" },
-      { content, type: "text" }
+      {
+        username: user.username,
+        avatar: user.avatar,
+        content,
+        type: "text",
+        platform: "xstream",
+      },
+      { content, type: "text", platform: "xstream" }
     );
 
     // Restore the draft so a rejected message isn't silently lost.
@@ -356,8 +364,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         content: emoji,
         type: "reaction",
         emoji,
+        platform: "xstream",
       },
-      { content: emoji, type: "reaction", emoji }
+      { content: emoji, type: "reaction", emoji, platform: "xstream" }
     );
 
     setSending(false);
@@ -650,6 +659,11 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                         weight="fill"
                         className="text-green-400"
                       />
+                    )}
+                    {msg.platform === "socials" && (
+                      <span className="rounded-sm bg-yellow-500/15 px-1 py-px text-[0.55rem] font-bold uppercase tracking-wide text-yellow-400">
+                        Social
+                      </span>
                     )}
                     <span className="text-[0.6rem] text-muted-foreground/50">
                       {msg.timestamp}

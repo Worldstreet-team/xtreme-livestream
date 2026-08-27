@@ -63,12 +63,17 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
       }
 
+      // The stream's owner gets a publisher token: this is how a broadcaster
+      // whose page reloaded reclaims their own live stream instead of being
+      // locked out of it while it stays live.
+      const isOwner =
+        viewer !== null && stream.streamerId.equals(viewer.dbUser._id);
       const token = await createToken(
         stream.livekitRoomName,
         viewer ? viewer.dbUser._id.toString() : `guest-${crypto.randomUUID()}`,
         viewer ? viewer.dbUser.displayName : "Guest",
         {
-          canPublish: false,
+          canPublish: isOwner,
           canSubscribe: true,
           canPublishData: viewer !== null,
         },
@@ -467,6 +472,7 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         tipAmount: body.tipAmount ?? null,
         tipCurrency: body.tipCurrency ?? null,
         emoji: body.emoji ?? null,
+        platform: body.platform,
       });
 
       return { success: true, data: { message } };

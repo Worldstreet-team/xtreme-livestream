@@ -1,5 +1,7 @@
 import {
   AccessToken,
+  IngressClient,
+  IngressInput,
   RoomServiceClient,
   WebhookReceiver,
 } from "livekit-server-sdk";
@@ -15,6 +17,45 @@ export const roomService = new RoomServiceClient(
   config.LIVEKIT_API_KEY,
   config.LIVEKIT_API_SECRET,
 );
+
+export const ingressClient = new IngressClient(
+  livekitHost,
+  config.LIVEKIT_API_KEY,
+  config.LIVEKIT_API_SECRET,
+);
+
+/**
+ * RTMP ingress for external encoders (OBS, Streamlabs, ffmpeg): LiveKit
+ * hands back a server URL + stream key the broadcaster pastes into their
+ * encoder; the ingress then joins the room as a publishing participant, so
+ * viewer counting and the rest of the pipeline see it like any publisher.
+ */
+export async function createRtmpIngress(
+  roomName: string,
+  identity: string,
+  displayName: string,
+) {
+  const ingress = await ingressClient.createIngress(IngressInput.RTMP_INPUT, {
+    name: `obs-${roomName}`,
+    roomName,
+    participantIdentity: identity,
+    participantName: displayName,
+  });
+  return {
+    ingressId: ingress.ingressId,
+    url: ingress.url ?? "",
+    streamKey: ingress.streamKey ?? "",
+  };
+}
+
+/** Best-effort ingress teardown when a stream ends. */
+export async function deleteIngress(ingressId: string) {
+  try {
+    await ingressClient.deleteIngress(ingressId);
+  } catch {
+    // Already gone, or LiveKit unreachable — either way the stream is over.
+  }
+}
 
 export const webhookReceiver = new WebhookReceiver(
   config.LIVEKIT_API_KEY,
