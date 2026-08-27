@@ -49,7 +49,7 @@ interface ChatMsg {
   avatar: string;
   isMod?: boolean;
   /** Surface the sender was on; "socials" gets a badge here. */
-  platform?: "xstream" | "socials";
+  platform?: "xstream" | "socials" | "worldspace";
   content: string;
   type: "text" | "tip" | "reaction";
   tipAmount?: string;
@@ -87,6 +87,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
   const [chatError, setChatError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const attachedRef = useRef(false);
+  // Message ids already rendered — the local echo and the server's room
+  // broadcast of the same persisted message must not both appear.
+  const seenIdsRef = useRef<Set<string>>(new Set());
   const slowModeRef = useRef(false);
   slowModeRef.current = slowMode;
 
@@ -150,6 +153,7 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             minute: "2-digit",
           }),
         }));
+        for (const h of history) seenIdsRef.current.add(h.id);
         setMessages(history);
       } catch {
         // Failed to load history — not fatal
@@ -189,10 +193,10 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
             return;
           }
 
-          setMessages((prev) => [
-            ...prev,
-            { ...data, id: `rt-${Date.now()}-${Math.random()}` },
-          ]);
+          const id = String(data.id ?? `rt-${Date.now()}-${Math.random()}`);
+          if (seenIdsRef.current.has(id)) return;
+          seenIdsRef.current.add(id);
+          setMessages((prev) => [...prev, { ...data, id }]);
         } catch {
           // Ignore malformed data
         }
@@ -239,20 +243,6 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     };
   }, [room, user?.id, isHost]);
 
-  // Broadcast message via LiveKit data messages
-  const broadcastMessage = useCallback(
-    (msg: ChatMsg) => {
-      if (!room?.localParticipant) return;
-      try {
-        const data = new TextEncoder().encode(JSON.stringify(msg));
-        room.localParticipant.publishData(data, { reliable: true });
-      } catch {
-        // Room may be disconnected
-      }
-    },
-    [room]
-  );
-
   // Host-only: toggle slow mode, broadcast to viewers, persist the setting
   const toggleSlowMode = useCallback(
     (enabled: boolean) => {
@@ -293,11 +283,16 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
     body: Record<string, unknown>
   ) => {
     setChatError(null);
+    let savedId: string | null = null;
     try {
-      await apiFetch(`/api/streams/${streamId}/chat`, {
+      const saved = await apiFetch<{
+        success: boolean;
+        data: { message: { _id: string } };
+      }>(`/api/streams/${streamId}/chat`, {
         method: "POST",
         body: JSON.stringify(body),
       });
+      savedId = saved?.data?.message?._id ?? null;
     } catch (err) {
       setChatError(
         err instanceof Error ? err.message : "Couldn't send that message."
@@ -312,14 +307,19 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
 
     const full: ChatMsg = {
       ...msg,
-      id: `local-${Date.now()}`,
+      // The persisted id, so the server's room broadcast of this same
+      // message dedupes against this local echo instead of doubling it.
+      id: savedId ?? `local-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       }),
     };
+    if (full.id) seenIdsRef.current.add(full.id);
     setMessages((prev) => [...prev, full]);
-    broadcastMessage(full);
+    // No client-side rebroadcast: the API fans the persisted message into
+    // the room itself. Publishing here too used to be the ONLY delivery
+    // path — and silence for any sender without canPublishData.
     return true;
   };
 
@@ -438,13 +438,16 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           amountUsdMinor,
+          platform: "xstream",
           ...(gift ? { giftName: gift.name, emoji: gift.emoji } : {}),
         }),
       });
 
-      const announcement = res.data.chatMessage;
+      const announcement = res.data.chatMessage as typeof res.data.chatMessage & {
+        _id?: string;
+      };
       const msg: ChatMsg = {
-        id: `local-${Date.now()}`,
+        id: announcement._id ?? `local-${Date.now()}`,
         username: user.username,
         avatar: user.avatar,
         content: announcement.content,
@@ -458,8 +461,9 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
         }),
       };
 
+      seenIdsRef.current.add(msg.id);
       setMessages((prev) => [...prev, msg]);
-      broadcastMessage(msg);
+      // The gifts API broadcasts the announcement into the room itself.
       setShowGiftPanel(false);
       setSelectedGift(null);
       setCustomAmount("");
@@ -660,9 +664,10 @@ export function LiveChat({ streamId, room, isLive, isHost = false }: LiveChatPro
                         className="text-green-400"
                       />
                     )}
-                    {msg.platform === "socials" && (
-                      <span className="rounded-sm bg-yellow-500/15 px-1 py-px text-[0.55rem] font-bold uppercase tracking-wide text-yellow-400">
-                        Social
+                    {(msg.platform === "socials" ||
+                      msg.platform === "worldspace") && (
+                      <span className="rounded-sm bg-sky-500/15 px-1 py-px text-[0.55rem] font-bold uppercase tracking-wide text-sky-400">
+                        WorldSpace
                       </span>
                     )}
                     <span className="text-[0.6rem] text-muted-foreground/50">

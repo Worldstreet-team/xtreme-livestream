@@ -115,3 +115,32 @@ export async function isBroadcasterConnected(
     return false;
   }
 }
+
+/**
+ * Server-side fan-out into a live room's data channel.
+ *
+ * Chat, tips and likes used to reach other viewers only via the *sender's*
+ * client republishing over WebRTC — which silently delivered nothing when
+ * the sender held a token without canPublishData (guests, cross-platform
+ * viewers whose auth didn't resolve), and delivered nowhere at all for
+ * server-initiated events like a wallet-charged gift. The API is the one
+ * party that always has publish rights and already knows the room, so it is
+ * the fan-out. Best-effort: chat must not fail because a data packet did.
+ */
+export async function sendRoomData(
+  roomName: string,
+  payload: Record<string, unknown>,
+) {
+  try {
+    await roomService.sendData(
+      roomName,
+      new TextEncoder().encode(JSON.stringify(payload)),
+      0, // DataPacket_Kind.RELIABLE
+    );
+  } catch (error) {
+    const msg = String((error as Error)?.message ?? error);
+    if (!/not.?found|does not exist/i.test(msg)) {
+      console.error(`LiveKit sendData ${roomName} failed:`, msg);
+    }
+  }
+}

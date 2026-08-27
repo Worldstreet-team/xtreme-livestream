@@ -10,7 +10,7 @@ import {
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createToken } from "../livekit.js";
+import { createToken, sendRoomData } from "../livekit.js";
 import {
   ChatMessage,
   Follow,
@@ -244,9 +244,16 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         const updated = await Stream.findByIdAndUpdate(
           stream._id,
           { $inc: { likes: 1 } },
-          { new: true, select: "likes" },
+          { new: true, select: "likes livekitRoomName" },
         );
         likes = updated?.likes ?? likes + 1;
+        // Everyone watching sees the count move — likes were REST-only and
+        // never reached the room, on either platform.
+        void sendRoomData(updated?.livekitRoomName ?? "", {
+          __evt: "like",
+          likes,
+          username: dbUser.username,
+        });
       }
 
       return { success: true, data: { likes, liked: true } };
@@ -284,9 +291,13 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         const updated = await Stream.findOneAndUpdate(
           { _id: stream._id, likes: { $gt: 0 } },
           { $inc: { likes: -1 } },
-          { new: true, select: "likes" },
+          { new: true, select: "likes livekitRoomName" },
         );
         likes = updated?.likes ?? Math.max(0, likes - 1);
+        void sendRoomData(updated?.livekitRoomName ?? "", {
+          __evt: "like",
+          likes,
+        });
       }
 
       return { success: true, data: { likes, liked: false } };
@@ -472,6 +483,23 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         tipAmount: body.tipAmount ?? null,
         tipCurrency: body.tipCurrency ?? null,
         emoji: body.emoji ?? null,
+        platform: body.platform,
+      });
+
+      // The API fans the message into the live room. Delivery used to
+      // depend on the sender's own client republishing over WebRTC, which
+      // was silence for anyone whose token lacked canPublishData — the
+      // usual state of cross-platform viewers. Clients dedupe on `id`.
+      void sendRoomData(stream.livekitRoomName, {
+        id: String(message._id),
+        username: dbUser.username,
+        avatar: dbUser.avatar,
+        isMod: isHost,
+        content: body.content,
+        type: body.type,
+        tipAmount: body.tipAmount,
+        tipCurrency: body.tipCurrency,
+        emoji: body.emoji,
         platform: body.platform,
       });
 

@@ -129,8 +129,10 @@ export const createChatMessageBodySchema = z.object({
   tipAmount: z.string().trim().max(50).optional(),
   tipCurrency: z.string().trim().max(20).optional(),
   emoji: z.string().trim().max(20).optional(),
-  /** Which surface the sender was on. Rendered as a badge cross-platform. */
-  platform: z.enum(["xstream", "socials"]).default("xstream"),
+  /** Which surface the sender was on. Rendered as a badge cross-platform.
+   * "socials" is the legacy value for what is now WorldSpace — old rows and
+   * old clients still send it, so it stays accepted forever. */
+  platform: z.enum(["xstream", "socials", "worldspace"]).default("xstream"),
 });
 
 export const REPORT_REASONS = [

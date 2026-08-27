@@ -300,16 +300,25 @@ export default function StreamPage({
         setStreamEnded(true);
       });
 
-      // Real-time engagement events (likes) broadcast by other viewers.
+      // Real-time engagement events, broadcast by the API server-side.
       // Chat messages are handled inside LiveChat; events carry `__evt`.
+      // The event carries the authoritative post-write count — client-sent
+      // deltas could drift (drops, replays) and never reached viewers whose
+      // sender had no data-publish rights (cross-platform, guests).
       room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as {
             __evt?: string;
+            likes?: number;
             delta?: number;
           };
-          if (data.__evt === "like" && typeof data.delta === "number") {
-            setLikeCount((c) => Math.max(0, c + Math.sign(data.delta!)));
+          if (data.__evt === "like") {
+            if (typeof data.likes === "number") {
+              setLikeCount(data.likes);
+            } else if (typeof data.delta === "number") {
+              // Legacy clients still publish deltas; honour them.
+              setLikeCount((c) => Math.max(0, c + Math.sign(data.delta!)));
+            }
           }
         } catch {
           // Not an event payload
@@ -460,23 +469,12 @@ export default function StreamPage({
     setLikeBusy(true);
 
     const nowLiked = !liked;
-    const delta = nowLiked ? 1 : -1;
     setLiked(nowLiked);
-    setLikeCount((c) => Math.max(0, c + delta));
+    setLikeCount((c) => Math.max(0, c + (nowLiked ? 1 : -1)));
 
-    // Broadcast so other connected viewers update in real time
-    try {
-      const room = roomRef.current;
-      if (room?.localParticipant) {
-        const payload = new TextEncoder().encode(
-          JSON.stringify({ __evt: "like", delta })
-        );
-        room.localParticipant.publishData(payload, { reliable: true });
-      }
-    } catch {
-      // Room may be disconnected
-    }
-
+    // No client-side broadcast: the like endpoint fans the new count into
+    // the room itself, so every platform's viewers see it — not only the
+    // ones lucky enough to share a data channel with this sender.
     try {
       const res = await apiFetch<{
         success: boolean;

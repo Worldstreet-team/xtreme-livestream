@@ -169,7 +169,12 @@ const chatMessageSchema = new Schema<IChatMessage>(
     username: { type: String, required: true },
     avatar: { type: String, default: "" },
     isMod: { type: Boolean, default: false },
-    platform: { type: String, enum: ["xstream", "socials"], default: "xstream" },
+    platform: {
+      type: String,
+      // "socials" is the legacy WorldSpace value; kept so old rows stay valid.
+      enum: ["xstream", "socials", "worldspace"],
+      default: "xstream",
+    },
     content: { type: String, required: true, maxlength: 500 },
     type: {
       type: String,

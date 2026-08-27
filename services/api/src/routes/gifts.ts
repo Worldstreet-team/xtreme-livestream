@@ -7,6 +7,7 @@ import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
+import { sendRoomData } from "../livekit.js";
 import { reconcileStream } from "../stream-service.js";
 import {
   chargeWalletWithSplit,
@@ -21,6 +22,8 @@ const sendGiftBodySchema = z.object({
   amountUsdMinor: z.number().int().min(50).max(50_000),
   giftName: z.string().trim().max(50).optional(),
   emoji: z.string().trim().max(20).optional(),
+  /** Which surface the gift was sent from — badged in chat like messages. */
+  platform: z.enum(["xstream", "socials", "worldspace"]).default("xstream"),
 });
 
 const centsToDecimal = (minor: number) => (minor / 100).toFixed(2);
@@ -149,6 +152,22 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           tipAmount: centsToDecimal(grossUsdMinor),
           tipCurrency: "USD",
           emoji: body.emoji ?? null,
+          platform: body.platform,
+        });
+
+        // The tip announcement reaches the room from here, not from the
+        // sender's client — a wallet event's visibility should not depend
+        // on the buyer's WebRTC publish rights.
+        void sendRoomData(stream.livekitRoomName, {
+          id: String(message._id),
+          username: sender.dbUser.username,
+          avatar: sender.dbUser.avatar,
+          content: message.content,
+          type: "tip",
+          tipAmount: message.tipAmount,
+          tipCurrency: "USD",
+          emoji: body.emoji,
+          platform: body.platform,
         });
 
         return { success: true, message: "Gift sent", data: { gift, chatMessage: message } };
