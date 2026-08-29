@@ -124,3 +124,74 @@
     @apply bg-background text-foreground;
   }
 }
+/* Gift spectacle — big gifts take the center of the player, small ones
+   drift up from the corner. Kept out of Tailwind arbitrary values so the
+   studio and viewer pages share one definition. */
+@keyframes gift-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+  20% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+  }
+}
+
+@keyframes gift-float {
+  0% {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  10% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-24px);
+    opacity: 0;
+  }
+}
+
+@keyframes gift-emoji-rise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-120px) scale(1.6) rotate(var(--gift-rot, 0deg));
+    opacity: 0;
+  }
+}
+
+/* Sidebar & panel entrance — a small rise with stagger, socials-style.
+   Opacity+transform only: cheap, and no gradients anywhere. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

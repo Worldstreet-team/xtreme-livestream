@@ -6,9 +6,6 @@ import {
   Bell,
   Key,
   Shield,
-  Copy,
-  Eye,
-  EyeSlash,
   Check,
   Camera,
 } from "@phosphor-icons/react";
@@ -33,8 +30,6 @@ export default function SettingsPage() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Stream state
-  const [showStreamKey, setShowStreamKey] = useState(false);
-  const [keyCopied, setKeyCopied] = useState(false);
   const [autoRecord, setAutoRecord] = useState(false);
   const [chatSlowMode, setChatSlowMode] = useState(false);
   const [subscriberOnlyChat, setSubscriberOnlyChat] = useState(false);
@@ -154,10 +149,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
-      <h1 className="mb-6 text-2xl font-bold text-foreground">Settings</h1>
+    <div className="min-h-screen p-4 pt-16 md:p-8">
+      <div className="mx-auto max-w-[1200px]">
+      <h1 className="mb-8 text-xl font-semibold tracking-tight text-foreground">
+        Settings
+      </h1>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-8 lg:flex-row">
         {/* Tab navigation */}
         <nav className="flex gap-1 overflow-x-auto lg:w-56 lg:shrink-0 lg:flex-col">
           {tabs.map((tab) => (
@@ -165,16 +163,16 @@ export default function SettingsPage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors shrink-0",
+                "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
                 activeTab === tab.id
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  ? "bg-white/[0.08] font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
               )}
             >
               <tab.icon size={18} />
               {tab.label}
               {tab.comingSoon && (
-                <span className="ml-auto rounded-full bg-white/5 px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground">
+                <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground/70">
                   Soon
                 </span>
               )}
@@ -186,13 +184,13 @@ export default function SettingsPage() {
         <div className="flex-1 max-w-2xl">
           {/* Save feedback */}
           {saved && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-2.5 text-sm text-green-400">
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-500/10 px-4 py-2.5 text-sm text-green-400">
               <Check size={16} weight="bold" />
               Changes saved successfully
             </div>
           )}
           {saveError && (
-            <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+            <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
               {saveError}
             </div>
           )}
@@ -200,9 +198,9 @@ export default function SettingsPage() {
           {/* ── Profile ── */}
           {activeTab === "profile" && (
             <div className="space-y-6">
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-5">
-                <h2 className="text-base font-semibold text-foreground">
-                  Profile Information
+              <div className="space-y-5 rounded-lg bg-white/[0.03] p-5">
+                <h2 className="text-sm font-medium text-foreground">
+                  Profile information
                 </h2>
 
                 {/* Avatar */}
@@ -234,7 +232,7 @@ export default function SettingsPage() {
                       onClick={() => avatarInputRef.current?.click()}
                     >
                       <Camera size={14} className="mr-1.5" />
-                      Change Avatar
+                      Change avatar
                     </Button>
                     <p className="mt-1 text-xs text-muted-foreground">
                       JPG, PNG, GIF, WebP. Max 5MB.
@@ -251,7 +249,7 @@ export default function SettingsPage() {
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    className="h-9 w-full rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
                   />
                 </div>
 
@@ -266,7 +264,7 @@ export default function SettingsPage() {
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      className="h-9 flex-1 rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
                     />
                   </div>
                 </div>
@@ -281,7 +279,7 @@ export default function SettingsPage() {
                     onChange={(e) => setBio(e.target.value)}
                     rows={3}
                     maxLength={200}
-                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
+                    className="w-full resize-none rounded-lg bg-white/[0.05] px-3 py-2 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
                   />
                   <p className="mt-1 text-xs text-muted-foreground/60">
                     {bio.length}/200
@@ -291,9 +289,9 @@ export default function SettingsPage() {
                 <Button
                   onClick={saveProfile}
                   disabled={saving}
-                  className="bg-primary text-primary-foreground hover:bg-primary/80"
+                  className="h-9 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
                 >
-                  {saving ? "Saving..." : "Save Changes"}
+                  {saving ? "Saving…" : "Save changes"}
                 </Button>
               </div>
             </div>
@@ -302,70 +300,30 @@ export default function SettingsPage() {
           {/* ── Stream & Chat ── */}
           {activeTab === "stream" && (
             <div className="space-y-6">
-              {/* Stream key */}
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-foreground">
-                  Stream Key
+              {/* OBS / RTMP pointer — keys are per-stream now */}
+              <div className="space-y-3 rounded-lg bg-white/[0.03] p-5">
+                <h2 className="text-sm font-medium text-foreground">
+                  Stream from OBS
                 </h2>
-                <p className="text-xs text-muted-foreground">
-                  Use this key in OBS, Streamlabs, or any RTMP software to stream on Xtreme Worldstreet.
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Server URL and stream key are generated fresh for each
+                  broadcast — there&apos;s no permanent key to keep safe. Pick
+                  &ldquo;OBS / RTMP&rdquo; as your source in the studio and
+                  the connection details appear the moment you go live.
                 </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type={showStreamKey ? "text" : "password"}
-                    readOnly
-                    value={user.streamKey}
-                    className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-mono text-foreground"
-                  />
-                  <button
-                    onClick={() => setShowStreamKey(!showStreamKey)}
-                    className="flex size-10 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    {showStreamKey ? <EyeSlash size={16} /> : <Eye size={16} />}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      let ok = false;
-                      try {
-                        await navigator.clipboard.writeText(user.streamKey);
-                        ok = true;
-                      } catch {
-                        // Clipboard API unavailable (e.g. non-HTTPS) — fallback
-                        const ta = document.createElement("textarea");
-                        ta.value = user.streamKey;
-                        ta.style.position = "fixed";
-                        ta.style.opacity = "0";
-                        document.body.appendChild(ta);
-                        ta.select();
-                        try {
-                          ok = document.execCommand("copy");
-                        } catch {
-                          ok = false;
-                        }
-                        ta.remove();
-                      }
-                      if (ok) {
-                        setKeyCopied(true);
-                        setTimeout(() => setKeyCopied(false), 2000);
-                      }
-                    }}
-                    title={keyCopied ? "Copied!" : "Copy stream key"}
-                    className={cn(
-                      "flex size-10 items-center justify-center rounded-lg border transition-colors",
-                      keyCopied
-                        ? "border-green-500/30 text-green-400"
-                        : "border-white/10 text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {keyCopied ? <Check size={16} /> : <Copy size={16} />}
-                  </button>
-                </div>
+                <a
+                  href="/studio?source=obs"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/[0.06] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.09]"
+                >
+                  <Key size={15} />
+                  Open the studio
+                </a>
               </div>
 
               {/* Stream settings */}
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-foreground">
-                  Stream Settings
+              <div className="space-y-4 rounded-lg bg-white/[0.03] p-5">
+                <h2 className="text-sm font-medium text-foreground">
+                  Stream settings
                 </h2>
                 <Toggle
                   label="Auto-record streams"
@@ -377,9 +335,9 @@ export default function SettingsPage() {
               </div>
 
               {/* Chat moderation */}
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 space-y-4">
-                <h2 className="text-base font-semibold text-foreground">
-                  Chat Moderation
+              <div className="space-y-4 rounded-lg bg-white/[0.03] p-5">
+                <h2 className="text-sm font-medium text-foreground">
+                  Chat moderation
                 </h2>
                 <Toggle
                   label="Slow mode"
@@ -405,47 +363,48 @@ export default function SettingsPage() {
               <Button
                 onClick={saveStreamSettings}
                 disabled={saving}
-                className="bg-primary text-primary-foreground hover:bg-primary/80"
+                className="h-9 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
               >
-                {saving ? "Saving..." : "Save Stream Settings"}
+                {saving ? "Saving…" : "Save stream settings"}
               </Button>
             </div>
           )}
 
           {/* ── Notifications (Coming Soon) ── */}
           {activeTab === "notifications" && (
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">
-              <Bell size={40} className="mx-auto text-muted-foreground/40" />
-              <h2 className="mt-4 text-base font-semibold text-foreground">
+            <div className="rounded-lg bg-white/[0.03] p-8 text-center">
+              <Bell size={36} className="mx-auto text-muted-foreground/30" />
+              <h2 className="mt-4 text-sm font-medium text-foreground">
                 Notifications
               </h2>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
                 Notification preferences are coming soon. You&apos;ll be able to
                 control email alerts, follow notifications, and more.
               </p>
-              <span className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                Coming Soon
+              <span className="mt-4 inline-flex rounded-full bg-white/[0.06] px-3 py-1 text-xs font-medium text-muted-foreground">
+                Coming soon
               </span>
             </div>
           )}
 
           {/* ── Security (Coming Soon) ── */}
           {activeTab === "security" && (
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-8 text-center">
-              <Shield size={40} className="mx-auto text-muted-foreground/40" />
-              <h2 className="mt-4 text-base font-semibold text-foreground">
+            <div className="rounded-lg bg-white/[0.03] p-8 text-center">
+              <Shield size={36} className="mx-auto text-muted-foreground/30" />
+              <h2 className="mt-4 text-sm font-medium text-foreground">
                 Security
               </h2>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
                 Wallet connections, two-factor authentication, and account
                 security settings are coming soon.
               </p>
-              <span className="mt-4 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                Coming Soon
+              <span className="mt-4 inline-flex rounded-full bg-white/[0.06] px-3 py-1 text-xs font-medium text-muted-foreground">
+                Coming soon
               </span>
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

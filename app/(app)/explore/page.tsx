@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { MagnifyingGlass, FunnelSimple, SortAscending } from "@phosphor-icons/react";
+import { MagnifyingGlass, FunnelSimple, CaretDown } from "@phosphor-icons/react";
 import { StreamCard } from "@/components/app/stream-card";
-import { CATEGORIES, CATEGORY_COLORS, type Category } from "@/lib/categories";
+import { POPULAR_CATEGORIES, type Category } from "@/lib/categories";
 import { apiFetch, apiUrl } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +64,10 @@ export default function ExplorePage() {
   const [streams, setStreams] = useState<ReturnType<typeof toStreamCard>[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  /** What's actually being streamed right now — drives the filter chips. */
+  const [liveCategories, setLiveCategories] = useState<
+    Array<{ category: Category; live: number }>
+  >([]);
 
   // Pick up ?search= from the landing-page search bar
   useEffect(() => {
@@ -109,6 +113,31 @@ export default function ExplorePage() {
     return () => clearTimeout(timer);
   }, [fetchStreams, search]);
 
+  // The chip row is dynamic: categories people are streaming in right now,
+  // busiest first. Polled on the same cadence as the grid.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCategories() {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { categories: Array<{ category: Category; live: number }> };
+        }>(`/api/streams/categories`);
+        if (!cancelled) setLiveCategories(res.data.categories);
+      } catch {
+        // Fall back to the popular defaults already rendered.
+      }
+    }
+    void loadCategories();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void loadCategories();
+    }, VIEWER_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
   // Viewer counts change constantly while streams are live, so the grid has to
   // re-poll — a single fetch on mount goes stale the moment it renders. Paused
   // while the tab is hidden to avoid pointless background traffic.
@@ -120,115 +149,148 @@ export default function ExplorePage() {
   }, [fetchStreams]);
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Explore Streams</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {loading ? "Loading..." : `${total} streams live now`}
-        </p>
-      </div>
+    <div className="min-h-screen p-4 pt-16 md:p-8">
+      <div className="mx-auto max-w-[1500px]">
+        {/* Header + toolbar on one line; stacks on small screens */}
+        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+              Explore
+            </h1>
+            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+              {!loading && total > 0 && (
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-red-500" />
+                </span>
+              )}
+              {loading ? "Loading…" : `${total} live now`}
+            </p>
+          </div>
 
-      {/* Search & Filters bar */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        {/* Search */}
-        <div className="relative max-w-md flex-1">
-          <MagnifyingGlass
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            type="text"
-            placeholder="Search streams, streamers, tags..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-          />
-        </div>
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-72">
+              <MagnifyingGlass
+                size={16}
+                className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground/70"
+              />
+              <input
+                type="text"
+                placeholder="Search streams…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 w-full rounded-lg bg-white/[0.05] pr-3 pl-9 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
+              />
+            </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-3">
-          {/* Sort */}
-          <div className="relative">
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortOption)}
-              className="h-9 appearance-none rounded-lg border border-white/10 bg-white/5 pl-3 pr-8 text-sm text-muted-foreground focus:border-primary/50 focus:outline-none cursor-pointer"
-            >
-              <option className="bg-background text-foreground" value="viewers">Most Viewers</option>
-              <option className="bg-background text-foreground" value="recent">Most Recent</option>
-              <option className="bg-background text-foreground" value="trending">Trending</option>
-            </select>
-            <SortAscending
-              size={14}
-              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
+            <div className="relative shrink-0">
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortOption)}
+                className="h-9 cursor-pointer appearance-none rounded-lg bg-white/[0.05] pr-8 pl-3 text-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus:bg-white/[0.07]"
+              >
+                <option className="bg-background text-foreground" value="viewers">
+                  Most viewers
+                </option>
+                <option className="bg-background text-foreground" value="recent">
+                  Most recent
+                </option>
+                <option className="bg-background text-foreground" value="trending">
+                  Trending
+                </option>
+              </select>
+              <CaretDown
+                size={12}
+                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground/70"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Categories */}
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-        <button
-          onClick={() => setSelectedCategory("All")}
-          className={cn(
-            "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-            selectedCategory === "All"
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
-          )}
-        >
-          All Categories
-        </button>
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={cn(
-              "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              selectedCategory === cat
-                ? CATEGORY_COLORS[cat]
-                : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
+        {/* Category filter — dynamic: whatever is live right now, busiest
+            first, with popular topics as the quiet fallback. */}
+        <div className="mb-8 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {(() => {
+            const liveByName = new Map(
+              liveCategories.map((c) => [c.category, c.live])
+            );
+            const names =
+              liveCategories.length > 0
+                ? liveCategories.map((c) => c.category)
+                : POPULAR_CATEGORIES;
+            // A selected category must stay visible even after its last
+            // stream ends — otherwise the active filter becomes unfindable.
+            const chips =
+              selectedCategory !== "All" && !names.includes(selectedCategory)
+                ? [selectedCategory, ...names]
+                : names;
+            return ["All" as const, ...chips].map((cat) => {
+              const isActive = selectedCategory === cat;
+              const live = cat === "All" ? undefined : liveByName.get(cat);
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={cn(
+                    "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors",
+                    isActive
+                      ? "bg-white/[0.08] font-medium text-foreground"
+                      : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  )}
+                >
+                  {cat}
+                  {live !== undefined && live > 0 && (
+                    <span
+                      className={cn(
+                        "text-[0.62rem] tabular-nums",
+                        isActive
+                          ? "text-muted-foreground"
+                          : "text-muted-foreground/50"
+                      )}
+                    >
+                      {live}
+                    </span>
+                  )}
+                </button>
+              );
+            });
+          })()}
+        </div>
 
-      {/* Stream grid */}
-      {loading ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-xl border border-white/5 bg-white/[0.02]">
-              <div className="aspect-video animate-pulse bg-white/5" />
-              <div className="flex gap-3 p-3">
-                <div className="size-9 shrink-0 animate-pulse rounded-full bg-white/5" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-3/4 animate-pulse rounded bg-white/5" />
-                  <div className="h-3 w-1/2 animate-pulse rounded bg-white/5" />
+        {/* Stream grid */}
+        {loading ? (
+          <div className="grid gap-x-4 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i}>
+                <div className="aspect-video animate-pulse rounded-lg bg-white/[0.04]" />
+                <div className="mt-2.5 flex gap-2.5">
+                  <div className="size-8 shrink-0 animate-pulse rounded-full bg-white/[0.04]" />
+                  <div className="flex-1 space-y-2 pt-0.5">
+                    <div className="h-3.5 w-3/4 animate-pulse rounded bg-white/[0.04]" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-white/[0.04]" />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : streams.length > 0 ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {streams.map((stream) => (
-            <StreamCard key={stream.id} stream={stream} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <FunnelSimple size={48} className="text-muted-foreground/30 mb-4" />
-          <p className="text-lg font-medium text-muted-foreground">
-            No streams found
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground/70">
-            Try adjusting your filters or search query
-          </p>
-        </div>
-      )}
+            ))}
+          </div>
+        ) : streams.length > 0 ? (
+          <div className="grid gap-x-4 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {streams.map((stream) => (
+              <StreamCard key={stream.id} stream={stream} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <FunnelSimple size={36} className="mb-4 text-muted-foreground/25" />
+            <p className="text-sm font-medium text-foreground/80">
+              No streams found
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground/70">
+              Try a different search or category.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
   Play,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { CATEGORY_COLORS, formatNumber, type Category } from "@/lib/categories";
+import { formatNumber, type Category } from "@/lib/categories";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, apiUrl } from "@/lib/api-client";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -127,7 +127,7 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      label: "Peak Viewers",
+      label: "Peak viewers",
       value: formatNumber(stats.totalPeakViewers ?? stats.totalViews),
       icon: Eye,
       color: "text-primary",
@@ -155,7 +155,7 @@ export default function DashboardPage() {
           : "Gift earnings, net of commission",
     },
     {
-      label: "Stream Hours",
+      label: "Stream hours",
       value: `${stats.totalHours}h`,
       icon: Clock,
       color: "text-purple-400",
@@ -190,7 +190,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-6 md:pt-6">
+    <div className="min-h-screen p-4 pt-16 md:p-8">
+      <div className="mx-auto max-w-[1500px]">
       {/* Profile header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
@@ -201,7 +202,7 @@ export default function DashboardPage() {
             className="size-14"
           />
           <div>
-            <h1 className="text-xl font-bold text-foreground">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
               {user.displayName}
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -217,16 +218,16 @@ export default function DashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 border-b border-white/5">
+      <div className="mb-8 inline-flex gap-1 rounded-lg bg-white/[0.03] p-1">
         {(["overview", "streams", "analytics"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "border-b-2 px-4 py-2.5 text-sm font-medium capitalize transition-colors",
+              "rounded-md px-4 py-1.5 text-sm capitalize transition-colors",
               tab === t
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-white/[0.08] font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
             {t}
@@ -242,15 +243,15 @@ export default function DashboardPage() {
               <div
                 key={stat.label}
                 title={stat.hint}
-                className="rounded-xl border border-white/5 bg-white/[0.02] p-4"
+                className="rounded-lg bg-white/[0.03] p-4"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                     {stat.label}
                   </span>
-                  <stat.icon size={18} className={stat.color} />
+                  <stat.icon size={16} className="text-muted-foreground/50" />
                 </div>
-                <div className="mt-2 text-2xl font-bold text-foreground">
+                <div className="mt-2 text-2xl font-semibold text-foreground tabular-nums">
                   {stat.value}
                 </div>
               </div>
@@ -258,8 +259,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="mt-8">
-            <h2 className="mb-4 text-base font-semibold text-foreground">
-              Recent Streams
+            <h2 className="mb-4 text-sm font-medium text-foreground">
+              Recent streams
             </h2>
             {recentStreams.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
@@ -270,7 +271,7 @@ export default function DashboardPage() {
                 {recentStreams.slice(0, 3).map((stream) => (
                   <div
                     key={stream.id}
-                    className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
+                    className="flex items-center gap-4 rounded-lg bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
                   >
                     <RemoteImage
                       src={apiUrl(stream.thumbnailUrl)}
@@ -313,14 +314,9 @@ export default function DashboardPage() {
                           </span>
                         ) : null}
                       </div>
-                      <span
-                        className={cn(
-                          "mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
-                          CATEGORY_COLORS[stream.category]
-                        )}
-                      >
+                      <p className="mt-1 truncate text-xs text-muted-foreground/60">
                         {stream.category}
-                      </span>
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -342,7 +338,7 @@ export default function DashboardPage() {
               {recentStreams.map((stream) => (
                 <div
                   key={stream.id}
-                  className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]"
+                  className="flex items-center gap-4 rounded-lg bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
                 >
                   <RemoteImage
                     src={apiUrl(stream.thumbnailUrl)}
@@ -386,20 +382,15 @@ export default function DashboardPage() {
                         </span>
                       ) : null}
                     </div>
-                    <span
-                      className={cn(
-                        "mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[0.6rem] font-medium",
-                        CATEGORY_COLORS[stream.category]
-                      )}
-                    >
+                    <p className="mt-1 truncate text-xs text-muted-foreground/60">
                       {stream.category}
-                    </span>
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       disabled
                       title="Replays coming soon — stream recording isn't available yet"
-                      className="flex size-8 cursor-not-allowed items-center justify-center rounded-lg border border-white/10 text-muted-foreground/30"
+                      className="flex size-8 cursor-not-allowed items-center justify-center rounded-lg bg-white/[0.04] text-muted-foreground/30"
                     >
                       <Play size={14} />
                     </button>
@@ -415,27 +406,27 @@ export default function DashboardPage() {
       {tab === "analytics" && (
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Total Streams
+            <div className="rounded-lg bg-white/[0.03] p-5">
+              <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                Total streams
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">
+              <p className="mt-2 text-3xl font-semibold text-foreground tabular-nums">
                 {stats.totalStreams}
               </p>
             </div>
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Avg. Viewers
+            <div className="rounded-lg bg-white/[0.03] p-5">
+              <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                Avg. viewers
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">
+              <p className="mt-2 text-3xl font-semibold text-foreground tabular-nums">
                 {formatNumber(avgViewers)}
               </p>
             </div>
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Tips Received
+            <div className="rounded-lg bg-white/[0.03] p-5">
+              <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                Tips received
               </h3>
-              <p className="mt-2 text-3xl font-bold text-foreground">
+              <p className="mt-2 text-3xl font-semibold text-foreground tabular-nums">
                 {stats.tipsGrossUsdMinor === undefined
                   ? "—"
                   : formatUsd(stats.tipsGrossUsdMinor)}
@@ -449,9 +440,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground">
-              Peak Viewers (Last 7 Days)
+          <div className="rounded-lg bg-white/[0.03] p-5">
+            <h3 className="mb-4 text-sm font-medium text-foreground">
+              Peak viewers — last 7 days
             </h3>
             <div className="flex h-48 items-end gap-2">
               {dailyViews.map((day) => {
@@ -468,7 +459,7 @@ export default function DashboardPage() {
                     className="flex flex-1 flex-col items-center gap-2"
                   >
                     <div
-                      className="w-full rounded-t-md bg-primary/30 transition-all hover:bg-primary/50"
+                      className="w-full rounded-t bg-primary/35 transition-colors hover:bg-primary/55"
                       style={{ height: `${pct}%` }}
                       title={`${day.date} · ${day.views} peak viewers`}
                     />
@@ -481,9 +472,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground">
-              Top Performing Streams
+          <div className="rounded-lg bg-white/[0.03] p-5">
+            <h3 className="mb-4 text-sm font-medium text-foreground">
+              Top performing streams
             </h3>
             {topStreams.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
@@ -493,7 +484,7 @@ export default function DashboardPage() {
               <div className="space-y-3">
                 {topStreams.map((stream, i) => (
                   <div key={stream.id} className="flex items-center gap-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-xs font-bold text-muted-foreground">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-xs font-semibold text-muted-foreground">
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -514,6 +505,7 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

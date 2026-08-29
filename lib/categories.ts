@@ -1,40 +1,215 @@
 /**
- * Stream categories, their badge styling, and small display helpers.
+ * Stream topics and small display helpers.
  *
- * Replaces the old `lib/mock-data.ts`, which mixed these real constants in
- * with fabricated users, streams, chat messages and past-stream earnings.
- * Only the constants were ever imported; the mock records are gone.
+ * The taxonomy mirrors WorldStreet Social's 100-category content taxonomy
+ * (worldstreetsocialmedia-client/src/data/categories.ts) grouped by the same
+ * 14 verticals, plus a "General" group for the streaming staples the social
+ * feed doesn't need. Labels match the socials app EXACTLY — streams relay
+ * into that platform's feed, and its classifier keys on these names.
  *
- * CATEGORIES must stay in step with `CATEGORIES` in `@xtreme/contracts`, which
- * is what the API validates against — a category here that the API rejects
- * would surface as a validation error when going live.
+ * The API validates category as a free string (see @xtreme/contracts), so
+ * old streams with retired labels still render; this list is what the studio
+ * offers and what Explore falls back to when nothing is live.
  */
 
-export type Category =
-  | "Bitcoin Trading"
-  | "Altcoins & DeFi"
-  | "NFTs & Web3"
-  | "Market Analysis"
-  | "Crypto Education"
-  | "General / Just Chatting";
+export type Category = string;
 
-export const CATEGORIES: Category[] = [
-  "Bitcoin Trading",
-  "Altcoins & DeFi",
-  "NFTs & Web3",
-  "Market Analysis",
-  "Crypto Education",
-  "General / Just Chatting",
+export interface CategoryGroup {
+  label: string;
+  topics: string[];
+}
+
+export const CATEGORY_GROUPS: CategoryGroup[] = [
+  {
+    label: "General",
+    topics: ["Just Chatting", "IRL"],
+  },
+  {
+    label: "Markets & Trading",
+    topics: [
+      "Stocks & Equities",
+      "Crypto Markets",
+      "Forex & Currencies",
+      "Commodities",
+      "Options & Derivatives",
+      "Indices & ETFs",
+      "Bonds & Rates",
+      "Charts & Technical Analysis",
+      "IPOs & Listings",
+    ],
+  },
+  {
+    label: "Crypto & Web3",
+    topics: [
+      "DeFi",
+      "NFTs & Collectibles",
+      "Blockchain & Protocols",
+      "Memecoins & Degen",
+    ],
+  },
+  {
+    label: "Business & Money",
+    topics: [
+      "Personal Finance",
+      "Real Estate & Property",
+      "Startups & VC",
+      "Entrepreneurship",
+      "Careers & Jobs",
+      "Economy & Macro",
+      "Fintech & Banking",
+      "Tax & Regulation",
+      "Side Hustles & Freelance",
+    ],
+  },
+  {
+    label: "Technology",
+    topics: [
+      "AI & Machine Learning",
+      "Software & Coding",
+      "Gadgets & Consumer Tech",
+      "Cybersecurity & Safety",
+      "Space & Aerospace",
+      "Science & Research",
+      "Robotics & Hardware",
+      "Energy & Climate Tech",
+    ],
+  },
+  {
+    label: "News & Society",
+    topics: [
+      "World News",
+      "Politics & Policy",
+      "Climate & Environment",
+      "Social Impact & Giving",
+      "Law & Justice",
+      "Faith & Spirituality",
+    ],
+  },
+  {
+    label: "Sports",
+    topics: [
+      "Football (Soccer)",
+      "Basketball",
+      "American Football",
+      "Cricket",
+      "Tennis",
+      "Motorsport & F1",
+      "Boxing & MMA",
+      "Athletics & Olympics",
+      "Golf",
+      "Baseball",
+      "Betting & Fantasy",
+    ],
+  },
+  {
+    label: "Gaming",
+    topics: ["Video Games", "Mobile Gaming", "Esports", "Chess & Tabletop"],
+  },
+  {
+    label: "Entertainment",
+    topics: [
+      "Movies & TV",
+      "Anime & Manga",
+      "Celebrity & Pop Culture",
+      "Comedy & Memes",
+      "Podcasts & Talk",
+      "Books & Reading",
+    ],
+  },
+  {
+    label: "Music & Audio",
+    topics: [
+      "Afrobeats & Amapiano",
+      "Hip-Hop & Rap",
+      "Pop & Charts",
+      "Rock & Metal",
+      "Electronic & Dance",
+      "Latin & Reggaeton",
+      "K-Pop & J-Pop",
+      "R&B, Soul & Jazz",
+      "Gospel & Worship",
+      "Production & DJ",
+    ],
+  },
+  {
+    label: "Lifestyle",
+    topics: [
+      "Fashion & Style",
+      "Beauty & Skincare",
+      "Food & Cooking",
+      "Travel & Adventure",
+      "Home & Interiors",
+      "Cars & Automotive",
+      "Pets & Animals",
+      "Family & Parenting",
+      "Relationships & Dating",
+    ],
+  },
+  {
+    label: "Health & Wellness",
+    topics: [
+      "Fitness & Training",
+      "Nutrition & Diet",
+      "Mental Health",
+      "Health & Medicine",
+      "Mindfulness & Recovery",
+    ],
+  },
+  {
+    label: "Arts & Creative",
+    topics: [
+      "Visual Art & Illustration",
+      "Photography",
+      "Design & UX",
+      "Architecture & Cities",
+      "Filmmaking & Video",
+      "Writing & Poetry",
+      "Digital & AI Art",
+      "Crafts & Handmade",
+    ],
+  },
+  {
+    label: "Creator & Growth",
+    topics: [
+      "Creator Economy",
+      "Social Media & Growth",
+      "Marketing & Advertising",
+      "Live & Streaming",
+      "Trends & Challenges",
+      "Self-Improvement",
+    ],
+  },
+  {
+    label: "Learning & Ideas",
+    topics: [
+      "Education & Study",
+      "Languages & Culture",
+      "History",
+      "Philosophy & Ideas",
+      "How-To & Tutorials",
+    ],
+  },
 ];
 
-export const CATEGORY_COLORS: Record<Category, string> = {
-  "Bitcoin Trading": "bg-orange-500/15 text-orange-400 border-orange-500/20",
-  "Altcoins & DeFi": "bg-purple-500/15 text-purple-400 border-purple-500/20",
-  "NFTs & Web3": "bg-cyan-500/15 text-cyan-400 border-cyan-500/20",
-  "Market Analysis": "bg-green-500/15 text-green-400 border-green-500/20",
-  "Crypto Education": "bg-blue-500/15 text-blue-400 border-blue-500/20",
-  "General / Just Chatting": "bg-pink-500/15 text-pink-400 border-pink-500/20",
-};
+/** Every topic, flat — the studio's picker and search corpora. */
+export const CATEGORIES: Category[] = CATEGORY_GROUPS.flatMap(
+  (g) => g.topics,
+);
+
+/**
+ * What Explore's filter row shows when nothing is live: a spread of the
+ * topics that pull the most streams, not an alphabet of 100 chips.
+ */
+export const POPULAR_CATEGORIES: Category[] = [
+  "Just Chatting",
+  "Crypto Markets",
+  "Charts & Technical Analysis",
+  "Memecoins & Degen",
+  "Football (Soccer)",
+  "Video Games",
+  "Afrobeats & Amapiano",
+  "AI & Machine Learning",
+];
 
 /** The streamer fields a stream card actually renders. */
 export type StreamCardStreamer = {
@@ -61,8 +236,8 @@ export type Stream = {
   tags: string[];
 };
 
-export function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toString();
+export function formatNumber(num: number): string {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  return String(num);
 }

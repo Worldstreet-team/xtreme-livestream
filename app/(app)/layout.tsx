@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Sidebar } from "@/components/app/sidebar";
+import { AppShell } from "@/components/app/sidebar";
 import { useAuth } from "@/lib/auth-context";
 
 const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
@@ -31,14 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Public pages render immediately for everyone — no auth gate
   if (publicPath) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Sidebar />
-        <main className="transition-all duration-300 md:ml-60 min-h-screen">
-          {children}
-        </main>
-      </div>
-    );
+    return <AppShell>{children}</AppShell>;
   }
 
   // Still loading — show spinner
@@ -82,13 +75,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      {/* Main content — offset by sidebar width */}
-      <main className="transition-all duration-300 md:ml-60 min-h-screen">
-        {children}
-      </main>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }
