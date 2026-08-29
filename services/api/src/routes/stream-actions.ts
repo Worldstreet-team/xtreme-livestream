@@ -50,6 +50,13 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           platform: z
             .enum(["xstream", "socials", "worldspace"])
             .default("xstream"),
+          /**
+           * Owner-as-viewer: join under a distinct mon-<id> identity with no
+           * publish rights. Without this, a host opening their own stream
+           * page reuses the broadcaster identity and LiveKit kicks the
+           * actual broadcast (their phone app or studio tab) off the air.
+           */
+          monitor: z.enum(["1"]).optional(),
         }),
       },
       config: {
@@ -76,12 +83,17 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // locked out of it while it stays live.
       const isOwner =
         viewer !== null && stream.streamerId.equals(viewer.dbUser._id);
+      const monitoring = isOwner && request.query.monitor === "1";
       const token = await createToken(
         stream.livekitRoomName,
-        viewer ? viewer.dbUser._id.toString() : `guest-${crypto.randomUUID()}`,
+        monitoring
+          ? `mon-${viewer!.dbUser._id.toString()}`
+          : viewer
+            ? viewer.dbUser._id.toString()
+            : `guest-${crypto.randomUUID()}`,
         viewer ? viewer.dbUser.displayName : "Guest",
         {
-          canPublish: isOwner,
+          canPublish: isOwner && !monitoring,
           canSubscribe: true,
           canPublishData: viewer !== null,
         },

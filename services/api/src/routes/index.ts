@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { dashboardRoutes } from "./dashboard.js";
 import { giftRoutes } from "./gifts.js";
+import { coLiveRoutes } from "./colive.js";
 import { guestRoutes } from "./guests.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
@@ -16,6 +17,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(dashboardRoutes);
   await fastify.register(giftRoutes);
   await fastify.register(guestRoutes);
+  await fastify.register(coLiveRoutes);
   await fastify.register(moderationRoutes);
   await fastify.register(notificationRoutes);
   await fastify.register(webhookRoutes);

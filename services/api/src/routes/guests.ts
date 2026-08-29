@@ -384,6 +384,42 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   app.post(
+    "/streams/:id/guests/claim",
+    {
+      schema: {
+        tags: ["Guests"],
+        summary:
+          "Reclaim publish rights for a stage slot you already hold (reconnect / co-live merge)",
+        security: [{ bearerAuth: [] }],
+        params: streamIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await loadLiveStream(request.params.id);
+
+      // Only someone the document ALREADY records as live on stage may
+      // claim — this never grants a slot, it re-arms one. Used after a
+      // co-live merge (the accepter connects to the primary room after
+      // being added) and after a mid-stage reconnect.
+      const mine = stream.guests.find(
+        (g) => g.userId.equals(dbUser._id) && g.status === "live",
+      );
+      if (!mine) {
+        throw new ApiError(403, "You're not on this stage", "NOT_ON_STAGE");
+      }
+
+      await setParticipantPublishPermission(
+        stream.livekitRoomName,
+        String(dbUser._id),
+        true,
+      );
+
+      return { success: true, data: { status: "live" } };
+    },
+  );
+
+  app.post(
     "/streams/:id/guests/leave",
     {
       schema: {
