@@ -32,6 +32,12 @@ interface APIStream {
     isLive: boolean;
     verified?: boolean;
   };
+  guests?: Array<{
+    userId: string;
+    username: string;
+    avatar: string;
+    status: "requested" | "live";
+  }>;
 }
 
 // Map API stream to the shape StreamCard expects
@@ -42,6 +48,9 @@ function toStreamCard(s: APIStream) {
     category: s.category,
     tags: s.tags,
     thumbnailUrl: apiUrl(s.thumbnailUrl),
+    liveGuests: (s.guests ?? [])
+      .filter((g) => g.status === "live")
+      .map((g) => ({ username: g.username, avatar: g.avatar })),
     isLive: s.isLive,
     viewers: s.viewers,
     startedAt: s.startedAt,

@@ -1164,6 +1164,7 @@ export default function StreamPage({
               viewers: number;
               thumbnailUrl?: string | null;
               streamerId?: { displayName?: string; username?: string };
+              guests?: Array<{ username: string; status: string }>;
             }>;
           };
         }>(`/api/streams?live=true&limit=5&sort=viewers`);
@@ -1172,15 +1173,21 @@ export default function StreamPage({
           res.data.streams
             .filter((s) => s._id !== id)
             .slice(0, 4)
-            .map((s) => ({
-              _id: s._id,
-              title: s.title,
-              category: s.category,
-              viewers: s.viewers,
-              thumbnailUrl: s.thumbnailUrl,
-              streamerName:
-                s.streamerId?.displayName || s.streamerId?.username || "",
-            }))
+            .map((s) => {
+              const host =
+                s.streamerId?.displayName || s.streamerId?.username || "";
+              const guest = (s.guests ?? []).find(
+                (g) => g.status === "live"
+              )?.username;
+              return {
+                _id: s._id,
+                title: s.title,
+                category: s.category,
+                viewers: s.viewers,
+                thumbnailUrl: s.thumbnailUrl,
+                streamerName: guest ? `${host} with ${guest}` : host,
+              };
+            })
         );
       } catch {
         // Fall back to the redirect countdown.

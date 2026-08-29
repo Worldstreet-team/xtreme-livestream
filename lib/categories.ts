@@ -226,6 +226,9 @@ export type Stream = {
   title: string;
   category: Category;
   streamer: StreamCardStreamer;
+  /** People live on the stage beside the host — a co-live renders as an
+   *  overlapping facepile and "Host with Guest" on the card. */
+  liveGuests: Array<{ username: string; avatar: string }>;
   /** Current concurrent viewers — 0 once a stream has ended. */
   viewers: number;
   /** Resolved URL of the stream's thumbnail; "" when it has none. */

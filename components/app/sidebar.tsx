@@ -424,6 +424,7 @@ interface LiveRow {
     username?: string;
     avatar?: string;
   };
+  guests?: Array<{ username: string; avatar: string; status: string }>;
 }
 
 /**
@@ -469,6 +470,7 @@ function LiveNow({ onNavigate }: { onNavigate: () => void }) {
         {rows.map((s) => {
           const name =
             s.streamerId?.displayName || s.streamerId?.username || "Streamer";
+          const live = (s.guests ?? []).filter((g) => g.status === "live");
           return (
             <Link
               key={s._id}
@@ -476,18 +478,33 @@ function LiveNow({ onNavigate }: { onNavigate: () => void }) {
               onClick={onNavigate}
               className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-white/[0.04]"
             >
-              <span className="relative shrink-0">
+              <span className="relative flex shrink-0 -space-x-2">
                 <UserAvatar
                   src={s.streamerId?.avatar ?? ""}
                   name={name}
                   size={24}
-                  className="size-6"
+                  className="relative z-10 size-6 rounded-full"
                 />
-                <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
+                {live[0] && (
+                  <UserAvatar
+                    src={live[0].avatar}
+                    name={live[0].username}
+                    size={24}
+                    className="size-6 rounded-full"
+                  />
+                )}
+                <span className="absolute -right-0.5 -bottom-0.5 z-20 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
               </span>
               <span className="flex min-w-0 flex-1 flex-col leading-tight">
                 <span className="truncate text-xs font-medium text-foreground/90">
                   {name}
+                  {live.length > 0 && (
+                    <span className="text-muted-foreground/70">
+                      {" "}
+                      with {live[0].username}
+                      {live.length > 1 && ` +${live.length - 1}`}
+                    </span>
+                  )}
                 </span>
                 <span className="truncate text-[0.65rem] text-muted-foreground/70">
                   {s.title}

@@ -51,18 +51,49 @@ export function StreamCard({ stream }: { stream: Stream }) {
 
       {/* Info */}
       <div className="mt-2.5 flex gap-2.5">
-        <UserAvatar
-          src={stream.streamer.avatar}
-          name={stream.streamer.displayName || stream.streamer.username}
-          size={32}
-          className="size-8 shrink-0"
-        />
+        {stream.liveGuests.length > 0 ? (
+          // Co-live: overlapping rings, host in front.
+          <div className="flex shrink-0 -space-x-3">
+            <UserAvatar
+              src={stream.streamer.avatar}
+              name={stream.streamer.displayName || stream.streamer.username}
+              size={32}
+              className="relative z-10 size-8 rounded-full ring-2 ring-background"
+            />
+            {stream.liveGuests.slice(0, 2).map((g) => (
+              <UserAvatar
+                key={g.username}
+                src={g.avatar}
+                name={g.username}
+                size={32}
+                className="size-8 rounded-full ring-2 ring-background"
+              />
+            ))}
+          </div>
+        ) : (
+          <UserAvatar
+            src={stream.streamer.avatar}
+            name={stream.streamer.displayName || stream.streamer.username}
+            size={32}
+            className="size-8 shrink-0"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary">
             {stream.title}
           </h3>
           <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
-            {stream.streamer.displayName}
+            <span className="truncate">
+              {stream.streamer.displayName}
+              {stream.liveGuests.length > 0 && (
+                <span className="text-muted-foreground/80">
+                  {" "}
+                  with {stream.liveGuests[0].username}
+                  {stream.liveGuests.length > 1 &&
+                    ` +${stream.liveGuests.length - 1}`}
+                </span>
+              )}
+            </span>
             {stream.streamer.verified && (
               <SealCheck
                 size={12}
