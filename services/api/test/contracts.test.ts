@@ -18,11 +18,22 @@ describe("API contracts", () => {
     expect(() => listStreamsQuerySchema.parse({ limit: "51" })).toThrow();
   });
 
-  it("rejects unknown stream categories", () => {
+  it("accepts free-form categories but bounds them", () => {
+    // Category is deliberately a free string (the socials app streams with
+    // its own 100-category taxonomy) — only emptiness and length are policed.
+    expect(
+      createStreamBodySchema.parse({
+        title: "Morning market",
+        category: "Football",
+      }).category,
+    ).toBe("Football");
+    expect(() =>
+      createStreamBodySchema.parse({ title: "Morning market", category: "" }),
+    ).toThrow();
     expect(() =>
       createStreamBodySchema.parse({
         title: "Morning market",
-        category: "Not a category",
+        category: "x".repeat(49),
       }),
     ).toThrow();
   });

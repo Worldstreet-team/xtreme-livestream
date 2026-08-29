@@ -40,6 +40,35 @@ export const streamIdParamsSchema = z.object({
   id: objectIdSchema,
 });
 
+/** Stream id + the target user of a stage-guest action (approve/deny/remove). */
+export const guestUserParamsSchema = z.object({
+  id: objectIdSchema,
+  userId: objectIdSchema,
+});
+
+/**
+ * How many people can be on the stage beside the host. Enforced at approve
+ * time on the API; mirrored in the studio UI so the host sees the cap before
+ * hitting it.
+ */
+export const MAX_STAGE_GUESTS = 3;
+
+/** Stream id + a target user — shared by stage and moderation actions. */
+export const streamUserParamsSchema = guestUserParamsSchema;
+
+export const chatMessageParamsSchema = z.object({
+  id: objectIdSchema,
+  messageId: objectIdSchema,
+});
+
+/**
+ * Ban body. `minutes` present = timeout that lapses on its own (max one
+ * week); absent = banned for the rest of the stream.
+ */
+export const createBanBodySchema = z.object({
+  minutes: z.number().int().min(1).max(10_080).optional(),
+});
+
 /**
  * Accepts an http(s) URL or an inline base64 image data URI. Web clients
  * upload thumbnails/avatars as compressed data URIs rather than hosted files.

@@ -13,6 +13,7 @@ import { createRtmpIngress,
   createToken } from "../livekit.js";
 import { Stream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
+import { notifyFollowersOfLive } from "../notifications.js";
 import {
   markStreamEnded,
   reconcileLeanStreams,
@@ -101,6 +102,35 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  app.get(
+    "/streams/categories",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Categories with live streams right now, busiest first",
+      },
+    },
+    async () => {
+      // Drives Explore's dynamic filter row: the chips are whatever people
+      // are actually streaming, not a hardcoded list. Category is a free
+      // string (the socials taxonomy has ~100 of them), so enumerating the
+      // live set is the only honest way to build the row.
+      const rows = await Stream.aggregate<{ _id: string; count: number }>([
+        { $match: { isLive: true } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+        { $limit: 30 },
+      ]);
+
+      return {
+        success: true,
+        data: {
+          categories: rows.map((r) => ({ category: r._id, live: r.count })),
+        },
+      };
+    },
+  );
+
   app.post(
     "/streams",
     {
@@ -133,9 +163,13 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         streamKey: string;
       } | null = null;
       if (request.body.source === "obs") {
+        // The encoder joins under its own identity. If it shared the
+        // browser's, opening the studio dashboard (same user id) would make
+        // LiveKit kick the ingress — killing the feed the moment the
+        // streamer looked at their own stream.
         ingress = await createRtmpIngress(
           roomName,
-          dbUser._id.toString(),
+          `obs-${dbUser._id.toString()}`,
           dbUser.displayName,
         );
       }
@@ -167,6 +201,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       await dbUser.save();
 
       void relayLiveEvent("started", stream);
+
+      // In-app bell for our own users; the socials relay handles that
+      // platform's feed separately.
+      if (stream.notifyFollowers !== false) {
+        void notifyFollowersOfLive(stream, dbUser);
+      }
 
       return {
         success: true,

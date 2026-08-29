@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ApiError } from "../errors.js";
-import { roomService, webhookReceiver } from "../livekit.js";
+import { roomService, sendRoomData, webhookReceiver } from "../livekit.js";
 import { Stream, type IStream } from "../models.js";
 import { accrueViewerSeconds, markStreamEnded } from "../stream-service.js";
 
@@ -18,20 +18,27 @@ async function updateViewerCounts(
   stream: IStream,
   numParticipants: number | undefined,
 ) {
-  let participants: number | undefined;
+  let viewers: number | undefined;
 
   try {
     const list = await roomService.listParticipants(stream.livekitRoomName);
-    participants = list.length;
+    const bid = stream.streamerId.toString();
+    // Neither the browser publisher nor the RTMP encoder (obs-<id>) is a
+    // viewer — an OBS stream has both in the room at once.
+    viewers = list.filter(
+      (p) => p.identity !== bid && p.identity !== `obs-${bid}`,
+    ).length;
   } catch {
-    participants = numParticipants;
+    viewers =
+      numParticipants === undefined
+        ? undefined
+        : Math.max(0, numParticipants - 1);
   }
 
-  if (participants === undefined) return;
+  if (viewers === undefined) return;
 
   accrueViewerSeconds(stream);
 
-  const viewers = Math.max(0, participants - 1);
   stream.viewers = viewers;
   if (viewers > stream.peakViewers) stream.peakViewers = viewers;
   await stream.save();
@@ -88,7 +95,13 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           livekitRoomName: roomName,
           isLive: true,
         });
-        if (stream && identity && stream.streamerId.toString() !== identity) {
+        const bid = stream?.streamerId.toString();
+        if (
+          stream &&
+          identity &&
+          identity !== bid &&
+          identity !== `obs-${bid}`
+        ) {
           await updateViewerCounts(
             stream,
             event.room?.numParticipants,
@@ -105,9 +118,35 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
             isLive: true,
           });
           if (stream) {
-            if (stream.streamerId.toString() === identity) {
+            const bid = stream.streamerId.toString();
+            // For an OBS stream the ENCODER is the feed — the dashboard
+            // browser coming and going must not end the broadcast. For
+            // browser streams it's the opposite.
+            const feedLeft =
+              stream.source === "obs"
+                ? identity === `obs-${bid}`
+                : identity === bid;
+            if (feedLeft) {
               await markStreamEnded(stream);
             } else {
+              // A stage guest who disconnects (tab closed, network died)
+              // can't call the leave endpoint — free their slot here so the
+              // stage doesn't fill with ghosts, and tell the room.
+              const guest = stream.guests?.find(
+                (g) => String(g.userId) === identity,
+              );
+              if (guest) {
+                await Stream.updateOne(
+                  { _id: stream._id },
+                  { $pull: { guests: { userId: guest.userId } } },
+                );
+                void sendRoomData(stream.livekitRoomName, {
+                  __evt: "guest_update",
+                  action: "left",
+                  userId: identity,
+                  username: guest.username,
+                });
+              }
               await updateViewerCounts(
                 stream,
                 event.room?.numParticipants,

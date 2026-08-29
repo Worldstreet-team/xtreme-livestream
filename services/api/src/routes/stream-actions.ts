@@ -12,6 +12,7 @@ import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { createToken, sendRoomData } from "../livekit.js";
+import { assertNotBanned } from "./moderation.js";
 import {
   ChatMessage,
   Follow,
@@ -455,6 +456,10 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // exempt from their own restrictions.
       const isHost = stream.streamerId.equals(dbUser._id);
       if (!isHost) {
+        // Ban check first: a banned user's message must not slip through on
+        // a stream with no other restrictions enabled.
+        await assertNotBanned(stream._id, dbUser._id);
+
         const streamer = await User.findById(stream.streamerId).select(
           "settings",
         );
@@ -510,6 +515,9 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // usual state of cross-platform viewers. Clients dedupe on `id`.
       void sendRoomData(stream.livekitRoomName, {
         id: String(message._id),
+        // Moderation acts on users, not usernames — clients keep this so the
+        // host's ban/timeout buttons know whom to target.
+        userId: String(dbUser._id),
         username: dbUser.username,
         avatar: dbUser.avatar,
         isMod: isHost,

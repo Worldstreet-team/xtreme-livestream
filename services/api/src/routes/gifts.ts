@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { Types } from "mongoose";
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import { ApiError } from "../errors.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
 import { sendRoomData } from "../livekit.js";
 import { reconcileStream } from "../stream-service.js";
+import { assertNotBanned } from "./moderation.js";
 import {
   chargeWalletWithSplit,
   getWalletUsdBalance,
@@ -58,6 +60,9 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
       if (!(await reconcileStream(stream))) {
         throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
       }
+
+      // A banned user's money is still no — the gift announces them in chat.
+      await assertNotBanned(stream._id, sender.dbUser._id);
 
       const streamer = await User.findById(stream.streamerId);
       if (!streamer) {
@@ -160,6 +165,7 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         // on the buyer's WebRTC publish rights.
         void sendRoomData(stream.livekitRoomName, {
           id: String(message._id),
+          userId: String(sender.dbUser._id),
           username: sender.dbUser.username,
           avatar: sender.dbUser.avatar,
           content: message.content,
@@ -234,6 +240,67 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           availableUsdMinor: usd?.availableMinor ?? 0,
           lockedUsdMinor: usd?.lockedMinor ?? 0,
           currency: "USD",
+        },
+      };
+    },
+  );
+
+  app.get(
+    "/streams/:id/gifts/top",
+    {
+      schema: {
+        tags: ["Gifts"],
+        summary: "Top supporters of a stream by total gifted amount",
+        params: streamIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const stream = await Stream.findById(request.params.id).select("_id");
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+
+      // Whole-stream aggregate, not a rolling window: a stream session is
+      // short-lived, so "this stream's top supporters" is the leaderboard
+      // TikTok-style spectacle wants.
+      const top = await GiftTransaction.aggregate<{
+        _id: Types.ObjectId;
+        totalUsdMinor: number;
+        count: number;
+      }>([
+        { $match: { streamId: stream._id } },
+        {
+          $group: {
+            _id: "$senderId",
+            totalUsdMinor: { $sum: "$grossUsdMinor" },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { totalUsdMinor: -1 } },
+        { $limit: 5 },
+      ]);
+
+      const users = await User.find({
+        _id: { $in: top.map((t) => t._id) },
+      })
+        .select("username displayName avatar")
+        .lean();
+      const byId = new Map(users.map((u) => [String(u._id), u]));
+
+      return {
+        success: true,
+        data: {
+          top: top.map((t) => {
+            const u = byId.get(String(t._id));
+            return {
+              userId: String(t._id),
+              username: u?.username ?? "someone",
+              displayName: u?.displayName ?? u?.username ?? "Someone",
+              avatar: u?.avatar ?? "",
+              totalUsdMinor: t.totalUsdMinor,
+              count: t.count,
+            };
+          }),
         },
       };
     },

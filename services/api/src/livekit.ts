@@ -102,14 +102,44 @@ export async function createToken(
   return token.toJwt();
 }
 
+/**
+ * Flip a connected participant's publish rights at runtime — the mechanism
+ * behind stage guests. Viewers join with canPublish: false tokens; when the
+ * host approves a join request the API upgrades the *participant* (not the
+ * token), and LiveKit pushes the new grant to their client. Revoking works
+ * the same way, and LiveKit unpublishes the participant's tracks itself when
+ * publish permission is withdrawn.
+ *
+ * Permissions are applied atomically server-side, so every grant we want the
+ * participant to keep must be restated here — sending only { canPublish }
+ * would strip canSubscribe and mute their player.
+ */
+export async function setParticipantPublishPermission(
+  roomName: string,
+  identity: string,
+  canPublish: boolean,
+) {
+  await roomService.updateParticipant(roomName, identity, {
+    permission: {
+      canPublish,
+      canSubscribe: true,
+      canPublishData: true,
+    },
+  });
+}
+
 export async function isBroadcasterConnected(
   roomName: string,
   broadcasterIdentity: string,
 ) {
   try {
     const participants = await roomService.listParticipants(roomName);
+    // A stream is "fed" if either the browser publisher or the RTMP
+    // encoder (obs-<id>) is in the room.
     return participants.some(
-      (participant) => participant.identity === broadcasterIdentity,
+      (participant) =>
+        participant.identity === broadcasterIdentity ||
+        participant.identity === `obs-${broadcasterIdentity}`,
     );
   } catch {
     return false;
