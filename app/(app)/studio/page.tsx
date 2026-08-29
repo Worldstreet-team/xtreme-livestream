@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
+import { stageLayout } from "@/lib/stage-layout";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -681,9 +682,12 @@ export default function StudioPage() {
             participant.identity,
             track as unknown as AttachableVideoTrack
           );
+          // A fresh array even when the guest is already listed: the tile
+          // reads its track from the ref during render, so a republished
+          // track (camera toggle, reconnect) only reaches it on re-render.
           setGuestTiles((prev) =>
             prev.some((t) => t.identity === participant.identity)
-              ? prev
+              ? [...prev]
               : [
                   ...prev,
                   {
@@ -1140,18 +1144,16 @@ export default function StudioPage() {
                   see it: 2 side by side, 3 host-tall, 4 in a 2×2. */}
               {(() => {
                 const stageCount = 1 + guestTiles.length;
+                // The studio preview is 16:9 — always the wide split.
+                const layout = stageLayout(stageCount, false);
                 return (
                   <div
-                    className={cn(
-                      "grid size-full gap-px",
-                      stageCount === 2 && "grid-cols-2",
-                      stageCount >= 3 && "grid-cols-2 grid-rows-2"
-                    )}
+                    className={cn("grid size-full gap-px", layout.container)}
                   >
                     <div
                       className={cn(
                         "relative overflow-hidden",
-                        stageCount === 3 && "row-span-2"
+                        layout.hostCell
                       )}
                     >
                       <video

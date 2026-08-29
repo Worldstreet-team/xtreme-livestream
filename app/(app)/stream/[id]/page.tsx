@@ -28,6 +28,7 @@ import {
 import { LiveChat, type PinnedMessage } from "@/components/app/live-chat";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
+import { stageLayout } from "@/lib/stage-layout";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
@@ -108,9 +109,17 @@ export default function StreamPage({
   // OBS stream is flagged live the moment the key is issued, long before the
   // encoder pushes. Track them apart so the player can say which it is.
   const [hasVideo, setHasVideo] = useState(false);
-  const videoTrackRef = useRef<{ attach: (el: HTMLVideoElement) => void } | null>(
-    null,
-  );
+  /**
+   * Bumped every time the host's video track object is replaced.
+   *
+   * A publisher restarting video (camera toggle, track republish, the
+   * socials app resubscribing) delivers a NEW track while `hasVideo` stays
+   * true — so an effect keyed only on `hasVideo` never re-runs and the
+   * element keeps rendering the old track, which goes muted the moment it
+   * is replaced. That is exactly how a live host renders as a black cell.
+   */
+  const [hostTrackEpoch, setHostTrackEpoch] = useState(0);
+  const videoTrackRef = useRef<AttachableVideoTrack | null>(null);
   /**
    * Concurrent watchers, derived from the room roster.
    *
@@ -205,6 +214,19 @@ export default function StreamPage({
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)");
     const apply = () => setIsMobileView(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  /**
+   * Screen orientation, watched separately from the breakpoint: rotating
+   * the phone flips the stage from stacked rows to side-by-side columns.
+   */
+  const [portraitScreen, setPortraitScreen] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia("(orientation: portrait)");
+    const apply = () => setPortraitScreen(mq.matches);
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
@@ -453,11 +475,15 @@ export default function StreamPage({
           ) {
             videoTrackRef.current = track;
             setHasVideo(true);
+            setHostTrackEpoch((n) => n + 1);
           } else {
             guestTracksRef.current.set(participant.identity, track);
+            // A fresh array even when the guest is already listed: the tile
+            // reads its track from the ref during render, so a republished
+            // track only reaches it if React re-renders.
             setGuestVideos((prev) =>
               prev.some((g) => g.identity === participant.identity)
-                ? prev
+                ? [...prev]
                 : [
                     ...prev,
                     {
@@ -706,12 +732,17 @@ export default function StreamPage({
   // still be null (the element only renders after `stream` resolves), which
   // lost the track for good and left a permanently black player.
   useEffect(() => {
-    if (hasVideo && videoTrackRef.current && videoElRef.current) {
-      videoTrackRef.current.attach(videoElRef.current);
-    }
-    // isMobileView: crossing the breakpoint swaps layouts (and video
-    // elements), so the track must re-attach to the new element.
-  }, [hasVideo, connected, isMobileView]);
+    const track = videoTrackRef.current;
+    const el = videoElRef.current;
+    if (!hasVideo || !track || !el) return;
+    // Detach first: crossing the mobile/desktop breakpoint swaps the video
+    // element, and a track left attached to an unmounted one keeps a stale
+    // visibility entry that adaptiveStream can read as "nobody is watching".
+    track.detach();
+    track.attach(el);
+    // hostTrackEpoch: re-attach when the track OBJECT is replaced, which
+    // `hasVideo` alone can't see.
+  }, [hasVideo, connected, isMobileView, hostTrackEpoch]);
 
   // Auto-connect when stream loads. Waits for auth to settle: connecting
   // before we know whether this viewer is the OWNER would fetch a normal
@@ -1423,22 +1454,14 @@ export default function StreamPage({
       1 +
       guestVideos.length +
       (stageState === "live" && localStageTrack ? 1 : 0);
+    // Split along the screen's long axis — rows while upright, columns once
+    // the phone is turned. See lib/stage-layout.ts.
+    const layout = stageLayout(stageCount, portraitScreen);
     return (
       <div className="fixed inset-0 z-[60] bg-black">
-        {/* Stage — same split rules as desktop, full-bleed */}
-        <div
-          className={cn(
-            "absolute inset-0 grid gap-px",
-            stageCount === 2 && "grid-cols-2",
-            stageCount >= 3 && "grid-cols-2 grid-rows-2"
-          )}
-        >
-          <div
-            className={cn(
-              "relative overflow-hidden",
-              stageCount === 3 && "row-span-2"
-            )}
-          >
+        {/* Stage — full-bleed, orientation-aware */}
+        <div className={cn("absolute inset-0 grid gap-px", layout.container)}>
+          <div className={cn("relative overflow-hidden", layout.hostCell)}>
             <video
               ref={videoElRef}
               autoPlay
@@ -1823,19 +1846,12 @@ export default function StreamPage({
                 1 +
                 guestVideos.length +
                 (stageState === "live" && localStageTrack ? 1 : 0);
+              // The desktop player is always wider than it is tall.
+              const layout = stageLayout(stageCount, false);
               return (
-                <div
-                  className={cn(
-                    "grid size-full gap-px",
-                    stageCount === 2 && "grid-cols-2",
-                    stageCount >= 3 && "grid-cols-2 grid-rows-2"
-                  )}
-                >
+                <div className={cn("grid size-full gap-px", layout.container)}>
                   <div
-                    className={cn(
-                      "relative overflow-hidden",
-                      stageCount === 3 && "row-span-2"
-                    )}
+                    className={cn("relative overflow-hidden", layout.hostCell)}
                   >
                     <video
                       ref={videoElRef}
