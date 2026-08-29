@@ -21,6 +21,9 @@ import {
   PictureInPicture,
   Sidebar,
   CellSignalLow,
+  CaretLeft,
+  HandWaving,
+  Check,
 } from "@phosphor-icons/react";
 import { LiveChat, type PinnedMessage } from "@/components/app/live-chat";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -39,6 +42,10 @@ import {
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
+import {
+  FloatingHearts,
+  type FloatingHeartsHandle,
+} from "@/components/app/floating-hearts";
 
 const REPORT_REASONS: Array<{ value: string; label: string }> = [
   { value: "spam", label: "Spam or misleading" },
@@ -82,7 +89,7 @@ export default function StreamPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [stream, setStream] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -191,6 +198,72 @@ export default function StreamPage({
     }>
   >([]);
   const [watchNextLoaded, setWatchNextLoaded] = useState(false);
+
+  // ---- Mobile immersive view ----
+  /** Below lg the page becomes a TikTok-style full-screen live view. */
+  const [isMobileView, setIsMobileView] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileView(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  /** Portrait feeds fill the phone screen; landscape ones letterbox. */
+  const [feedPortrait, setFeedPortrait] = useState(true);
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el || !hasVideo) return;
+    const measure = () => {
+      if (el.videoWidth && el.videoHeight) {
+        setFeedPortrait(el.videoHeight >= el.videoWidth);
+      }
+    };
+    measure();
+    el.addEventListener("resize", measure);
+    el.addEventListener("loadedmetadata", measure);
+    return () => {
+      el.removeEventListener("resize", measure);
+      el.removeEventListener("loadedmetadata", measure);
+    };
+  }, [hasVideo, isMobileView]);
+
+  const heartsRef = useRef<FloatingHeartsHandle | null>(null);
+  const handleHeartsReady = useCallback((h: FloatingHeartsHandle) => {
+    heartsRef.current = h;
+  }, []);
+
+  // ---- Host-on-mobile: the owner watching their own stream manages the
+  // stage from here (their broadcast usually runs on their phone app). ----
+  const isOwner = Boolean(
+    user && stream && String(stream.streamerId._id) === user.id
+  );
+  const isOwnerRef = useRef(false);
+  isOwnerRef.current = isOwner;
+  const [hostRequests, setHostRequests] = useState<
+    Array<{ userId: string; username: string; avatar: string }>
+  >([]);
+  const [hostLiveGuests, setHostLiveGuests] = useState<
+    Array<{ userId: string; username: string; avatar: string }>
+  >([]);
+  const [showStageSheet, setShowStageSheet] = useState(false);
+  const [hostStageBusy, setHostStageBusy] = useState<string | null>(null);
+
+  // ---- Co-live ----
+  /** Set when this stream merges into another — brief notice, then follow. */
+  const [mergingInto, setMergingInto] = useState<string | null>(null);
+  /**
+   * ?stage=1: I arrived holding a live stage slot (co-live accept, or a
+   * reconnect) — claim publish rights and start the camera instead of
+   * tidying the slot away.
+   */
+  const wantStageRef = useRef(false);
+  useEffect(() => {
+    wantStageRef.current =
+      new URLSearchParams(window.location.search).get("stage") === "1";
+  }, []);
+  const [claimPending, setClaimPending] = useState(false);
 
   // Like & share state
   const [liked, setLiked] = useState(false);
@@ -343,10 +416,15 @@ export default function StreamPage({
     if (!stream?.isLive || connected) return;
 
     try {
+      // The owner joins as a monitor (mon-<id>): watching your own stream
+      // must never steal the broadcaster identity from the device actually
+      // publishing it.
       const res = await apiFetch<{
         success: boolean;
         data: { token: string; livekitUrl: string };
-      }>(`/api/streams/${id}/token`);
+      }>(
+        `/api/streams/${id}/token${isOwnerRef.current ? "?monitor=1" : ""}`
+      );
 
       // Dynamic import to avoid SSR issues
       const { Room: LKRoom, RoomEvent, Track } = await import("livekit-client");
@@ -483,11 +561,50 @@ export default function StreamPage({
               // Legacy clients still publish deltas; honour them.
               setLikeCount((c) => Math.max(0, c + Math.sign(data.delta!)));
             }
+            heartsRef.current?.push();
+            return;
+          }
+          // Host-on-mobile: stage requests reach the owner wherever they are.
+          if (data.__evt === "guest_request" && data.userId) {
+            if (isOwnerRef.current) {
+              const row = {
+                userId: data.userId,
+                username: data.username ?? "viewer",
+                avatar: data.avatar ?? "",
+              };
+              setHostRequests((prev) =>
+                prev.some((r) => r.userId === row.userId)
+                  ? prev
+                  : [...prev, row]
+              );
+            }
             return;
           }
           // Stage transitions about *me* drive publishing; everyone else's
           // tiles follow the tracks themselves via TrackSubscribed.
           if (data.__evt === "guest_update" && data.userId) {
+            const uid = data.userId;
+            if (isOwnerRef.current) {
+              if (data.action === "cancelled" || data.action === "denied") {
+                setHostRequests((prev) =>
+                  prev.filter((r) => r.userId !== uid)
+                );
+              } else if (data.action === "approved") {
+                setHostRequests((prev) => {
+                  const row = prev.find((r) => r.userId === uid);
+                  if (row) {
+                    setHostLiveGuests((live) =>
+                      live.some((g) => g.userId === uid) ? live : [...live, row]
+                    );
+                  }
+                  return prev.filter((r) => r.userId !== uid);
+                });
+              } else if (data.action === "removed" || data.action === "left") {
+                setHostLiveGuests((prev) =>
+                  prev.filter((g) => g.userId !== uid)
+                );
+              }
+            }
             if (data.userId === userIdRef.current) {
               if (data.action === "approved") {
                 publishAsGuestRef.current();
@@ -503,6 +620,17 @@ export default function StreamPage({
                     : "The host declined your request."
                 );
               }
+            }
+            return;
+          }
+          // This stream is merging into another live — follow the party.
+          if (data.__evt === "colive_merged") {
+            const into = (data as { into?: string }).into;
+            if (into) {
+              setMergingInto(into);
+              setTimeout(() => {
+                window.location.assign(`/stream/${into}`);
+              }, 1600);
             }
             return;
           }
@@ -581,11 +709,15 @@ export default function StreamPage({
     if (hasVideo && videoTrackRef.current && videoElRef.current) {
       videoTrackRef.current.attach(videoElRef.current);
     }
-  }, [hasVideo, connected]);
+    // isMobileView: crossing the breakpoint swaps layouts (and video
+    // elements), so the track must re-attach to the new element.
+  }, [hasVideo, connected, isMobileView]);
 
-  // Auto-connect when stream loads
+  // Auto-connect when stream loads. Waits for auth to settle: connecting
+  // before we know whether this viewer is the OWNER would fetch a normal
+  // token and kick their live broadcast off the air.
   useEffect(() => {
-    if (stream?.isLive && !connected) {
+    if (stream?.isLive && !connected && !authLoading) {
       connectToStream();
     }
     const audioEls = audioElsRef.current;
@@ -599,7 +731,7 @@ export default function StreamPage({
       audioEls.forEach((el) => el.remove());
       audioEls.clear();
     };
-  }, [stream?.isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stream?.isLive, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track fullscreen exits (e.g. pressing Escape)
   useEffect(() => {
@@ -812,6 +944,88 @@ export default function StreamPage({
     }
   };
 
+  // Owner: seed the stage roster (requests + who's on) once live.
+  useEffect(() => {
+    if (!isOwner || !stream?.isLive) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: {
+            live: Array<{ userId: string; username: string; avatar: string }>;
+            requests: Array<{
+              userId: string;
+              username: string;
+              avatar: string;
+            }>;
+          };
+        }>(`/api/streams/${id}/guests`);
+        if (cancelled) return;
+        setHostRequests(res.data.requests);
+        setHostLiveGuests(res.data.live);
+      } catch {
+        // Sheet just starts empty; events fill it in.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, stream?.isLive, id]);
+
+  const hostApprove = async (userId: string) => {
+    if (hostStageBusy) return;
+    setHostStageBusy(userId);
+    try {
+      await apiFetch(`/api/streams/${id}/guests/${userId}/approve`, {
+        method: "POST",
+      });
+      setHostRequests((prev) => {
+        const row = prev.find((r) => r.userId === userId);
+        if (row) {
+          setHostLiveGuests((live) =>
+            live.some((g) => g.userId === userId) ? live : [...live, row]
+          );
+        }
+        return prev.filter((r) => r.userId !== userId);
+      });
+    } catch {
+      // Row stays; the host can retry.
+    } finally {
+      setHostStageBusy(null);
+    }
+  };
+
+  const hostDeny = async (userId: string) => {
+    if (hostStageBusy) return;
+    setHostStageBusy(userId);
+    try {
+      await apiFetch(`/api/streams/${id}/guests/${userId}/deny`, {
+        method: "POST",
+      });
+      setHostRequests((prev) => prev.filter((r) => r.userId !== userId));
+    } catch {
+      // Retryable.
+    } finally {
+      setHostStageBusy(null);
+    }
+  };
+
+  const hostRemove = async (userId: string) => {
+    if (hostStageBusy) return;
+    setHostStageBusy(userId);
+    try {
+      await apiFetch(`/api/streams/${id}/guests/${userId}/remove`, {
+        method: "POST",
+      });
+      setHostLiveGuests((prev) => prev.filter((g) => g.userId !== userId));
+    } catch {
+      // Retryable.
+    } finally {
+      setHostStageBusy(null);
+    }
+  };
+
   // Reconcile my stage state on load: a pending request survives a refresh,
   // but "live" can't (the refresh killed my published tracks and my publish
   // grant) — release that slot instead of haunting the stage.
@@ -831,9 +1045,15 @@ export default function StreamPage({
         if (res.data.requests.some((g) => g.userId === user.id)) {
           setStageState("requested");
         } else if (res.data.live.some((g) => g.userId === user.id)) {
-          void apiFetch(`/api/streams/${id}/guests/leave`, {
-            method: "POST",
-          }).catch(() => {});
+          if (wantStageRef.current) {
+            // Co-live accept or mid-stage reconnect: the slot is mine —
+            // re-arm it once the room connection is up.
+            setClaimPending(true);
+          } else {
+            void apiFetch(`/api/streams/${id}/guests/leave`, {
+              method: "POST",
+            }).catch(() => {});
+          }
         }
       } catch {
         // Stage endpoints unavailable — the join button will surface errors.
@@ -843,6 +1063,30 @@ export default function StreamPage({
       cancelled = true;
     };
   }, [user, stream?.isLive, id]);
+
+  // Claim a held stage slot once the room is connected (co-live merge /
+  // reconnect): server re-grants publish, then the camera goes up.
+  useEffect(() => {
+    if (!claimPending || !connected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await apiFetch(`/api/streams/${id}/guests/claim`, { method: "POST" });
+        if (!cancelled) {
+          setClaimPending(false);
+          await publishAsGuest();
+        }
+      } catch {
+        if (!cancelled) {
+          setClaimPending(false);
+          setStageError("Couldn't rejoin the stage — ask to join again.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [claimPending, connected, id, publishAsGuest]);
 
   // Seed the supporters strip from persisted gifts; live tips keep it fresh.
   useEffect(() => {
@@ -1066,6 +1310,491 @@ export default function StreamPage({
   }
 
   const streamer = stream.streamerId;
+
+  // Shared by the desktop page and the mobile immersive view.
+  const mergeOverlay = mergingInto && (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="flex flex-col items-center gap-3 px-6 text-center">
+        <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-base font-semibold text-foreground">
+          The lives are merging
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Taking you to the combined stream…
+        </p>
+      </div>
+    </div>
+  );
+
+  const endedOverlay = streamEnded && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 backdrop-blur-sm">
+      <div
+        className={cn(
+          "mx-4 my-8 w-full rounded-2xl border border-white/10 bg-background p-6 text-center shadow-2xl sm:p-8",
+          watchNext.length > 0 ? "max-w-2xl" : "max-w-sm"
+        )}
+      >
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-red-500/10">
+          <Eye size={26} className="text-red-400" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Stream Has Ended</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The host has ended this livestream.
+        </p>
+
+        {watchNext.length > 0 ? (
+          <>
+            <p className="mt-5 mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Live right now
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-left">
+              {watchNext.map((s) => (
+                <a
+                  key={s._id}
+                  // Full navigation on purpose: a soft route change to the
+                  // same dynamic segment keeps this component instance —
+                  // and all its ended-stream state — alive.
+                  href={`/stream/${s._id}`}
+                  className="group overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-colors hover:border-primary/30"
+                >
+                  <div className="relative aspect-video bg-black">
+                    {s.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={apiUrl(s.thumbnailUrl)}
+                        alt=""
+                        className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex size-full items-center justify-center text-white/20">
+                        <Eye size={24} />
+                      </div>
+                    )}
+                    <span className="absolute top-1.5 left-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
+                      LIVE
+                    </span>
+                    <span className="absolute right-1.5 bottom-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[0.6rem] text-white/90">
+                      {formatNumber(s.viewers)} watching
+                    </span>
+                  </div>
+                  <div className="p-2.5">
+                    <p className="truncate text-xs font-semibold text-foreground group-hover:text-primary">
+                      {s.title}
+                    </p>
+                    <p className="mt-0.5 truncate text-[0.65rem] text-muted-foreground">
+                      {s.streamerName}
+                    </p>
+                  </div>
+                </a>
+              ))}
+            </div>
+            <button
+              onClick={() => router.push("/explore")}
+              className="mt-5 h-10 w-full rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Browse all streams
+            </button>
+          </>
+        ) : (
+          <>
+            {watchNextLoaded && (
+              <p className="mt-1 text-xs text-muted-foreground/60">
+                Redirecting to Explore in{" "}
+                <span className="font-semibold text-foreground">
+                  {countdown}s
+                </span>
+              </p>
+            )}
+            <button
+              onClick={() => router.push("/explore")}
+              className="mt-6 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+            >
+              Go to Explore Now
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ---- Mobile: full-screen immersive live view ----
+  if (isMobileView) {
+    const stageCount =
+      1 +
+      guestVideos.length +
+      (stageState === "live" && localStageTrack ? 1 : 0);
+    return (
+      <div className="fixed inset-0 z-[60] bg-black">
+        {/* Stage — same split rules as desktop, full-bleed */}
+        <div
+          className={cn(
+            "absolute inset-0 grid gap-px",
+            stageCount === 2 && "grid-cols-2",
+            stageCount >= 3 && "grid-cols-2 grid-rows-2"
+          )}
+        >
+          <div
+            className={cn(
+              "relative overflow-hidden",
+              stageCount === 3 && "row-span-2"
+            )}
+          >
+            <video
+              ref={videoElRef}
+              autoPlay
+              playsInline
+              className={cn(
+                "size-full",
+                // Portrait phones fill the frame; landscape feeds letterbox
+                // rather than cropping half the scene away.
+                stageCount > 1 || feedPortrait
+                  ? "object-cover"
+                  : "object-contain"
+              )}
+            />
+            {stageCount > 1 && (
+              <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-md bg-black/60 px-2 py-1 backdrop-blur-sm">
+                <span className="truncate text-xs font-medium text-white">
+                  {streamer.displayName || streamer.username}
+                </span>
+              </div>
+            )}
+          </div>
+          {guestVideos.map((g) => (
+            <StageTile
+              key={g.identity}
+              fill
+              track={guestTracksRef.current.get(g.identity)}
+              label={g.name}
+            />
+          ))}
+          {stageState === "live" && localStageTrack && (
+            <StageTile
+              fill
+              track={localStageTrack}
+              label="You"
+              self
+              micOn={stageMicOn}
+            />
+          )}
+        </div>
+
+        <GiftOverlay onReady={handleGiftOverlayReady} />
+        <FloatingHearts onReady={handleHeartsReady} />
+
+        {/* Status overlays */}
+        {stream.isLive && connected && !hasVideo && !playbackError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+            <div className="px-6 text-center">
+              <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+              <p className="text-base font-semibold text-white/70">
+                Waiting for the broadcaster
+              </p>
+            </div>
+          </div>
+        )}
+        {stream.isLive && playbackError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+            <div className="px-6 text-center">
+              <p className="text-base font-semibold text-white/60">
+                {playbackError}
+              </p>
+              <button
+                onClick={() => router.push("/explore")}
+                className="mt-4 h-9 rounded-lg bg-white/[0.08] px-4 text-sm font-medium text-white/80"
+              >
+                Browse live streams
+              </button>
+            </div>
+          </div>
+        )}
+        {!stream.isLive && !streamEnded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+            <p className="text-base font-semibold text-white/60">
+              This stream is offline
+            </p>
+          </div>
+        )}
+
+        {/* Top bar */}
+        <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)]">
+          <button
+            onClick={() => router.push("/explore")}
+            aria-label="Leave stream"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md"
+          >
+            <CaretLeft size={18} />
+          </button>
+          <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/45 py-1 pr-1.5 pl-1 backdrop-blur-md">
+            <UserAvatar
+              src={streamer.avatar}
+              name={streamer.displayName || streamer.username}
+              size={28}
+              className="size-7 shrink-0"
+            />
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-xs font-semibold text-white">
+                {streamer.displayName || streamer.username}
+              </p>
+              <p className="truncate text-[0.6rem] text-white/60">
+                {formatNumber(streamer.followers)} followers
+              </p>
+            </div>
+            {user && !isOwner && !isFollowing && (
+              <button
+                onClick={toggleFollow}
+                disabled={followLoading}
+                className="ml-1 h-7 shrink-0 rounded-full bg-primary px-3 text-[0.7rem] font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                Follow
+              </button>
+            )}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {stream.isLive && (
+              <span className="flex items-center gap-1 rounded-full bg-red-600 px-2 py-1 text-[0.65rem] font-bold text-white">
+                LIVE
+              </span>
+            )}
+            <span className="flex items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-[0.65rem] text-white/85 tabular-nums backdrop-blur-md">
+              <Eye size={12} />
+              {formatNumber(connected ? viewerCount : stream.viewers)}
+            </span>
+          </div>
+        </div>
+
+        {/* Unmute pill */}
+        {muted && stream.isLive && hasVideo && !playbackError && (
+          <button
+            onClick={toggleMute}
+            className="absolute top-[max(env(safe-area-inset-top),12px)] left-1/2 z-40 mt-14 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
+          >
+            <SpeakerSlash size={16} weight="fill" />
+            Tap to unmute
+          </button>
+        )}
+
+        {/* Right action rail */}
+        <div className="absolute right-2 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-30 flex flex-col items-center gap-4">
+          <button
+            onClick={() => {
+              heartsRef.current?.push();
+              if (user && !liked) void toggleLike();
+            }}
+            aria-label="Like"
+            className="flex flex-col items-center gap-0.5"
+          >
+            <span className="flex size-11 items-center justify-center rounded-full bg-black/45 backdrop-blur-md">
+              <Heart
+                size={24}
+                weight={liked ? "fill" : "regular"}
+                className={liked ? "text-red-500" : "text-white"}
+              />
+            </span>
+            <span className="text-[0.65rem] font-medium text-white/85 tabular-nums">
+              {likeCount > 0 ? formatNumber(likeCount) : "Like"}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              const url = window.location.href;
+              if (navigator.share) {
+                navigator
+                  .share({ title: stream.title, url })
+                  .catch(() => {});
+              } else {
+                navigator.clipboard?.writeText(url);
+              }
+            }}
+            aria-label="Share"
+            className="flex size-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md"
+          >
+            <ShareNetwork size={22} />
+          </button>
+          {user && !isOwner && stream.isLive && connected && (
+            stageState === "idle" ? (
+              <button
+                onClick={requestStage}
+                disabled={stageBusy}
+                aria-label="Ask to join the stream"
+                className="flex size-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md disabled:opacity-50"
+              >
+                <UsersThree size={22} />
+              </button>
+            ) : stageState === "requested" ? (
+              <button
+                onClick={cancelStageRequest}
+                disabled={stageBusy}
+                aria-label="Cancel stage request"
+                className="flex size-11 animate-pulse items-center justify-center rounded-full bg-amber-500/80 text-white backdrop-blur-md"
+              >
+                <Clock size={22} />
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={toggleStageMic}
+                  aria-label="Toggle mic"
+                  className={cn(
+                    "flex size-11 items-center justify-center rounded-full backdrop-blur-md",
+                    stageMicOn
+                      ? "bg-black/45 text-white"
+                      : "bg-red-600/90 text-white"
+                  )}
+                >
+                  {stageMicOn ? (
+                    <Microphone size={22} />
+                  ) : (
+                    <MicrophoneSlash size={22} />
+                  )}
+                </button>
+                <button
+                  onClick={leaveStage}
+                  disabled={stageBusy}
+                  aria-label="Leave stage"
+                  className="flex size-11 items-center justify-center rounded-full bg-red-600/90 text-white backdrop-blur-md disabled:opacity-50"
+                >
+                  <SignOut size={22} />
+                </button>
+              </>
+            )
+          )}
+          {isOwner && stream.isLive && (
+            <button
+              onClick={() => setShowStageSheet(true)}
+              aria-label="Stage requests"
+              className="relative flex size-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md"
+            >
+              <HandWaving size={22} />
+              {hostRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-primary text-[0.6rem] font-bold text-primary-foreground ring-2 ring-black">
+                  {hostRequests.length}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Chat overlay + input */}
+        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]">
+          <div className="h-[46dvh]">
+            <LiveChat
+              streamId={id}
+              room={roomRef.current}
+              isLive={stream.isLive}
+              isHost={isOwner}
+              initialPinned={stream.pinnedMessage ?? null}
+              variant="overlay"
+            />
+          </div>
+        </div>
+
+        {/* Host stage sheet */}
+        {showStageSheet && (
+          <div
+            className="fixed inset-0 z-[70] flex items-end bg-black/60"
+            onClick={() => setShowStageSheet(false)}
+          >
+            <div
+              className="max-h-[70dvh] w-full overflow-y-auto rounded-t-2xl bg-[oklch(0.14_0.005_285)] p-4 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/15" />
+              <h3 className="mb-3 text-sm font-medium text-foreground">
+                Stage
+              </h3>
+
+              {hostLiveGuests.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                    On stage
+                  </p>
+                  <div className="space-y-1.5">
+                    {hostLiveGuests.map((g) => (
+                      <div
+                        key={g.userId}
+                        className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                      >
+                        <UserAvatar
+                          src={g.avatar}
+                          name={g.username}
+                          size={28}
+                          className="size-7"
+                        />
+                        <p className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                          {g.username}
+                        </p>
+                        <button
+                          onClick={() => hostRemove(g.userId)}
+                          disabled={hostStageBusy !== null}
+                          className="flex h-8 items-center gap-1 rounded-md bg-red-500/10 px-2.5 text-xs font-medium text-red-400 disabled:opacity-50"
+                        >
+                          <X size={13} />
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                Requests
+              </p>
+              {hostRequests.length === 0 ? (
+                <p className="py-4 text-center text-xs text-muted-foreground/60">
+                  No one is asking to join right now.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {hostRequests.map((r) => (
+                    <div
+                      key={r.userId}
+                      className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                    >
+                      <UserAvatar
+                        src={r.avatar}
+                        name={r.username}
+                        size={28}
+                        className="size-7"
+                      />
+                      <p className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        {r.username}
+                      </p>
+                      <button
+                        onClick={() => hostApprove(r.userId)}
+                        disabled={
+                          hostStageBusy !== null || hostLiveGuests.length >= 3
+                        }
+                        className="flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                      >
+                        {hostStageBusy === r.userId ? (
+                          <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+                        ) : (
+                          <Check size={13} />
+                        )}
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => hostDeny(r.userId)}
+                        disabled={hostStageBusy !== null}
+                        className="flex size-8 items-center justify-center rounded-md bg-white/[0.06] text-muted-foreground disabled:opacity-50"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mergeOverlay}
+        {endedOverlay}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 pt-16 md:p-0 md:pt-0">
@@ -1650,99 +2379,8 @@ export default function StreamPage({
         </div>
       )}
 
-      {/* Stream ended — keep the session alive with what's live right now */}
-      {streamEnded && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 backdrop-blur-sm">
-          <div
-            className={cn(
-              "mx-4 my-8 w-full rounded-2xl border border-white/10 bg-background p-6 text-center shadow-2xl sm:p-8",
-              watchNext.length > 0 ? "max-w-2xl" : "max-w-sm"
-            )}
-          >
-            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-red-500/10">
-              <Eye size={26} className="text-red-400" />
-            </div>
-            <h2 className="text-xl font-bold text-foreground">
-              Stream Has Ended
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              The host has ended this livestream.
-            </p>
-
-            {watchNext.length > 0 ? (
-              <>
-                <p className="mt-5 mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  Live right now
-                </p>
-                <div className="grid grid-cols-2 gap-3 text-left">
-                  {watchNext.map((s) => (
-                    <a
-                      key={s._id}
-                      // Full navigation on purpose: a soft route change to the
-                      // same dynamic segment keeps this component instance —
-                      // and all its ended-stream state — alive.
-                      href={`/stream/${s._id}`}
-                      className="group overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-colors hover:border-primary/30"
-                    >
-                      <div className="relative aspect-video bg-black">
-                        {s.thumbnailUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={apiUrl(s.thumbnailUrl)}
-                            alt=""
-                            className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          />
-                        ) : (
-                          <div className="flex size-full items-center justify-center text-white/20">
-                            <Eye size={24} />
-                          </div>
-                        )}
-                        <span className="absolute top-1.5 left-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
-                          LIVE
-                        </span>
-                        <span className="absolute right-1.5 bottom-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[0.6rem] text-white/90">
-                          {formatNumber(s.viewers)} watching
-                        </span>
-                      </div>
-                      <div className="p-2.5">
-                        <p className="truncate text-xs font-semibold text-foreground group-hover:text-primary">
-                          {s.title}
-                        </p>
-                        <p className="mt-0.5 truncate text-[0.65rem] text-muted-foreground">
-                          {s.streamerName}
-                        </p>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-                <button
-                  onClick={() => router.push("/explore")}
-                  className="mt-5 h-10 w-full rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Browse all streams
-                </button>
-              </>
-            ) : (
-              <>
-                {watchNextLoaded && (
-                  <p className="mt-1 text-xs text-muted-foreground/60">
-                    Redirecting to Explore in{" "}
-                    <span className="font-semibold text-foreground">
-                      {countdown}s
-                    </span>
-                  </p>
-                )}
-                <button
-                  onClick={() => router.push("/explore")}
-                  className="mt-6 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
-                >
-                  Go to Explore Now
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {mergeOverlay}
+      {endedOverlay}
     </div>
   );
 }

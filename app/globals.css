@@ -195,3 +195,25 @@
 .animate-rise {
   animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* Floating hearts — the mobile live view's pulse. Each heart rises with a
+   per-instance horizontal drift (--hx) and rotation (--hr), fading out. */
+@keyframes heart-rise {
+  0% {
+    transform: translate(0, 0) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.95;
+    transform: translate(calc(var(--hx, 0px) * 0.3), -8vh) scale(1)
+      rotate(calc(var(--hr, 0deg) * 0.4));
+  }
+  75% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(var(--hx, 0px), -62vh) scale(1.15)
+      rotate(var(--hr, 0deg));
+    opacity: 0;
+  }
+}

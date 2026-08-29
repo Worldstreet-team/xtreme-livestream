@@ -112,6 +112,28 @@ export default function StudioPage() {
   const guestTracksRef = useRef<Map<string, AttachableVideoTrack>>(new Map());
   const guestAudioElsRef = useRef<Map<object, HTMLAudioElement>>(new Map());
 
+  // ---- Co-live ----
+  /** An open invite from another live host, shown in the Stage tab. */
+  const [coLiveInvite, setCoLiveInvite] = useState<{
+    fromStreamId: string;
+    fromUsername: string;
+    fromDisplayName?: string;
+    fromAvatar?: string;
+    fromTitle?: string;
+  } | null>(null);
+  const [coLiveBusy, setCoLiveBusy] = useState(false);
+  /** Streams I've already invited this session. */
+  const [coLiveInvited, setCoLiveInvited] = useState<Set<string>>(new Set());
+  /** Other hosts live right now — co-live candidates. */
+  const [otherLive, setOtherLive] = useState<
+    Array<{
+      _id: string;
+      title: string;
+      viewers: number;
+      streamerId?: { displayName?: string; username?: string; avatar?: string };
+    }>
+  >([]);
+
   // ---- Tip alerts ----
   const [tipAlerts, setTipAlerts] = useState<
     Array<{ id: string; username: string; amountLabel: string; emoji: string }>
@@ -279,6 +301,33 @@ export default function StudioPage() {
           emoji?: string;
           id?: string;
         };
+        if (data.__evt === "colive_invite") {
+          const evt = data as {
+            fromStreamId?: string;
+            fromUsername?: string;
+            fromDisplayName?: string;
+            fromAvatar?: string;
+            fromTitle?: string;
+          };
+          if (evt.fromStreamId && evt.fromUsername) {
+            setCoLiveInvite({
+              fromStreamId: evt.fromStreamId,
+              fromUsername: evt.fromUsername,
+              fromDisplayName: evt.fromDisplayName,
+              fromAvatar: evt.fromAvatar,
+              fromTitle: evt.fromTitle,
+            });
+            playTipChime();
+          }
+          return;
+        }
+        if (data.__evt === "colive_decline") {
+          const evt = data as { byUsername?: string };
+          setStageError(
+            `${evt.byUsername ?? "They"} declined the co-live invite.`
+          );
+          return;
+        }
         if (data.__evt === "guest_request" && data.userId) {
           const row: StageUser = {
             userId: data.userId,
@@ -420,6 +469,97 @@ export default function StudioPage() {
     }
   };
 
+  // ---- Co-live actions ----
+
+  const inviteCoLive = async (targetStreamId: string) => {
+    if (coLiveBusy) return;
+    setCoLiveBusy(true);
+    setStageError(null);
+    try {
+      await apiFetch(`/api/streams/${targetStreamId}/colive/invite`, {
+        method: "POST",
+      });
+      setCoLiveInvited((prev) => new Set(prev).add(targetStreamId));
+    } catch (err) {
+      setStageError(
+        err instanceof Error ? err.message : "Couldn't send the invite."
+      );
+    } finally {
+      setCoLiveBusy(false);
+    }
+  };
+
+  const acceptCoLive = async () => {
+    if (!coLiveInvite || !streamId || coLiveBusy) return;
+    setCoLiveBusy(true);
+    setStageError(null);
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        data: { primaryStreamId: string };
+      }>(`/api/streams/${streamId}/colive/accept`, {
+        method: "POST",
+        body: JSON.stringify({ fromStreamId: coLiveInvite.fromStreamId }),
+      });
+      // My stream is over server-side; hand the room over cleanly and walk
+      // onto their stage. ?stage=1 makes the stream page claim publish
+      // rights and start the camera instead of tidying the slot away.
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      window.location.assign(
+        `/stream/${res.data.primaryStreamId}?stage=1`
+      );
+    } catch (err) {
+      setStageError(
+        err instanceof Error ? err.message : "Couldn't merge the lives."
+      );
+      setCoLiveBusy(false);
+    }
+  };
+
+  const declineCoLive = async () => {
+    if (!coLiveInvite || !streamId) return;
+    const invite = coLiveInvite;
+    setCoLiveInvite(null);
+    try {
+      await apiFetch(`/api/streams/${streamId}/colive/decline`, {
+        method: "POST",
+        body: JSON.stringify({ fromStreamId: invite.fromStreamId }),
+      });
+    } catch {
+      // Their invite simply times out.
+    }
+  };
+
+  // Who else is live right now — the co-live candidate list.
+  useEffect(() => {
+    if (!isLive) {
+      setOtherLive([]);
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: { streams: typeof otherLive };
+        }>(`/api/streams?live=true&limit=10&sort=viewers`);
+        if (!cancelled) {
+          setOtherLive(res.data.streams.filter((s) => s._id !== streamId));
+        }
+      } catch {
+        // Section just stays empty.
+      }
+    }
+    void load();
+    const timer = setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, streamId]);
+
   const goLive = async () => {
     if (!title.trim()) return;
     setIsConnecting(true);
@@ -492,13 +632,19 @@ export default function StudioPage() {
       const countViewers = () => {
         let n = 0;
         room.remoteParticipants.forEach((p) => {
-          if (!p.identity.startsWith("obs-")) n += 1;
+          // Neither the RTMP encoder nor the host's own monitor tab counts.
+          if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-"))
+            n += 1;
         });
         return n;
       };
       room.on(RoomEvent.ParticipantConnected, (participant) => {
         setViewerCount(countViewers());
-        if (participant.identity.startsWith("obs-")) return;
+        if (
+          participant.identity.startsWith("obs-") ||
+          participant.identity.startsWith("mon-")
+        )
+          return;
         setConnectedViewers((prev) => [
           ...prev,
           {
@@ -1544,6 +1690,51 @@ export default function StudioPage() {
                       </p>
                     )}
 
+                    {/* Incoming co-live invite */}
+                    {coLiveInvite && (
+                      <div className="rounded-lg bg-primary/[0.08] p-3">
+                        <div className="flex items-center gap-2.5">
+                          <UserAvatar
+                            src={coLiveInvite.fromAvatar ?? ""}
+                            name={
+                              coLiveInvite.fromDisplayName ??
+                              coLiveInvite.fromUsername
+                            }
+                            size={30}
+                            className="size-[30px]"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {coLiveInvite.fromDisplayName ??
+                                coLiveInvite.fromUsername}{" "}
+                              wants to co-live
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              Your stream merges into &ldquo;
+                              {coLiveInvite.fromTitle ?? "their live"}&rdquo;
+                              — your viewers come with you.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2.5 flex gap-2">
+                          <button
+                            onClick={acceptCoLive}
+                            disabled={coLiveBusy}
+                            className="h-8 flex-1 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
+                          >
+                            {coLiveBusy ? "Merging…" : "Accept & merge"}
+                          </button>
+                          <button
+                            onClick={declineCoLive}
+                            disabled={coLiveBusy}
+                            className="h-8 flex-1 rounded-md bg-white/[0.06] text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <div className="mb-2 flex items-center justify-between">
                         <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
@@ -1647,6 +1838,64 @@ export default function StudioPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* Co-live: other hosts on air right now */}
+                    {otherLive.length > 0 && (
+                      <div>
+                        <h3 className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                          Live now — invite to co-live
+                        </h3>
+                        <div className="space-y-1.5">
+                          {otherLive.map((s) => {
+                            const name =
+                              s.streamerId?.displayName ||
+                              s.streamerId?.username ||
+                              "Streamer";
+                            const invited = coLiveInvited.has(s._id);
+                            return (
+                              <div
+                                key={s._id}
+                                className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                              >
+                                <span className="relative shrink-0">
+                                  <UserAvatar
+                                    src={s.streamerId?.avatar ?? ""}
+                                    name={name}
+                                    size={28}
+                                    className="size-7"
+                                  />
+                                  <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.13_0.005_285)]" />
+                                </span>
+                                <div className="min-w-0 flex-1 leading-tight">
+                                  <p className="truncate text-sm text-foreground/90">
+                                    {name}
+                                  </p>
+                                  <p className="truncate text-[0.65rem] text-muted-foreground/70">
+                                    {s.title}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => inviteCoLive(s._id)}
+                                  disabled={coLiveBusy || invited}
+                                  className={cn(
+                                    "h-7 shrink-0 rounded-md px-2.5 text-[0.65rem] font-medium transition-colors disabled:opacity-60",
+                                    invited
+                                      ? "bg-white/[0.06] text-muted-foreground"
+                                      : "bg-white/[0.08] text-foreground hover:bg-white/[0.12]"
+                                  )}
+                                >
+                                  {invited ? "Invited" : "Invite"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-2 text-[0.65rem] leading-relaxed text-muted-foreground/50">
+                          If they accept, their stream ends and they join your
+                          stage — their viewers are brought along.
+                        </p>
+                      </div>
+                    )}
 
                     <p className="text-[0.65rem] leading-relaxed text-muted-foreground/50">
                       Guests broadcast their camera and mic to everyone
