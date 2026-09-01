@@ -7,7 +7,6 @@ import {
   ShareNetwork,
   Flag,
   UserPlus,
-  UserMinus,
   Clock,
   CornersOut,
   Crown,
@@ -1265,7 +1264,7 @@ export default function StreamPage({
       } else {
         console.error("[Follow] toggle failed:", err);
         setFollowError(
-          err instanceof Error ? err.message : "Couldn't update follow."
+          err instanceof Error ? err.message : "Couldn't update your alliance."
         );
       }
     } finally {
@@ -1567,7 +1566,7 @@ export default function StreamPage({
                 {streamer.displayName || streamer.username}
               </p>
               <p className="truncate text-[0.6rem] text-white/60">
-                {formatNumber(streamer.followers)} followers
+                {formatNumber(streamer.followers)} allies
               </p>
             </div>
             {user && !isOwner && !isFollowing && (
@@ -1576,7 +1575,7 @@ export default function StreamPage({
                 disabled={followLoading}
                 className="ml-1 h-7 shrink-0 rounded-full bg-primary px-3 text-[0.7rem] font-semibold text-primary-foreground disabled:opacity-50"
               >
-                Follow
+                Ally
               </button>
             )}
           </div>
@@ -2196,7 +2195,7 @@ export default function StreamPage({
                     {streamer.displayName}
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    {formatNumber(streamer.followers)} followers
+                    {formatNumber(streamer.followers)} allies
                   </p>
                 </div>
               </div>
@@ -2214,13 +2213,13 @@ export default function StreamPage({
                 >
                   {isFollowing ? (
                     <>
-                      <UserMinus size={16} />
-                      Unfollow
+                      <Check size={16} />
+                      Allied
                     </>
                   ) : (
                     <>
                       <UserPlus size={16} />
-                      Follow
+                      Ally
                     </>
                   )}
                 </button>

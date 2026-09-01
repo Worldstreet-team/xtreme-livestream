@@ -144,7 +144,7 @@ export function NotificationsBell({
             <div className="px-4 py-10 text-center">
               <Bell size={28} className="mx-auto text-muted-foreground/20" />
               <p className="mt-2 text-xs text-muted-foreground/60">
-                When streamers you follow go live, it shows up here.
+                When streamers you&apos;re allied with go live, it shows up here.
               </p>
             </div>
           ) : (

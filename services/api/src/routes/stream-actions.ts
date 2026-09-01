@@ -484,7 +484,7 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           if (!follows) {
             throw new ApiError(
               403,
-              "This chat is for followers only — follow the streamer to join in",
+              "This chat is for allies only — ally with the streamer to join in",
               "FOLLOWERS_ONLY",
             );
           }

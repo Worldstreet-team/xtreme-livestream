@@ -134,7 +134,7 @@ export default function DashboardPage() {
       hint: "Highest concurrent viewers, summed across your streams",
     },
     {
-      label: "Followers",
+      label: "Allies",
       value: formatNumber(stats.followers),
       icon: Users,
       color: "text-blue-400",

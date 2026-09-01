@@ -87,7 +87,7 @@ export function TopStreamers() {
             Top Streamers
           </h2>
           <p className="mt-2 text-muted-foreground">
-            Ranked by followers across the platform
+            Ranked by allies across the platform
           </p>
         </div>
 
@@ -190,7 +190,7 @@ export function TopStreamers() {
                     {streamer.followers}
                   </div>
                   <div className="text-[0.65rem] text-muted-foreground">
-                    Followers
+                    Allies
                   </div>
                 </div>
                 <div className="text-right">

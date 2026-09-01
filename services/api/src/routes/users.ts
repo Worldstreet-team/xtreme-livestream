@@ -246,7 +246,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!target) throw new ApiError(404, "User not found", "USER_NOT_FOUND");
       if (target._id.equals(dbUser._id)) {
-        throw new ApiError(400, "Cannot follow yourself", "SELF_FOLLOW");
+        throw new ApiError(400, "You can't ally with yourself", "SELF_FOLLOW");
       }
 
       try {
@@ -263,7 +263,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         ) {
           throw new ApiError(
             409,
-            "Already following this user",
+            "Already allied with this user",
             "ALREADY_FOLLOWING",
           );
         }
@@ -308,7 +308,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       if (!deleted) {
         throw new ApiError(
           400,
-          "Not following this user",
+          "Not allied with this user",
           "NOT_FOLLOWING",
         );
       }

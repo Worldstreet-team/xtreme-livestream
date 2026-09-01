@@ -346,8 +346,8 @@ export default function SettingsPage() {
                   onChange={setChatSlowMode}
                 />
                 <Toggle
-                  label="Followers-only chat"
-                  description="Only people who follow you can send messages"
+                  label="Allies-only chat"
+                  description="Only your allies can send messages"
                   checked={subscriberOnlyChat}
                   onChange={setSubscriberOnlyChat}
                 />
@@ -379,7 +379,7 @@ export default function SettingsPage() {
               </h2>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
                 Notification preferences are coming soon. You&apos;ll be able to
-                control email alerts, follow notifications, and more.
+                control email alerts, ally notifications, and more.
               </p>
               <span className="mt-4 inline-flex rounded-full bg-white/[0.06] px-3 py-1 text-xs font-medium text-muted-foreground">
                 Coming soon
