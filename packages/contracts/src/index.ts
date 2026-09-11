@@ -118,16 +118,38 @@ export const usernameParamsSchema = z.object({
     .regex(/^[a-z0-9_]+$/, "Use letters, numbers, and underscores only"),
 });
 
+export const STREAM_STATUSES = ["upcoming", "live", "ended"] as const;
+export const streamStatusSchema = z.enum(STREAM_STATUSES);
+export type StreamStatus = z.infer<typeof streamStatusSchema>;
+
 export const listStreamsQuerySchema = z.object({
   live: z.enum(["true", "false"]).optional(),
+  /** Three-valued state; `live=true` remains the fast path for the live grid. */
+  status: streamStatusSchema.optional(),
   category: z.union([categorySchema, z.literal("All")]).optional(),
   search: z.string().trim().max(100).optional(),
-  sort: z.enum(["viewers", "recent", "trending"]).default("viewers"),
+  /** Username, for a channel page's own live stream and past broadcasts. */
+  streamer: usernameParamsSchema.shape.username.optional(),
+  /** Exact tag match. Channels that opted out of tag discovery are excluded. */
+  tag: z.string().trim().min(1).max(30).optional(),
+  /**
+   * `viewers_asc` exists on purpose: the ascending sort is the one control
+   * that lets a viewer find the small rooms, and Twitch's public browse has
+   * never offered it — only its raid tool does.
+   */
+  sort: z
+    .enum(["viewers", "viewers_asc", "recent", "trending"])
+    .default("viewers"),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   page: z.coerce.number().int().min(1).default(1),
 });
 
 export const topStreamersQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(20).default(8),
+});
+
+export const searchUsersQuerySchema = z.object({
+  q: z.string().trim().min(1).max(60),
   limit: z.coerce.number().int().min(1).max(20).default(8),
 });
 
@@ -139,13 +161,67 @@ export const createStreamBodySchema = z.object({
   source: streamSourceSchema.default("camera"),
   /** Fan out a "went live" notification to followers. */
   notifyFollowers: z.boolean().default(true),
+  /**
+   * Start a previously scheduled stream instead of creating a fresh one, so
+   * the upcoming card, its reminders and its URL become the live broadcast.
+   */
+  scheduledStreamId: objectIdSchema.optional(),
 });
 
 export const updateStreamBodySchema = createStreamBodySchema
+  .omit({ scheduledStreamId: true })
   .partial()
   .refine((body) => Object.keys(body).length > 0, {
     message: "At least one field is required",
   });
+
+export const scheduleStreamBodySchema = z.object({
+  title: z.string().trim().min(1).max(100),
+  category: categorySchema,
+  tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
+  thumbnail: imageSourceSchema.default(""),
+  notifyFollowers: z.boolean().default(true),
+  /** ISO timestamp, from a few minutes out to thirty days ahead. */
+  scheduledStartAt: z
+    .string()
+    .datetime()
+    .refine((value) => {
+      const t = new Date(value).getTime();
+      const now = Date.now();
+      return t > now + 2 * 60_000 && t < now + 30 * 24 * 60 * 60_000;
+    }, "Scheduled time must be between a few minutes and thirty days from now"),
+});
+
+/** What a viewer was shown. Batched from the client, at most a grid per call. */
+export const impressionsBodySchema = z.object({
+  viewerKey: z.string().trim().min(8).max(64),
+  items: z
+    .array(
+      z.object({
+        streamId: objectIdSchema,
+        surface: z.enum([
+          "home",
+          "explore",
+          "browse",
+          "channel",
+          "watch",
+          "following",
+          "search",
+        ]),
+        row: z.string().trim().max(48).optional(),
+        slot: z.number().int().min(0).max(500),
+        explore: z.boolean().optional(),
+      }),
+    )
+    .min(1)
+    .max(60),
+});
+
+export const onboardingBodySchema = z.object({
+  categories: z.array(categorySchema).max(8),
+  /** BCP-47-ish content language preference, e.g. "en", "yo", "pt-BR". */
+  language: z.string().trim().min(2).max(12).optional(),
+});
 
 export const chatQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),

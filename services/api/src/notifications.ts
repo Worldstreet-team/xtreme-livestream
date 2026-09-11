@@ -1,5 +1,10 @@
 import type mongoose from "mongoose";
-import { Follow, Notification, type IStream } from "./models.js";
+import {
+  Follow,
+  Notification,
+  StreamReminder,
+  type IStream,
+} from "./models.js";
 
 /**
  * Fan a "went live" notification out to every follower.
@@ -41,5 +46,43 @@ export async function notifyFollowersOfLive(
     }
   } catch (error) {
     console.error("go-live notification fan-out failed:", error);
+  }
+}
+
+/**
+ * The other half of the upcoming state: everyone who tapped "remind me" on
+ * the scheduled card hears that it started. Reminders are consumed — a
+ * stream goes live once, and a second ping for the same broadcast would be
+ * noise.
+ */
+export async function notifyRemindersOfLive(
+  stream: IStream,
+  streamer: {
+    _id: mongoose.Types.ObjectId | string;
+    username: string;
+    displayName?: string;
+  },
+) {
+  try {
+    const reminders = await StreamReminder.find({ streamId: stream._id })
+      .select("userId")
+      .lean();
+    if (reminders.length === 0) return;
+
+    await Notification.insertMany(
+      reminders.map((r) => ({
+        userId: r.userId,
+        type: "reminder" as const,
+        actorId: streamer._id,
+        actorName: streamer.displayName || streamer.username,
+        streamId: stream._id,
+        streamTitle: stream.title,
+        read: false,
+      })),
+      { ordered: false },
+    );
+    await StreamReminder.deleteMany({ streamId: stream._id });
+  } catch (error) {
+    console.error("reminder notification fan-out failed:", error);
   }
 }

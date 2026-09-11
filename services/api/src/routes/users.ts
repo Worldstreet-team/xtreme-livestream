@@ -1,13 +1,20 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
+  searchUsersQuerySchema,
   topStreamersQuerySchema,
   updateProfileBodySchema,
   usernameParamsSchema,
 } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
+import { ensureUserIngress, rotateUserIngress } from "../livekit.js";
 import { Follow, Stream, User, type IUser } from "../models.js";
+import { thumbnailUrlFor } from "../stream-service.js";
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function privateUser(user: IUser) {
   return {
@@ -25,12 +32,75 @@ function privateUser(user: IUser) {
     verified: user.verified,
     streamKey: user.streamKey,
     settings: user.settings,
+    onboarding: user.onboarding ?? { completedAt: null, categories: [], language: "" },
     createdAt: user.createdAt,
   };
 }
 
 export const userRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  /**
+   * The account's encoder credentials — the same server URL and stream key
+   * for every broadcast. Set once in OBS or vMix; the studio re-points the
+   * ingress at each new room behind the scenes.
+   */
+  app.get(
+    "/users/me/stream-key",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "The caller's persistent RTMP server URL and stream key",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const ingress = await ensureUserIngress(dbUser);
+      return {
+        success: true,
+        data: {
+          url: ingress.url,
+          streamKey: ingress.streamKey,
+          createdAt: ingress.createdAt,
+        },
+      };
+    },
+  );
+
+  app.post(
+    "/users/me/stream-key/rotate",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Replace the caller's stream key — the old one stops working at once",
+        security: [{ bearerAuth: [] }],
+      },
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const live = await Stream.exists({ streamerId: dbUser._id, isLive: true, source: "obs" });
+      if (live) {
+        throw new ApiError(
+          409,
+          "End your current broadcast before changing the key",
+          "STREAM_LIVE",
+        );
+      }
+      const ingress = await rotateUserIngress(dbUser);
+      return {
+        success: true,
+        data: {
+          url: ingress.url,
+          streamKey: ingress.streamKey,
+          createdAt: ingress.createdAt,
+        },
+      };
+    },
+  );
 
   app.get(
     "/users/top",
@@ -172,6 +242,70 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         message: "Profile updated",
         data: { user: privateUser(dbUser) },
+      };
+    },
+  );
+
+  app.get(
+    "/users/search",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Find channels by username or display name",
+        querystring: searchUsersQuerySchema,
+      },
+    },
+    async (request) => {
+      const { q, limit } = request.query;
+      const pattern = new RegExp(escapeRegex(q), "i");
+
+      const users = await User.find({
+        $or: [{ username: pattern }, { displayName: pattern }],
+      })
+        // Live channels first, then the biggest — someone searching a name
+        // wants the broadcast happening right now above an idle namesake.
+        .sort({ isLive: -1, followers: -1 })
+        .limit(limit)
+        .select("username displayName avatar bio followers isLive verified")
+        .lean();
+
+      const liveStreams = users.length
+        ? await Stream.find({
+            streamerId: { $in: users.map((user) => user._id) },
+            isLive: true,
+          })
+            .select("streamerId title category viewers")
+            .lean()
+        : [];
+      const streamByUser = new Map(
+        liveStreams.map((stream) => [String(stream.streamerId), stream]),
+      );
+
+      return {
+        success: true,
+        data: {
+          channels: users.map((user) => {
+            const stream = streamByUser.get(String(user._id));
+            return {
+              id: user._id,
+              username: user.username,
+              displayName: user.displayName,
+              avatar: user.avatar,
+              bio: user.bio,
+              followers: user.followers,
+              verified: user.verified,
+              isLive: Boolean(stream),
+              stream: stream
+                ? {
+                    id: stream._id,
+                    title: stream.title,
+                    category: stream.category,
+                    viewers: stream.viewers,
+                  }
+                : null,
+            };
+          }),
+        },
       };
     },
   );
@@ -328,6 +462,79 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         message: `Unfollowed ${target.displayName}`,
       };
+    },
+  );
+
+  app.get(
+    "/user/me/following",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Channels the caller follows, live ones first",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+
+      const follows = await Follow.find({ followerId: dbUser._id })
+        .select("followingId")
+        .lean();
+      if (follows.length === 0) {
+        return { success: true, data: { channels: [] } };
+      }
+
+      const channelIds = follows.map((follow) => follow.followingId);
+      const [channels, liveStreams] = await Promise.all([
+        User.find({ _id: { $in: channelIds } })
+          .select("username displayName avatar bio followers isLive verified")
+          .lean(),
+        // The live stream is what makes a followed channel worth surfacing —
+        // the row shows what they're streaming, not just that they're on.
+        Stream.find({ streamerId: { $in: channelIds }, isLive: true })
+          .select("streamerId title category viewers startedAt thumbnailVersion")
+          .lean(),
+      ]);
+
+      const streamByChannel = new Map(
+        liveStreams.map((stream) => [String(stream.streamerId), stream]),
+      );
+
+      const rows = channels.map((channel) => {
+        const stream = streamByChannel.get(String(channel._id));
+        return {
+          id: channel._id,
+          username: channel.username,
+          displayName: channel.displayName,
+          avatar: channel.avatar,
+          bio: channel.bio,
+          followers: channel.followers,
+          verified: channel.verified,
+          // Trust the stream row over the user flag: `isLive` on the user is
+          // a denormalised copy and can lag a stream that just ended.
+          isLive: Boolean(stream),
+          stream: stream
+            ? {
+                id: stream._id,
+                title: stream.title,
+                category: stream.category,
+                viewers: stream.viewers,
+                startedAt: stream.startedAt,
+                thumbnailUrl: thumbnailUrlFor(stream),
+              }
+            : null,
+        };
+      });
+
+      rows.sort((a, b) => {
+        if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+        if (a.isLive && b.isLive) {
+          return (b.stream?.viewers ?? 0) - (a.stream?.viewers ?? 0);
+        }
+        return b.followers - a.followers;
+      });
+
+      return { success: true, data: { channels: rows } };
     },
   );
 };

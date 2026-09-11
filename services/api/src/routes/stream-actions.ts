@@ -50,6 +50,12 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           platform: z
             .enum(["xstream", "socials", "worldspace"])
             .default("xstream"),
+          /**
+           * A muted look from a hero or channel page, not a viewing session:
+           * always a guest identity, so it never announces a join, never
+           * opens a watch session and never lets the previewer publish.
+           */
+          preview: z.enum(["true", "false"]).default("false"),
         }),
       },
       config: {
@@ -59,9 +65,10 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       // Signed-in viewers join under their identity; anonymous visitors get a
       // guest identity that can watch but cannot broadcast data messages.
-      const viewer = getOptionalAuthUserId(request)
-        ? await authenticate(request)
-        : null;
+      const viewer =
+        request.query.preview !== "true" && getOptionalAuthUserId(request)
+          ? await authenticate(request)
+          : null;
       const stream = await Stream.findById(request.params.id);
 
       if (!stream) {
@@ -201,6 +208,11 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         // The URL carries ?v=<thumbnailVersion>, so a replaced thumbnail is a
         // different URL — this response can be kept indefinitely.
         .header("Cache-Control", "public, max-age=31536000, immutable")
+        // Helmet defaults every response to CORP same-origin, which makes an
+        // <img> on the web app's origin fail with NotSameOrigin — the API is
+        // a different host in every deployed environment. Thumbnails are
+        // public images built to be embedded, so opt this route out.
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
         .send(image.body);
     },
   );

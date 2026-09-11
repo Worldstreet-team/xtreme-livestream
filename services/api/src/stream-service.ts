@@ -1,10 +1,22 @@
-import { isBroadcasterConnected,
-  deleteIngress,
-} from "./livekit.js";
+import { isBroadcasterConnected } from "./livekit.js";
+import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
-import { relayLiveEvent } from "./socials-relay.js";
+import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
+import { closeAllWatchSessions } from "./watch-sessions.js";
 
 export const STREAM_GRACE_MS = 90_000;
+
+/**
+ * Local dev with seeded streams: nothing is actually publishing into LiveKit,
+ * so the liveness check would end every seeded stream on the first request.
+ * Never honored in production, where a stale "live" row is the bug this
+ * reconciler exists to fix.
+ */
+function skipLivenessCheck() {
+  return (
+    config.DEV_ASSUME_STREAMS_LIVE && config.NODE_ENV !== "production"
+  );
+}
 
 /** Matches the inline images clients upload (see `imageSourceSchema`). */
 const DATA_URI_RE = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
@@ -136,16 +148,48 @@ export async function markStreamEnded(stream: IStream) {
   // Bank the final window before the stream stops accruing.
   accrueViewerSeconds(stream, endedAt.getTime());
   stream.isLive = false;
+  stream.status = "ended";
+  stream.velocity = 0;
   stream.endedAt = endedAt;
   stream.duration = formatDuration(stream.startedAt);
+  // Flagged in the same save that ends the stream, so even a crash right
+  // after leaves the sweep enough to re-relay "ended" to the socials feed.
+  if (socialsRelayEnabled()) stream.socialsRelayPending = true;
   await stream.save();
   await User.updateOne({ _id: stream.streamerId }, { isLive: false });
-  if (stream.ingressId) void deleteIngress(stream.ingressId);
+  // The ingress is the account's, not the stream's — it lives on, so the
+  // key in the encoder keeps working for the next broadcast.
   void relayLiveEvent("ended", stream);
+  void closeAllWatchSessions(stream._id).catch((error) =>
+    console.error("watch session close-all failed:", error),
+  );
+}
+
+/**
+ * An OBS/RTMP stream whose encoder is not in the room right now: keep it
+ * live for the reconnect grace window, ending it only once the encoder has
+ * been gone longer than that. The first sighting of the drop stamps
+ * `feedDroppedAt` (the webhook usually gets there first, but a missed event
+ * must not turn into an instant end). Browser-fed streams have no encoder
+ * to wait for, so they are never held. Returns whether the stream is still
+ * live afterwards.
+ */
+export async function holdForReconnect(stream: IStream): Promise<boolean> {
+  if (stream.source !== "obs") return false;
+  const droppedAt = stream.feedDroppedAt
+    ? new Date(stream.feedDroppedAt).getTime()
+    : null;
+  if (droppedAt === null) {
+    stream.feedDroppedAt = new Date();
+    await stream.save();
+    return true;
+  }
+  return Date.now() - droppedAt < config.OBS_RECONNECT_GRACE_MS;
 }
 
 export async function reconcileStream(stream: IStream) {
   if (!stream.isLive) return false;
+  if (skipLivenessCheck()) return true;
 
   const age = Date.now() - new Date(stream.startedAt).getTime();
   if (age < STREAM_GRACE_MS) return true;
@@ -156,6 +200,7 @@ export async function reconcileStream(stream: IStream) {
   );
 
   if (!live) {
+    if (await holdForReconnect(stream)) return true;
     await markStreamEnded(stream);
     return false;
   }
@@ -173,6 +218,7 @@ interface LeanStreamRow {
 
 export async function reconcileLeanStreams(streams: LeanStreamRow[]) {
   const staleIds = new Set<string>();
+  if (skipLivenessCheck()) return staleIds;
 
   await Promise.all(
     streams.map(async (stream) => {
@@ -201,7 +247,16 @@ export async function reconcileLeanStreams(streams: LeanStreamRow[]) {
       _id: { $in: [...staleIds] },
       isLive: true,
     });
-    await Promise.all(staleStreams.map(markStreamEnded));
+    await Promise.all(
+      staleStreams.map(async (stream) => {
+        // An encoder inside its reconnect window is not stale.
+        if (await holdForReconnect(stream)) {
+          staleIds.delete(String(stream._id));
+          return;
+        }
+        await markStreamEnded(stream);
+      }),
+    );
   }
 
   return staleIds;

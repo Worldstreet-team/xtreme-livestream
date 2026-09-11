@@ -2,7 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { ApiError } from "../errors.js";
 import { roomService, sendRoomData, webhookReceiver } from "../livekit.js";
 import { Stream, type IStream } from "../models.js";
-import { accrueViewerSeconds, markStreamEnded } from "../stream-service.js";
+import { accrueViewerSeconds, holdForReconnect, markStreamEnded } from "../stream-service.js";
+import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
 
 /**
  * Refresh a live stream's current/peak viewer counts and bank the viewer-time
@@ -88,7 +89,13 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           livekitRoomName: roomName,
           isLive: true,
         });
-        if (stream) await markStreamEnded(stream);
+        // An OBS room can empty out while the encoder is reconnecting (the
+        // studio tab closed, viewers gave up); the ingress recreates the
+        // room when the push resumes. Inside the grace window that is a
+        // pause, not an end.
+        if (stream && !(await holdForReconnect(stream))) {
+          await markStreamEnded(stream);
+        }
       } else if (event.event === "participant_joined") {
         const identity = event.participant?.identity;
         const stream = await Stream.findOne({
@@ -96,12 +103,24 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           isLive: true,
         });
         const bid = stream?.streamerId.toString();
+        // The encoder is back: clear the drop and tell the room.
+        if (stream && identity === `obs-${bid}` && stream.feedDroppedAt) {
+          stream.feedDroppedAt = null;
+          await stream.save();
+          void sendRoomData(stream.livekitRoomName, { __evt: "feed", state: "live" });
+        }
         if (
           stream &&
           identity &&
           identity !== bid &&
           identity !== `obs-${bid}`
         ) {
+          // The identity is the viewer's user id. Recording it is what turns
+          // "how many are watching" into "who watches what", which every
+          // personalised row depends on. Never let it fail the webhook.
+          void openWatchSession(stream, identity).catch((error) =>
+            console.error("watch session open failed:", error),
+          );
           await updateViewerCounts(
             stream,
             event.room?.numParticipants,
@@ -127,8 +146,17 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
                 ? identity === `obs-${bid}`
                 : identity === bid;
             if (feedLeft) {
-              await markStreamEnded(stream);
+              // A dropped encoder is a reconnect in progress, not an end:
+              // the key is persistent, so OBS/vMix comes straight back into
+              // this room. The stream stays live for the grace window and
+              // viewers are told what's happening.
+              if (!(await holdForReconnect(stream))) {
+                await markStreamEnded(stream);
+              }
             } else {
+              void closeWatchSession(stream, identity).catch((error) =>
+                console.error("watch session close failed:", error),
+              );
               // A stage guest who disconnects (tab closed, network died)
               // can't call the leave endpoint — free their slot here so the
               // stage doesn't fill with ghosts, and tell the room.

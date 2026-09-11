@@ -9,6 +9,7 @@ import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
 import { sendRoomData } from "../livekit.js";
+import { applyBattleGift } from "../battles.js";
 import { reconcileStream } from "../stream-service.js";
 import { assertNotBanned } from "./moderation.js";
 import {
@@ -21,7 +22,7 @@ import {
 // Candidate for @xtreme/contracts once the web client adopts gifting too.
 const sendGiftBodySchema = z.object({
   /** Gift value in USD cents (integer). $0.50 minimum, $500 cap per gift. */
-  amountUsdMinor: z.number().int().min(50).max(50_000),
+  amountUsdMinor: z.number().int().min(50).max(100_000),
   giftName: z.string().trim().max(50).optional(),
   emoji: z.string().trim().max(20).optional(),
   /** Which surface the gift was sent from — badged in chat like messages. */
@@ -143,6 +144,12 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         await User.updateOne(
           { _id: streamer._id },
           { $inc: { earningsUsdMinor: netUsdMinor } },
+        );
+
+        // In a battle, the gift is also a vote: stamp it, move the score,
+        // tell both rooms. Never lets a scoring failure fail the gift.
+        await applyBattleGift(stream, gift, { _id: sender.dbUser._id, createdAt: sender.dbUser.createdAt }).catch((err) =>
+          request.log.error({ err }, "battle scoring failed"),
         );
 
         // Announce it in persisted chat so late joiners see the tip too.

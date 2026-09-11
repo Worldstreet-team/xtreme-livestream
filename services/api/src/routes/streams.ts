@@ -9,11 +9,14 @@ import {
 import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createRtmpIngress,
+import { ensureUserIngress,
   createToken } from "../livekit.js";
-import { Stream } from "../models.js";
+import { Stream, User, type IStream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
-import { notifyFollowersOfLive } from "../notifications.js";
+import {
+  notifyFollowersOfLive,
+  notifyRemindersOfLive,
+} from "../notifications.js";
 import {
   markStreamEnded,
   reconcileLeanStreams,
@@ -38,20 +41,73 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { live, category, search, sort, limit, page } = request.query;
+      const {
+        live,
+        status,
+        category,
+        search,
+        streamer,
+        tag,
+        sort,
+        limit,
+        page,
+      } = request.query;
       const skip = (page - 1) * limit;
       const filter: Record<string, unknown> = {};
 
       if (live !== undefined) filter.isLive = live === "true";
+      if (status) {
+        filter.status = status;
+        if (status === "upcoming") {
+          // A scheduled stream whose time passed without going live is a
+          // stale promise, not an upcoming broadcast.
+          filter.scheduledStartAt = { $gte: new Date(Date.now() - 60 * 60_000) };
+        }
+      }
       if (category && category !== "All") filter.category = category;
       if (search) {
         filter.title = { $regex: escapeRegex(search), $options: "i" };
       }
+      if (tag) {
+        filter.tags = tag;
+        // A tag is a discovery axis and therefore a targeting axis. A
+        // streamer who keeps a tag for their own community but opted out of
+        // being found by it stays out of tag-filtered results.
+        const optedOut = await User.find({ "settings.discoverableByTag": false })
+          .select("_id")
+          .lean();
+        if (optedOut.length > 0) {
+          filter.streamerId = { $nin: optedOut.map((u) => u._id) };
+        }
+      }
+      if (streamer) {
+        const host = await User.findOne({ username: streamer })
+          .select("_id")
+          .lean();
+        // An unknown username is an empty channel, not every stream on the
+        // platform — without this the filter would silently be dropped.
+        if (!host) {
+          return {
+            success: true,
+            data: {
+              streams: [],
+              pagination: { page, limit, total: 0, pages: 0 },
+            },
+          };
+        }
+        filter.streamerId = host._id;
+      }
 
       let sortObject: Record<string, 1 | -1> = { viewers: -1 };
+      if (sort === "viewers_asc") sortObject = { viewers: 1, startedAt: -1 };
       if (sort === "recent") sortObject = { startedAt: -1 };
-      if (sort === "trending") {
-        sortObject = { viewers: -1, startedAt: -1 };
+      // Growth, not level: velocity is written by the sweep from the count
+      // ten minutes ago, so a small stream climbing fast outranks a large
+      // one sitting flat — the thing the old viewers-then-startedAt sort
+      // (a popularity sort with a tiebreak that never fired) could not do.
+      if (sort === "trending") sortObject = { velocity: -1, viewers: -1 };
+      if (status === "upcoming" && sort === "viewers") {
+        sortObject = { scheduledStartAt: 1 };
       }
 
       const [streams, total] = await Promise.all([
@@ -115,17 +171,43 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       // are actually streaming, not a hardcoded list. Category is a free
       // string (the socials taxonomy has ~100 of them), so enumerating the
       // live set is the only honest way to build the row.
-      const rows = await Stream.aggregate<{ _id: string; count: number }>([
+      // Ranked by audience, not by how many streams: ten three-viewer
+      // streams should not outrank one with thirty thousand. The busiest
+      // stream in each category supplies the card art.
+      const rows = await Stream.aggregate<{
+        _id: string;
+        live: number;
+        viewers: number;
+        coverId: unknown;
+        coverVersion: number;
+      }>([
         { $match: { isLive: true } },
-        { $group: { _id: "$category", count: { $sum: 1 } } },
-        { $sort: { count: -1, _id: 1 } },
+        { $sort: { viewers: -1 } },
+        {
+          $group: {
+            _id: "$category",
+            live: { $sum: 1 },
+            viewers: { $sum: "$viewers" },
+            coverId: { $first: "$_id" },
+            coverVersion: { $first: "$thumbnailVersion" },
+          },
+        },
+        { $sort: { viewers: -1, _id: 1 } },
         { $limit: 30 },
       ]);
 
       return {
         success: true,
         data: {
-          categories: rows.map((r) => ({ category: r._id, live: r.count })),
+          categories: rows.map((r) => ({
+            category: r._id,
+            live: r.live,
+            viewers: r.viewers,
+            cover: thumbnailUrlFor({
+              _id: r.coverId,
+              thumbnailVersion: r.coverVersion,
+            }),
+          })),
         },
       };
     },
@@ -163,15 +245,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         streamKey: string;
       } | null = null;
       if (request.body.source === "obs") {
-        // The encoder joins under its own identity. If it shared the
-        // browser's, opening the studio dashboard (same user id) would make
-        // LiveKit kick the ingress — killing the feed the moment the
-        // streamer looked at their own stream.
-        ingress = await createRtmpIngress(
-          roomName,
-          `obs-${dbUser._id.toString()}`,
-          dbUser.displayName,
-        );
+        // The account's persistent ingress, re-pointed at this room. The
+        // encoder joins under its own identity: if it shared the browser's,
+        // opening the studio dashboard (same user id) would make LiveKit
+        // kick the ingress — killing the feed the moment the streamer looked
+        // at their own stream.
+        ingress = await ensureUserIngress(dbUser, roomName);
       }
 
       const livekitToken = await createToken(
@@ -186,16 +265,49 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         },
       );
 
-      const stream = await Stream.create({
-        streamerId: dbUser._id,
-        ...request.body,
+      const { scheduledStreamId, ...body } = request.body;
+      const fields = {
+        ...body,
         // Stamps the version the thumbnail URL is cache-busted on.
-        thumbnailVersion: request.body.thumbnail ? Date.now() : 0,
+        thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,
+        status: "live" as const,
         isLive: true,
         startedAt: new Date(),
+        endedAt: null,
         ...(ingress ? { ingressId: ingress.ingressId } : {}),
-      });
+      };
+
+      // Starting a scheduled stream keeps its document: the upcoming card,
+      // its URL and the reminders people set on it all become this live
+      // broadcast instead of pointing at an orphan.
+      let stream: IStream;
+      let fromSchedule = false;
+      if (scheduledStreamId) {
+        const scheduled = await Stream.findOne({
+          _id: scheduledStreamId,
+          streamerId: dbUser._id,
+          status: "upcoming",
+        });
+        if (!scheduled) {
+          throw new ApiError(
+            404,
+            "Scheduled stream not found",
+            "STREAM_NOT_FOUND",
+          );
+        }
+        // No new thumbnail on go-live means keep the one it was scheduled with.
+        if (!body.thumbnail && scheduled.thumbnail) {
+          fields.thumbnail = scheduled.thumbnail;
+          fields.thumbnailVersion = scheduled.thumbnailVersion;
+        }
+        Object.assign(scheduled, fields);
+        await scheduled.save();
+        stream = scheduled;
+        fromSchedule = true;
+      } else {
+        stream = await Stream.create({ streamerId: dbUser._id, ...fields });
+      }
 
       dbUser.isLive = true;
       await dbUser.save();
@@ -207,6 +319,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (stream.notifyFollowers !== false) {
         void notifyFollowersOfLive(stream, dbUser);
       }
+      if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
 
       return {
         success: true,
@@ -267,7 +380,69 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             viewers: stream.viewers,
             peakViewers: stream.peakViewers,
             livekitRoomName: stream.livekitRoomName,
+            source: stream.source ?? "camera",
+            feedDroppedAt: stream.feedDroppedAt ?? null,
           },
+        },
+      };
+    },
+  );
+
+  /**
+   * Reopen the studio on an OBS stream that is still live. The encoder is
+   * the publisher, so a closed or crashed studio tab never ended anything;
+   * the host just needs a fresh token into the same room to see chat,
+   * guests and tips again. Browser-fed streams can't be resumed — their
+   * tracks died with the tab.
+   */
+  app.post(
+    "/streams/:id/resume",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "A fresh host token for the caller's live OBS stream",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findOne({
+        _id: request.params.id,
+        streamerId: dbUser._id,
+        isLive: true,
+      });
+      if (!stream || !(await reconcileStream(stream))) {
+        throw new ApiError(404, "That stream is no longer live", "STREAM_NOT_FOUND");
+      }
+      if (stream.source !== "obs") {
+        throw new ApiError(
+          409,
+          "Only encoder-fed streams can be reopened — the browser was this stream's camera",
+          "NOT_RESUMABLE",
+        );
+      }
+      const livekitToken = await createToken(
+        stream.livekitRoomName,
+        dbUser._id.toString(),
+        dbUser.displayName,
+        { canPublish: true, canSubscribe: true, canPublishData: true, roomCreate: true },
+      );
+      return {
+        success: true,
+        data: {
+          stream: {
+            id: stream._id,
+            title: stream.title,
+            category: stream.category,
+            startedAt: stream.startedAt,
+            feedDroppedAt: stream.feedDroppedAt ?? null,
+          },
+          livekitToken,
+          livekitUrl: config.LIVEKIT_URL,
+          ...(dbUser.obsIngress
+            ? { ingress: { url: dbUser.obsIngress.url, streamKey: dbUser.obsIngress.streamKey } }
+            : {}),
         },
       };
     },

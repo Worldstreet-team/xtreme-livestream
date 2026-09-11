@@ -6,6 +6,7 @@ import {
   WebhookReceiver,
 } from "livekit-server-sdk";
 import { config } from "./config.js";
+import type { IUser } from "./models.js";
 
 const livekitHost = config.LIVEKIT_URL.replace(/^wss:/, "https:").replace(
   /^ws:/,
@@ -25,35 +26,92 @@ export const ingressClient = new IngressClient(
 );
 
 /**
- * RTMP ingress for external encoders (OBS, Streamlabs, ffmpeg): LiveKit
- * hands back a server URL + stream key the broadcaster pastes into their
- * encoder; the ingress then joins the room as a publishing participant, so
- * viewer counting and the rest of the pipeline see it like any publisher.
+ * RTMP ingress for external encoders (OBS, vMix, Streamlabs, ffmpeg):
+ * LiveKit hands back a server URL + stream key the broadcaster pastes into
+ * their encoder; the ingress then joins the room as a publishing
+ * participant, so viewer counting and the rest of the pipeline see it like
+ * any publisher.
+ *
+ * One ingress per ACCOUNT, not per stream. It is minted the first time the
+ * streamer needs it and then re-pointed at each new room with
+ * updateIngress, so the key set in OBS once keeps working for every
+ * broadcast — and an encoder that drops mid-stream reconnects on the same
+ * key into the same room. Between broadcasts it points at a standby room
+ * nobody watches, so a stray push goes nowhere.
  */
-export async function createRtmpIngress(
-  roomName: string,
-  identity: string,
+
+export interface UserIngress {
+  ingressId: string;
+  url: string;
+  streamKey: string;
+  createdAt: Date;
+}
+
+const standbyRoom = (userId: string) => `standby-${userId}`;
+const encoderIdentity = (userId: string) => `obs-${userId}`;
+
+async function mintIngress(
+  userId: string,
   displayName: string,
-) {
+  roomName: string,
+): Promise<UserIngress> {
   const ingress = await ingressClient.createIngress(IngressInput.RTMP_INPUT, {
-    name: `obs-${roomName}`,
+    name: encoderIdentity(userId),
     roomName,
-    participantIdentity: identity,
+    participantIdentity: encoderIdentity(userId),
     participantName: displayName,
   });
   return {
     ingressId: ingress.ingressId,
     url: ingress.url ?? "",
     streamKey: ingress.streamKey ?? "",
+    createdAt: new Date(),
   };
 }
 
-/** Best-effort ingress teardown when a stream ends. */
+/**
+ * The account's ingress, pointed at `roomName` (or its standby room). Mints
+ * one if the account has none yet, or if LiveKit no longer knows the one on
+ * record; persists whatever it ends up with on the user.
+ */
+export async function ensureUserIngress(
+  user: IUser,
+  roomName?: string,
+): Promise<UserIngress> {
+  const userId = user._id.toString();
+  const target = roomName ?? standbyRoom(userId);
+  if (user.obsIngress?.ingressId) {
+    try {
+      await ingressClient.updateIngress(user.obsIngress.ingressId, {
+        name: encoderIdentity(userId),
+        roomName: target,
+        participantIdentity: encoderIdentity(userId),
+        participantName: user.displayName,
+      });
+      return user.obsIngress;
+    } catch {
+      // Gone on LiveKit's side (server reset, manual delete): mint again.
+    }
+  }
+  const fresh = await mintIngress(userId, user.displayName, target);
+  user.obsIngress = fresh;
+  await user.save();
+  return fresh;
+}
+
+/** A new key for the account — the old one stops working immediately. */
+export async function rotateUserIngress(user: IUser): Promise<UserIngress> {
+  if (user.obsIngress?.ingressId) await deleteIngress(user.obsIngress.ingressId);
+  user.obsIngress = undefined;
+  return ensureUserIngress(user);
+}
+
+/** Best-effort ingress teardown — only for rotation now; streams never delete theirs. */
 export async function deleteIngress(ingressId: string) {
   try {
     await ingressClient.deleteIngress(ingressId);
   } catch {
-    // Already gone, or LiveKit unreachable — either way the stream is over.
+    // Already gone, or LiveKit unreachable — nothing left to do.
   }
 }
 

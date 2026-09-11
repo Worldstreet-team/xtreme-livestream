@@ -111,6 +111,36 @@ export function getWalletUsdBalance(
   );
 }
 
+export function isTreasuryConfigured(): boolean {
+  return isWalletConfigured() && Boolean(config.WALLET_TREASURY_USER_ID);
+}
+
+/**
+ * Pay a user from the platform: a charge on the treasury account whose
+ * recipient split is the whole amount, so nothing books as commission.
+ * Idempotent per key, like every charge.
+ */
+export function creditWallet(params: {
+  recipientClerkUserId: string;
+  amountUsdMinor: number;
+  description: string;
+  idempotencyKey: string;
+  metadata?: Record<string, unknown>;
+}): Promise<WalletResult<{ charge: WalletCharge }>> {
+  if (!isTreasuryConfigured()) {
+    return Promise.resolve({ ok: false, code: "NOT_CONFIGURED", message: "Treasury payouts are not configured" });
+  }
+  return chargeWalletWithSplit({
+    spenderClerkUserId: config.WALLET_TREASURY_USER_ID,
+    recipientClerkUserId: params.recipientClerkUserId,
+    amountUsdMinor: params.amountUsdMinor,
+    recipientAmountUsdMinor: params.amountUsdMinor,
+    description: params.description,
+    idempotencyKey: params.idempotencyKey,
+    ...(params.metadata ? { metadata: params.metadata } : {}),
+  });
+}
+
 /** Compensation path: refund a charge when our own bookkeeping fails after it. */
 export function refundWalletCharge(params: {
   clerkUserId: string;

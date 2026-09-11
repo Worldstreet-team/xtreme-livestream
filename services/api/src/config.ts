@@ -29,6 +29,19 @@ const envSchema = z.object({
   // the rest of the API works without them.
   WALLET_API_URL: z.string().default(""),
   WALLET_SERVICE_TOKEN: z.string().default(""),
+  /**
+   * Clerk user id of the platform treasury account. Payouts (points
+   * redemption, battle bonuses) are wallet charges from this account with a
+   * full recipient split — the one primitive the wallet service exposes.
+   * Unset: payouts are recorded as pending and retried once it is.
+   */
+  WALLET_TREASURY_USER_ID: z.string().default(""),
+  /**
+   * How long an OBS/RTMP stream stays live after its encoder drops, waiting
+   * for it to reconnect on the same key, before it is ended. Five minutes
+   * covers a router reboot or a mobile-data hiccup.
+   */
+  OBS_RECONNECT_GRACE_MS: z.coerce.number().int().min(30_000).default(300_000),
   // WorldStreet Social gateway. Leave unset to disable the live-post relay —
   // streams still work, they just don't publish into the socials feed.
   SOCIALS_GATEWAY_URL: z.string().default(""),
@@ -37,6 +50,11 @@ const envSchema = z.object({
   GIFT_COMMISSION_PERCENT: z.coerce.number().min(0).max(100).default(20),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(200),
   RATE_LIMIT_WINDOW: z.string().default("1 minute"),
+  // Local dev only: treat every stream flagged live in the database as live,
+  // instead of asking LiveKit whether a broadcaster is actually connected.
+  // Seeded streams have no real room, so without this the reconciler ends
+  // them on the first list request. Ignored when NODE_ENV=production.
+  DEV_ASSUME_STREAMS_LIVE: booleanString,
 });
 
 const parsed = envSchema.safeParse(process.env);
