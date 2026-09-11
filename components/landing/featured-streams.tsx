@@ -111,7 +111,7 @@ export function FeaturedStreams() {
             {Array.from({ length: 3 }).map((_, i) => (
               <div
                 key={i}
-                className="overflow-hidden rounded-xl border border-white/5 bg-white/[0.02]"
+                className="overflow-hidden rounded-sm border border-white/5 bg-white/[0.02]"
               >
                 <div className="aspect-video animate-pulse bg-white/5" />
                 <div className="flex gap-3 p-3">
@@ -128,7 +128,7 @@ export function FeaturedStreams() {
 
         {/* Nobody live yet */}
         {streams !== null && streams.length === 0 && (
-          <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-16 text-center">
+          <div className="mt-8 flex flex-col items-center justify-center rounded-sm border border-dashed border-white/10 bg-white/[0.02] py-16 text-center">
             <VideoCamera size={40} className="text-muted-foreground/30" />
             <p className="mt-4 text-base font-medium text-foreground">
               Nobody&apos;s live right now
@@ -139,7 +139,7 @@ export function FeaturedStreams() {
             </p>
             <Link
               href="/studio"
-              className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+              className="mt-5 inline-flex h-10 items-center gap-2 rounded-sm bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
             >
               <Lightning size={16} weight="fill" />
               Start Streaming
@@ -152,7 +152,7 @@ export function FeaturedStreams() {
           {(streams ?? []).map((stream) => (
             <Link key={stream.id} href={`/stream/${stream.id}`}>
             <article
-              className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]"
+              className="group cursor-pointer overflow-hidden rounded-sm border border-white/5 bg-white/[0.02] transition-all hover:border-white/10 hover:bg-white/[0.04]"
             >
               {/* Thumbnail */}
               <div className="relative aspect-video overflow-hidden">
@@ -173,7 +173,7 @@ export function FeaturedStreams() {
 
                 {/* Live badge */}
                 {stream.isLive && (
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-md bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-sm bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
                     <span className="relative flex size-1.5">
                       <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
                       <span className="relative inline-flex size-1.5 rounded-full bg-white" />
@@ -183,7 +183,7 @@ export function FeaturedStreams() {
                 )}
 
                 {/* Viewers */}
-                <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-xs font-medium text-white/90 backdrop-blur-sm">
+                <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-sm bg-black/60 px-2 py-0.5 text-xs font-medium text-white/90 backdrop-blur-sm">
                   <Eye size={14} />
                   {formatNumber(stream.viewers)}
                 </div>

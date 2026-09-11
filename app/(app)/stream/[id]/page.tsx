@@ -21,8 +21,25 @@ import {
   PictureInPicture,
   Sidebar,
   CellSignalLow,
+  ChatCircleDots,
+  VideoCamera,
 } from "@phosphor-icons/react";
+import { Empty } from "@/components/app/empty";
+import { Pill } from "@/components/ui/pill";
+import { Badge } from "@/components/ui/badge";
+import { BattleBar } from "@/components/app/battle-bar";
+import { LivePreview } from "@/components/app/live-preview";
+import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
+import { PlayPanel } from "@/components/app/play-panel";
+import { SupportersStrip, ScheduleList } from "@/components/app/supporters-strip";
+import { CalendarBlank } from "@phosphor-icons/react";
+import type { GameView } from "@/lib/games";
+import Link from "next/link";
 import { LiveChat, type PinnedMessage } from "@/components/app/live-chat";
+import { Shelf } from "@/components/app/shelf";
+import { StreamCard } from "@/components/app/stream-card";
+import { apiFetch as discoveryFetch } from "@/lib/api-client";
+import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { cn } from "@/lib/utils";
@@ -101,6 +118,8 @@ export default function StreamPage({
   // OBS stream is flagged live the moment the key is issued, long before the
   // encoder pushes. Track them apart so the player can say which it is.
   const [hasVideo, setHasVideo] = useState(false);
+  /** The broadcaster's encoder dropped and the stream is waiting for it. */
+  const [feedReconnecting, setFeedReconnecting] = useState(false);
   const videoTrackRef = useRef<{ attach: (el: HTMLVideoElement) => void } | null>(
     null,
   );
@@ -176,6 +195,14 @@ export default function StreamPage({
   // ---- Player extras ----
   /** Theater mode hides the chat column so the video takes the width. */
   const [theaterMode, setTheaterMode] = useState(false);
+  /**
+   * Where chat lives: beside the player (the default) or beneath it, for
+   * wide screens and quiet rooms where a tall side column is mostly empty.
+   */
+  const [chatPlacement, setChatPlacement] = useState<"side" | "below">("side");
+  /** About · Also live · Schedule beneath the player. */
+  const [alsoLive, setAlsoLive] = useState<RowItem[]>([]);
+  const [hostUpcoming, setHostUpcoming] = useState<RowItem[]>([]);
   /** My downlink quality, from LiveKit — only surfaced when it's bad. */
   const [connQuality, setConnQuality] = useState<string | null>(null);
 
@@ -197,6 +224,16 @@ export default function StreamPage({
   const [likeCount, setLikeCount] = useState(0);
   const [likeBusy, setLikeBusy] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // In fullscreen the chat is a proper rail beside the video — inside the
+  // fullscreened element, since nothing outside it is visible — not a
+  // floating overlay. On by default; the viewer can fold it away.
+  const [fsChat, setFsChat] = useState(true);
+  // The battle this stream is in (or just finished). Server-fed: room
+  // events carry every change, a slow poll covers a dropped frame.
+  const [battle, setBattle] = useState<BattleView | null>(null);
+  // The prediction running in this stream, if any — same feed: room events
+  // plus a slow poll.
+  const [game, setGame] = useState<GameView | null>(null);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -475,7 +512,37 @@ export default function StreamPage({
             tipCurrency?: string;
             emoji?: string;
             id?: string;
+            battle?: BattleView;
+            game?: GameView;
+            points?: number;
+            state?: string;
           };
+          // The encoder dropped or came back: the overlay says which.
+          if (data.__evt === "feed") {
+            setFeedReconnecting(data.state === "reconnecting");
+            return;
+          }
+          // A drop: the on-player moment; chat gets its own row from the API.
+          if (data.__evt === "drop" && data.username) {
+            giftOverlayRef.current?.push({
+              id: String(data.id ?? `drop-${Date.now()}`),
+              username: data.username,
+              emoji: "🎁",
+              amountLabel: `+${data.points ?? 50} pts`,
+              amountUsdMinor: 0,
+            });
+            if (data.userId === userIdRef.current) window.dispatchEvent(new CustomEvent("xtreme:points"));
+            return;
+          }
+          if (data.__evt === "game" && data.game) {
+            // Keep my own entry: the broadcast view doesn't carry it.
+            setGame((prev) => ({ ...data.game!, mine: prev && prev.id === data.game!.id ? prev.mine : undefined }));
+            return;
+          }
+          if (data.__evt === "battle" && data.battle) {
+            setBattle(data.battle);
+            return;
+          }
           if (data.__evt === "like") {
             if (typeof data.likes === "number") {
               setLikeCount(data.likes);
@@ -601,6 +668,34 @@ export default function StreamPage({
     };
   }, [stream?.isLive]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${id}/battle`)
+        .then((r) => !cancelled && setBattle(r.data.battle))
+        .catch(() => {});
+    void load();
+    const t = setInterval(load, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      apiFetch<{ success: boolean; data: { game: GameView | null } }>(`/api/streams/${id}/games/current`)
+        .then((r) => !cancelled && setGame(r.data.game))
+        .catch(() => {});
+    void load();
+    const t = setInterval(load, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [id]);
+
   // Track fullscreen exits (e.g. pressing Escape)
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -644,10 +739,15 @@ export default function StreamPage({
   const toggleFullscreen = useCallback(() => {
     if (!videoContainerRef.current) return;
     if (!document.fullscreenElement) {
-      videoContainerRef.current.requestFullscreen();
-      setIsFullscreen(true);
+      // The request can be refused (a background window, an iframe without
+      // the permission). Only the promise decides the state — flipping it
+      // eagerly left the page stuck in its fullscreen layout after a refusal.
+      videoContainerRef.current
+        .requestFullscreen()
+        .then(() => setIsFullscreen(true))
+        .catch(() => setIsFullscreen(false));
     } else {
-      document.exitFullscreen();
+      void document.exitFullscreen().catch(() => {});
       setIsFullscreen(false);
     }
   }, []);
@@ -666,6 +766,47 @@ export default function StreamPage({
       // no-op rather than an error.
     }
   }, []);
+
+  // What this audience also watches, and what the host has scheduled. Both
+  // are "where do I go next" answers, which is the question a watch page
+  // has to hold when the stream ends.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await discoveryFetch<{ success: boolean; data: { streams: RowItem[] } }>(
+          `/api/streams/${id}/also-watched`
+        );
+        if (!cancelled) setAlsoLive(res.data.streams);
+      } catch {
+        if (!cancelled) setAlsoLive([]);
+      }
+    }
+    void load();
+    const timer = setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    const username = stream?.streamerId?.username;
+    if (!username) return;
+    let cancelled = false;
+    discoveryFetch<{ success: boolean; data: { streams: RowItem[] } }>(
+      `/api/streams?streamer=${encodeURIComponent(username)}&status=upcoming&limit=6`
+    )
+      .then((res) => {
+        if (!cancelled) setHostUpcoming(res.data.streams);
+      })
+      .catch(() => {
+        if (!cancelled) setHostUpcoming([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stream?.streamerId?.username]);
 
   const toggleTheater = useCallback(() => {
     setTheaterMode((t) => !t);
@@ -687,6 +828,7 @@ export default function StreamPage({
       if (e.key === "m" || e.key === "M") toggleMute();
       if (e.key === "f" || e.key === "F") toggleFullscreen();
       if (e.key === "t" || e.key === "T") toggleTheater();
+      if ((e.key === "c" || e.key === "C") && document.fullscreenElement) setFsChat((v) => !v);
       if (e.key === "p" || e.key === "P") void togglePiP();
     };
     window.addEventListener("keydown", onKey);
@@ -1052,30 +1194,28 @@ export default function StreamPage({
 
   if (error || !stream) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg font-semibold text-foreground">
-            Stream not found
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {error || "This stream may have ended or doesn't exist."}
-          </p>
-        </div>
-      </div>
+      <Empty
+        className="min-h-screen"
+        icon={<VideoCamera size={36} />}
+        title="Stream not found"
+        body={error || "This stream may have ended or doesn't exist."}
+        action={{ label: "Browse live channels", href: "/explore" }}
+      />
     );
   }
 
   const streamer = stream.streamerId;
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-0 md:pt-0">
-      <div className="flex flex-col lg:h-screen lg:flex-row">
+    <div className="min-h-screen p-4 md:p-0">
+      <div className="flex flex-col lg:h-[calc(100vh-3.5rem)] lg:flex-row">
         {/* Main content */}
         <div className="flex-1 overflow-y-auto">
           {/* Video player */}
           <div
             className={cn(
               "relative w-full bg-black",
+              isFullscreen && "flex",
               theaterMode
                 ? "aspect-video lg:aspect-auto lg:h-[85vh]"
                 : "aspect-video",
@@ -1085,14 +1225,24 @@ export default function StreamPage({
             onMouseMove={showControls}
             onTouchStart={showControls}
           >
+            <div className="relative min-w-0 flex-1">
             {/* Stage grid — the player splits as people join the live:
                 1 = full frame, 2 = side by side, 3 = host tall + two
                 stacked, 4 = 2×2. The host cell keeps its element across
                 layout changes so the track never re-attaches. */}
             {(() => {
+              // In a battle the opponent's room takes the second tile — a
+              // muted preview of their broadcast, side by side with this one.
+              const opponentStreamId =
+                battle && isBattleActive(battle)
+                  ? sideOf(battle, id) === "host"
+                    ? battle.challenger.streamId
+                    : battle.host.streamId
+                  : null;
               const stageCount =
                 1 +
                 guestVideos.length +
+                (opponentStreamId ? 1 : 0) +
                 (stageState === "live" && localStageTrack ? 1 : 0);
               return (
                 <div
@@ -1118,7 +1268,7 @@ export default function StreamPage({
                       )}
                     />
                     {stageCount > 1 && (
-                      <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-md bg-black/60 px-2 py-1 backdrop-blur-sm">
+                      <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-black/60 px-2 py-1">
                         <span className="truncate text-xs font-medium text-white">
                           {stream.streamerId.displayName ||
                             stream.streamerId.username}
@@ -1126,6 +1276,21 @@ export default function StreamPage({
                       </div>
                     )}
                   </div>
+                  {opponentStreamId && battle && (
+                    <div className="relative overflow-hidden bg-black">
+                      <LivePreview
+                        streamId={opponentStreamId}
+                        className="absolute inset-0"
+                        poster={<div className="absolute inset-0 bg-black" />}
+                        fallbackSrc={null}
+                      />
+                      <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-black/60 px-2 py-1">
+                        <span className="truncate text-xs font-medium text-white">
+                          {(sideOf(battle, id) === "host" ? battle.challenger : battle.host).displayName} · muted
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {guestVideos.map((g) => (
                     <StageTile
                       key={g.identity}
@@ -1150,11 +1315,16 @@ export default function StreamPage({
             {/* Gift spectacle layer */}
             <GiftOverlay onReady={handleGiftOverlayReady} />
 
+            {/* The battle scoreboard, while a battle is on or just ended. */}
+            {battle && (isBattleActive(battle) || battle.status === "ended") && (
+              <BattleBar battle={battle} streamId={id} />
+            )}
+
             {/* Muted-start affordance — the one control that must never hide */}
             {muted && stream.isLive && hasVideo && !playbackError && (
               <button
                 onClick={toggleMute}
-                className="absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-black/90"
+                className="absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-black/90"
               >
                 <SpeakerSlash size={16} weight="fill" />
                 Tap to unmute
@@ -1183,10 +1353,12 @@ export default function StreamPage({
                 <div className="px-6 text-center">
                   <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
                   <p className="text-base font-semibold text-white/70">
-                    Waiting for the broadcaster
+                    {feedReconnecting ? "Reconnecting…" : "Waiting for the broadcaster"}
                   </p>
                   <p className="mt-1 text-sm text-white/40">
-                    The video appears here the moment they start sending.
+                    {feedReconnecting
+                      ? "Their connection dropped for a moment. Stay put — the picture comes back on its own."
+                      : "The video appears here the moment they start sending."}
                   </p>
                 </div>
               </div>
@@ -1201,7 +1373,7 @@ export default function StreamPage({
                   </p>
                   <button
                     onClick={() => router.push("/explore")}
-                    className="mt-4 h-9 rounded-lg border border-white/15 px-4 text-sm font-medium text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                    className="mt-4 h-9 rounded-sm border border-white/15 px-4 text-sm font-medium text-white/70 transition-colors hover:border-white/30 hover:text-white"
                   >
                     Browse live streams
                   </button>
@@ -1217,7 +1389,7 @@ export default function StreamPage({
               )}
             >
               {stream.isLive && (
-                <div className="flex items-center gap-1.5 rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white">
+                <div className="flex items-center gap-1.5 rounded-sm bg-red-600 px-2 py-1 text-xs font-semibold text-white">
                   <span className="relative flex size-1.5">
                     <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
                     <span className="relative inline-flex size-1.5 rounded-full bg-white" />
@@ -1225,7 +1397,7 @@ export default function StreamPage({
                   LIVE
                 </div>
               )}
-              <div className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white/80 backdrop-blur-sm">
+              <div className="flex items-center gap-1 rounded-sm bg-black/60 px-2 py-1 text-xs text-white/80">
                 <Eye size={14} />
                 {stream.isLive
                   ? // Prefer the room roster once we're actually in the room;
@@ -1237,14 +1409,14 @@ export default function StreamPage({
                     `${formatNumber(stream.peakViewers ?? 0)} peak`}
               </div>
               {stream.isLive && (
-                <div className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs font-mono text-white/80 backdrop-blur-sm">
+                <div className="flex items-center gap-1 rounded-sm bg-black/60 px-2 py-1 text-xs font-mono text-white/80">
                   <Clock size={14} />
                   {elapsed}
                 </div>
               )}
               {stream.isLive &&
                 (connQuality === "poor" || connQuality === "lost") && (
-                  <div className="flex items-center gap-1 rounded-md bg-amber-500/20 px-2 py-1 text-xs text-amber-300 backdrop-blur-sm">
+                  <div className="flex items-center gap-1 rounded-sm bg-amber-500/20 px-2 py-1 text-xs text-amber-300">
                     <CellSignalLow size={14} weight="fill" />
                     Weak connection
                   </div>
@@ -1254,7 +1426,7 @@ export default function StreamPage({
             {/* Volume controls */}
             <div
               className={cn(
-                "absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-md bg-black/60 px-2 py-1.5 backdrop-blur-sm transition-all duration-300",
+                "absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-sm bg-black/60 px-2 py-1.5 transition-all duration-300",
                 !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
               )}
             >
@@ -1286,7 +1458,7 @@ export default function StreamPage({
             >
               <button
                 onClick={() => void togglePiP()}
-                className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white"
+                className="flex size-8 items-center justify-center rounded-sm bg-black/60 text-white/80 transition-colors hover:bg-black/80 hover:text-white"
                 title="Picture in picture (p)"
               >
                 <PictureInPicture size={18} />
@@ -1294,7 +1466,7 @@ export default function StreamPage({
               <button
                 onClick={toggleTheater}
                 className={cn(
-                  "hidden size-8 items-center justify-center rounded-md backdrop-blur-sm transition-colors lg:flex",
+                  "hidden size-8 items-center justify-center rounded-sm transition-colors lg:flex",
                   theaterMode
                     ? "bg-primary/30 text-white"
                     : "bg-black/60 text-white/80 hover:bg-black/80 hover:text-white"
@@ -1305,13 +1477,53 @@ export default function StreamPage({
               </button>
               <button
                 onClick={toggleFullscreen}
-                className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white"
+                className="flex size-8 items-center justify-center rounded-sm bg-black/60 text-white/80 transition-colors hover:bg-black/80 hover:text-white"
                 title={isFullscreen ? "Exit fullscreen (f)" : "Fullscreen (f)"}
               >
                 <CornersOut size={18} />
               </button>
+              {isFullscreen && (
+                <button
+                  onClick={() => setFsChat((v) => !v)}
+                  aria-pressed={fsChat}
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-sm transition-colors",
+                    fsChat
+                      ? "bg-primary/30 text-white"
+                      : "bg-black/60 text-white/80 hover:bg-black/80 hover:text-white"
+                  )}
+                  title={fsChat ? "Hide chat (c)" : "Show chat (c)"}
+                >
+                  <ChatCircleDots size={18} weight={fsChat ? "fill" : "regular"} />
+                </button>
+              )}
             </div>
+            </div>
+
+            {/* Fullscreen chat rail — a full-height column beside the video. */}
+            {isFullscreen && fsChat && (
+              <aside className="h-full w-[380px] shrink-0 bg-background">
+                <LiveChat
+                  streamId={id}
+                  room={roomRef.current}
+                  isLive={stream.isLive}
+                  initialPinned={stream.pinnedMessage ?? null}
+                />
+              </aside>
+            )}
           </div>
+
+          {/* Chat beneath the player, when the viewer has put it there */}
+          {chatPlacement === "below" && !theaterMode && !isFullscreen && (
+            <div className="hidden h-[440px] border-b border-white/[0.06] lg:block">
+              <LiveChat
+                streamId={id}
+                room={roomRef.current}
+                isLive={stream.isLive}
+                initialPinned={stream.pinnedMessage ?? null}
+              />
+            </div>
+          )}
 
           {/* Stream info below player */}
           <div className="p-4 md:p-6">
@@ -1321,95 +1533,101 @@ export default function StreamPage({
                 <h1 className="text-lg font-bold text-foreground sm:text-xl">
                   {stream.title}
                 </h1>
-                <span className="mt-2 inline-flex rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-muted-foreground">
-                  {stream.category}
-                </span>
+                <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="mt-2.5 inline-flex">
+                  <Badge variant="muted" size="md" className="transition-colors hover:bg-white/[0.1] hover:text-foreground">
+                    {stream.category}
+                  </Badge>
+                </Link>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <Pill
+                  size="sm"
+                  variant="glass"
+                  icon={<Sidebar size={14} />}
+                  onClick={() => setChatPlacement((p) => (p === "side" ? "below" : "side"))}
+                  aria-pressed={chatPlacement === "below"}
+                  title={chatPlacement === "below" ? "Move chat beside the player" : "Move chat below the player"}
+                  className="hidden lg:inline-flex"
+                >
+                  {chatPlacement === "below" ? "Chat beside" : "Chat below"}
+                </Pill>
                 {user &&
                   streamer._id !== user.id &&
                   stream.isLive &&
                   connected &&
                   (stageState === "idle" ? (
-                    <button
+                    <Pill
+                      size="sm"
+                      variant="primary"
+                      icon={<UsersThree size={14} weight="fill" />}
                       onClick={requestStage}
                       disabled={stageBusy}
                       title="Ask to join this stream with your camera"
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
                     >
-                      <UsersThree size={14} />
                       Join stream
-                    </button>
+                    </Pill>
                   ) : stageState === "requested" ? (
-                    <button
+                    <Pill
+                      size="sm"
+                      variant="soft"
+                      tone="amber"
+                      icon={<Clock size={14} />}
                       onClick={cancelStageRequest}
                       disabled={stageBusy}
                       title="Waiting for the host — tap to cancel"
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
                     >
-                      <Clock size={14} />
                       Requested…
-                    </button>
+                    </Pill>
                   ) : (
                     <>
-                      <button
+                      <Pill
+                        size="sm"
+                        variant="soft"
+                        tone={stageMicOn ? "green" : "red"}
+                        icon={stageMicOn ? <Microphone size={14} /> : <MicrophoneSlash size={14} />}
                         onClick={toggleStageMic}
                         title={stageMicOn ? "Mute your mic" : "Unmute your mic"}
-                        className={cn(
-                          "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
-                          stageMicOn
-                            ? "border-green-500/30 bg-green-500/10 text-green-400"
-                            : "border-red-500/30 bg-red-500/10 text-red-400"
-                        )}
                       >
-                        {stageMicOn ? (
-                          <Microphone size={14} />
-                        ) : (
-                          <MicrophoneSlash size={14} />
-                        )}
                         Mic
-                      </button>
-                      <button
-                        onClick={leaveStage}
-                        disabled={stageBusy}
-                        className="flex h-8 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                      >
-                        <SignOut size={14} />
+                      </Pill>
+                      <Pill size="sm" variant="soft" tone="red" icon={<SignOut size={14} />} onClick={leaveStage} disabled={stageBusy}>
                         Leave stage
-                      </button>
+                      </Pill>
                     </>
                   ))}
-                <button
+                <Pill
+                  size="sm"
+                  variant={liked ? "soft" : "glass"}
+                  tone="red"
+                  icon={<Heart size={14} weight={liked ? "fill" : "regular"} />}
                   onClick={toggleLike}
                   disabled={!user || likeBusy}
+                  aria-pressed={liked}
                   title={user ? (liked ? "Unlike" : "Like") : "Sign in to like"}
-                  className={cn(
-                    "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
-                    liked
-                      ? "border-red-500/30 bg-red-500/10 text-red-400"
-                      : "border-white/10 bg-white/5 text-muted-foreground hover:text-foreground"
-                  )}
                 >
-                  <Heart size={14} weight={liked ? "fill" : "regular"} />
-                  {likeCount > 0 ? likeCount : "Like"}
-                </button>
-                <button
+                  {likeCount > 0 ? formatNumber(likeCount) : "Like"}
+                </Pill>
+                <Pill
+                  size="sm"
+                  variant="glass"
+                  icon={<ShareNetwork size={14} />}
                   onClick={() => {
                     const url = window.location.href;
-                    const text = `Watch ${stream.title} live on Xtreme!`;
+                    const text = `Watch ${stream.title} live on Xtream!`;
                     if (navigator.share) {
                       navigator.share({ title: stream.title, text, url }).catch(() => {});
                     } else {
                       navigator.clipboard?.writeText(url);
                     }
                   }}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  <ShareNetwork size={14} />
                   Share
-                </button>
+                </Pill>
                 {user && streamer._id !== user.id && (
-                  <button
+                  <Pill
+                    size="sm"
+                    variant="ghost"
+                    icon={<Flag size={14} />}
                     onClick={() => {
                       setReportReason("");
                       setReportDetails("");
@@ -1417,11 +1635,9 @@ export default function StreamPage({
                       setReportError(null);
                       setShowReport(true);
                     }}
-                    className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    <Flag size={14} />
                     Report
-                  </button>
+                  </Pill>
                 )}
               </div>
             </div>
@@ -1431,30 +1647,36 @@ export default function StreamPage({
             )}
 
             {/* Streamer info */}
-            <div className="mt-5 flex items-center justify-between rounded-xl border border-white/5 bg-white/2 p-4">
-              <div className="flex items-center gap-3">
+            <div className="mt-5 flex items-center justify-between rounded-sm border border-white/5 bg-white/2 p-4">
+              {/* Links to the channel: this block is the only place on the
+                  page identifying the host, so it has to be the way to reach
+                  everything else they've streamed. */}
+              <Link
+                href={`/c/${streamer.username}`}
+                className="group flex items-center gap-3"
+              >
                 <UserAvatar
                   src={streamer.avatar}
                   name={streamer.displayName || streamer.username}
                   size={44}
-                  className="size-11"
+                  className="size-11 transition-opacity group-hover:opacity-85"
                 />
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
                     {streamer.displayName}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     {formatNumber(streamer.followers)} followers
                   </p>
                 </div>
-              </div>
+              </Link>
               {user && String(streamer._id) !== String(user.id) && (
                 <div className="flex flex-col items-end gap-1">
                 <button
                   onClick={toggleFollow}
                   disabled={followLoading}
                   className={cn(
-                    "flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold transition-colors disabled:opacity-50",
+                    "flex h-9 items-center gap-1.5 rounded-sm px-4 text-sm font-semibold transition-colors disabled:opacity-50",
                     isFollowing
                       ? "border border-white/10 bg-white/5 text-muted-foreground hover:border-red-500/30 hover:text-red-400"
                       : "bg-primary text-primary-foreground hover:bg-primary/80"
@@ -1481,86 +1703,139 @@ export default function StreamPage({
               )}
             </div>
 
-            {/* Top supporters — whole-stream gift leaderboard */}
-            {topGifters.length > 0 && (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                  <Crown size={13} weight="fill" className="text-yellow-400" />
-                  Top supporters
-                </span>
-                {topGifters.map((g, i) => (
-                  <span
-                    key={g.userId ?? g.username}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
-                      i === 0
-                        ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
-                        : i === 1
-                          ? "border-white/15 bg-white/5 text-foreground/80"
-                          : "border-white/10 bg-white/[0.03] text-muted-foreground"
-                    )}
-                  >
-                    <UserAvatar
-                      src={g.avatar}
-                      name={g.displayName || g.username}
-                      size={16}
-                      className="size-4"
-                    />
-                    <span className="max-w-[8rem] truncate font-medium">
-                      {g.displayName || g.username}
-                    </span>
-                    <span className="font-bold">
-                      ${(g.totalUsdMinor / 100) % 1 === 0
-                        ? g.totalUsdMinor / 100
-                        : (g.totalUsdMinor / 100).toFixed(2)}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Tags */}
+            {/* About: tags and the disclaimer, right under the creator — no
+                tab to open, nothing to hunt for. */}
             {stream.tags.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">
                 {stream.tags.map((tag) => (
-                  <span
+                  <Link
                     key={tag}
-                    className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted-foreground"
+                    href={`/browse?tab=live&tag=${encodeURIComponent(tag)}`}
+                    className="rounded-full bg-[#26262D] px-3 py-1 text-xs font-medium text-foreground/90 transition-colors hover:bg-[#31313A]"
                   >
                     #{tag}
-                  </span>
+                  </Link>
                 ))}
               </div>
             )}
-
-            {/* Disclaimer */}
-            <p className="mt-4 text-xs leading-relaxed text-muted-foreground/60">
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground/60">
               Content is creator opinion, not financial advice. Crypto assets
               are volatile — always do your own research. Tips are voluntary
               gifts to the creator, not investments.
             </p>
+
+            {/* One row, two columns: the supporters strip on the left, fading
+                at its edge when it overflows; the schedule on the right with
+                live countdowns. */}
+            {(topGifters.length > 0 || hostUpcoming.length > 0) && (
+              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                {topGifters.length > 0 && (
+                  <section aria-label="Top supporters" className="min-w-0">
+                    <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-foreground">
+                      <Crown size={15} weight="fill" className="text-yellow-400" />
+                      Top supporters
+                    </h2>
+                    <SupportersStrip gifters={topGifters} />
+                  </section>
+                )}
+                <section aria-label="Schedule" className={cn("min-w-0", topGifters.length === 0 && "lg:col-span-2")}>
+                  <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-foreground">
+                    <CalendarBlank size={15} weight="bold" className="text-muted-foreground" />
+                    Coming up from {streamer.displayName}
+                  </h2>
+                  {hostUpcoming.length > 0 ? (
+                    <ScheduleList items={hostUpcoming} />
+                  ) : (
+                    <p className="rounded-sm bg-white/[0.03] px-4 py-5 text-sm text-muted-foreground/70">
+                      Nothing scheduled yet —{" "}
+                      <Link href={`/c/${streamer.username}`} className="text-foreground underline-offset-2 hover:underline">
+                        see when {streamer.displayName} usually streams
+                      </Link>
+                      .
+                    </p>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {/* Then what this audience also watches — always there, no tab. */}
+            <div className="mt-8">
+              {alsoLive.length > 0 ? (
+                <Shelf
+                  id="watch-also"
+                  title="Viewers also watch"
+                  reason={`People who watch ${streamer.displayName} also watch these channels`}
+                >
+                  {alsoLive.map((item, slot) => (
+                    <StreamCard
+                      key={item._id}
+                      stream={toCard(item)}
+                      variant="badges"
+                      impression={{ streamId: item._id, surface: "watch", row: "also-live", slot }}
+                    />
+                  ))}
+                </Shelf>
+              ) : (
+                <p className="rounded-sm bg-white/[0.03] px-6 py-8 text-center text-sm text-muted-foreground/70">
+                  Nothing else this audience watches is live right now.
+                </p>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Gift rail — the room's top supporters, at a glance, between the
+            player and the chat. Slim on purpose: it is a leaderboard, not a
+            panel. */}
+        {topGifters.length > 0 && !theaterMode && chatPlacement === "side" && (
+          <aside
+            aria-label="Top supporters"
+            className="hidden w-14 shrink-0 flex-col items-center gap-3 border-l border-white/[0.06] py-4 lg:flex"
+          >
+            <Crown size={14} weight="fill" className="text-yellow-400" />
+            {topGifters.slice(0, 8).map((g, i) => (
+              <span
+                key={g.userId ?? g.username}
+                title={`${g.username} · $${(g.totalUsdMinor / 100).toFixed(2)}`}
+                className={cn(
+                  "rounded-full p-[2px]",
+                  i === 0 ? "bg-yellow-400" : i === 1 ? "bg-white/40" : "bg-white/15"
+                )}
+              >
+                <UserAvatar name={g.username} size={30} className="size-[30px]" />
+              </span>
+            ))}
+          </aside>
+        )}
 
         {/* Chat sidebar */}
         <div
           className={cn(
-            "h-[500px] shrink-0 lg:h-screen lg:w-80 xl:w-96",
-            theaterMode && "lg:hidden"
+            "h-[500px] shrink-0 lg:h-[calc(100vh-3.5rem)] lg:w-80 xl:w-96",
+            (theaterMode || chatPlacement === "below") && "lg:hidden"
           )}
         >
-          <LiveChat
-            streamId={id}
-            room={roomRef.current}
-            isLive={stream.isLive}
-            initialPinned={stream.pinnedMessage ?? null}
-          />
+          {/* One chat at a time: while fullscreen it lives in the rail inside the player. */}
+          {!isFullscreen && (
+            <div className="flex h-full flex-col">
+              {/* The prediction stacks above chat, never over the video. */}
+              {game && <PlayPanel game={game} onChange={setGame} />}
+              <div className="min-h-0 flex-1">
+                <LiveChat
+                  streamId={id}
+                  room={roomRef.current}
+                  isLive={stream.isLive}
+                  initialPinned={stream.pinnedMessage ?? null}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Report modal */}
       {showReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="mx-4 w-full max-w-md rounded-2xl border border-white/10 bg-background p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-foreground">
@@ -1568,7 +1843,7 @@ export default function StreamPage({
               </h2>
               <button
                 onClick={() => setShowReport(false)}
-                className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
               >
                 <X size={18} />
               </button>
@@ -1583,12 +1858,12 @@ export default function StreamPage({
                   Report submitted
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Thanks for helping keep Xtreme safe. Our moderation team
+                  Thanks for helping keep Xtream safe. Our moderation team
                   will review this stream.
                 </p>
                 <button
                   onClick={() => setShowReport(false)}
-                  className="mt-5 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+                  className="mt-5 h-10 w-full rounded-sm bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
                 >
                   Done
                 </button>
@@ -1605,7 +1880,7 @@ export default function StreamPage({
                       key={r.value}
                       onClick={() => setReportReason(r.value)}
                       className={cn(
-                        "w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+                        "w-full rounded-sm border px-3 py-2.5 text-left text-sm transition-colors",
                         reportReason === r.value
                           ? "border-primary/40 bg-primary/10 text-foreground"
                           : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground"
@@ -1622,7 +1897,7 @@ export default function StreamPage({
                   maxLength={500}
                   rows={3}
                   placeholder="Additional details (optional)"
-                  className="mt-4 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
+                  className="mt-4 w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
                 />
 
                 {reportError && (
@@ -1632,14 +1907,14 @@ export default function StreamPage({
                 <div className="mt-4 flex gap-2">
                   <button
                     onClick={() => setShowReport(false)}
-                    className="h-10 flex-1 rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                    className="h-10 flex-1 rounded-sm border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={submitReport}
                     disabled={!reportReason || reportBusy}
-                    className="h-10 flex-1 rounded-lg bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="h-10 flex-1 rounded-sm bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {reportBusy ? "Submitting..." : "Submit Report"}
                   </button>
@@ -1652,7 +1927,7 @@ export default function StreamPage({
 
       {/* Stream ended — keep the session alive with what's live right now */}
       {streamEnded && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 backdrop-blur-sm">
+        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80">
           <div
             className={cn(
               "mx-4 my-8 w-full rounded-2xl border border-white/10 bg-background p-6 text-center shadow-2xl sm:p-8",
@@ -1682,7 +1957,7 @@ export default function StreamPage({
                       // same dynamic segment keeps this component instance —
                       // and all its ended-stream state — alive.
                       href={`/stream/${s._id}`}
-                      className="group overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-colors hover:border-primary/30"
+                      className="group overflow-hidden rounded-sm border border-white/5 bg-white/[0.02] transition-colors hover:border-primary/30"
                     >
                       <div className="relative aspect-video bg-black">
                         {s.thumbnailUrl ? (
@@ -1717,7 +1992,7 @@ export default function StreamPage({
                 </div>
                 <button
                   onClick={() => router.push("/explore")}
-                  className="mt-5 h-10 w-full rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                  className="mt-5 h-10 w-full rounded-sm border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Browse all streams
                 </button>
@@ -1734,7 +2009,7 @@ export default function StreamPage({
                 )}
                 <button
                   onClick={() => router.push("/explore")}
-                  className="mt-6 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+                  className="mt-6 h-10 w-full rounded-sm bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
                 >
                   Go to Explore Now
                 </button>

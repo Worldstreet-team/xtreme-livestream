@@ -136,7 +136,7 @@ export function StreamPreviewThumb({
 
       {/* Ticker chip */}
       {showTicker && (
-        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-0.5 font-mono text-[0.65rem] font-medium backdrop-blur-sm">
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-sm bg-black/60 px-2 py-0.5 font-mono text-[0.65rem] font-medium">
           <span className="text-white/80">{tickerPair}</span>
           <span className={up ? "text-emerald-400" : "text-red-400"}>
             {up ? "+" : ""}

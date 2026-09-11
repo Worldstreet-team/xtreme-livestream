@@ -23,10 +23,25 @@ import {
   UploadSimple,
   X,
   Warning,
+  Tag,
+  Aperture,
+  CheckCircle,
+  Circle,
+  Bell,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { PillTabs } from "@/components/ui/tabs";
+import { LiveBadge } from "@/components/ui/badge";
+import { BrandMark } from "@/components/ui/brand-mark";
+import { SelectField } from "@/components/ui/select-field";
+import { StreamArt } from "@/components/app/stream-art";
+import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
+import { BattlePanel } from "@/components/app/battle-panel";
+import { GamesPanel } from "@/components/app/games-panel";
+import { LivePreview } from "@/components/app/live-preview";
+import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -59,6 +74,8 @@ export default function StudioPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<Category>("Just Chatting");
   const [tags, setTags] = useState("");
+  /** The chip composer's in-progress tag; Enter or a comma commits it. */
+  const [tagInput, setTagInput] = useState("");
   // Deep-linkable source: socials' Go Live sheet opens /studio?source=screen
   // for screen-share sessions. Read from location (not useSearchParams) to
   // avoid the Suspense boundary requirement in a client page.
@@ -94,6 +111,15 @@ export default function StudioPage() {
   const [copiedField, setCopiedField] = useState<"url" | "key" | null>(null);
   /** True once the encoder's video is actually arriving. */
   const [obsFeedActive, setObsFeedActive] = useState(false);
+  /** The encoder disconnected mid-broadcast; the stream is holding for it. */
+  const [feedDropped, setFeedDropped] = useState(false);
+  const [graceMs, setGraceMs] = useState(300_000);
+  /**
+   * The account's permanent encoder credentials, shown before going live so
+   * OBS/vMix can be set up once and never touched again.
+   */
+  const [streamKey, setStreamKey] = useState<{ url: string; streamKey: string } | null>(null);
+  const [rotatingKey, setRotatingKey] = useState(false);
 
   // ---- Session stats ----
   const [peakViewers, setPeakViewers] = useState(0);
@@ -101,6 +127,9 @@ export default function StudioPage() {
 
   // ---- Stage guests ----
   const [stageRequests, setStageRequests] = useState<StageUser[]>([]);
+  // The battle this broadcast is in, fed by the battle panel; the preview
+  // splits to show the opponent the way viewers see it.
+  const [battle, setBattle] = useState<BattleView | null>(null);
   const [liveGuests, setLiveGuests] = useState<StageUser[]>([]);
   /** userId currently being approved/denied/removed, for per-row spinners. */
   const [stageBusyId, setStageBusyId] = useState<string | null>(null);
@@ -278,7 +307,15 @@ export default function StudioPage() {
           tipAmount?: string;
           emoji?: string;
           id?: string;
+          state?: string;
+          graceMs?: number;
         };
+        // The encoder dropped or came back — the API decides, we display.
+        if (data.__evt === "feed") {
+          setFeedDropped(data.state === "reconnecting");
+          if (typeof data.graceMs === "number") setGraceMs(data.graceMs);
+          return;
+        }
         if (data.__evt === "guest_request" && data.userId) {
           const row: StageUser = {
             userId: data.userId,
@@ -420,49 +457,68 @@ export default function StudioPage() {
     }
   };
 
-  const goLive = async () => {
-    if (!title.trim()) return;
+  /**
+   * Start broadcasting — or, with `resume`, rejoin an OBS stream that is
+   * already live (the encoder never stopped; this tab just left). A resume
+   * skips creating a stream and is always the encoder path.
+   */
+  const goLive = async (resume?: {
+    id: string;
+    livekitToken: string;
+    livekitUrl: string;
+    ingress?: { url: string; streamKey: string };
+  }) => {
+    if (!resume && !title.trim()) return;
+    const src: SourceType = resume ? "obs" : source;
     setIsConnecting(true);
     setError(null);
 
     let createdStreamId: string | null = null;
 
     try {
-      // Step 1: Call our API to create stream + get LiveKit token
-      const tagList = tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
+      let livekitToken: string;
+      let livekitUrl: string;
+      if (resume) {
+        ({ livekitToken, livekitUrl } = resume);
+        setStreamId(resume.id);
+        if (resume.ingress) setIngressInfo(resume.ingress);
+      } else {
+        // Step 1: Call our API to create stream + get LiveKit token
+        const tagList = tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
 
-      // Custom uploaded thumbnail wins; otherwise auto-capture from preview
-      let thumbnail: string | undefined = customThumbnail ?? undefined;
-      if (!thumbnail && videoElRef.current) {
-        thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
+        // Custom uploaded thumbnail wins; otherwise auto-capture from preview
+        let thumbnail: string | undefined = customThumbnail ?? undefined;
+        if (!thumbnail && videoElRef.current) {
+          thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
+        }
+
+        const res = await apiFetch<{
+          success: boolean;
+          data: {
+            stream: { id: string; livekitRoomName: string };
+            livekitToken: string;
+            livekitUrl: string;
+            ingress?: { url: string; streamKey: string };
+          };
+        }>("/api/streams", {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            category,
+            tags: tagList,
+            thumbnail,
+            source: src,
+          }),
+        });
+
+        ({ livekitToken, livekitUrl } = res.data);
+        createdStreamId = res.data.stream.id;
+        setStreamId(createdStreamId);
+        if (res.data.ingress) setIngressInfo(res.data.ingress);
       }
-
-      const res = await apiFetch<{
-        success: boolean;
-        data: {
-          stream: { id: string; livekitRoomName: string };
-          livekitToken: string;
-          livekitUrl: string;
-          ingress?: { url: string; streamKey: string };
-        };
-      }>("/api/streams", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          category,
-          tags: tagList,
-          thumbnail,
-          source,
-        }),
-      });
-
-      const { livekitToken, livekitUrl } = res.data;
-      createdStreamId = res.data.stream.id;
-      setStreamId(createdStreamId);
-      if (res.data.ingress) setIngressInfo(res.data.ingress);
 
       // Step 2: Stop preview track
       if (previewTrack) {
@@ -581,8 +637,8 @@ export default function StudioPage() {
 
       // Step 4: publish camera/screen + audio — unless OBS is the source,
       // in which case the encoder publishes and this tab only watches.
-      if (source !== "obs") {
-        if (source === "camera") {
+      if (src !== "obs") {
+        if (src === "camera") {
           await room.localParticipant.setCameraEnabled(true);
         } else {
           await room.localParticipant.setScreenShareEnabled(true);
@@ -609,8 +665,10 @@ export default function StudioPage() {
       setIsLive(true);
       setActiveTab("chat");
     } catch (err) {
-      // Cleanup: if stream was created but connection/publish failed, end it
-      if (createdStreamId) {
+      // Cleanup: if a stream was created here but connection/publish failed,
+      // end it. A failed resume leaves the live stream alone — the encoder
+      // is still feeding it.
+      if (createdStreamId && !resume) {
         try {
           await apiFetch(`/api/streams/${createdStreamId}/end`, {
             method: "POST",
@@ -675,6 +733,7 @@ export default function StudioPage() {
     setStageError(null);
     setIngressInfo(null);
     setObsFeedActive(false);
+    setFeedDropped(false);
     setKeyVisible(false);
     setPeakViewers(0);
     setSessionTipsMinor(0);
@@ -738,10 +797,11 @@ export default function StudioPage() {
    * way to resume (the tracks are gone), so the honest option is to tell them
    * and let them close it out before starting fresh.
    */
-  const [orphan, setOrphan] = useState<{ id: string; title: string } | null>(
+  const [orphan, setOrphan] = useState<{ id: string; title: string; source: string } | null>(
     null
   );
   const [endingOrphan, setEndingOrphan] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   useEffect(() => {
     if (!user || isLive) return;
@@ -750,9 +810,12 @@ export default function StudioPage() {
       try {
         const res = await apiFetch<{
           success: boolean;
-          data: { stream: { id: string; title: string } | null };
+          data: { stream: { id: string; title: string; source?: string } | null };
         }>("/api/streams/active/mine");
-        if (!cancelled) setOrphan(res.data.stream);
+        if (!cancelled) {
+          const s = res.data.stream;
+          setOrphan(s ? { id: s.id, title: s.title, source: s.source ?? "camera" } : null);
+        }
       } catch {
         // Non-critical — the Go Live path ends any stale stream anyway.
       }
@@ -761,6 +824,70 @@ export default function StudioPage() {
       cancelled = true;
     };
   }, [user, isLive]);
+
+  // The account's permanent encoder key, ready before the stream exists so
+  // OBS/vMix can be configured once. Fetched only when the encoder path is
+  // chosen — it mints the ingress on first use.
+  useEffect(() => {
+    if (!user || isLive || source !== "obs" || streamKey) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key")
+      .then((r) => !cancelled && setStreamKey({ url: r.data.url, streamKey: r.data.streamKey }))
+      .catch(() => {
+        // The key appears at go-live instead; the stage copy says so.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isLive, source, streamKey]);
+
+  const rotateKey = async () => {
+    if (rotatingKey) return;
+    if (!window.confirm("Replace your stream key? The current one stops working immediately and OBS/vMix will need the new one.")) return;
+    setRotatingKey(true);
+    try {
+      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key/rotate", { method: "POST" });
+      setStreamKey({ url: r.data.url, streamKey: r.data.streamKey });
+      setKeyVisible(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't replace the key");
+    } finally {
+      setRotatingKey(false);
+    }
+  };
+
+  /** Back into the room of an OBS stream this tab left running. */
+  const resumeStream = async () => {
+    if (!orphan || resuming) return;
+    setResuming(true);
+    setError(null);
+    try {
+      const r = await apiFetch<{
+        success: boolean;
+        data: {
+          stream: { id: string; title: string; category: Category; feedDroppedAt: string | null };
+          livekitToken: string;
+          livekitUrl: string;
+          ingress?: { url: string; streamKey: string };
+        };
+      }>(`/api/streams/${orphan.id}/resume`, { method: "POST" });
+      setTitle(r.data.stream.title);
+      setCategory(r.data.stream.category);
+      setSource("obs");
+      setFeedDropped(!!r.data.stream.feedDroppedAt);
+      await goLive({
+        id: r.data.stream.id,
+        livekitToken: r.data.livekitToken,
+        livekitUrl: r.data.livekitUrl,
+        ...(r.data.ingress ? { ingress: r.data.ingress } : {}),
+      });
+      setOrphan(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't reopen the studio");
+    } finally {
+      setResuming(false);
+    }
+  };
 
   const endOrphan = async () => {
     if (!orphan) return;
@@ -880,7 +1007,7 @@ export default function StudioPage() {
   const shareStream = async () => {
     if (!streamId) return;
     const url = `${window.location.origin}/stream/${streamId}`;
-    const text = `I'm live on Xtreme — ${title}`;
+    const text = `I'm live on Xtream — ${title}`;
     if (navigator.share) {
       try {
         await navigator.share({ title, text, url });
@@ -924,61 +1051,139 @@ export default function StudioPage() {
       ? `$${sessionTipsMinor / 100}`
       : `$${(sessionTipsMinor / 100).toFixed(2)}`;
 
+  // The tag list as chips, and the ways to grow or shrink it.
+  const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+  const commitTag = () => {
+    const next = tagInput.replace(/,/g, "").trim().toLowerCase();
+    setTagInput("");
+    if (!next || tagList.includes(next) || tagList.length >= 6) return;
+    setTags([...tagList, next].join(", "));
+  };
+  const removeTag = (tag: string) => setTags(tagList.filter((t) => t !== tag).join(", "));
+
+  /** Grab the current preview frame as the thumbnail. */
+  const captureFrame = () => {
+    const el = videoElRef.current;
+    if (!el) return;
+    const frame = captureVideoFrame(el, 640, 0.8);
+    if (frame) {
+      setCustomThumbnail(frame);
+      setThumbError(null);
+    } else {
+      setThumbError("No frame yet — wait for the camera to settle.");
+    }
+  };
+
+  // What still stands between you and the button.
+  const ready = {
+    source: source === "obs" || source === "screen" || !!previewTrack,
+    title: title.trim().length >= 3,
+    category: !!category,
+  };
+  const readyCount = Object.values(ready).filter(Boolean).length;
+
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-8">
+    <div className="min-h-screen p-4 md:p-6">
       <div className="mx-auto max-w-[1600px]">
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-[26px] font-bold tracking-tight text-foreground">
               {isLive ? "You're live" : "Go live"}
             </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground">
               {isLive
                 ? source === "obs" && !obsFeedActive
-                  ? "Stream created — waiting for your encoder to connect"
+                  ? feedDropped
+                    ? "Encoder disconnected — holding the stream while it reconnects"
+                    : "Stream created — waiting for your encoder to connect"
                   : `Broadcasting for ${elapsed}`
-                : "Set up your stream and go live to the world"}
+                : "Pick a source, name the stream, and you're on in under a minute."}
             </p>
           </div>
+          {!isLive && (
+            // Readiness: three checks, no scolding — the missing one is the next tap.
+            <div className="flex items-center gap-1.5 rounded-full bg-white/[0.05] p-1 pr-3 text-[12px]">
+              {(
+                [
+                  { key: "source", label: source === "obs" ? "Encoder" : source === "screen" ? "Screen" : "Camera" },
+                  { key: "title", label: "Title" },
+                  { key: "category", label: "Category" },
+                ] as const
+              ).map((c) => (
+                <span
+                  key={c.key}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2 py-1 font-medium",
+                    ready[c.key] ? "bg-emerald-500/[0.14] text-emerald-300" : "text-muted-foreground"
+                  )}
+                >
+                  {ready[c.key] ? <CheckCircle size={13} weight="fill" /> : <Circle size={13} />}
+                  {c.label}
+                </span>
+              ))}
+              <span className="ml-1 text-muted-foreground/70 tabular-nums">{readyCount}/3</span>
+            </div>
+          )}
           {isLive && streamId && (
-            <button
-              onClick={shareStream}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-white/[0.05] px-4 text-sm text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
-            >
-              <ShareNetwork size={16} />
-              {shareCopied ? "Link copied" : "Share stream"}
-            </button>
+            <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
+              <GamesPanel streamId={streamId} />
+              <BattlePanel streamId={streamId} onBattle={setBattle} />
+              <button
+                onClick={shareStream}
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-sm bg-white/[0.05] px-4 text-sm text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+              >
+                <ShareNetwork size={16} />
+                {shareCopied ? "Link copied" : "Share stream"}
+              </button>
+            </div>
           )}
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="mb-4 rounded-sm bg-red-500/10 px-4 py-3 text-sm text-red-400">
             {error}
           </div>
         )}
 
         {orphan && !isLive && (
-          <div className="mb-4 flex flex-col gap-3 rounded-lg bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className={cn("mb-4 flex flex-col gap-3 rounded-sm px-4 py-3 sm:flex-row sm:items-center sm:justify-between", orphan.source === "obs" ? "bg-emerald-500/10" : "bg-amber-500/10")}>
             <div className="flex items-start gap-2.5">
-              <Warning size={18} className="mt-0.5 shrink-0 text-amber-400" />
+              {orphan.source === "obs" ? (
+                <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-emerald-300" />
+              ) : (
+                <Warning size={18} className="mt-0.5 shrink-0 text-amber-400" />
+              )}
               <div>
-                <p className="text-sm font-medium text-amber-300">
-                  &ldquo;{orphan.title}&rdquo; is still marked live
+                <p className={cn("text-sm font-medium", orphan.source === "obs" ? "text-emerald-200" : "text-amber-300")}>
+                  {orphan.source === "obs" ? <>&ldquo;{orphan.title}&rdquo; is still live</> : <>&ldquo;{orphan.title}&rdquo; is still marked live</>}
                 </p>
-                <p className="mt-0.5 text-xs text-amber-400/70">
-                  The broadcast stopped when this tab closed, but the stream
-                  was never ended. Close it out before going live again.
+                <p className={cn("mt-0.5 text-xs", orphan.source === "obs" ? "text-emerald-200/70" : "text-amber-400/70")}>
+                  {orphan.source === "obs"
+                    ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and tips back."
+                    : "The broadcast stopped when this tab closed, but the stream was never ended. Close it out before going live again."}
                 </p>
               </div>
             </div>
-            <button
-              onClick={endOrphan}
-              disabled={endingOrphan}
-              className="h-9 shrink-0 rounded-lg bg-amber-500/20 px-4 text-sm font-medium text-amber-300 transition-colors hover:bg-amber-500/30 disabled:opacity-50"
-            >
-              {endingOrphan ? "Ending…" : "End it"}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {orphan.source === "obs" && (
+                <button
+                  onClick={resumeStream}
+                  disabled={resuming || endingOrphan}
+                  className="flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50"
+                >
+                  {resuming ? <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={14} weight="fill" />}
+                  Reopen studio
+                </button>
+              )}
+              <button
+                onClick={endOrphan}
+                disabled={endingOrphan || resuming}
+                className={cn("h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-50", orphan.source === "obs" ? "bg-white/[0.08] text-foreground hover:bg-white/[0.12]" : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30")}
+              >
+                {endingOrphan ? "Ending…" : "End it"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -986,14 +1191,20 @@ export default function StudioPage() {
           {/* ---- Stage: the program feed ---- */}
           <div className="min-w-0 flex-1">
             <div
-              className="relative aspect-video overflow-hidden rounded-xl bg-black"
+              className="relative aspect-video overflow-hidden rounded-sm bg-black"
               onMouseMove={isLive ? showControls : undefined}
               onTouchStart={isLive ? showControls : undefined}
             >
               {/* Stage grid — the preview splits exactly the way viewers
                   see it: 2 side by side, 3 host-tall, 4 in a 2×2. */}
               {(() => {
-                const stageCount = 1 + guestTiles.length;
+                const opponentStreamId =
+                  battle && streamId
+                    ? sideOf(battle, streamId) === "host"
+                      ? battle.challenger.streamId
+                      : battle.host.streamId
+                    : null;
+                const stageCount = 1 + guestTiles.length + (opponentStreamId ? 1 : 0);
                 return (
                   <div
                     className={cn(
@@ -1021,13 +1232,28 @@ export default function StudioPage() {
                         )}
                       />
                       {stageCount > 1 && (
-                        <div className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-1 backdrop-blur-sm">
+                        <div className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1">
                           <span className="text-xs font-medium text-white">
                             You
                           </span>
                         </div>
                       )}
                     </div>
+                    {opponentStreamId && battle && streamId && (
+                      <div className="relative overflow-hidden bg-black">
+                        <LivePreview
+                          streamId={opponentStreamId}
+                          className="absolute inset-0"
+                          poster={<div className="absolute inset-0 bg-black" />}
+                          fallbackSrc={null}
+                        />
+                        <div className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1">
+                          <span className="text-xs font-medium text-white">
+                            {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {guestTiles.map((t) => (
                       <StageTile
                         key={t.identity}
@@ -1046,9 +1272,9 @@ export default function StudioPage() {
                   {tipAlerts.map((t) => (
                     <div
                       key={t.id}
-                      className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1.5 pr-3.5 pl-2.5 backdrop-blur-sm slide-in-from-right-4"
+                      className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1 pr-3.5 pl-1.5 slide-in-from-right-4"
                     >
-                      <span className="text-lg leading-none">{t.emoji}</span>
+                      <GiftArt emoji={t.emoji} size={30} />
                       <span className="max-w-[9rem] truncate text-xs font-semibold text-white">
                         {t.username}
                       </span>
@@ -1061,52 +1287,77 @@ export default function StudioPage() {
                 </div>
               )}
 
-              {/* Pre-live states */}
-              {!isLive && source === "camera" && !previewTrack && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <VideoCamera size={40} className="mx-auto text-white/15" />
-                    <p className="mt-3 text-sm text-white/40">
-                      Requesting camera access…
-                    </p>
+              {/* Pre-live idle stage: a lit set, not a black box. The W
+                  sits faint in the backdrop; the copy says what happens next. */}
+              {!isLive && (source !== "camera" || !previewTrack) && (
+                <div className="absolute inset-0 overflow-hidden">
+                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(220,38,38,0.35),transparent_55%),radial-gradient(ellipse_at_top_right,rgba(124,58,237,0.28),transparent_50%),linear-gradient(180deg,#141416,#0b0b0d)]" />
+                  <BrandMark size={320} className="absolute -right-10 -bottom-16 opacity-[0.07]" />
+                  <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+                    <div className="max-w-sm">
+                      <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-white/[0.08] text-white">
+                        {source === "camera" ? <VideoCamera size={28} weight="fill" /> : source === "screen" ? <Monitor size={28} weight="fill" /> : <Broadcast size={28} weight="fill" />}
+                      </span>
+                      <p className="mt-4 text-[17px] font-semibold text-white">
+                        {source === "camera" ? "Setting up your camera" : source === "screen" ? "Your screen is the stage" : "Stream from OBS or any encoder"}
+                      </p>
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
+                        {source === "camera"
+                          ? "Allow camera and microphone access when the browser asks. Your preview appears here."
+                          : source === "screen"
+                            ? "The share picker opens the moment you go live, so nothing is captured before you say so."
+                            : "Your server URL and stream key are just below. Set them once in OBS or vMix — they never change."}
+                      </p>
+                      {source === "camera" && (
+                        <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[12px] font-medium text-white/80">
+                          <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+                          Waiting for permission
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
-              {!isLive && source === "screen" && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <Monitor size={40} className="mx-auto text-white/15" />
-                    <p className="mt-3 text-sm text-white/40">
-                      Screen share starts when you go live
-                    </p>
-                  </div>
+
+              {/* Source picker rides the stage's top edge. */}
+              {!isLive && (
+                <div className="absolute top-3 left-3 z-10">
+                  <PillTabs
+                    size="sm"
+                    value={source}
+                    onChange={(s) => setSource(s)}
+                    items={[
+                      { id: "camera", label: "Camera", icon: VideoCamera },
+                      { id: "screen", label: "Screen", icon: Monitor },
+                      { id: "obs", label: "OBS / RTMP", icon: Broadcast },
+                    ]}
+                  />
                 </div>
               )}
-              {!isLive && source === "obs" && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="px-6 text-center">
-                    <Broadcast size={40} className="mx-auto text-white/15" />
-                    <p className="mt-3 text-sm font-medium text-white/50">
-                      Stream from OBS or any RTMP encoder
-                    </p>
-                    <p className="mt-1 text-xs text-white/35">
-                      Go live to get your server URL and stream key.
-                    </p>
-                  </div>
-                </div>
+              {!isLive && source === "camera" && previewTrack && (
+                <button
+                  type="button"
+                  onClick={captureFrame}
+                  title="Use this frame as the thumbnail"
+                  className="absolute top-3 right-3 z-10 flex h-8 items-center gap-1.5 rounded-full bg-black/55 px-3 text-[12px] font-medium text-white transition-colors hover:bg-black/75"
+                >
+                  <Aperture size={14} weight="fill" />
+                  Capture thumbnail
+                </button>
               )}
 
               {/* Live but the encoder hasn't connected yet */}
               {isLive && source === "obs" && !obsFeedActive && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                   <div className="px-6 text-center">
-                    <div className="mx-auto mb-3 size-7 animate-spin rounded-full border-2 border-white/15 border-t-white/60" />
-                    <p className="text-sm font-medium text-white/60">
-                      Waiting for your encoder
+                    <div className={cn("mx-auto mb-3 size-7 animate-spin rounded-full border-2", feedDropped ? "border-amber-400/20 border-t-amber-300" : "border-white/15 border-t-white/60")} />
+                    <p className={cn("text-sm font-medium", feedDropped ? "text-amber-200" : "text-white/60")}>
+                      {feedDropped ? "Encoder disconnected — reconnecting" : "Waiting for your encoder"}
                     </p>
-                    <p className="mt-1 text-xs text-white/35">
-                      Paste the connection details below into OBS and start
-                      streaming.
+                    <p className="mt-1 max-w-xs text-xs text-white/35">
+                      {feedDropped
+                        ? `Your stream stays live for ${Math.round(graceMs / 60_000)} minutes while OBS reconnects on the same key. Viewers have been told.`
+                        : "Start streaming in OBS or vMix with your key — the picture lands here."}
                     </p>
                   </div>
                 </div>
@@ -1115,14 +1366,14 @@ export default function StudioPage() {
               {/* Live badges */}
               {isLive && (
                 <div className="absolute top-4 left-4 flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white">
+                  <div className="flex items-center gap-1.5 rounded-sm bg-red-600 px-2.5 py-1 text-xs font-semibold text-white">
                     <span className="relative flex size-1.5">
                       <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
                       <span className="relative inline-flex size-1.5 rounded-full bg-white" />
                     </span>
                     LIVE
                   </div>
-                  <div className="rounded-md bg-black/60 px-2 py-1 font-mono text-xs text-white/80 backdrop-blur-sm">
+                  <div className="rounded-sm bg-black/60 px-2 py-1 font-mono text-xs text-white/80">
                     {elapsed}
                   </div>
                 </div>
@@ -1141,7 +1392,7 @@ export default function StudioPage() {
                     className={cn(
                       "flex size-10 items-center justify-center rounded-full transition-colors",
                       micEnabled
-                        ? "bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
+                        ? "bg-black/50 text-white hover:bg-black/70"
                         : "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                     )}
                   >
@@ -1156,7 +1407,7 @@ export default function StudioPage() {
                     className={cn(
                       "flex size-10 items-center justify-center rounded-full transition-colors",
                       camEnabled
-                        ? "bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
+                        ? "bg-black/50 text-white hover:bg-black/70"
                         : "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                     )}
                   >
@@ -1176,7 +1427,7 @@ export default function StudioPage() {
                         "flex size-10 items-center justify-center rounded-full transition-colors",
                         screenShareActive
                           ? "bg-primary/25 text-primary hover:bg-primary/35"
-                          : "bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
+                          : "bg-black/50 text-white hover:bg-black/70"
                       )}
                     >
                       <MonitorArrowUp size={19} />
@@ -1197,7 +1448,7 @@ export default function StudioPage() {
                 ].map((stat) => (
                   <div
                     key={stat.label}
-                    className="rounded-lg bg-white/[0.03] px-3.5 py-3"
+                    className="rounded-sm bg-white/[0.03] px-3.5 py-3"
                   >
                     <p className="text-[0.62rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                       {stat.label}
@@ -1212,7 +1463,7 @@ export default function StudioPage() {
 
             {/* OBS connection details */}
             {source === "obs" && ingressInfo && (
-              <div className="mt-4 rounded-xl bg-white/[0.02] p-4">
+              <div className="mt-4 rounded-sm bg-white/[0.02] p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                     Encoder connection
@@ -1235,13 +1486,13 @@ export default function StudioPage() {
                     <span className="w-20 shrink-0 text-xs text-muted-foreground">
                       Server
                     </span>
-                    <code className="min-w-0 flex-1 truncate rounded-md bg-white/[0.04] px-2.5 py-1.5 font-mono text-xs text-foreground/90">
+                    <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.04] px-2.5 py-1.5 font-mono text-xs text-foreground/90">
                       {ingressInfo.url}
                     </code>
                     <button
                       onClick={() => copyIngressField("url", ingressInfo.url)}
                       title="Copy server URL"
-                      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {copiedField === "url" ? (
                         <Check size={14} className="text-green-400" />
@@ -1254,7 +1505,7 @@ export default function StudioPage() {
                     <span className="w-20 shrink-0 text-xs text-muted-foreground">
                       Stream key
                     </span>
-                    <code className="min-w-0 flex-1 truncate rounded-md bg-white/[0.04] px-2.5 py-1.5 font-mono text-xs text-foreground/90">
+                    <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.04] px-2.5 py-1.5 font-mono text-xs text-foreground/90">
                       {keyVisible
                         ? ingressInfo.streamKey
                         : "••••••••••••••••••••••••"}
@@ -1262,7 +1513,7 @@ export default function StudioPage() {
                     <button
                       onClick={() => setKeyVisible((v) => !v)}
                       title={keyVisible ? "Hide key" : "Reveal key"}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
                     </button>
@@ -1271,7 +1522,7 @@ export default function StudioPage() {
                         copyIngressField("key", ingressInfo.streamKey)
                       }
                       title="Copy stream key"
-                      className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-white/[0.05] text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {copiedField === "key" ? (
                         <Check size={14} className="text-green-400" />
@@ -1282,113 +1533,181 @@ export default function StudioPage() {
                   </div>
                 </div>
                 <p className="mt-3 text-xs leading-relaxed text-muted-foreground/60">
-                  In OBS: Settings → Stream → Service &ldquo;Custom&rdquo;,
-                  then paste both fields. Keep the key private — anyone with
-                  it can broadcast as you.
+                  Same key as always — if it&apos;s already in OBS or vMix, just press Start Streaming.
+                  Keep it private; anyone with it can broadcast as you. If the connection drops, keep
+                  the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own.
                 </p>
               </div>
             )}
 
-            {/* Source picker */}
-            {!isLive && (
-              <div className="mt-4 flex gap-2">
-                {(
-                  [
-                    { key: "camera", label: "Camera", icon: VideoCamera },
-                    { key: "screen", label: "Screen", icon: Monitor },
-                    { key: "obs", label: "OBS / RTMP", icon: Broadcast },
-                  ] as const
-                ).map((opt) => (
+            {/* The encoder key — permanent, so it is shown before there is
+                a stream to attach it to. */}
+            {!isLive && source === "obs" && (
+              <div className="mt-5 rounded-sm bg-white/[0.03] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase">Your encoder key</p>
                   <button
-                    key={opt.key}
-                    onClick={() => setSource(opt.key)}
-                    className={cn(
-                      "flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm transition-colors",
-                      source === opt.key
-                        ? "bg-white/[0.08] font-medium text-foreground"
-                        : "bg-white/[0.03] text-muted-foreground hover:text-foreground"
-                    )}
+                    type="button"
+                    onClick={rotateKey}
+                    disabled={rotatingKey || !streamKey}
+                    className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                   >
-                    <opt.icon size={17} />
-                    {opt.label}
+                    {rotatingKey ? "Replacing…" : "Replace key"}
                   </button>
-                ))}
+                </div>
+                {streamKey ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-20 shrink-0 text-xs text-muted-foreground">Server</span>
+                      <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{streamKey.url}</code>
+                      <button onClick={() => copyIngressField("url", streamKey.url)} title="Copy server URL" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                        {copiedField === "url" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-20 shrink-0 text-xs text-muted-foreground">Stream key</span>
+                      <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? streamKey.streamKey : "••••••••••••••••••••••••"}</code>
+                      <button onClick={() => setKeyVisible((v) => !v)} title={keyVisible ? "Hide key" : "Reveal key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                        {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
+                      </button>
+                      <button onClick={() => copyIngressField("key", streamKey.streamKey)} title="Copy stream key" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                        {copiedField === "key" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 h-[76px] animate-pulse rounded-sm bg-white/[0.04]" />
+                )}
+                <ul className="mt-3 space-y-1.5 text-[12px] leading-relaxed text-muted-foreground/70">
+                  <li>This key is yours for good: set it once in OBS or vMix and start every broadcast from Xtream, then hit Start Streaming in the encoder.</li>
+                  <li>If the connection drops mid-stream, keep the encoder running. The stream stays live for {Math.round(graceMs / 60_000)} minutes and picks up where it left off — no new key, no restart.</li>
+                  <li>On a weak network: 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds. Viewers get a lighter picture instead of a dropped one.</li>
+                </ul>
+              </div>
+            )}
+
+            {/* How it will appear on Home, live as you type. */}
+            {!isLive && (
+              <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,320px)_1fr] md:items-start">
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase">On the home page</p>
+                  <div className="group">
+                    <div className="relative aspect-video overflow-hidden rounded-sm bg-white/[0.03]">
+                      {customThumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- data URI preview
+                        <img src={customThumbnail} alt="" className="size-full object-cover" />
+                      ) : (
+                        <StreamArt src={undefined} category={category} alt="" seed={category} />
+                      )}
+                      <LiveBadge className="absolute top-2.5 left-2.5" />
+                      <span className="absolute right-2.5 bottom-2.5 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">0 watching</span>
+                    </div>
+                    <div className="mt-2.5 flex gap-2.5">
+                      {user && <UserAvatar src={user.avatar} name={user.displayName} size={32} className="size-8 shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <p className={cn("truncate text-sm font-medium", title ? "text-foreground" : "text-muted-foreground/60")}>{title || "Your title shows here"}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{user?.displayName ?? "You"}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground/60">{category}</p>
+                        {tagList.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {tagList.slice(0, 3).map((t) => (
+                              <span key={t} className="rounded-[4px] bg-white/[0.08] px-1.5 py-0.5 text-[10.5px] font-medium text-foreground/80">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-sm bg-white/[0.03] p-4">
+                  <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase">When you go live</p>
+                  <ul className="mt-2.5 space-y-2 text-[13px] text-muted-foreground">
+                    <li className="flex items-start gap-2.5"><Bell size={15} weight="fill" className="mt-0.5 shrink-0 text-foreground/70" />Your followers get a notification the moment you start, and the stream posts to WorldSpace.</li>
+                    <li className="flex items-start gap-2.5"><HandWaving size={15} weight="fill" className="mt-0.5 shrink-0 text-foreground/70" />Viewers can ask to join your stage; you approve them from the rail.</li>
+                    <li className="flex items-start gap-2.5"><CurrencyDollar size={15} weight="fill" className="mt-0.5 shrink-0 text-foreground/70" />Gifts land in your wallet as they arrive, and show on the stage for everyone.</li>
+                  </ul>
+                </div>
               </div>
             )}
           </div>
 
           {/* ---- Rail: setup before the show, the room during it ---- */}
-          <div className="flex w-full shrink-0 flex-col overflow-hidden rounded-xl bg-white/[0.02] xl:sticky xl:top-8 xl:h-[calc(100vh-6rem)] xl:w-[360px]">
+          <div className="flex w-full shrink-0 flex-col overflow-hidden rounded-sm bg-white/[0.02] xl:sticky xl:top-8 xl:h-[calc(100vh-6rem)] xl:w-[360px]">
             {!isLive ? (
               <>
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
-                  <h2 className="text-sm font-medium text-foreground">
-                    Stream setup
-                  </h2>
+                  <div>
+                    <h2 className="text-[15px] font-semibold text-foreground">Stream setup</h2>
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">What viewers see before they click.</p>
+                  </div>
 
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    <label htmlFor="studio-title" className="mb-1.5 flex items-center justify-between text-[12px] font-medium text-foreground/80">
                       Title
+                      <span className="text-[11px] font-normal text-muted-foreground/60 tabular-nums">{title.length}/100</span>
                     </label>
                     <input
+                      id="studio-title"
                       type="text"
-                      placeholder="e.g. BTC live trading & analysis"
+                      placeholder="What's happening today?"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       maxLength={100}
-                      className="h-9 w-full rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
+                      className="h-11 w-full rounded-sm bg-white/[0.06] px-3.5 text-[15px] text-foreground transition-colors outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
                     />
-                    <p className="mt-1 text-right text-[0.65rem] text-muted-foreground/50">
-                      {title.length}/100
-                    </p>
                   </div>
 
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      Category
-                    </label>
-                    <select
+                    <label htmlFor="studio-category" className="mb-1.5 block text-[12px] font-medium text-foreground/80">Category</label>
+                    <SelectField
+                      id="studio-category"
+                      full
                       value={category}
-                      onChange={(e) => setCategory(e.target.value as Category)}
-                      className="h-9 w-full cursor-pointer rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
-                    >
-                      {CATEGORY_GROUPS.map((group) => (
-                        <optgroup
-                          key={group.label}
-                          label={group.label}
-                          className="bg-background text-foreground"
-                        >
-                          {group.topics.map((cat) => (
-                            <option
-                              className="bg-background text-foreground"
-                              key={cat}
-                              value={cat}
-                            >
-                              {cat}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      Tags
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="bitcoin, trading, analysis"
-                      value={tags}
-                      onChange={(e) => setTags(e.target.value)}
-                      className="h-9 w-full rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
+                      onChange={(v) => setCategory(v as Category)}
+                      groups={CATEGORY_GROUPS.map((g) => ({
+                        label: g.label,
+                        options: g.topics.map((cat) => ({ value: cat, label: cat })),
+                      }))}
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      Thumbnail
+                    <label htmlFor="studio-tags" className="mb-1.5 flex items-center justify-between text-[12px] font-medium text-foreground/80">
+                      Tags
+                      <span className="text-[11px] font-normal text-muted-foreground/60 tabular-nums">{tagList.length}/6</span>
                     </label>
+                    <div className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-sm bg-white/[0.06] px-2.5 py-2 transition-colors focus-within:bg-white/[0.09]">
+                      {tagList.map((t) => (
+                        <span key={t} className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-neutral-950">
+                          {t}
+                          <button type="button" onClick={() => removeTag(t)} aria-label={`Remove ${t}`} className="text-neutral-950/60 hover:text-neutral-950">
+                            <X size={11} weight="bold" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        id="studio-tags"
+                        type="text"
+                        placeholder={tagList.length === 0 ? "Add a tag, press Enter" : ""}
+                        value={tagInput}
+                        onChange={(e) => (e.target.value.endsWith(",") ? (setTagInput(e.target.value), commitTag()) : setTagInput(e.target.value))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitTag();
+                          } else if (e.key === "Backspace" && !tagInput && tagList.length > 0) {
+                            removeTag(tagList[tagList.length - 1]!);
+                          }
+                        }}
+                        onBlur={commitTag}
+                        className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60"
+                      />
+                      <Tag size={14} className="ml-auto shrink-0 text-muted-foreground/50" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-1.5 text-[12px] font-medium text-foreground/80">Thumbnail</p>
                     <input
                       ref={thumbInputRef}
                       type="file"
@@ -1400,70 +1719,48 @@ export default function StudioPage() {
                       }}
                     />
                     {customThumbnail ? (
-                      <div className="relative overflow-hidden rounded-lg">
+                      <div className="relative overflow-hidden rounded-sm">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={customThumbnail}
-                          alt="Stream thumbnail"
-                          className="aspect-video w-full object-cover"
-                        />
+                        <img src={customThumbnail} alt="Stream thumbnail" className="aspect-video w-full object-cover" />
                         <button
                           onClick={() => setCustomThumbnail(null)}
                           title="Remove thumbnail"
-                          className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-md bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white"
+                          className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-white/80 transition-colors hover:bg-black/80 hover:text-white"
                         >
                           <X size={14} />
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => thumbInputRef.current?.click()}
-                        className="flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/[0.12] bg-white/[0.02] py-6 text-muted-foreground transition-colors hover:border-white/25 hover:text-foreground"
-                      >
-                        <UploadSimple size={18} />
-                        <span className="text-xs font-medium">
-                          Upload a custom thumbnail
-                        </span>
-                        <span className="text-[0.62rem] text-muted-foreground/60">
-                          Otherwise one is captured from your feed
-                        </span>
-                      </button>
-                    )}
-                    {thumbError && (
-                      <p className="mt-1.5 text-xs text-red-400">{thumbError}</p>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg bg-white/[0.04] p-3">
-                    <h3 className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
-                      Preview
-                    </h3>
-                    <div className="flex items-center gap-3">
-                      {user && (
-                        <UserAvatar
-                          src={user.avatar}
-                          name={user.displayName}
-                          size={32}
-                          className="size-8"
-                        />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {title || "Untitled stream"}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
-                          {category}
-                        </p>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={captureFrame}
+                          disabled={!(source === "camera" && previewTrack)}
+                          className="flex flex-col items-center justify-center gap-1.5 rounded-sm bg-white/[0.06] py-4 text-foreground/85 transition-colors hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Aperture size={18} weight="fill" />
+                          <span className="text-[12px] font-medium">Capture frame</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => thumbInputRef.current?.click()}
+                          className="flex flex-col items-center justify-center gap-1.5 rounded-sm bg-white/[0.06] py-4 text-foreground/85 transition-colors hover:bg-white/[0.09]"
+                        >
+                          <UploadSimple size={18} weight="bold" />
+                          <span className="text-[12px] font-medium">Upload</span>
+                        </button>
+                        <p className="col-span-2 text-[11px] text-muted-foreground/60">Skip it and a frame is captured the moment you go live.</p>
                       </div>
-                    </div>
+                    )}
+                    {thumbError && <p className="mt-1.5 text-xs text-red-400">{thumbError}</p>}
                   </div>
                 </div>
 
                 <div className="border-t border-white/[0.06] p-3">
                   <Button
                     onClick={() => setConfirmDialog("golive")}
-                    disabled={!title.trim() || isConnecting}
-                    className="h-10 w-full gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!ready.title || isConnecting}
+                    className="shine h-12 w-full gap-2 rounded-full bg-red-600 text-[15px] font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isConnecting ? (
                       <>
@@ -1472,11 +1769,12 @@ export default function StudioPage() {
                       </>
                     ) : (
                       <>
-                        <Lightning size={16} weight="fill" />
+                        <Lightning size={17} weight="fill" />
                         Go live
                       </>
                     )}
                   </Button>
+                  {!ready.title && <p className="mt-2 text-center text-[11.5px] text-muted-foreground/70">Give the stream a title to go live.</p>}
                 </div>
               </>
             ) : (
@@ -1494,7 +1792,7 @@ export default function StudioPage() {
                       key={t.key}
                       onClick={() => setActiveTab(t.key)}
                       className={cn(
-                        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-xs transition-colors",
+                        "relative flex flex-1 items-center justify-center gap-1.5 rounded-sm py-2 text-xs transition-colors",
                         liveTab === t.key
                           ? "bg-white/[0.08] font-medium text-foreground"
                           : "text-muted-foreground hover:text-foreground"
@@ -1539,7 +1837,7 @@ export default function StudioPage() {
                 >
                   <div className="h-[440px] space-y-5 p-4 xl:h-auto">
                     {stageError && (
-                      <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                      <p className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400">
                         {stageError}
                       </p>
                     )}
@@ -1563,7 +1861,7 @@ export default function StudioPage() {
                           {liveGuests.map((g) => (
                             <div
                               key={g.userId}
-                              className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                              className="flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2"
                             >
                               <UserAvatar
                                 src={g.avatar}
@@ -1578,7 +1876,7 @@ export default function StudioPage() {
                                 onClick={() => removeGuest(g.userId)}
                                 disabled={stageBusyId !== null}
                                 title="Remove from stage"
-                                className="flex h-7 items-center gap-1 rounded-md bg-red-500/10 px-2 text-[0.65rem] font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                                className="flex h-7 items-center gap-1 rounded-sm bg-red-500/10 px-2 text-[0.65rem] font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
                               >
                                 <X size={12} />
                                 Remove
@@ -1603,7 +1901,7 @@ export default function StudioPage() {
                           {stageRequests.map((r) => (
                             <div
                               key={r.userId}
-                              className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                              className="flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2"
                             >
                               <UserAvatar
                                 src={r.avatar}
@@ -1625,7 +1923,7 @@ export default function StudioPage() {
                                     ? "The stage is full"
                                     : "Bring them on"
                                 }
-                                className="flex h-7 items-center gap-1 rounded-md bg-primary px-2 text-[0.65rem] font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
+                                className="flex h-7 items-center gap-1 rounded-sm bg-primary px-2 text-[0.65rem] font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
                               >
                                 {stageBusyId === r.userId ? (
                                   <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
@@ -1638,7 +1936,7 @@ export default function StudioPage() {
                                 onClick={() => denyGuest(r.userId)}
                                 disabled={stageBusyId !== null}
                                 title="Decline"
-                                className="flex size-7 items-center justify-center rounded-md bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                                className="flex size-7 items-center justify-center rounded-sm bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                               >
                                 <X size={12} />
                               </button>
@@ -1684,7 +1982,7 @@ export default function StudioPage() {
                         {connectedViewers.map((v) => (
                           <div
                             key={v.identity}
-                            className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[0.03]"
+                            className="flex items-center gap-3 rounded-sm px-2 py-2 hover:bg-white/[0.03]"
                           >
                             <div className="flex size-7 items-center justify-center rounded-full bg-white/[0.06] text-xs font-medium text-foreground/80">
                               {v.name.charAt(0).toUpperCase()}
@@ -1711,7 +2009,7 @@ export default function StudioPage() {
                 <div className="border-t border-white/[0.06] p-3">
                   <Button
                     onClick={() => setConfirmDialog("end")}
-                    className="h-10 w-full gap-2 rounded-lg bg-red-600 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                    className="h-10 w-full gap-2 rounded-sm bg-red-600 text-sm font-medium text-white transition-colors hover:bg-red-700"
                   >
                     End stream
                   </Button>
@@ -1724,8 +2022,8 @@ export default function StudioPage() {
 
       {/* Go live / end confirmation */}
       {confirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-sm rounded-xl border border-white/[0.08] bg-[oklch(0.15_0.005_285)]/95 p-6 text-center shadow-[0_16px_50px_-16px_rgba(0,0,0,0.85)] backdrop-blur-2xl">
+        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="animate-pop-in mx-4 w-full max-w-sm rounded-sm border border-white/[0.08] bg-[oklch(0.15_0.005_285)] p-6 text-center shadow-[0_16px_50px_-16px_rgba(0,0,0,0.85)]">
             <div
               className={cn(
                 "mx-auto mb-4 flex size-12 items-center justify-center rounded-full",
@@ -1745,13 +2043,13 @@ export default function StudioPage() {
               {confirmDialog === "golive"
                 ? source === "obs"
                   ? `This creates "${title}" and hands you the RTMP details for your encoder.`
-                  : `You're about to broadcast "${title}" to everyone on Xtreme.`
+                  : `You're about to broadcast "${title}" to everyone on Xtream.`
                 : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
             </p>
             <div className="mt-6 flex gap-2">
               <button
                 onClick={() => setConfirmDialog(null)}
-                className="h-10 flex-1 rounded-lg bg-white/[0.06] text-sm font-medium text-muted-foreground transition-colors hover:bg-white/[0.09] hover:text-foreground"
+                className="h-10 flex-1 rounded-sm bg-white/[0.06] text-sm font-medium text-muted-foreground transition-colors hover:bg-white/[0.09] hover:text-foreground"
               >
                 Cancel
               </button>
@@ -1763,7 +2061,7 @@ export default function StudioPage() {
                   else endStream();
                 }}
                 className={cn(
-                  "h-10 flex-1 rounded-lg text-sm font-medium text-white transition-colors",
+                  "h-10 flex-1 rounded-sm text-sm font-medium text-white transition-colors",
                   confirmDialog === "golive"
                     ? "bg-primary text-primary-foreground hover:bg-primary/85"
                     : "bg-red-600 hover:bg-red-700"

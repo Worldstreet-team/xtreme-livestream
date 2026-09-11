@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   PaperPlaneRight,
   Smiley,
-  CurrencyDollar,
   ShieldStar,
   Clock,
   Gift,
@@ -22,21 +21,13 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
+import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, type GiftDef } from "@/lib/gifts";
+import { GiftArt } from "@/components/app/gift-art";
+import { GiftKeyboard } from "@/components/app/gift-keyboard";
 import type { Room } from "livekit-client";
 
 const SLOW_MODE_SECONDS = 30;
 
-/** Wallet-funded gifts — amounts in USD cents, charged to the central dollar wallet. */
-const GIFT_OPTIONS = [
-  { emoji: "👏", name: "Clap", usdMinor: 50 },
-  { emoji: "🔥", name: "Fire", usdMinor: 100 },
-  { emoji: "🚀", name: "Rocket", usdMinor: 500 },
-  { emoji: "💎", name: "Diamond", usdMinor: 1000 },
-  { emoji: "👑", name: "Crown", usdMinor: 5000 },
-] as const;
-
-const centsToDollars = (minor: number) =>
-  minor % 100 === 0 ? `$${minor / 100}` : `$${(minor / 100).toFixed(2)}`;
 
 const QUICK_REACTIONS = [
   "🔥",
@@ -99,8 +90,14 @@ export function LiveChat({
   const [input, setInput] = useState("");
   const [showReactions, setShowReactions] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
-  const [selectedGift, setSelectedGift] = useState<number | null>(null);
-  const [customAmount, setCustomAmount] = useState("");
+
+  // The battle bar's "Back this side" opens the same gift panel from outside
+  // the chat column, so backing a side is one tap from the player.
+  useEffect(() => {
+    const open = () => setShowGiftPanel(true);
+    window.addEventListener("xtreme:open-gifts", open);
+    return () => window.removeEventListener("xtreme:open-gifts", open);
+  }, []);
   const [giftBusy, setGiftBusy] = useState(false);
   const [giftError, setGiftError] = useState<string | null>(null);
   /** Spendable wallet balance in USD cents; null until loaded (or unavailable). */
@@ -606,27 +603,16 @@ export function LiveChat({
     if (showGiftPanel) loadWalletBalance();
   }, [showGiftPanel, loadWalletBalance]);
 
-  /** Resolve the gift amount in USD cents from the selection or custom input. */
-  const giftAmountUsdMinor = (): number | null => {
-    if (selectedGift !== null) return GIFT_OPTIONS[selectedGift].usdMinor;
-    const dollars = parseFloat(customAmount);
-    if (!Number.isFinite(dollars)) return null;
-    return Math.round(dollars * 100);
-  };
-
   // Send a wallet-funded gift. The money moves server-side (central dollar
   // wallet); the API also persists the chat announcement. Nothing is shown
   // locally unless the charge actually succeeded.
-  const sendGift = async () => {
+  const sendGift = async ({ gift, usdMinor: amountUsdMinor }: { gift: GiftDef | null; usdMinor: number }) => {
     if (!user || giftBusy) return;
-    const amountUsdMinor = giftAmountUsdMinor();
-    if (amountUsdMinor === null) return;
-    if (amountUsdMinor < 50 || amountUsdMinor > 50_000) {
-      setGiftError("Gifts must be between $0.50 and $500.");
+    if (amountUsdMinor < GIFT_MIN_MINOR || amountUsdMinor > GIFT_MAX_MINOR) {
+      setGiftError("Gifts run from $0.50 to $1,000.");
       return;
     }
 
-    const gift = selectedGift !== null ? GIFT_OPTIONS[selectedGift] : null;
     setGiftBusy(true);
     setGiftError(null);
 
@@ -672,8 +658,6 @@ export function LiveChat({
       setMessages((prev) => [...prev, msg]);
       // The gifts API broadcasts the announcement into the room itself.
       setShowGiftPanel(false);
-      setSelectedGift(null);
-      setCustomAmount("");
       // Reflect the spend immediately, then reconcile with the wallet service.
       setWalletMinor((prev) =>
         prev === null ? prev : Math.max(0, prev - amountUsdMinor)
@@ -697,16 +681,9 @@ export function LiveChat({
     }
   };
 
-  // Compare the pending selection against the known balance so we can warn
-  // before attempting a charge the wallet would reject anyway.
-  const pendingGiftMinor = giftAmountUsdMinor();
-  const exceedsBalance =
-    walletMinor !== null &&
-    pendingGiftMinor !== null &&
-    pendingGiftMinor > walletMinor;
-
   return (
-    <div className="flex h-full flex-col border-l border-white/5 bg-background">
+    // `relative`: the gift keyboard docks inside this column on desktop.
+    <div className="relative flex h-full flex-col border-l border-white/5 bg-background">
       {/* Chat header */}
       <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
         <div className="flex items-center gap-2">
@@ -724,7 +701,7 @@ export function LiveChat({
               onClick={() => toggleSlowMode(!slowMode)}
               title={slowMode ? "Disable slow mode" : "Enable slow mode"}
               className={cn(
-                "flex size-7 items-center justify-center rounded-md transition-colors",
+                "flex size-7 items-center justify-center rounded-sm transition-colors",
                 slowMode
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -736,7 +713,7 @@ export function LiveChat({
               onClick={() => setShowModTools(!showModTools)}
               title="Mod Tools"
               className={cn(
-                "flex size-7 items-center justify-center rounded-md transition-colors",
+                "flex size-7 items-center justify-center rounded-sm transition-colors",
                 showModTools
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -783,7 +760,7 @@ export function LiveChat({
               setMessages([]);
               setShowModTools(false);
             }}
-            className="mt-3 h-8 w-full rounded-md border border-white/10 text-xs font-medium text-muted-foreground transition-colors hover:border-red-500/30 hover:text-red-400"
+            className="mt-3 h-8 w-full rounded-sm border border-white/10 text-xs font-medium text-muted-foreground transition-colors hover:border-red-500/30 hover:text-red-400"
           >
             Clear chat (local)
           </button>
@@ -796,7 +773,7 @@ export function LiveChat({
         className="relative flex-1 space-y-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
       >
         {pinned && (
-          <div className="sticky top-0 z-10 -mx-1 mb-1 flex items-start gap-2 rounded-lg border border-primary/25 bg-[oklch(0.14_0.02_25)] px-2.5 py-2 backdrop-blur-sm">
+          <div className="sticky top-0 z-10 -mx-1 mb-1 flex items-start gap-2 rounded-sm border border-primary/25 bg-[oklch(0.14_0.02_25)] px-2.5 py-2">
             <PushPin
               size={13}
               weight="fill"
@@ -867,28 +844,37 @@ export function LiveChat({
                 </span>
               </div>
             ) : msg.type === "tip" ? (
-              <div className="my-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <UserAvatar
-                    src={msg.avatar}
-                    name={msg.username}
-                    size={20}
-                    className="size-5"
-                  />
-                  <span className="text-xs font-semibold text-yellow-400">
-                    {msg.username}
-                  </span>
-                  <span className="text-xs text-yellow-400/70">
-                    {msg.content || "tipped"}
-                  </span>
-                  {msg.emoji && <span className="text-sm">{msg.emoji}</span>}
-                  <span className="text-xs font-bold text-yellow-300">
-                    {msg.tipCurrency === "USD" || !msg.tipCurrency
+              // A gift or a drop: one compact, glossy line — no border, a
+              // soft gradient in the money's colour (amber for dollars,
+              // violet for points) with a highlight across the top, and the
+              // amount as a small solid pill at the end.
+              <div
+                className={cn(
+                  "relative my-1 flex items-center gap-2 overflow-hidden rounded-[10px] py-1.5 pr-1.5 pl-2",
+                  msg.tipCurrency === "PTS"
+                    ? "bg-gradient-to-r from-violet-500/[0.18] to-violet-500/[0.06]"
+                    : "bg-gradient-to-r from-amber-400/[0.2] to-amber-400/[0.06]"
+                )}
+              >
+                <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/[0.07] to-transparent" />
+                <UserAvatar src={msg.avatar} name={msg.username} size={18} className="relative size-[18px] shrink-0" />
+                <span className="relative min-w-0 flex-1 truncate text-xs">
+                  <span className={cn("font-semibold", msg.tipCurrency === "PTS" ? "text-violet-200" : "text-amber-200")}>{msg.username}</span>
+                  <span className="text-foreground/70"> {msg.content || "tipped"}</span>
+                </span>
+                {msg.emoji && <GiftArt emoji={msg.emoji} size={22} className="relative" />}
+                <span
+                  className={cn(
+                    "relative flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
+                    msg.tipCurrency === "PTS" ? "bg-violet-400 text-neutral-950" : "bg-amber-300 text-neutral-950"
+                  )}
+                >
+                  {msg.tipCurrency === "PTS"
+                    ? `+${msg.tipAmount} pts`
+                    : msg.tipCurrency === "USD" || !msg.tipCurrency
                       ? `$${msg.tipAmount}`
                       : `${msg.tipAmount} ${msg.tipCurrency}`}
-                  </span>
-                  <CurrencyDollar size={14} className="text-yellow-400" />
-                </div>
+                </span>
               </div>
             ) : msg.type === "reaction" ? (
               <div className="flex items-center gap-2 py-0.5">
@@ -905,7 +891,7 @@ export function LiveChat({
               </div>
             ) : (
               <div
-                className="relative flex gap-2 rounded-md px-1 py-1 hover:bg-white/2"
+                className="relative flex gap-2 rounded-sm px-1 py-1 hover:bg-white/2"
                 onClick={
                   // Tap-to-toggle keeps the tools reachable on touch, where
                   // there is no hover.
@@ -961,7 +947,7 @@ export function LiveChat({
                 {isHost && !msg.isMod && (
                   <div
                     className={cn(
-                      "absolute top-0.5 right-1 items-center gap-0.5 rounded-md border border-white/10 bg-background/95 p-0.5 shadow-lg backdrop-blur-sm",
+                      "absolute top-0.5 right-1 items-center gap-0.5 rounded-sm border border-white/10 bg-background/95 p-0.5 shadow-lg",
                       modMenuFor === msg.id
                         ? "flex"
                         : "hidden group-hover:flex"
@@ -1020,7 +1006,7 @@ export function LiveChat({
               <button
                 key={emoji}
                 onClick={() => sendReaction(emoji)}
-                className="flex size-8 items-center justify-center rounded-md text-lg transition-transform hover:scale-125 hover:bg-white/5"
+                className="flex size-8 items-center justify-center rounded-sm text-lg transition-transform hover:scale-125 hover:bg-white/5"
               >
                 {emoji}
               </button>
@@ -1029,87 +1015,20 @@ export function LiveChat({
         </div>
       )}
 
-      {/* Gift panel — wallet-funded, USD */}
-      {showGiftPanel && (
-        <div className="border-t border-yellow-500/20 bg-yellow-500/5 px-3 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-yellow-400">
-              Send a Gift
-            </p>
-            <p className="text-[0.6rem] text-muted-foreground/60">
-              {walletLoading && walletMinor === null
-                ? "Checking balance..."
-                : walletMinor !== null
-                  ? `${centsToDollars(walletMinor)} available`
-                  : "Paid from your dollar wallet"}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {GIFT_OPTIONS.map((gift, i) => (
-              <button
-                key={gift.name}
-                onClick={() => {
-                  setSelectedGift(selectedGift === i ? null : i);
-                  setCustomAmount("");
-                  setGiftError(null);
-                }}
-                className={cn(
-                  "flex flex-col items-center gap-0.5 rounded-lg border px-2.5 py-1.5 transition-colors",
-                  selectedGift === i
-                    ? "border-yellow-500/40 bg-yellow-500/10"
-                    : "border-white/10 bg-white/5 hover:border-white/20"
-                )}
-              >
-                <span className="text-lg">{gift.emoji}</span>
-                <span className="text-[0.6rem] font-medium text-muted-foreground">
-                  {centsToDollars(gift.usdMinor)}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-2 flex gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                $
-              </span>
-              <input
-                type="number"
-                min="0.5"
-                max="500"
-                step="0.5"
-                placeholder="Custom amount"
-                value={customAmount}
-                onChange={(e) => {
-                  setCustomAmount(e.target.value);
-                  setSelectedGift(null);
-                  setGiftError(null);
-                }}
-                className="h-8 w-full rounded-md border border-white/10 bg-white/5 pl-5 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-yellow-500/30 focus:outline-none"
-              />
-            </div>
-            <button
-              onClick={sendGift}
-              disabled={
-                giftBusy ||
-                exceedsBalance ||
-                (selectedGift === null && !customAmount.trim())
-              }
-              className="h-8 rounded-md bg-yellow-500/20 px-3 text-xs font-semibold text-yellow-400 transition-colors hover:bg-yellow-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {giftBusy ? "Sending..." : "Send"}
-            </button>
-          </div>
-          {exceedsBalance && !giftError && (
-            <p className="mt-1.5 text-[0.65rem] text-yellow-400/80">
-              That&apos;s more than your {centsToDollars(walletMinor!)} balance —
-              top up to send this gift.
-            </p>
-          )}
-          {giftError && (
-            <p className="mt-1.5 text-[0.65rem] text-red-400">{giftError}</p>
-          )}
-        </div>
-      )}
+      {/* Gift keyboard — wallet-funded, USD. Rises over the composer like
+          a sticker keyboard; a sheet on phones. */}
+      <GiftKeyboard
+        open={showGiftPanel}
+        onClose={() => {
+          setShowGiftPanel(false);
+          setGiftError(null);
+        }}
+        balanceMinor={walletMinor}
+        balanceLoading={walletLoading}
+        busy={giftBusy}
+        error={giftError}
+        onSend={(choice) => void sendGift(choice)}
+      />
 
       {/* Input bar */}
       <div className="border-t border-white/5 px-3 py-3">
@@ -1117,7 +1036,7 @@ export function LiveChat({
           <p className="mb-2 text-[0.65rem] text-red-400">{chatError}</p>
         )}
         {isLive && user && myBan ? (
-          <div className="flex h-10 items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 text-xs font-medium text-red-400">
+          <div className="flex h-10 items-center justify-center gap-2 rounded-sm border border-red-500/20 bg-red-500/5 text-xs font-medium text-red-400">
             <Prohibit size={14} />
             {myBan.until
               ? `You're timed out until ${new Date(
@@ -1131,7 +1050,7 @@ export function LiveChat({
         ) : isLive && !user ? (
           <a
             href="https://www.worldstreetgold.com/login"
-            className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 text-sm font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
+            className="flex h-10 items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/5 text-sm font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
           >
             <SignIn size={16} />
             Sign in to chat
@@ -1144,7 +1063,7 @@ export function LiveChat({
                 setShowGiftPanel(false);
               }}
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
+                "flex size-10 shrink-0 items-center justify-center rounded-sm transition-colors",
                 showReactions
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -1161,7 +1080,7 @@ export function LiveChat({
                 }}
                 title="Send a gift"
                 className={cn(
-                  "flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  "flex size-10 shrink-0 items-center justify-center rounded-sm transition-colors",
                   showGiftPanel
                     ? "bg-yellow-500/10 text-yellow-400"
                     : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
@@ -1183,12 +1102,12 @@ export function LiveChat({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               disabled={cooldownLeft > 0 || sending}
-              className="h-10 flex-1 rounded-lg border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-10 flex-1 rounded-sm border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               onClick={sendMessage}
               disabled={cooldownLeft > 0 || sending}
-              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex size-10 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {cooldownLeft > 0 ? (
                 <span className="text-xs font-semibold">{cooldownLeft}</span>

@@ -12,7 +12,14 @@ function isPublicPath(pathname: string) {
   return (
     pathname === "/explore" ||
     pathname.startsWith("/explore/") ||
-    pathname.startsWith("/stream/")
+    pathname === "/browse" ||
+    pathname.startsWith("/browse/") ||
+    pathname === "/feed" ||
+    pathname.startsWith("/stream/") ||
+    // Channel pages are how a stream gets shared and how a streamer gets
+    // discovered — gating them behind sign-in would make every link a
+    // dead end for the visitor most worth converting.
+    pathname.startsWith("/c/")
   );
 }
 
@@ -28,6 +35,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       window.location.href = SIGN_IN_URL;
     }
   }, [publicPath, isLoading, isAuthenticated, error]);
+
+  // Onboarding is built and reachable at /welcome, but nothing routes anyone
+  // into it for now — a first sign-in lands straight on the home page. To
+  // bring it back, restore the redirect: for a user with no picker done and
+  // nobody followed, who hasn't stored "xtreme-welcome-seen", replace the
+  // route with /welcome (skipping /welcome itself and /stream/ pages).
 
   // Public pages render immediately for everyone — no auth gate
   if (publicPath) {
@@ -54,7 +67,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <p className="text-sm text-destructive">{error}</p>
           <button
             onClick={() => refreshUser()}
-            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            className="px-4 py-2 rounded-sm bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
           >
             Retry
           </button>

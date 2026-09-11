@@ -106,6 +106,81 @@ export const CATEGORY_GROUPS: CategoryGroup[] = [
     topics: ["Video Games", "Mobile Gaming", "Esports", "Chess & Tabletop"],
   },
   {
+    // Specific titles, the way Twitch and Kick file them — a streamer goes
+    // live in "EA Sports FC 26", not in "Video Games". Drawn from Twitch's
+    // directory by audience (see lib/twitch-categories.ts), games only.
+    label: "Games",
+    topics: [
+      "Counter-Strike",
+      "League of Legends",
+      "VALORANT",
+      "Grand Theft Auto V",
+      "Dota 2",
+      "Minecraft",
+      "Fortnite",
+      "World of Warcraft",
+      "Escape from Tarkov",
+      "Overwatch",
+      "Apex Legends",
+      "PUBG: BATTLEGROUNDS",
+      "Teamfight Tactics",
+      "Rust",
+      "Dead by Daylight",
+      "Project Zomboid",
+      "World of Tanks",
+      "Brawl Stars",
+      "Hearthstone",
+      "Marvel Rivals",
+      "Black Desert",
+      "Street Fighter 6",
+      "Call of Duty: Warzone",
+      "NBA 2K27",
+      "Rainbow Six Siege",
+      "Old School RuneScape",
+      "FINAL FANTASY XIV ONLINE",
+      "EA Sports FC 26",
+      "Genshin Impact",
+      "Deadlock",
+      "ROBLOX",
+      "DayZ",
+      "EVE Online",
+      "Rocket League",
+      "ELDEN RING",
+      "Mobile Legends: Bang Bang",
+      "Clash Royale",
+      "The Elder Scrolls V: Skyrim",
+      "ARC Raiders",
+      "Once Human",
+      "Super Smash Bros. Ultimate",
+      "TEKKEN 8",
+      "Star Citizen",
+      "Valheim",
+      "Warframe",
+      "Magic: The Gathering",
+      "Terraria",
+      "F1 25",
+      "Pokémon GO",
+      "Palworld",
+      "Battlefield 6",
+      "Farming Simulator 25",
+      "Red Dead Redemption II",
+      "PUBG MOBILE",
+      "Monster Hunter Wilds",
+      "Madden NFL 27",
+      "Call of Duty: Black Ops 7",
+      "Diablo IV",
+      "Baldur's Gate 3",
+      "Stardew Valley",
+      "HELLDIVERS 2",
+      "Mario Kart 8 Deluxe",
+      "The Sims 4",
+      "Fall Guys",
+      "Among Us",
+      "Chess",
+      "Poker",
+    ],
+  },
+  {
     label: "Entertainment",
     topics: [
       "Movies & TV",
@@ -114,6 +189,7 @@ export const CATEGORY_GROUPS: CategoryGroup[] = [
       "Comedy & Memes",
       "Podcasts & Talk",
       "Books & Reading",
+      "Special Events",
     ],
   },
   {
@@ -153,6 +229,7 @@ export const CATEGORY_GROUPS: CategoryGroup[] = [
       "Mental Health",
       "Health & Medicine",
       "Mindfulness & Recovery",
+      "ASMR",
     ],
   },
   {
@@ -228,6 +305,11 @@ export type Stream = {
   streamer: StreamCardStreamer;
   /** Current concurrent viewers — 0 once a stream has ended. */
   viewers: number;
+  /**
+   * Highest concurrent viewers the stream reached. The only viewer number
+   * worth showing on a finished broadcast, where `viewers` is always 0.
+   */
+  peakViewers?: number;
   /** Resolved URL of the stream's thumbnail; "" when it has none. */
   thumbnailUrl: string;
   isLive: boolean;

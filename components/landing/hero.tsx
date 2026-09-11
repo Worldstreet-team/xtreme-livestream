@@ -91,7 +91,7 @@ export function Hero() {
           <Button
             asChild
             size="lg"
-            className="h-12 gap-2 rounded-xl bg-primary px-8 text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/80 hover:shadow-primary/40 transition-all"
+            className="h-12 gap-2 rounded-sm bg-primary px-8 text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/80 hover:shadow-primary/40 transition-all"
           >
             <Link href="/studio">
               <Lightning size={20} weight="fill" />
@@ -102,7 +102,7 @@ export function Hero() {
             asChild
             variant="outline"
             size="lg"
-            className="h-12 gap-2 rounded-xl border-white/10 bg-white/5 px-8 text-base font-semibold backdrop-blur-sm hover:bg-white/10 hover:border-white/20 transition-all"
+            className="h-12 gap-2 rounded-sm border-white/10 bg-white/5 px-8 text-base font-semibold backdrop-blur-sm hover:bg-white/10 hover:border-white/20 transition-all"
           >
             <Link href="/explore">
               <Play size={20} weight="fill" />

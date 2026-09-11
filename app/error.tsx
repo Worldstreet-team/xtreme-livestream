@@ -41,7 +41,7 @@ export default function Error({
         )}
         <button
           onClick={reset}
-          className="mt-6 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+          className="mt-6 inline-flex h-10 w-full items-center justify-center gap-2 rounded-sm bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
         >
           <ArrowClockwise size={16} />
           Try again

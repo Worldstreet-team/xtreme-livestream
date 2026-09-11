@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, Broadcast } from "@phosphor-icons/react";
+import { Bell, BellRinging, Broadcast } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -20,6 +20,8 @@ import {
 
 interface NotificationRow {
   id: string;
+  /** live = someone you follow went live; reminder = a stream you asked about started. */
+  type?: "live" | "reminder";
   actorName: string;
   streamId: string;
   streamTitle: string;
@@ -111,15 +113,15 @@ export function NotificationsBell({
         onClick={toggle}
         title={collapsed ? "Notifications" : undefined}
         className={cn(
-          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-          collapsed && "justify-center px-0",
+          "flex w-full items-center gap-3 rounded-sm py-2.5 text-[16px] transition-colors",
+          collapsed ? "justify-center px-0" : "px-3.5",
           open
-            ? "font-medium text-foreground"
-            : "text-muted-foreground hover:text-foreground"
+            ? "bg-white/[0.07] font-semibold text-foreground"
+            : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
         )}
       >
         <span className="relative shrink-0">
-          <Bell size={18} weight={open ? "fill" : "regular"} />
+          <Bell size={22} weight={open ? "fill" : "duotone"} />
           {unread > 0 && (
             <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[0.55rem] font-bold text-primary-foreground ring-2 ring-[oklch(0.12_0.005_285)] tabular-nums">
               {unread > 9 ? "9+" : unread}
@@ -158,7 +160,7 @@ export function NotificationsBell({
                     onNavigate?.();
                   }}
                   className={cn(
-                    "flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-white/[0.04]",
+                    "flex items-start gap-2.5 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-white/[0.04]",
                     !n.read && "bg-primary/[0.06]"
                   )}
                 >
@@ -170,12 +172,18 @@ export function NotificationsBell({
                         : "bg-primary/15 text-primary"
                     )}
                   >
-                    <Broadcast size={14} weight="fill" />
+                    {n.type === "reminder" ? (
+                      <BellRinging size={14} weight="fill" />
+                    ) : (
+                      <Broadcast size={14} weight="fill" />
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs text-foreground/90">
-                      <span className="font-semibold">{n.actorName}</span> went
-                      live
+                      <span className="font-semibold">{n.actorName}</span>{" "}
+                      {n.type === "reminder"
+                        ? "just started the stream you asked about"
+                        : "went live"}
                     </span>
                     {n.streamTitle && (
                       <span className="mt-0.5 block truncate text-[0.7rem] text-muted-foreground">

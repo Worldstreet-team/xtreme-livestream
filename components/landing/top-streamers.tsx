@@ -93,7 +93,7 @@ export function TopStreamers() {
 
         {/* Nobody on the board yet */}
         {topStreamers !== null && topStreamers.length === 0 && (
-          <div className="mx-auto mt-10 max-w-3xl rounded-xl border border-dashed border-white/10 bg-white/[0.02] py-14 text-center">
+          <div className="mx-auto mt-10 max-w-3xl rounded-sm border border-dashed border-white/10 bg-white/[0.02] py-14 text-center">
             <Crown size={36} className="mx-auto text-muted-foreground/30" />
             <p className="mt-4 text-base font-medium text-foreground">
               The leaderboard is wide open
@@ -111,9 +111,9 @@ export function TopStreamers() {
             Array.from({ length: 5 }).map((_, i) => (
               <div
                 key={i}
-                className="flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4"
+                className="flex items-center gap-4 rounded-sm border border-white/5 bg-white/[0.02] p-4"
               >
-                <div className="size-8 shrink-0 animate-pulse rounded-lg bg-white/5" />
+                <div className="size-8 shrink-0 animate-pulse rounded-sm bg-white/5" />
                 <div className="size-11 shrink-0 animate-pulse rounded-full bg-white/5" />
                 <div className="flex-1 space-y-2">
                   <div className="h-4 w-1/3 animate-pulse rounded bg-white/5" />
@@ -125,11 +125,11 @@ export function TopStreamers() {
             <Link
               key={streamer.rank}
               href={`/explore?search=${encodeURIComponent(streamer.username)}`}
-              className="group flex items-center gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-white/10 hover:bg-white/[0.04]"
+              className="group flex items-center gap-4 rounded-sm border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-white/10 hover:bg-white/[0.04]"
             >
               {/* Rank */}
               <div
-                className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                className={`flex size-8 shrink-0 items-center justify-center rounded-sm text-sm font-bold ${
                   streamer.rank === 1
                     ? "bg-yellow-500/20 text-yellow-400"
                     : streamer.rank === 2

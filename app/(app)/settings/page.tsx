@@ -149,7 +149,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-8">
+    <div className="min-h-screen p-4 md:p-6">
       <div className="mx-auto max-w-[1200px]">
       <h1 className="mb-8 text-xl font-semibold tracking-tight text-foreground">
         Settings
@@ -163,7 +163,7 @@ export default function SettingsPage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+                "flex shrink-0 items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
                 activeTab === tab.id
                   ? "bg-white/[0.08] font-medium text-foreground"
                   : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
@@ -184,13 +184,13 @@ export default function SettingsPage() {
         <div className="flex-1 max-w-2xl">
           {/* Save feedback */}
           {saved && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg bg-green-500/10 px-4 py-2.5 text-sm text-green-400">
+            <div className="mb-4 flex items-center gap-2 rounded-sm bg-green-500/10 px-4 py-2.5 text-sm text-green-400">
               <Check size={16} weight="bold" />
               Changes saved successfully
             </div>
           )}
           {saveError && (
-            <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+            <div className="mb-4 rounded-sm bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
               {saveError}
             </div>
           )}
@@ -198,7 +198,7 @@ export default function SettingsPage() {
           {/* ── Profile ── */}
           {activeTab === "profile" && (
             <div className="space-y-6">
-              <div className="space-y-5 rounded-lg bg-white/[0.03] p-5">
+              <div className="space-y-5 rounded-sm bg-white/[0.03] p-5">
                 <h2 className="text-sm font-medium text-foreground">
                   Profile information
                 </h2>
@@ -249,7 +249,7 @@ export default function SettingsPage() {
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    className="h-9 w-full rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
+                    className="h-9 w-full rounded-sm bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
                   />
                 </div>
 
@@ -264,7 +264,7 @@ export default function SettingsPage() {
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="h-9 flex-1 rounded-lg bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
+                      className="h-9 flex-1 rounded-sm bg-white/[0.05] px-3 text-sm text-foreground transition-colors outline-none focus:bg-white/[0.07]"
                     />
                   </div>
                 </div>
@@ -279,7 +279,7 @@ export default function SettingsPage() {
                     onChange={(e) => setBio(e.target.value)}
                     rows={3}
                     maxLength={200}
-                    className="w-full resize-none rounded-lg bg-white/[0.05] px-3 py-2 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
+                    className="w-full resize-none rounded-sm bg-white/[0.05] px-3 py-2 text-sm text-foreground transition-colors outline-none placeholder:text-muted-foreground/70 focus:bg-white/[0.07]"
                   />
                   <p className="mt-1 text-xs text-muted-foreground/60">
                     {bio.length}/200
@@ -289,7 +289,7 @@ export default function SettingsPage() {
                 <Button
                   onClick={saveProfile}
                   disabled={saving}
-                  className="h-9 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
+                  className="h-9 rounded-sm bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
                 >
                   {saving ? "Saving…" : "Save changes"}
                 </Button>
@@ -301,7 +301,7 @@ export default function SettingsPage() {
           {activeTab === "stream" && (
             <div className="space-y-6">
               {/* OBS / RTMP pointer — keys are per-stream now */}
-              <div className="space-y-3 rounded-lg bg-white/[0.03] p-5">
+              <div className="space-y-3 rounded-sm bg-white/[0.03] p-5">
                 <h2 className="text-sm font-medium text-foreground">
                   Stream from OBS
                 </h2>
@@ -313,7 +313,7 @@ export default function SettingsPage() {
                 </p>
                 <a
                   href="/studio?source=obs"
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/[0.06] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.09]"
+                  className="inline-flex h-9 items-center gap-2 rounded-sm bg-white/[0.06] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.09]"
                 >
                   <Key size={15} />
                   Open the studio
@@ -321,7 +321,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Stream settings */}
-              <div className="space-y-4 rounded-lg bg-white/[0.03] p-5">
+              <div className="space-y-4 rounded-sm bg-white/[0.03] p-5">
                 <h2 className="text-sm font-medium text-foreground">
                   Stream settings
                 </h2>
@@ -335,7 +335,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Chat moderation */}
-              <div className="space-y-4 rounded-lg bg-white/[0.03] p-5">
+              <div className="space-y-4 rounded-sm bg-white/[0.03] p-5">
                 <h2 className="text-sm font-medium text-foreground">
                   Chat moderation
                 </h2>
@@ -363,7 +363,7 @@ export default function SettingsPage() {
               <Button
                 onClick={saveStreamSettings}
                 disabled={saving}
-                className="h-9 rounded-lg bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
+                className="h-9 rounded-sm bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/85"
               >
                 {saving ? "Saving…" : "Save stream settings"}
               </Button>
@@ -372,7 +372,7 @@ export default function SettingsPage() {
 
           {/* ── Notifications (Coming Soon) ── */}
           {activeTab === "notifications" && (
-            <div className="rounded-lg bg-white/[0.03] p-8 text-center">
+            <div className="rounded-sm bg-white/[0.03] p-8 text-center">
               <Bell size={36} className="mx-auto text-muted-foreground/30" />
               <h2 className="mt-4 text-sm font-medium text-foreground">
                 Notifications
@@ -389,7 +389,7 @@ export default function SettingsPage() {
 
           {/* ── Security (Coming Soon) ── */}
           {activeTab === "security" && (
-            <div className="rounded-lg bg-white/[0.03] p-8 text-center">
+            <div className="rounded-sm bg-white/[0.03] p-8 text-center">
               <Shield size={36} className="mx-auto text-muted-foreground/30" />
               <h2 className="mt-4 text-sm font-medium text-foreground">
                 Security

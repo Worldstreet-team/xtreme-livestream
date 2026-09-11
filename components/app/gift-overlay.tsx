@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GiftArt } from "@/components/app/gift-art";
 
 /**
  * On-video gift spectacle.
@@ -81,10 +82,8 @@ export function GiftOverlay({
             className="absolute top-1/2 left-1/2"
             style={{ animation: "gift-pop 4s ease-out forwards" }}
           >
-            <div className="flex flex-col items-center gap-1 rounded-2xl border border-yellow-400/30 bg-black/70 px-6 py-4 backdrop-blur-md">
-              <span className="text-5xl leading-none drop-shadow-lg">
-                {gift.emoji}
-              </span>
+            <div className="flex flex-col items-center gap-1 rounded-2xl border border-yellow-400/30 bg-black/70 px-6 py-4">
+              <GiftArt emoji={gift.emoji} size={96} className="drop-shadow-[0_6px_24px_rgba(251,191,36,0.45)]" />
               <span className="mt-1 max-w-[16rem] truncate text-sm font-bold text-white">
                 {gift.username}
               </span>
@@ -121,8 +120,8 @@ export function GiftOverlay({
               animation: "gift-float 3s ease-out forwards",
             }}
           >
-            <div className="flex items-center gap-2 rounded-full border border-yellow-400/20 bg-black/70 py-1.5 pr-3.5 pl-2.5 backdrop-blur-sm">
-              <span className="text-xl leading-none">{gift.emoji}</span>
+            <div className="flex items-center gap-2 rounded-full border border-yellow-400/20 bg-black/70 py-1 pr-3.5 pl-1.5">
+              <GiftArt emoji={gift.emoji} size={30} />
               <span className="max-w-[10rem] truncate text-xs font-semibold text-white">
                 {gift.username}
               </span>

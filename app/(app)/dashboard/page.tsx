@@ -16,6 +16,7 @@ import { apiFetch, apiUrl } from "@/lib/api-client";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { RemoteImage } from "@/components/ui/remote-image";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
+import { Empty } from "@/components/app/empty";
 
 type Tab = "overview" | "streams" | "analytics";
 
@@ -190,8 +191,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen p-4 pt-16 md:p-8">
-      <div className="mx-auto max-w-[1500px]">
+    <div className="min-h-screen p-4 md:p-6">
+      <div className="w-full">
       {/* Profile header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
@@ -218,13 +219,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-8 inline-flex gap-1 rounded-lg bg-white/[0.03] p-1">
+      <div className="mb-8 inline-flex gap-1 rounded-sm bg-white/[0.03] p-1">
         {(["overview", "streams", "analytics"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "rounded-md px-4 py-1.5 text-sm capitalize transition-colors",
+              "rounded-sm px-4 py-1.5 text-sm capitalize transition-colors",
               tab === t
                 ? "bg-white/[0.08] font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -243,7 +244,7 @@ export default function DashboardPage() {
               <div
                 key={stat.label}
                 title={stat.hint}
-                className="rounded-lg bg-white/[0.03] p-4"
+                className="rounded-sm bg-white/[0.03] p-4"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
@@ -263,24 +264,26 @@ export default function DashboardPage() {
               Recent streams
             </h2>
             {recentStreams.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                No streams yet. Go live from the Studio to get started!
-              </p>
+              <Empty
+                className="py-8"
+                title="No streams yet"
+                body="Your first broadcast shows up here the moment you end it."
+              />
             ) : (
               <div className="space-y-3">
                 {recentStreams.slice(0, 3).map((stream) => (
                   <div
                     key={stream.id}
-                    className="flex items-center gap-4 rounded-lg bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
+                    className="flex items-center gap-4 rounded-sm bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
                   >
                     <RemoteImage
                       src={apiUrl(stream.thumbnailUrl)}
                       alt={stream.title}
                       width={120}
                       height={68}
-                      className="h-[68px] w-[120px] shrink-0 rounded-lg object-cover"
+                      className="h-[68px] w-[120px] shrink-0 rounded-sm object-cover"
                       fallback={
-                        <div className="relative h-[68px] w-[120px] shrink-0 overflow-hidden rounded-lg">
+                        <div className="relative h-[68px] w-[120px] shrink-0 overflow-hidden rounded-sm">
                           <StreamPreviewThumb
                             seed={stream.id + stream.title}
                             showTicker={false}
@@ -330,24 +333,26 @@ export default function DashboardPage() {
       {tab === "streams" && (
         <div>
           {recentStreams.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No streams yet. Go live from the Studio to get started!
-            </p>
+            <Empty
+              className="py-8"
+              title="No streams yet"
+              body="Your first broadcast fills this page with numbers worth reading."
+            />
           ) : (
             <div className="space-y-3">
               {recentStreams.map((stream) => (
                 <div
                   key={stream.id}
-                  className="flex items-center gap-4 rounded-lg bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
+                  className="flex items-center gap-4 rounded-sm bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
                 >
                   <RemoteImage
                     src={apiUrl(stream.thumbnailUrl)}
                     alt={stream.title}
                     width={140}
                     height={79}
-                    className="h-[79px] w-[140px] shrink-0 rounded-lg object-cover"
+                    className="h-[79px] w-[140px] shrink-0 rounded-sm object-cover"
                     fallback={
-                      <div className="relative h-[79px] w-[140px] shrink-0 overflow-hidden rounded-lg">
+                      <div className="relative h-[79px] w-[140px] shrink-0 overflow-hidden rounded-sm">
                         <StreamPreviewThumb
                           seed={stream.id + stream.title}
                           showTicker={false}
@@ -390,7 +395,7 @@ export default function DashboardPage() {
                     <button
                       disabled
                       title="Replays coming soon — stream recording isn't available yet"
-                      className="flex size-8 cursor-not-allowed items-center justify-center rounded-lg bg-white/[0.04] text-muted-foreground/30"
+                      className="flex size-8 cursor-not-allowed items-center justify-center rounded-sm bg-white/[0.04] text-muted-foreground/30"
                     >
                       <Play size={14} />
                     </button>
@@ -405,8 +410,8 @@ export default function DashboardPage() {
       {/* ── Analytics Tab ── */}
       {tab === "analytics" && (
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-lg bg-white/[0.03] p-5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
+            <div className="rounded-sm bg-white/[0.03] p-5">
               <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                 Total streams
               </h3>
@@ -414,7 +419,7 @@ export default function DashboardPage() {
                 {stats.totalStreams}
               </p>
             </div>
-            <div className="rounded-lg bg-white/[0.03] p-5">
+            <div className="rounded-sm bg-white/[0.03] p-5">
               <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                 Avg. viewers
               </h3>
@@ -422,7 +427,7 @@ export default function DashboardPage() {
                 {formatNumber(avgViewers)}
               </p>
             </div>
-            <div className="rounded-lg bg-white/[0.03] p-5">
+            <div className="rounded-sm bg-white/[0.03] p-5">
               <h3 className="text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
                 Tips received
               </h3>
@@ -440,7 +445,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-lg bg-white/[0.03] p-5">
+          <div className="rounded-sm bg-white/[0.03] p-5">
             <h3 className="mb-4 text-sm font-medium text-foreground">
               Peak viewers — last 7 days
             </h3>
@@ -472,19 +477,17 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-lg bg-white/[0.03] p-5">
+          <div className="rounded-sm bg-white/[0.03] p-5">
             <h3 className="mb-4 text-sm font-medium text-foreground">
               Top performing streams
             </h3>
             {topStreams.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No stream data yet.
-              </p>
+              <Empty className="py-6" title="No stream data yet" />
             ) : (
               <div className="space-y-3">
                 {topStreams.map((stream, i) => (
                   <div key={stream.id} className="flex items-center gap-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-xs font-semibold text-muted-foreground">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-sm bg-white/[0.06] text-xs font-semibold text-muted-foreground">
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">

@@ -1,82 +1,213 @@
+"use client";
+
 import Link from "next/link";
-import { Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
+import { Eye, SealCheck, Play } from "@phosphor-icons/react";
 import { type Stream, formatNumber } from "@/lib/categories";
-import { RemoteImage } from "@/components/ui/remote-image";
+import { formatUptime } from "@/lib/discovery";
+import { useImpression, type ImpressionMeta } from "@/lib/impressions";
+import { useNow } from "@/lib/use-now";
+import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
+import { StreamArt } from "@/components/app/stream-art";
+import { FollowButton } from "@/components/app/follow-button";
+import { Badge, LiveBadge } from "@/components/ui/badge";
 
 /**
- * A stream in the grid. Borderless on purpose — the thumbnail is the card,
- * and the info sits under it as quiet text (the Twitch/YouTube shape). All
- * signal lives in small overlays: LIVE, viewers, duration. Category renders
- * as muted text, not a colored chip — six rainbow chips per row read as
- * noise at grid scale.
+ * A stream in a grid or shelf. Borderless on purpose — the thumbnail is the
+ * card, and the info sits under it as quiet text. All signal lives in small
+ * overlays: LIVE, viewers, uptime. Category renders as muted text, not a
+ * coloured chip — six rainbow chips per row read as noise at grid scale.
+ *
+ * Two targets, not one: the thumbnail and title open the broadcast, while
+ * the avatar, name and category open the channel and the category. Nesting
+ * those inside a single card-wide <a> would be invalid HTML and would
+ * strand every channel page behind a stream nobody wanted to watch.
+ *
+ * Variants:
+ *  - standard   thumbnail, avatar, three text lines
+ *  - badges     adds uptime and a category chip on the image
+ *  - large      same anatomy, bigger type — for the followed-live shelf
+ *  - compact    horizontal: thumbnail left, text right — lists and rails
  */
-export function StreamCard({ stream }: { stream: Stream }) {
-  return (
-    <Link href={`/stream/${stream.id}`} className="group block">
-      {/* Thumbnail */}
-      <div className="relative aspect-video overflow-hidden rounded-lg bg-white/[0.03]">
-        {stream.thumbnailUrl ? (
-          <RemoteImage
-            src={stream.thumbnailUrl}
-            alt={stream.title}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-            fallback={<StreamPreviewThumb seed={stream.id + stream.title} />}
-          />
-        ) : (
-          <StreamPreviewThumb seed={stream.id + stream.title} />
-        )}
 
-        {stream.isLive ? (
-          <span className="absolute top-2 left-2 flex items-center gap-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[0.65rem] font-semibold tracking-wide text-white">
-            <span className="relative flex size-1.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
-              <span className="relative inline-flex size-1.5 rounded-full bg-white" />
-            </span>
-            LIVE
-          </span>
-        ) : (
-          <span className="absolute top-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white/80">
-            {stream.duration}
-          </span>
-        )}
+export type StreamCardVariant = "standard" | "badges" | "large" | "compact";
 
-        <span className="absolute right-2 bottom-2 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white/90 tabular-nums">
-          <Eye size={12} />
-          {formatNumber(stream.viewers)}
+export function StreamCard({
+  stream,
+  variant = "standard",
+  showFollow = false,
+  impression = null,
+  className,
+}: {
+  stream: Stream;
+  variant?: StreamCardVariant;
+  /** Inline follow button — raises follow rate, adds a third target. */
+  showFollow?: boolean;
+  /** Where this card is being shown; logs once when half of it is seen for a second. */
+  impression?: ImpressionMeta | null;
+  className?: string;
+}) {
+  const ref = useImpression<HTMLDivElement>(impression);
+  const badges = variant === "badges" || variant === "large";
+  // Only badge variants tick; a plain grid of forty cards has no reason to
+  // re-render every second.
+  const now = useNow(badges && stream.isLive);
+  const uptime = badges && stream.isLive ? formatUptime(stream.startedAt, now) : "";
+
+  const name = stream.streamer.displayName || stream.streamer.username;
+  const streamHref = `/stream/${stream.id}`;
+  const channelHref = `/c/${stream.streamer.username}`;
+
+  const thumb = (
+    <Link
+      href={streamHref}
+      className="group/thumb relative block aspect-video overflow-hidden rounded-sm bg-white/[0.03]"
+    >
+      <StreamArt
+        src={stream.thumbnailUrl}
+        category={stream.category}
+        alt={stream.title}
+        seed={stream.id + stream.title}
+        imgClassName="transition-transform duration-300 group-hover/thumb:scale-[1.03]"
+        lazy
+      />
+
+      {/* Preview affordance: the whole thumbnail is one target, and on
+          hover it says so. Preview-before-commit is what Twitch's mobile
+          feed is built on; on the web a play mark is the honest version
+          until we can afford a muted stream per card. */}
+      {stream.isLive && (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+          <span className="flex size-10 items-center justify-center rounded-full bg-black/55">
+            <Play size={16} weight="fill" className="ml-0.5 text-white" />
+          </span>
         </span>
-      </div>
+      )}
 
-      {/* Info */}
-      <div className="mt-2.5 flex gap-2.5">
-        <UserAvatar
-          src={stream.streamer.avatar}
-          name={stream.streamer.displayName || stream.streamer.username}
-          size={32}
-          className="size-8 shrink-0"
+      <span className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+        {stream.isLive ? <LiveBadge /> : <Badge variant="dark">{stream.duration}</Badge>}
+        {uptime && <Badge variant="glass">{uptime}</Badge>}
+      </span>
+
+      {badges && (
+        <Badge variant="dark" className="absolute bottom-2.5 left-2.5 max-w-[55%]">
+          <span className="truncate">{stream.category}</span>
+        </Badge>
+      )}
+
+      {/* Live streams show who's watching; finished ones show the peak they
+          reached, since their live count is always 0. */}
+      <Badge variant="glass" icon={<Eye size={12} weight="bold" />} className="absolute right-2.5 bottom-2.5">
+        {stream.isLive
+          ? formatNumber(stream.viewers)
+          : `${formatNumber(stream.peakViewers ?? 0)} peak`}
+      </Badge>
+    </Link>
+  );
+
+  const nameLine = (
+    <Link
+      href={channelHref}
+      className="mt-0.5 flex w-fit max-w-full items-center gap-1 truncate text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <span className="truncate">{name}</span>
+      {stream.streamer.verified && (
+        <SealCheck
+          size={12}
+          weight="fill"
+          className="shrink-0 text-sky-400"
+          aria-label="Verified streamer"
         />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary">
-            {stream.title}
-          </h3>
-          <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
-            {stream.streamer.displayName}
-            {stream.streamer.verified && (
-              <SealCheck
-                size={12}
-                weight="fill"
-                className="shrink-0 text-sky-400"
-                aria-label="Verified streamer"
-              />
-            )}
-          </p>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
+      )}
+    </Link>
+  );
+
+  if (variant === "compact") {
+    return (
+      <div ref={ref} className={cn("group flex gap-3", className)}>
+        <div className="w-[42%] shrink-0">{thumb}</div>
+        <div className="min-w-0 flex-1 py-0.5">
+          <Link href={streamHref}>
+            <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition-colors group-hover:text-primary">
+              {stream.title}
+            </h3>
+          </Link>
+          {nameLine}
+          <Link
+            href={`/browse?category=${encodeURIComponent(stream.category)}`}
+            className="mt-0.5 block w-fit truncate text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+          >
             {stream.category}
-          </p>
+          </Link>
         </div>
       </div>
-    </Link>
+    );
+  }
+
+  return (
+    <div ref={ref} className={cn("group", className)}>
+      {thumb}
+      <div className={cn("mt-2.5 flex gap-2.5", variant === "large" && "mt-3")}>
+        <Link
+          href={channelHref}
+          className="shrink-0"
+          aria-label={`${name}'s channel`}
+        >
+          <UserAvatar
+            src={stream.streamer.avatar}
+            name={name}
+            size={variant === "large" ? 36 : 32}
+            className={cn(
+              "shrink-0 transition-opacity hover:opacity-80",
+              variant === "large" ? "size-9" : "size-8"
+            )}
+          />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <Link href={streamHref}>
+            <h3
+              className={cn(
+                "truncate font-medium text-foreground transition-colors group-hover:text-primary",
+                variant === "large" ? "text-[15px]" : "text-sm"
+              )}
+            >
+              {stream.title}
+            </h3>
+          </Link>
+          {nameLine}
+          {!badges && (
+            <Link
+              href={`/browse?category=${encodeURIComponent(stream.category)}`}
+              className="mt-0.5 block w-fit truncate text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+            >
+              {stream.category}
+            </Link>
+          )}
+          {/* Tags the way Twitch's feed wears them: small solid chips under
+              the text, three at most, so a row scans as a row. */}
+          {stream.tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {stream.tags.slice(0, 3).map((tag) => (
+                <Link
+                  key={tag}
+                  href={`/explore?search=${encodeURIComponent(tag)}`}
+                  className="rounded-[4px] bg-white/[0.08] px-1.5 py-0.5 text-[10.5px] font-medium text-foreground/80 transition-colors hover:bg-white/[0.14] hover:text-foreground"
+                >
+                  {tag}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+        {showFollow && (
+          <FollowButton
+            username={stream.streamer.username}
+            initialFollowing={false}
+            size="sm"
+            className="mt-0.5"
+          />
+        )}
+      </div>
+    </div>
   );
 }

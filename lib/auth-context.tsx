@@ -30,6 +30,13 @@ export interface AppUser {
     slowMode: boolean;
     subscriberOnly: boolean;
     profanityFilter: boolean;
+    discoverableByTag?: boolean;
+  };
+  /** Cold-start picker state; `completedAt` null means never seen or skipped. */
+  onboarding?: {
+    completedAt: string | null;
+    categories: string[];
+    language?: string;
   };
   createdAt: string;
 }

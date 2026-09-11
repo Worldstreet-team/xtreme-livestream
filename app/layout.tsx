@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, DM_Sans, Space_Grotesk } from "next/font/google";
+import { Geist, Geist_Mono, DM_Sans, Space_Grotesk, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
@@ -7,6 +7,10 @@ import "./globals.css";
 const dmSans = DM_Sans({subsets:['latin'],variable:'--font-sans'});
 
 const spaceGrotesk = Space_Grotesk({subsets:['latin'],variable:'--font-display'});
+
+// The socials (WorldSpace) display face, for the house slides in the right
+// rail that are drawn on that platform's grammar.
+const poppins = Poppins({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-poppins" });
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,8 +23,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Xtreme Worldstreet — Crypto Livestreaming Platform",
-  description: "Stream live, trade insights, and connect with the crypto community. Go live or explore streams on Xtreme Worldstreet.",
+  title: "Xtream Worldstreet — Crypto Livestreaming Platform",
+  description: "Stream live, trade insights, and connect with the crypto community. Go live or explore streams on Xtream Worldstreet.",
 };
 
 const isSatellite = process.env.NEXT_PUBLIC_CLERK_IS_SATELLITE === "true";
@@ -63,7 +67,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkAuthProvider>
-      <html lang="en" className={`${dmSans.variable} ${spaceGrotesk.variable} dark`}>
+      <html lang="en" className={`${dmSans.variable} ${spaceGrotesk.variable} ${poppins.variable} dark`}>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         >

@@ -13,6 +13,9 @@ const isPublicRoute = createRouteMatcher([
   "/",                       // Marketing landing page
   "/explore",                // Public stream browsing
   "/stream/(.*)",            // Public stream watching (interactions still require auth)
+  "/c/(.*)",                 // Public channel pages (following still requires auth)
+  "/browse(.*)",             // Public category directory
+  "/feed",                   // Public vertical live feed (muted previews)
   "/api/webhooks/(.*)",      // Server-to-server webhooks (verified by signature)
   "/sign-in(.*)",            // Local standalone sign-in (non-satellite dev)
   "/sign-up(.*)",
@@ -26,8 +29,10 @@ export default clerkMiddleware(async (auth, request) => {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // Skip Next.js internals and all static files, unless found in search
+    // params. Media is listed too: a clip under public/ (the dev preview
+    // loops) is a file, not a page, and must never be auth-gated.
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|mp4|webm|m4v|mov|mp3|m4a|ogg|wav)).*)",
     // Always run for API routes
     "/(api|trpc)(.*)",
   ],

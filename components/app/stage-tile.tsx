@@ -48,7 +48,7 @@ export function StageTile({
         "relative overflow-hidden bg-black",
         fill
           ? "size-full"
-          : "aspect-video rounded-lg shadow-lg"
+          : "aspect-video rounded-sm shadow-lg"
       )}
     >
       <video
@@ -64,7 +64,7 @@ export function StageTile({
         className={cn(
           "absolute flex items-center gap-1",
           fill
-            ? "bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-md bg-black/60 px-2 py-1 backdrop-blur-sm"
+            ? "bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-black/60 px-2 py-1"
             : "right-1 bottom-0.5 left-1"
         )}
       >

@@ -34,11 +34,11 @@ export function Footer() {
           {/* Brand */}
           <div className="lg:col-span-1">
             <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
+              <div className="flex size-8 items-center justify-center rounded-sm bg-primary/20 text-primary">
                 <Flame size={18} weight="fill" />
               </div>
               <span className="text-base font-bold tracking-tight text-foreground">
-                Xtreme <span className="text-primary">Worldstreet</span>
+                Xtream <span className="text-primary">Worldstreet</span>
               </span>
             </div>
             <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
@@ -73,7 +73,7 @@ export function Footer() {
             <span className="font-semibold text-muted-foreground">
               Not financial advice.
             </span>{" "}
-            Content on Xtreme Worldstreet — including trading calls, market
+            Content on Xtream Worldstreet — including trading calls, market
             commentary, and price predictions — reflects the opinions of
             individual creators and is provided for entertainment and
             educational purposes only. Crypto assets are highly volatile; never
@@ -94,7 +94,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-8 sm:flex-row">
           <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} Xtreme Worldstreet. All rights
+            &copy; {new Date().getFullYear()} Xtream Worldstreet. All rights
             reserved.
           </p>
           <div className="flex items-center gap-4">
