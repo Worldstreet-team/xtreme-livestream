@@ -76,6 +76,12 @@ interface LiveChatProps {
   isHost?: boolean;
   /** Pin persisted on the stream doc, so late joiners see it. */
   initialPinned?: PinnedMessage | null;
+  /**
+   * "panel": the desktop sidebar. "overlay": the TikTok-style mobile skin —
+   * transparent bubbles floating over the video with a compact input pill.
+   * One component, one set of state and handlers; only the skin changes.
+   */
+  variant?: "panel" | "overlay";
 }
 
 export function LiveChat({
@@ -84,7 +90,9 @@ export function LiveChat({
   isLive,
   isHost = false,
   initialPinned = null,
+  variant = "panel",
 }: LiveChatProps) {
+  const overlay = variant === "overlay";
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -683,7 +691,15 @@ export function LiveChat({
 
   return (
     // `relative`: the gift keyboard docks inside this column on desktop.
-    <div className="relative flex h-full flex-col border-l border-white/5 bg-background">
+    <div
+      className={cn(
+        "relative flex h-full flex-col",
+        overlay
+          ? "pointer-events-none justify-end"
+          : "border-l border-white/5 bg-background"
+      )}
+    >
+      {!overlay && (<>
       {/* Chat header */}
       <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
         <div className="flex items-center gap-2">
@@ -766,14 +782,29 @@ export function LiveChat({
           </button>
         </div>
       )}
+      </>)}
 
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="relative flex-1 space-y-1 overflow-y-auto px-3 py-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+        className={cn(
+          "relative space-y-1 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10",
+          overlay
+            ? // Floating feed: capped height, newest at the bottom, older
+              // rows dissolving into the video via a mask.
+              "pointer-events-auto max-h-[34dvh] px-1 pb-2 [mask-image:linear-gradient(to_top,black_78%,transparent)]"
+            : "flex-1 px-3 py-3"
+        )}
       >
         {pinned && (
-          <div className="sticky top-0 z-10 -mx-1 mb-1 flex items-start gap-2 rounded-sm border border-primary/25 bg-[oklch(0.14_0.02_25)] px-2.5 py-2">
+          <div
+            className={cn(
+              "sticky top-0 z-10 mb-1 flex items-start gap-2 rounded-sm px-2.5 py-2",
+              overlay
+                ? "w-fit max-w-full bg-black/75"
+                : "-mx-1 border border-primary/25 bg-[oklch(0.14_0.02_25)]"
+            )}
+          >
             <PushPin
               size={13}
               weight="fill"
@@ -796,17 +827,21 @@ export function LiveChat({
             )}
           </div>
         )}
-        {messages.length === 0 && (
+        {!overlay && messages.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <p className="text-xs text-muted-foreground/50">
               {isLive ? "No messages yet — say something!" : "Chat is offline"}
             </p>
           </div>
         )}
-        {messages.map((msg) => (
+        {(overlay ? messages.slice(-40) : messages).map((msg) => (
           <div
             key={msg.id}
-            className="group animate-in fade-in slide-in-from-bottom-1 duration-200"
+            className={cn(
+              "group animate-in fade-in slide-in-from-bottom-1 duration-200",
+              overlay &&
+                "w-fit max-w-full rounded-xl bg-black/65 px-2.5 py-1.5"
+            )}
           >
             {msg.type === "join" || msg.type === "like" || msg.type === "stage" ? (
               // System rows — the room's pulse, not someone speaking.
@@ -1000,7 +1035,14 @@ export function LiveChat({
 
       {/* Reactions popup */}
       {showReactions && (
-        <div className="border-t border-white/5 bg-white/[0.02] px-3 py-2">
+        <div
+          className={cn(
+            "px-3 py-2",
+            overlay
+              ? "pointer-events-auto mb-2 w-fit rounded-2xl bg-black/70"
+              : "border-t border-white/5 bg-white/[0.02]"
+          )}
+        >
           <div className="flex flex-wrap gap-1">
             {QUICK_REACTIONS.map((emoji) => (
               <button
@@ -1031,7 +1073,13 @@ export function LiveChat({
       />
 
       {/* Input bar */}
-      <div className="border-t border-white/5 px-3 py-3">
+      <div
+        className={cn(
+          overlay
+            ? "pointer-events-auto pt-1"
+            : "border-t border-white/5 px-3 py-3"
+        )}
+      >
         {chatError && isLive && user && (
           <p className="mb-2 text-[0.65rem] text-red-400">{chatError}</p>
         )}
@@ -1050,7 +1098,12 @@ export function LiveChat({
         ) : isLive && !user ? (
           <a
             href="https://www.worldstreetgold.com/login"
-            className="flex h-10 items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/5 text-sm font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
+            className={cn(
+              "flex h-10 items-center justify-center gap-2 text-sm font-medium transition-colors",
+              overlay
+                ? "rounded-full bg-black/65 text-white/80 hover:text-white"
+                : "rounded-sm border border-white/10 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground"
+            )}
           >
             <SignIn size={16} />
             Sign in to chat
@@ -1063,10 +1116,15 @@ export function LiveChat({
                 setShowGiftPanel(false);
               }}
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-sm transition-colors",
+                "flex size-10 shrink-0 items-center justify-center transition-colors",
+                overlay ? "rounded-full bg-black/65" : "rounded-sm",
                 showReactions
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  ? overlay
+                    ? "text-primary"
+                    : "bg-primary/10 text-primary"
+                  : overlay
+                    ? "text-white/80 hover:text-white"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               <Smiley size={20} />
@@ -1080,10 +1138,15 @@ export function LiveChat({
                 }}
                 title="Send a gift"
                 className={cn(
-                  "flex size-10 shrink-0 items-center justify-center rounded-sm transition-colors",
+                  "flex size-10 shrink-0 items-center justify-center transition-colors",
+                  overlay ? "rounded-full bg-black/65" : "rounded-sm",
                   showGiftPanel
-                    ? "bg-yellow-500/10 text-yellow-400"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                    ? overlay
+                      ? "text-yellow-400"
+                      : "bg-yellow-500/10 text-yellow-400"
+                    : overlay
+                      ? "text-white/80 hover:text-white"
+                      : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                 )}
               >
                 <Gift size={20} weight="fill" />
@@ -1102,12 +1165,22 @@ export function LiveChat({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               disabled={cooldownLeft > 0 || sending}
-              className="h-10 flex-1 rounded-sm border border-white/10 bg-white/5 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              className={cn(
+                "h-10 flex-1 px-4 text-sm text-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60",
+                overlay
+                  ? "rounded-full bg-black/65 placeholder:text-white/50 focus:bg-black/80"
+                  : "rounded-sm border border-white/10 bg-white/5 placeholder:text-muted-foreground focus:border-primary/30"
+              )}
             />
             <button
               onClick={sendMessage}
               disabled={cooldownLeft > 0 || sending}
-              className="flex size-10 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                overlay
+                  ? "rounded-full bg-primary text-primary-foreground hover:bg-primary/85"
+                  : "rounded-sm bg-primary/10 text-primary hover:bg-primary/20"
+              )}
             >
               {cooldownLeft > 0 ? (
                 <span className="text-xs font-semibold">{cooldownLeft}</span>
@@ -1118,7 +1191,7 @@ export function LiveChat({
               )}
             </button>
           </div>
-        ) : (
+        ) : overlay ? null : (
           <p className="text-center text-xs text-muted-foreground/50">
             Chat is disabled — stream is offline
           </p>

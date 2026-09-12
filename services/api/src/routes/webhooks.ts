@@ -27,7 +27,10 @@ async function updateViewerCounts(
     // Neither the browser publisher nor the RTMP encoder (obs-<id>) is a
     // viewer — an OBS stream has both in the room at once.
     viewers = list.filter(
-      (p) => p.identity !== bid && p.identity !== `obs-${bid}`,
+      (p) =>
+        p.identity !== bid &&
+        p.identity !== `obs-${bid}` &&
+        p.identity !== `mon-${bid}`,
     ).length;
   } catch {
     viewers =
@@ -113,7 +116,8 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           stream &&
           identity &&
           identity !== bid &&
-          identity !== `obs-${bid}`
+          identity !== `obs-${bid}` &&
+          identity !== `mon-${bid}`
         ) {
           // The identity is the viewer's user id. Recording it is what turns
           // "how many are watching" into "who watches what", which every

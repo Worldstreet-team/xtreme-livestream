@@ -151,6 +151,8 @@ export default function FollowingPage() {
                         viewers: channel.stream!.viewers,
                         startedAt: channel.stream!.startedAt,
                         duration: "",
+                        // The follows endpoint doesn't carry the stage roster.
+                        liveGuests: [],
                         streamer: {
                           id: channel.id,
                           username: channel.username,

@@ -64,6 +64,8 @@ export interface RowItem {
   scheduledStartAt: Date | null;
   duration: string;
   streamerId: RowStreamer;
+  /** Whoever else is live on this stage right now. */
+  guests: Array<{ username: string; avatar: string }>;
   /** Only on upcoming items for a signed-in viewer. */
   reminded?: boolean;
 }
@@ -124,6 +126,13 @@ export function toItem(s: LeanStream): RowItem {
       isLive: Boolean(streamer.isLive),
       verified: streamer.verified ?? false,
     },
+    // Co-hosts on the stage, so a shared live reads as two faces and
+    // "X with Y" on every card, not only in the /api/streams list.
+    guests: Array.isArray(s.guests)
+      ? (s.guests as Array<{ username?: string; avatar?: string; status?: string }>)
+          .filter((g) => g.status === "live")
+          .map((g) => ({ username: g.username ?? "", avatar: g.avatar ?? "" }))
+      : [],
   };
 }
 

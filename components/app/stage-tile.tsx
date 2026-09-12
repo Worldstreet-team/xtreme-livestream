@@ -4,10 +4,17 @@ import { useEffect, useRef } from "react";
 import { MicrophoneSlash } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
-/** The minimal surface of a LiveKit video track the stage UI needs. */
+/**
+ * The minimal surface of a LiveKit video track the stage UI needs.
+ * `detach` mirrors LiveKit's overloads: no argument releases every attached
+ * element, an argument releases just that one.
+ */
 export interface AttachableVideoTrack {
   attach: (el: HTMLVideoElement) => unknown;
-  detach: (el: HTMLVideoElement) => unknown;
+  detach: {
+    (): unknown;
+    (el: HTMLVideoElement): unknown;
+  };
 }
 
 /**

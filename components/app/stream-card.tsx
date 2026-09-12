@@ -55,6 +55,8 @@ export function StreamCard({
   const uptime = badges && stream.isLive ? formatUptime(stream.startedAt, now) : "";
 
   const name = stream.streamer.displayName || stream.streamer.username;
+  // A shared stage reads as overlapping faces and "Host with Guest".
+  const coHosts = stream.liveGuests ?? [];
   const streamHref = `/stream/${stream.id}`;
   const channelHref = `/c/${stream.streamer.username}`;
 
@@ -110,7 +112,15 @@ export function StreamCard({
       href={channelHref}
       className="mt-0.5 flex w-fit max-w-full items-center gap-1 truncate text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
-      <span className="truncate">{name}</span>
+      <span className="truncate">
+        {name}
+        {coHosts.length > 0 && (
+          <span className="text-muted-foreground/80">
+            {" "}with {coHosts[0]!.username}
+            {coHosts.length > 1 && ` +${coHosts.length - 1}`}
+          </span>
+        )}
+      </span>
       {stream.streamer.verified && (
         <SealCheck
           size={12}
@@ -150,7 +160,7 @@ export function StreamCard({
       <div className={cn("mt-2.5 flex gap-2.5", variant === "large" && "mt-3")}>
         <Link
           href={channelHref}
-          className="shrink-0"
+          className={cn("flex shrink-0", coHosts.length > 0 && "-space-x-3")}
           aria-label={`${name}'s channel`}
         >
           <UserAvatar
@@ -159,9 +169,22 @@ export function StreamCard({
             size={variant === "large" ? 36 : 32}
             className={cn(
               "shrink-0 transition-opacity hover:opacity-80",
+              coHosts.length > 0 && "relative z-10 ring-2 ring-background",
               variant === "large" ? "size-9" : "size-8"
             )}
           />
+          {coHosts.slice(0, 2).map((g) => (
+            <UserAvatar
+              key={g.username}
+              src={g.avatar}
+              name={g.username}
+              size={variant === "large" ? 36 : 32}
+              className={cn(
+                "shrink-0 ring-2 ring-background",
+                variant === "large" ? "size-9" : "size-8"
+              )}
+            />
+          ))}
         </Link>
         <div className="min-w-0 flex-1">
           <Link href={streamHref}>

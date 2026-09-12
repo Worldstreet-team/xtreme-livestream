@@ -418,6 +418,8 @@ interface LiveRow {
   viewers: number;
   startedAt?: string;
   streamerId?: { _id?: string; displayName?: string; username?: string; avatar?: string };
+  /** Co-hosts on the stage, so the rail can say who someone is live with. */
+  guests?: Array<{ username: string; avatar: string; status: string }>;
 }
 
 interface FollowedRow {
@@ -437,10 +439,13 @@ interface RailEntry {
   subtitle: string;
   viewers: number;
   startedAt?: string;
+  /** Whoever else is on the stage right now — the rail shows the first. */
+  coHosts?: Array<{ username: string; avatar: string }>;
 }
 
 function ChannelRow({ entry, now, collapsed, onNavigate }: { entry: RailEntry; now: number; collapsed: boolean; onNavigate: () => void }) {
   const uptime = entry.startedAt ? formatUptime(entry.startedAt, now) : "";
+  const withThem = entry.coHosts ?? [];
   if (collapsed) {
     return (
       <Link href={entry.href} onClick={onNavigate} title={`${entry.name} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-sm py-1.5 transition-colors hover:bg-white/[0.04]">
@@ -453,12 +458,24 @@ function ChannelRow({ entry, now, collapsed, onNavigate }: { entry: RailEntry; n
   }
   return (
     <Link href={entry.href} onClick={onNavigate} className="flex items-center gap-2.5 rounded-sm px-3.5 py-2 transition-colors hover:bg-white/[0.04]">
-      <span className="relative shrink-0">
-        <UserAvatar src={entry.avatar} name={entry.name} size={30} className="size-[30px]" />
-        <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
+      {/* Two faces when the stage is shared — the co-host sits behind. */}
+      <span className="relative flex shrink-0 -space-x-2">
+        <UserAvatar src={entry.avatar} name={entry.name} size={30} className="relative z-10 size-[30px]" />
+        {withThem[0] && (
+          <UserAvatar src={withThem[0].avatar} name={withThem[0].username} size={30} className="size-[30px]" />
+        )}
+        <span className="absolute -right-0.5 -bottom-0.5 z-20 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span className="truncate text-[13.5px] font-medium text-foreground/90">{entry.name}</span>
+        <span className="truncate text-[13.5px] font-medium text-foreground/90">
+          {entry.name}
+          {withThem[0] && (
+            <span className="text-muted-foreground/70">
+              {" "}with {withThem[0].username}
+              {withThem.length > 1 && ` +${withThem.length - 1}`}
+            </span>
+          )}
+        </span>
         <span className="truncate text-[11.5px] text-muted-foreground/70">{entry.subtitle}</span>
       </span>
       <span className="flex shrink-0 flex-col items-end leading-tight text-[11px] text-muted-foreground tabular-nums">
@@ -566,6 +583,9 @@ function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed:
     subtitle: s.title,
     viewers: s.viewers,
     ...(s.startedAt ? { startedAt: s.startedAt } : {}),
+    coHosts: (s.guests ?? [])
+      .filter((g) => g.status === "live")
+      .map((g) => ({ username: g.username, avatar: g.avatar })),
   });
 
   const followedLive: RailEntry[] = (isAuthenticated ? followed : [])

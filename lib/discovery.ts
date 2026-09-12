@@ -35,6 +35,8 @@ export interface RowItem {
   scheduledStartAt: string | null;
   duration: string;
   streamerId: RowStreamer;
+  /** Co-hosts live on the stage — an empty list for a solo stream. */
+  guests?: Array<{ username: string; avatar: string }>;
   reminded?: boolean;
 }
 
@@ -86,6 +88,7 @@ export function toCard(item: RowItem): Stream {
     peakViewers: item.peakViewers,
     startedAt: item.startedAt ?? "",
     duration: item.duration,
+    liveGuests: item.guests ?? [],
     streamer: {
       id: item.streamerId._id,
       username: item.streamerId.username,
