@@ -327,7 +327,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             <button type="button" onClick={onMenu} aria-label="Open menu" className="shrink-0 md:hidden">
               <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
             </button>
-            <Link href={`/c/${user.username}`} title={user.displayName} className="hidden shrink-0 md:block">
+            <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
               <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
             </Link>
           </>
