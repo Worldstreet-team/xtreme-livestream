@@ -11,7 +11,6 @@ import {
   Diamond,
   Faders,
   SignOut,
-  X,
   Users,
   SignIn,
   ArrowUpRight,
@@ -36,6 +35,7 @@ import { useEffect, useRef, useState } from "react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { MobileTabBar } from "@/components/app/mobile-tabbar";
+import { PhoneDrawer } from "@/components/app/phone-drawer";
 import { TopBar } from "@/components/app/topbar";
 import { RightRail } from "@/components/app/right-rail";
 import {
@@ -54,10 +54,16 @@ import {
  * block at the foot — avatar, name, handle. Corners stay square-ish
  * throughout; the modern feel is the type scale and the rhythm, not radius.
  *
- * It collapses to a 72px icon rail, and disappears entirely on /welcome,
- * which is a moment rather than a page.
+ * It collapses to a 72px icon rail — by choice on wide screens, always
+ * between 768 and 1024px where a 264px column would leave the page too
+ * little room (the tablet band was the shell's broken breakpoint) — and
+ * disappears entirely on /welcome, which is a moment rather than a page.
+ *
+ * Phones never see it: they get the tab bar for the four places to go and
+ * the account drawer (`PhoneDrawer`) for everything about you.
  */
 
+const noop = () => {};
 const RAIL_OPEN = "16.5rem";
 const RAIL_COLLAPSED = "4.5rem";
 const COLLAPSE_KEY = "xtreme-rail-collapsed";
@@ -67,9 +73,23 @@ const CHROMELESS = ["/welcome"];
 const PHONE_CHROMELESS = ["/studio"];
 const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet"];
 
+/** True from the `lg` breakpoint up; false for the server paint. */
+function useWide() {
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return wide;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const wide = useWide();
   // The phone drawer: opened from the top bar, closed by any link inside it.
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -99,16 +119,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
   const phoneChromeless = PHONE_CHROMELESS.some((p) => pathname.startsWith(p));
+  // Tablets get the icon rail whether or not you asked for it.
+  const narrow = collapsed || !wide;
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} onToggle={toggle} mobileOpen={mobileOpen} onMobileOpenChange={setMobileOpen} />
+      <Sidebar collapsed={narrow} onToggle={wide ? toggle : undefined} />
       <main
         className={cn(
           "flex min-h-screen flex-col transition-[margin] duration-300 md:ml-[var(--rail-w)] md:pb-0",
-          phoneChromeless ? "pb-0" : "pb-16",
+          phoneChromeless ? "pb-0" : "pb-[calc(3.75rem+env(safe-area-inset-bottom))]",
         )}
-        style={{ "--rail-w": collapsed ? RAIL_COLLAPSED : RAIL_OPEN } as React.CSSProperties}
+        style={{ "--rail-w": narrow ? RAIL_COLLAPSED : RAIL_OPEN } as React.CSSProperties}
       >
         <div className={cn(phoneChromeless && "hidden md:block")}>
           <TopBar onMenu={() => setMobileOpen(true)} />
@@ -120,7 +142,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {!NO_RAIL.some((p) => pathname.startsWith(p)) && <RightRail />}
         </div>
       </main>
-      {!phoneChromeless && <MobileTabBar />}
+      {!phoneChromeless && (
+        <>
+          <MobileTabBar />
+          <PhoneDrawer open={mobileOpen} onOpenChange={setMobileOpen} />
+        </>
+      )}
     </div>
   );
 }
@@ -163,16 +190,12 @@ function Eyebrow({ children, collapsed }: { children: React.ReactNode; collapsed
 export function Sidebar({
   collapsed = false,
   onToggle,
-  mobileOpen = false,
-  onMobileOpenChange,
 }: {
   collapsed?: boolean;
+  /** Absent when the width is forced (tablets) — no toggle to show then. */
   onToggle?: () => void;
-  mobileOpen?: boolean;
-  onMobileOpenChange?: (open: boolean) => void;
 }) {
   const pathname = usePathname();
-  const setMobileOpen = (open: boolean) => onMobileOpenChange?.(open);
   const { user, isLoading, logout } = useAuth();
   const [productsOpen, setProductsOpen] = useState(false);
   const [liveCount, setLiveCount] = useState(0);
@@ -192,8 +215,7 @@ export function Sidebar({
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
 
-  const closeMobile = () => setMobileOpen(false);
-  const narrow = collapsed && !mobileOpen;
+  const narrow = collapsed;
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
@@ -205,7 +227,6 @@ export function Sidebar({
       <Link
         key={item.href}
         href={item.href}
-        onClick={closeMobile}
         title={narrow ? item.label : undefined}
         aria-current={active ? "page" : undefined}
         style={{ animationDelay: `${offset + index * 30}ms` }}
@@ -240,17 +261,9 @@ export function Sidebar({
 
   return (
     <>
-      {mobileOpen && (
-        <div className="animate-fade-in fixed inset-0 z-40 bg-black/60 md:hidden" onClick={closeMobile} />
-      )}
-
       <aside
         style={{ width: narrow ? RAIL_COLLAPSED : RAIL_OPEN }}
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/[0.06] bg-[oklch(0.12_0.005_285)] transition-[transform,width] duration-300",
-          mobileOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
-          "max-md:!w-[16.5rem]"
-        )}
+        className="fixed inset-y-0 left-0 z-50 hidden flex-col border-r border-white/[0.06] bg-[oklch(0.12_0.005_285)] transition-[width] duration-300 md:flex"
       >
         {/* Brand */}
         <div className={cn("animate-rise flex h-[76px] shrink-0 items-center", narrow ? "justify-center" : "justify-between px-5")}>
@@ -262,9 +275,6 @@ export function Sidebar({
               <span className="text-[22px] font-bold tracking-tight text-foreground">Xtream</span>
             )}
           </Link>
-          <button onClick={closeMobile} aria-label="Close menu" className="text-muted-foreground transition-colors hover:text-foreground md:hidden">
-            <X size={18} />
-          </button>
         </div>
 
         <div className={cn("flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10", narrow ? "px-2" : "px-3")}>
@@ -327,7 +337,7 @@ export function Sidebar({
 
           </nav>
 
-          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={closeMobile} onLiveCount={setLiveCount} />
+          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={noop} onLiveCount={setLiveCount} />
 
           <div className="flex-1" />
 

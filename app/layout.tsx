@@ -61,7 +61,7 @@ const signUpUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL || "/sign-up";
 const clerkAppearance = {
   layout: { logoImageUrl: "/images/xtream-mark-square.png", logoPlacement: "inside" as const },
   variables: {
-    colorPrimary: "#D6392C",
+    colorPrimary: "#EC1229",
     colorBackground: "#141417",
     colorText: "#F2F2F3",
     colorInputBackground: "#1B1B20",

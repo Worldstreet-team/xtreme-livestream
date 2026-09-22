@@ -167,14 +167,14 @@ function Browse() {
         {category ? (
           <CategoryHeader category={category} summary={summary} onClear={() => setParams({ category: null, tag: null })} />
         ) : (
-          <p className="mb-6 text-sm text-muted-foreground">
+          <p className="mb-6 hidden text-sm text-muted-foreground md:block">
             Every category ranked by who&apos;s watching, and every live channel with a sort that lets you find the small rooms.
           </p>
         )}
 
         {!category && (
           <PillTabs
-            className="mb-8"
+            className="mb-6 md:mb-8"
             label="Browse"
             items={[
               { id: "categories" as const, label: "Categories", icon: SquaresFour },
@@ -314,7 +314,7 @@ function CategoriesTab({ categories }: { categories: CategorySummary[] }) {
             </h2>
             <span className="text-xs text-muted-foreground/70 tabular-nums">{formatNumber(g.viewers)} watching</span>
           </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-5 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] md:gap-x-4 md:gap-y-6">
             {g.items.map((c) => (
               <CategoryCard key={c.category} category={c} />
             ))}
@@ -333,7 +333,7 @@ function CategoriesTab({ categories }: { categories: CategorySummary[] }) {
               <h3 id={`all-${g.label}`} className="mb-4 text-sm font-semibold tracking-tight text-foreground">
                 {g.label}
               </h3>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-4 gap-y-6">
+              <div className="grid grid-cols-3 gap-x-3 gap-y-5 md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] md:gap-x-4 md:gap-y-6">
                 {g.items.map((c) => (
                   <CategoryCard key={c.category} category={c} />
                 ))}

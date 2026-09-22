@@ -20,10 +20,16 @@ import { NotificationsBell } from "@/components/app/notifications-bell";
  * right — the way Kick and Twitch put it. It is always in view (sticky) and
  * it is the one place search lives; pages don't carry their own box.
  *
- * Phones: the way Twitch's app does it — the brand on the left, a short run
- * of round icons on the right (search, bell, Go live, you), and nothing
- * else. Search opens as a full-width row over the bar rather than squeezing
- * a box between the icons; the avatar opens the drawer.
+ * Phones: the menu button and the brand on the left, then search, the
+ * bell and the one red pill — Go live — on the right. The menu opens the
+ * account drawer; the four places to go are on the tab bar below. Search
+ * opens as a full-width row over the bar rather than squeezing a box
+ * between the icons.
+ *
+ * Tablets (768–1024px) are the phone bar's cousins: the desktop grid needs
+ * the page title, a 600px search and three actions, which is more than the
+ * width beside the rail can hold, so the title and the button labels wait
+ * for `lg`.
  *
  * Search resolves as you type against channels (server) and categories
  * (local taxonomy); Enter hands the term to the Explore page.
@@ -58,7 +64,7 @@ function pageTitle(pathname: string, search: string) {
 
 /** A round icon button, the phone bar's unit. */
 const ICON_BTN =
-  "flex size-9 shrink-0 items-center justify-center rounded-full bg-[#26262D] text-foreground transition-colors hover:bg-[#31313A]";
+  "press flex size-9 shrink-0 items-center justify-center rounded-full bg-[#26262D] text-foreground transition-colors hover:bg-[#31313A]";
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
   const router = useRouter();
@@ -168,13 +174,16 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const showList = open && q.trim().length >= 2 && (hits.length > 0 || categories.length > 0);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] bg-background px-4 md:grid md:grid-cols-[1fr_minmax(0,600px)_1fr] md:gap-6 md:px-6">
-      {/* Left: the brand on phones; the page text on desktop. */}
-      <div className="flex min-w-0 shrink-0 items-center gap-2 md:justify-self-start">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] bg-background px-4 md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[1fr_minmax(0,600px)_1fr] lg:gap-6">
+      {/* Left: menu and the brand on phones; the page text from lg. */}
+      <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
+        <button type="button" onClick={onMenu} aria-label="Open menu" className={cn(ICON_BTN, "md:hidden")}>
+          <List size={19} weight="bold" />
+        </button>
         <Link href="/explore" className="flex shrink-0 items-center md:hidden" aria-label="Xtream home">
           <BrandLockup size={26} wordSize={19} />
         </Link>
-        <div className="hidden min-w-0 flex-col leading-tight md:flex">
+        <div className="hidden min-w-0 flex-col leading-tight lg:flex">
           <span className="truncate text-[17px] font-semibold tracking-tight text-foreground">{title}</span>
           {liveTotal !== null && (
             <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
@@ -294,7 +303,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           <MagnifyingGlass size={18} weight="bold" />
         </button>
         {user && (
-          <div className="hidden md:block">
+          <div className="hidden lg:block">
             <PointsChip />
           </div>
         )}
@@ -303,12 +312,14 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             <NotificationsBell collapsed />
           </div>
         )}
+        {/* The one red thing on the bar. A pill with its word on phones and
+            wide screens; a round icon on tablets, where the room is short. */}
         <Link
           href="/studio"
           aria-label={user?.isLive ? "On air — open the studio" : "Go live"}
           className={cn(
-            "shine flex size-9 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors md:h-9 md:w-auto md:rounded-sm md:px-4",
-            user?.isLive ? "bg-red-600 text-white hover:bg-red-700" : "bg-primary text-primary-foreground hover:bg-primary/85"
+            "shine press flex h-9 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-white transition-colors md:w-9 md:px-0 lg:w-auto lg:rounded-sm lg:px-4 lg:text-sm",
+            user?.isLive ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-chili-deep"
           )}
         >
           {user?.isLive ? (
@@ -317,35 +328,24 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
               <span className="relative inline-flex size-2 rounded-full bg-white" />
             </span>
           ) : (
-            <Broadcast size={17} weight="fill" />
+            <Broadcast size={16} weight="fill" />
           )}
-          <span className="hidden md:inline">{user?.isLive ? "On air" : "Go live"}</span>
+          <span className="md:hidden lg:inline">{user?.isLive ? "On air" : "Go live"}</span>
         </Link>
         {user ? (
-          <>
-            {/* Phones: your face opens the drawer. Desktop: it opens your channel. */}
-            <button type="button" onClick={onMenu} aria-label="Open menu" className="shrink-0 md:hidden">
-              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
-            </button>
-            <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
-              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
-            </Link>
-          </>
+          <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
+            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
+          </Link>
         ) : isLoading ? (
-          <div className="size-[34px] animate-pulse rounded-full bg-white/10" />
+          <div className="hidden size-[34px] animate-pulse rounded-full bg-white/10 md:block" />
         ) : (
-          <>
-            <button type="button" onClick={onMenu} aria-label="Open menu" className={cn(ICON_BTN, "md:hidden")}>
-              <List size={18} weight="bold" />
-            </button>
-            <a
-              href={SIGN_IN_URL}
-              className="hidden h-9 items-center gap-1.5 rounded-sm bg-white/[0.06] px-3 text-sm font-semibold text-foreground transition-colors hover:bg-white/[0.1] md:flex"
-            >
-              <SignIn size={15} />
-              Sign in
-            </a>
-          </>
+          <a
+            href={SIGN_IN_URL}
+            className="hidden h-9 items-center gap-1.5 rounded-sm bg-white/[0.06] px-3 text-sm font-semibold text-foreground transition-colors hover:bg-white/[0.1] md:flex"
+          >
+            <SignIn size={15} />
+            <span className="hidden lg:inline">Sign in</span>
+          </a>
         )}
       </div>
     </header>

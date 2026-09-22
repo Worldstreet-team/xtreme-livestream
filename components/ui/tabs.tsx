@@ -55,13 +55,19 @@ export function PillTabs<T extends string>({
             onClick={() => onChange(t.id)}
             className={cn(
               "flex shrink-0 items-center whitespace-nowrap rounded-full font-medium transition-[background-color,color,box-shadow] duration-200 outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-              size === "sm" ? "h-8 gap-1.5 px-3.5 text-[13px]" : "h-9 gap-2 px-4 text-sm",
+              // Phones set every strip small and drop the glyphs, so three
+              // tabs fit a 375px screen instead of cropping mid-word.
+              size === "sm" ? "h-8 gap-1.5 px-3.5 text-[13px]" : "h-8 gap-2 px-3.5 text-[13px] md:h-9 md:px-4 md:text-sm",
               active
                 ? "bg-white/[0.12] text-foreground"
                 : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
             )}
           >
-            {Icon && <Icon size={size === "sm" ? 14 : 16} weight={active ? "fill" : "regular"} />}
+            {Icon && (
+              <span className="hidden md:inline-flex">
+                <Icon size={size === "sm" ? 14 : 16} weight={active ? "fill" : "regular"} />
+              </span>
+            )}
             {t.label}
             {t.count ? (
               <span
