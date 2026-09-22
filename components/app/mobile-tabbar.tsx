@@ -38,7 +38,7 @@ export function MobileTabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 rounded-t-[18px] pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {TABS.map((t) => {
         const active = is(t.href);

@@ -175,13 +175,17 @@ export function GiftKeyboard({
     </div>
   );
 
+  // `pointer-events-auto` on both roots: the chat's overlay variant sets
+  // pointer-events-none on its root, and that inherits — even through
+  // `fixed` — so without it the sheet drew fine and took no taps on
+  // phones (Greg, 2026-09-22: "Can't click on any gift here").
   if (phone) {
     return (
-      <div className="fixed inset-0 z-50">
+      <div className="pointer-events-auto fixed inset-0 z-50">
         <button type="button" aria-label="Close" onClick={close} className={cn("absolute inset-0 bg-black/60", closing ? "animate-fade-out" : "animate-fade-in")} />
         <div className="absolute inset-x-0 bottom-0">{panel}</div>
       </div>
     );
   }
-  return <div className="absolute inset-x-0 bottom-0 z-20 shadow-[0_-12px_40px_-12px_rgba(0,0,0,0.8)]">{panel}</div>;
+  return <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 shadow-[0_-12px_40px_-12px_rgba(0,0,0,0.8)]">{panel}</div>;
 }

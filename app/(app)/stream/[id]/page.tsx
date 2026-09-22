@@ -1772,8 +1772,9 @@ export default function StreamPage({
           </button>
         )}
 
-        {/* Right action rail */}
-        <div className="absolute right-2 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-30 flex flex-col items-center gap-4">
+        {/* Right action rail — above the chat layer, which is painted after
+            it and would otherwise sit over these buttons. */}
+        <div className="absolute right-2 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-4">
           <button
             onClick={() => {
               heartsRef.current?.push();
@@ -1873,8 +1874,11 @@ export default function StreamPage({
           )}
         </div>
 
-        {/* Chat overlay + input */}
-        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]">
+        {/* Chat overlay + input. The wrapper takes no taps of its own — its
+            right padding covers the action rail's column, and a full-width
+            box there swallowed Like, Share and Ask-to-join on phones (Greg,
+            2026-09-22). LiveChat's overlay pieces opt back in one by one. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]">
           <div className="h-[46dvh]">
             <LiveChat
               streamId={id}
