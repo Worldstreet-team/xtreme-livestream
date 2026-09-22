@@ -68,6 +68,7 @@ type Facing = "user" | "environment";
 type Panel = "chat" | "stage" | "viewers" | "stats" | "battle" | "games" | "more";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
+const WORLDSPACE_KEY = "xtreme-studio-worldspace";
 
 /** Mirrors MAX_STAGE_GUESTS in @xtreme/contracts — the API enforces it. */
 const MAX_STAGE_GUESTS = 3;
@@ -115,6 +116,8 @@ export default function StudioPage() {
     return window.matchMedia("(max-width: 767px)").matches ? "portrait" : "landscape";
   });
   const [facing, setFacing] = useState<Facing>("user");
+  /** Cross-post this broadcast to the WorldSpace feed. Off unless asked. */
+  const [postToWorldSpace, setPostToWorldSpace] = useState(false);
   const [panel, setPanel] = useState<Panel>("chat");
   const [phone, setPhone] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
@@ -275,6 +278,21 @@ export default function StudioPage() {
       // Fine.
     }
   }, [orientation]);
+  useEffect(() => {
+    try {
+      setPostToWorldSpace(window.localStorage.getItem(WORLDSPACE_KEY) === "1");
+    } catch {
+      // Storage blocked: stays off, which is the safe default.
+    }
+  }, []);
+  const toggleWorldSpace = (on: boolean) => {
+    setPostToWorldSpace(on);
+    try {
+      window.localStorage.setItem(WORLDSPACE_KEY, on ? "1" : "0");
+    } catch {
+      // The choice just won't persist.
+    }
+  };
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const apply = () => setPhone(mq.matches);
@@ -698,6 +716,7 @@ export default function StudioPage() {
             tags: tagList,
             thumbnail,
             source: src,
+            postToWorldSpace,
           }),
         });
 
@@ -1581,6 +1600,37 @@ export default function StudioPage() {
           </div>
         </div>
         {thumbError && <p className="mt-1.5 text-xs text-red-400">{thumbError}</p>}
+      </div>
+
+      {/* Where it goes. The switch is the one from Settings, so a toggle
+          looks the same wherever it turns up. */}
+      <div className="flex items-center justify-between gap-4 rounded-[12px] bg-white/[0.05] px-3.5 py-3">
+        <div className="min-w-0">
+          <p className="text-[14px] font-medium text-foreground">Post to WorldSpace</p>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground/70">
+            {postToWorldSpace
+              ? "This broadcast shows up in the WorldSpace feed."
+              : "Stays on Xtream. Your followers here are still told."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => toggleWorldSpace(!postToWorldSpace)}
+          role="switch"
+          aria-checked={postToWorldSpace}
+          aria-label="Post to WorldSpace"
+          className={cn(
+            "press relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
+            postToWorldSpace ? "bg-primary" : "bg-white/10"
+          )}
+        >
+          <span
+            className={cn(
+              "pointer-events-none inline-block size-4 transform rounded-full bg-white shadow-lg ring-0 transition-transform",
+              postToWorldSpace ? "translate-x-5" : "translate-x-0.5"
+            )}
+          />
+        </button>
       </div>
 
       {source === "obs" && encoderBlock}

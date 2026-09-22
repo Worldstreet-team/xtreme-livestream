@@ -162,6 +162,12 @@ export const createStreamBodySchema = z.object({
   /** Fan out a "went live" notification to followers. */
   notifyFollowers: z.boolean().default(true),
   /**
+   * Post this broadcast to the WorldSpace feed. Off unless asked for: the
+   * owner wants going live on Xtream to stay on Xtream by default, with
+   * the cross-post a deliberate choice per stream.
+   */
+  postToWorldSpace: z.boolean().default(false),
+  /**
    * Start a previously scheduled stream instead of creating a fresh one, so
    * the upcoming card, its reminders and its URL become the live broadcast.
    */
@@ -181,6 +187,7 @@ export const scheduleStreamBodySchema = z.object({
   tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
   thumbnail: imageSourceSchema.default(""),
   notifyFollowers: z.boolean().default(true),
+  postToWorldSpace: z.boolean().default(false),
   /** ISO timestamp, from a few minutes out to thirty days ahead. */
   scheduledStartAt: z
     .string()

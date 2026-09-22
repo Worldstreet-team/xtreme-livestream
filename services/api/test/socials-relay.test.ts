@@ -222,6 +222,8 @@ describe("markStreamEnded", () => {
       viewers: 3,
       viewerSeconds: 0,
       viewerSampledAt: null,
+      // Only a stream that was posted to WorldSpace has a post to close out.
+      postToWorldSpace: true,
       save: async function (this: IStream) {
         flaggedAtSave = this.socialsRelayPending;
       },
@@ -245,5 +247,31 @@ describe("markStreamEnded", () => {
         update: { socialsRelayPending: false },
       },
     ]);
+  });
+
+  it("says nothing to WorldSpace about a stream that was never posted there", async () => {
+    fetchMock.mockResolvedValue(response(true));
+
+    let flaggedAtSave: boolean | undefined;
+    const stream = streamStub({
+      isLive: true,
+      endedAt: null,
+      viewers: 3,
+      viewerSeconds: 0,
+      viewerSampledAt: null,
+      postToWorldSpace: false,
+      save: async function (this: IStream) {
+        flaggedAtSave = this.socialsRelayPending;
+      },
+    } as Partial<IStream>);
+
+    await markStreamEnded(stream);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(stream.isLive).toBe(false);
+    // Nothing to converge later, and nothing sent now.
+    expect(flaggedAtSave).toBeFalsy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(flagClears).toEqual([]);
   });
 });

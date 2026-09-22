@@ -312,7 +312,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       dbUser.isLive = true;
       await dbUser.save();
 
-      void relayLiveEvent("started", stream);
+      // Only when the broadcaster asked for it — see postToWorldSpace.
+      if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
 
       // In-app bell for our own users; the socials relay handles that
       // platform's feed separately.

@@ -169,6 +169,8 @@ export interface IStream extends Document {
    */
   feedDroppedAt?: Date | null;
   notifyFollowers?: boolean;
+  /** Cross-post this broadcast to the WorldSpace feed. Off by default. */
+  postToWorldSpace?: boolean;
   viewers: number;
   peakViewers: number;
   /**
@@ -247,6 +249,7 @@ const streamSchema = new Schema<IStream>(
     ingressId: { type: String },
     feedDroppedAt: { type: Date, default: null },
     notifyFollowers: { type: Boolean, default: true },
+    postToWorldSpace: { type: Boolean, default: false },
     viewers: { type: Number, default: 0, min: 0 },
     peakViewers: { type: Number, default: 0, min: 0 },
     viewerSeconds: { type: Number, default: 0, min: 0 },
