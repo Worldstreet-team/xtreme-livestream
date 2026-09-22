@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell } from "@/components/app/sidebar";
+import { VividVoiceProvider } from "@/components/vivid-provider";
 import { useAuth } from "@/lib/auth-context";
 
 const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
@@ -44,7 +45,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Public pages render immediately for everyone — no auth gate
   if (publicPath) {
-    return <AppShell>{children}</AppShell>;
+    return (
+      <VividVoiceProvider>
+        <AppShell>{children}</AppShell>
+      </VividVoiceProvider>
+    );
   }
 
   // Still loading — show spinner
@@ -88,5 +93,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <VividVoiceProvider>
+      <AppShell>{children}</AppShell>
+    </VividVoiceProvider>
+  );
 }

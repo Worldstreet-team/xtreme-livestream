@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { registerStudioBridge, registerVividContext, type StudioAction } from "@/lib/vivid/page-context";
 import {
   VideoCamera,
   Monitor,
@@ -984,6 +985,78 @@ export default function StudioPage() {
       // User cancelled screen share picker — that's fine
     }
   };
+
+  // ── Vivid bridge ──────────────────────────────────────────────────────────
+  // Vivid's studioControl tool presses these controls on the user's behalf.
+  // The handlers above are recreated every render, so the bridge reads the
+  // latest ones through a ref; the registration itself happens once.
+  const vividRef = useRef({ goLive, endStream, toggleMic, toggleCam, toggleScreenShare, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog });
+  useEffect(() => {
+    vividRef.current = { goLive, endStream, toggleMic, toggleCam, toggleScreenShare, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog };
+  });
+  useEffect(() => {
+    const unregisterBridge = registerStudioBridge(async (action: StudioAction) => {
+      const v = vividRef.current;
+      switch (action) {
+        case "mute_mic":
+        case "unmute_mic": {
+          const wantOn = action === "unmute_mic";
+          if (v.micEnabled === wantOn) return { success: true, micEnabled: v.micEnabled, note: "already there" };
+          await v.toggleMic();
+          return { success: true, micEnabled: wantOn };
+        }
+        case "camera_on":
+        case "camera_off": {
+          if (v.source !== "camera") return { error: "The camera toggle only applies to the camera source." };
+          const wantOn = action === "camera_on";
+          if (v.camEnabled === wantOn) return { success: true, cameraEnabled: v.camEnabled, note: "already there" };
+          await v.toggleCam();
+          return { success: true, cameraEnabled: wantOn };
+        }
+        case "start_screen_share":
+        case "stop_screen_share": {
+          if (!v.isLive) return { error: "Screen share is only available while live." };
+          const wantOn = action === "start_screen_share";
+          if (v.screenShareActive === wantOn) return { success: true, screenShareActive: wantOn, note: "already there" };
+          await v.toggleScreenShare();
+          return { success: true, screenShareActive: wantOn, note: wantOn ? "The browser asks the user to pick a window." : undefined };
+        }
+        case "go_live": {
+          if (v.isLive) return { error: "Already live." };
+          if (v.isConnecting) return { error: "Already starting." };
+          if (!v.title.trim()) return { error: "The stream needs a title first — ask the user for one; they type it into the title field." };
+          setConfirmDialog(null);
+          await v.goLive();
+          return { success: true, title: v.title, category: v.category };
+        }
+        case "end_stream": {
+          if (!v.isLive) return { error: "Not live." };
+          setConfirmDialog(null);
+          await v.endStream();
+          return { success: true, ended: true };
+        }
+      }
+    });
+    const unregisterContext = registerVividContext("studio", () => {
+      const v = vividRef.current;
+      return {
+        isLive: v.isLive,
+        starting: v.isConnecting,
+        source: v.source,
+        title: v.title || null,
+        category: v.category,
+        micOn: v.micEnabled,
+        cameraOn: v.camEnabled,
+        screenSharing: v.screenShareActive,
+        ...(v.isLive ? { viewers: v.viewerCount, liveFor: v.elapsed, streamId: v.streamId } : {}),
+        openDialog: v.confirmDialog === "golive" ? "go live confirmation" : v.confirmDialog === "end" ? "end stream confirmation" : null,
+      };
+    });
+    return () => {
+      unregisterBridge();
+      unregisterContext();
+    };
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {

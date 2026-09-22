@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
   Heart,
@@ -399,6 +400,35 @@ export default function StreamPage({
   useEffect(() => {
     streamerIdRef.current = stream?.streamerId?._id ?? null;
   }, [stream?.streamerId?._id]);
+
+  // What Vivid's getCurrentPageContext reads while the user is on this page.
+  const vividRef = useRef({ stream, isFollowing, liked, viewerCount, muted, theaterMode, chatPlacement, showReport });
+  useEffect(() => {
+    vividRef.current = { stream, isFollowing, liked, viewerCount, muted, theaterMode, chatPlacement, showReport };
+  });
+  useEffect(
+    () =>
+      registerVividContext("stream", () => {
+        const v = vividRef.current;
+        if (!v.stream) return null;
+        return {
+          streamId: v.stream._id,
+          title: v.stream.title,
+          category: v.stream.category,
+          streamer: v.stream.streamerId?.displayName || v.stream.streamerId?.username || null,
+          streamerUsername: v.stream.streamerId?.username || null,
+          isLive: v.stream.isLive,
+          viewers: v.viewerCount,
+          following: v.isFollowing,
+          liked: v.liked,
+          playerMuted: v.muted,
+          theaterMode: v.theaterMode,
+          chatPlacement: v.chatPlacement,
+          openDialog: v.showReport ? "report" : null,
+        };
+      }),
+    [],
+  );
 
   useEffect(() => {
     userIdRef.current = user?.id ?? null;

@@ -353,7 +353,7 @@ export function Sidebar({
             <>
               {menuOpen && menuAnchor && (
                 <GlassPopover anchor={menuAnchor} width={236} className="py-1">
-                  <Link href={`/c/${user.username}`} onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
+                  <Link href={`/c/${user.username}`} data-vivid-own-channel onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
                     <Users size={15} />
                     Your channel
                   </Link>
