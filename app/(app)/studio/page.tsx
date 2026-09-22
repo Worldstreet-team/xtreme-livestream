@@ -1609,7 +1609,7 @@ export default function StudioPage() {
           <p className="text-[14px] font-medium text-foreground">Post to WorldSpace</p>
           <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground/70">
             {postToWorldSpace
-              ? "This broadcast shows up in the WorldSpace feed."
+              ? "Shows up in the WorldSpace feed — needs an account there on this same login."
               : "Stays on Xtream. Your followers here are still told."}
           </p>
         </div>

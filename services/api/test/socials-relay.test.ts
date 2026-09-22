@@ -175,6 +175,34 @@ describe("relayLiveEvent", () => {
       config.SOCIALS_GATEWAY_URL = url;
     }
   });
+
+  it("lets go of a stream the gateway refuses — nobody's WorldSpace account", async () => {
+    // 404: this streamer doesn't exist on WorldSpace.
+    fetchMock.mockResolvedValue(response(false, 404));
+
+    const ok = await relayLiveEvent("ended", streamStub());
+
+    // Settled, not pending: one attempt, no retry ladder, flag cleared.
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(flagClears).toEqual([
+      {
+        filter: { _id: STREAM_ID },
+        update: { socialsRelayPending: false },
+      },
+    ]);
+  });
+
+  it("still retries a gateway that might recover", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(response(false, 503));
+
+    const relay = relayLiveEvent("ended", streamStub());
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(await relay).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe("sweepPendingEndRelays", () => {

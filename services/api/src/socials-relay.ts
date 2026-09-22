@@ -38,6 +38,23 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** One signed POST. Timestamp and signature are minted per attempt so a
  *  retried request isn't rejected as a replay. Throws on non-2xx. */
+/**
+ * The gateway said no, and saying it again won't help. The common case is
+ * a streamer with no WorldSpace account: plenty of people broadcast here
+ * and nowhere else, and their stream must not leave a relay retrying for
+ * a day. 408, 429 and every 5xx stay transient — those are worth a retry.
+ */
+class RelayRejected extends Error {
+  constructor(readonly status: number) {
+    super(`Socials gateway rejected the relay (${status})`);
+    this.name = "RelayRejected";
+  }
+}
+
+function permanent(status: number) {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 async function postLiveEvent(kind: LiveRelayKind, body: string) {
   const timestamp = String(Date.now());
   const signature = crypto
@@ -57,10 +74,19 @@ async function postLiveEvent(kind: LiveRelayKind, body: string) {
   });
 
   if (!res.ok) {
+    if (permanent(res.status)) throw new RelayRejected(res.status);
     throw new Error(`Socials gateway responded ${res.status}`);
   }
 }
 
+/**
+ * Tell WorldSpace a stream started or ended.
+ *
+ * Returns whether the relay is *settled* — delivered, or refused in a way
+ * that will never succeed (no WorldSpace account, most often). Only a
+ * gateway that might still come back returns false, which is what the
+ * sweep uses to decide whether carrying on is worth it.
+ */
 export async function relayLiveEvent(kind: LiveRelayKind, stream: IStream) {
   if (!socialsRelayEnabled()) return false;
 
@@ -88,6 +114,20 @@ export async function relayLiveEvent(kind: LiveRelayKind, stream: IStream) {
         await postLiveEvent(kind, body);
         break;
       } catch (error) {
+        if (error instanceof RelayRejected) {
+          // Nothing on the other side to post to — most often no
+          // WorldSpace account. Let go of it rather than retry for a day.
+          console.warn(
+            `Socials ${kind} relay rejected for ${String(stream._id)} (${error.status}); not retrying.`,
+          );
+          if (kind === "ended") {
+            await Stream.updateOne(
+              { _id: stream._id },
+              { socialsRelayPending: false },
+            );
+          }
+          return true;
+        }
         const delay = RELAY_RETRY_DELAYS_MS[attempt];
         if (delay === undefined) throw error;
         await sleep(delay);
@@ -161,8 +201,9 @@ export async function relayBattleResult(battle: {
 /**
  * Re-relay "ended" for streams whose relay never reached the gateway — the
  * API restarted mid-relay, or the gateway was down past the retry window.
- * Newest first, and bail on the first failure: one unreachable gateway means
- * the rest would fail too, and the next sweep picks them all up.
+ * Newest first, and bail the first time the gateway looks unreachable: the
+ * rest would fail too, and the next sweep picks them all up. A stream the
+ * gateway *refuses* is settled, not a failure, so the sweep moves past it.
  */
 export async function sweepPendingEndRelays() {
   if (!socialsRelayEnabled()) return 0;
