@@ -62,6 +62,9 @@ const RAIL_OPEN = "16.5rem";
 const RAIL_COLLAPSED = "4.5rem";
 const COLLAPSE_KEY = "xtreme-rail-collapsed";
 const CHROMELESS = ["/welcome"];
+/** Phones only: the studio is a viewfinder, and a top bar over a camera
+ *  is a bar over the picture. Desktop keeps its chrome. */
+const PHONE_CHROMELESS = ["/studio"];
 const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -95,15 +98,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (CHROMELESS.includes(pathname)) {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
+  const phoneChromeless = PHONE_CHROMELESS.some((p) => pathname.startsWith(p));
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar collapsed={collapsed} onToggle={toggle} mobileOpen={mobileOpen} onMobileOpenChange={setMobileOpen} />
       <main
-        className="flex min-h-screen flex-col pb-16 transition-[margin] duration-300 md:ml-[var(--rail-w)] md:pb-0"
+        className={cn(
+          "flex min-h-screen flex-col transition-[margin] duration-300 md:ml-[var(--rail-w)] md:pb-0",
+          phoneChromeless ? "pb-0" : "pb-16",
+        )}
         style={{ "--rail-w": collapsed ? RAIL_COLLAPSED : RAIL_OPEN } as React.CSSProperties}
       >
-        <TopBar onMenu={() => setMobileOpen(true)} />
+        <div className={cn(phoneChromeless && "hidden md:block")}>
+          <TopBar onMenu={() => setMobileOpen(true)} />
+        </div>
         <div className="flex min-h-0 flex-1 items-start">
           <div className="min-w-0 flex-1">{children}</div>
           {/* The right rail rides beside browsing pages on wide screens. The
@@ -111,7 +120,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {!NO_RAIL.some((p) => pathname.startsWith(p)) && <RightRail />}
         </div>
       </main>
-      <MobileTabBar />
+      {!phoneChromeless && <MobileTabBar />}
     </div>
   );
 }

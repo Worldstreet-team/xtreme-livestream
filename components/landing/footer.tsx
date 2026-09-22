@@ -1,4 +1,5 @@
-import { Flame } from "@phosphor-icons/react/dist/ssr";
+import { BrandMark } from "@/components/ui/brand-mark";
+
 
 const footerLinks = {
   Platform: [
@@ -34,9 +35,7 @@ export function Footer() {
           {/* Brand */}
           <div className="lg:col-span-1">
             <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-sm bg-primary/20 text-primary">
-                <Flame size={18} weight="fill" />
-              </div>
+              <BrandMark size={24} />
               <span className="text-base font-bold tracking-tight text-foreground">
                 Xtream <span className="text-primary">Worldstreet</span>
               </span>

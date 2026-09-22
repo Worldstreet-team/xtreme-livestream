@@ -1,141 +1,93 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Lightning, Play, VideoCamera, VideoCameraSlash } from "@phosphor-icons/react";
-import { WebcamPixelGrid } from "@/components/ui/webcam-pixel-grid";
+import { Lightning, Play } from "@phosphor-icons/react/dist/ssr";
 
+/**
+ * The landing hero.
+ *
+ * One headline, one line under it, two ways in — and nothing else. It was
+ * carrying an early-access badge, a camera-effect toggle, two red glows and
+ * a row of year-one target figures; all of it competed with the sentence
+ * that actually has to land, and the figures were projections wearing the
+ * clothes of achievements. Owner, 2026-09-22.
+ *
+ * The background is the filming clip, held under a heavy scrim so it reads
+ * as light and movement rather than footage the eye tries to watch.
+ */
 export function Hero() {
-  // Camera effect is strictly opt-in — no permission prompt until the user asks for it
-  const [camOn, setCamOn] = useState(false);
-
   return (
-    <section className="relative flex min-h-screen items-center justify-center overflow-hidden">
-      {/* Background: static grid by default, webcam pixel grid when enabled */}
+    <section className="relative flex min-h-screen items-end justify-center overflow-hidden">
       <div className="absolute inset-0">
-        {camOn ? (
-          <WebcamPixelGrid
-            gridCols={60}
-            gridRows={40}
-            maxElevation={50}
-            motionSensitivity={0.25}
-            elevationSmoothing={0.2}
-            colorMode="webcam"
-            backgroundColor="#030303"
-            mirror={true}
-            gapRatio={0.05}
-            invertColors={false}
-            darken={0.6}
-            borderColor="#ffffff"
-            borderOpacity={0.06}
-            className="w-full h-full"
-          />
-        ) : (
-          <div
-            className="h-full w-full bg-[#030303]"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-              backgroundSize: "28px 28px",
-            }}
-          />
-        )}
+        {/* The grid is the ground the film sits on: it shows before the
+            first frame paints, and it is the whole background for anyone
+            who has asked their system for less motion. */}
+        <div
+          className="h-full w-full bg-[#030303]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
+        <video
+          src="/promo/live-phones.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-hidden
+          className="absolute inset-0 size-full object-cover motion-reduce:hidden"
+        />
+        {/* Footage is atmosphere, not the subject. It keeps most of its
+            light at the top and falls away to near-black at the foot,
+            where the copy sits — so the type never fights the picture. */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/65 to-black/95 motion-reduce:hidden" />
       </div>
 
-      {/* Camera effect toggle */}
-      <button
-        onClick={() => setCamOn((v) => !v)}
-        className="absolute bottom-6 right-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1.5 text-xs font-medium text-white/60 backdrop-blur-sm transition-colors hover:border-white/20 hover:text-white/90"
-      >
-        {camOn ? <VideoCameraSlash size={14} /> : <VideoCamera size={14} />}
-        {camOn ? "Disable camera effect" : "Try the camera effect"}
-      </button>
-
-      {/* Gradient overlay for readability */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none" />
-
-      {/* Red accent glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] sm:w-[400px] sm:h-[400px] md:size-[600px] rounded-full bg-primary/15 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:size-[400px] rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
-
       {/* Content */}
-      <div className="relative z-10 mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8 pt-16">
-        {/* Live badge */}
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary backdrop-blur-sm">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-primary" />
-          </span>
-          Now in Early Access — Go Live First
-        </div>
-
-        {/* Heading */}
-        <h1 className="font-[family-name:var(--font-display)] text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl leading-[1.1]">
-          Your Bags Are{" "}
-          <span className="bg-gradient-to-r from-primary via-red-400 to-orange-400 bg-clip-text text-transparent">
-            Pumping.
-          </span>
+      <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-4 pt-28 pb-20 text-center sm:px-6 md:pb-28 lg:px-8">
+        {/* One sentence per line, and the size is chosen so the longer of
+            the two still fits the measure — `text-balance` is deliberately
+            absent, since it only fights an explicit break. */}
+        <h1 className="font-[family-name:var(--font-display)] text-[2.15rem] leading-[1.04] font-extrabold tracking-[-0.035em] text-white sm:text-[3rem] md:text-[4rem] lg:text-[4.75rem]">
+          Your bags are pumping.
           <br />
-          <span className="text-foreground/90">Your Stream Should Be Too.</span>
+          Your stream should be too.
         </h1>
 
-        {/* Subtitle */}
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-          Go live, flex your alpha, and get tipped in crypto — all while the
-          charts do the talking. Welcome to the degen side of streaming.
+        <p className="mt-7 max-w-[46ch] text-lg leading-relaxed text-white/75 sm:text-xl">
+          Go live, flex your alpha, and get tipped in crypto — all
+          while&nbsp;the&nbsp;charts do the talking.
         </p>
 
-        {/* CTAs */}
-        <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button
             asChild
             size="lg"
-            className="h-12 gap-2 rounded-sm bg-primary px-8 text-base font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/80 hover:shadow-primary/40 transition-all"
+            className="h-12 gap-2 rounded-full bg-primary px-8 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/85"
           >
             <Link href="/studio">
               <Lightning size={20} weight="fill" />
-              Start Streaming
+              Start streaming
             </Link>
           </Button>
           <Button
             asChild
             variant="outline"
             size="lg"
-            className="h-12 gap-2 rounded-sm border-white/10 bg-white/5 px-8 text-base font-semibold backdrop-blur-sm hover:bg-white/10 hover:border-white/20 transition-all"
+            className="h-12 gap-2 rounded-full border-white/15 bg-white/5 px-8 text-base font-semibold text-white transition-colors hover:border-white/25 hover:bg-white/10"
           >
             <Link href="/explore">
               <Play size={20} weight="fill" />
-              Explore Streams
+              Explore streams
             </Link>
           </Button>
         </div>
-
-        {/* Targets row */}
-        <p className="mt-16 text-[0.7rem] font-medium uppercase tracking-widest text-muted-foreground/70">
-          Where we&apos;re headed — year-one targets
-        </p>
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-8 sm:gap-12">
-          {[
-            { value: "50K", label: "Streamers" },
-            { value: "1.2M", label: "Monthly Viewers" },
-            { value: "$4.8M", label: "Paid to Creators" },
-            { value: "24/7", label: "Live Content" },
-          ].map((stat) => (
-            <div key={stat.label} className="text-center">
-              <div className="text-2xl font-bold text-foreground sm:text-3xl">
-                {stat.value}
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {stat.label}
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* Bottom fade */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
+      {/* Bottom fade into the page below. */}
+      <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-32 bg-gradient-to-t from-background to-transparent" />
     </section>
   );
 }

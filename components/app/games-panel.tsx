@@ -16,9 +16,16 @@ import { PillTabs } from "@/components/ui/tabs";
  * it build, then settle: tap the outcome that happened, draw the raffle,
  * or let the quiz reveal itself. Cancel refunds everyone.
  */
-export function GamesPanel({ streamId }: { streamId: string }) {
+export function GamesPanel({
+  streamId,
+  inline = false,
+}: {
+  streamId: string;
+  /** Inside a sheet or tab: full width, form open from the start, no toggle. */
+  inline?: boolean;
+}) {
   const [game, setGame] = useState<GameView | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(inline);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<GameType>("prediction");
@@ -107,13 +114,15 @@ export function GamesPanel({ streamId }: { streamId: string }) {
   const canOpen = question.trim().length >= 3 && (type === "raffle" || outcomes.every((o) => o.trim()));
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <Pill size="md" variant="glass" icon={<Sparkle size={15} weight="fill" />} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        Games
-      </Pill>
+    <div className={cn("flex flex-col gap-2", inline ? "items-stretch" : "items-end")}>
+      {!inline && (
+        <Pill size="md" variant="glass" icon={<Sparkle size={15} weight="fill" />} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          Games
+        </Pill>
+      )}
       {error && <p className="text-xs text-red-400">{error}</p>}
       {open && (
-        <div className="w-[380px] rounded-sm border border-white/[0.08] bg-[oklch(0.14_0.005_285)] p-3 shadow-2xl">
+        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[380px] border border-white/[0.08] bg-[oklch(0.14_0.005_285)] shadow-2xl")}>
           <PillTabs
             size="sm"
             label="Game type"

@@ -19,10 +19,19 @@ import { LiveBadge } from "@/components/ui/badge";
  * seconds — a studio tab is one place, not an audience, so polling is the
  * simplest correct thing.
  */
-export function BattlePanel({ streamId, onBattle }: { streamId: string; onBattle?: (b: BattleView | null) => void }) {
+export function BattlePanel({
+  streamId,
+  onBattle,
+  inline = false,
+}: {
+  streamId: string;
+  onBattle?: (b: BattleView | null) => void;
+  /** Inside a sheet or tab: full width, form open from the start, no toggle. */
+  inline?: boolean;
+}) {
   const { user } = useAuth();
   const [mine, setMine] = useState<BattleView[]>([]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(inline);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -117,7 +126,7 @@ export function BattlePanel({ streamId, onBattle }: { streamId: string; onBattle
   }
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className={cn("flex flex-col gap-2", inline ? "items-stretch" : "items-end")}>
       <div className="flex flex-wrap items-center gap-2">
         {incoming.map((b) => (
           <div key={b.id} className="flex items-center gap-2 rounded-sm bg-amber-400/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-amber-200">
@@ -140,7 +149,7 @@ export function BattlePanel({ streamId, onBattle }: { streamId: string; onBattle
               Withdraw
             </Pill>
           </div>
-        ) : (
+        ) : inline ? null : (
           <Pill size="md" variant="glass" icon={<Sword size={15} weight="fill" />} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
             Battle
           </Pill>
@@ -149,7 +158,7 @@ export function BattlePanel({ streamId, onBattle }: { streamId: string; onBattle
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       {open && !outgoing && (
-        <div className="w-[360px] rounded-sm border border-white/[0.08] bg-[oklch(0.14_0.005_285)] p-3 shadow-2xl">
+        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-[oklch(0.14_0.005_285)] shadow-2xl")}>
           <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">
             <Trophy size={12} weight="fill" />
             Challenge a live creator

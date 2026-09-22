@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, DM_Sans, Space_Grotesk, Poppins } from "next/font/google";
+import { Geist, Geist_Mono, DM_Sans, Archivo, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
 const dmSans = DM_Sans({subsets:['latin'],variable:'--font-sans'});
 
-const spaceGrotesk = Space_Grotesk({subsets:['latin'],variable:'--font-display'});
+// Headlines. A grotesque with a narrow footprint and flat, level
+// terminals: it holds a full sentence per line at display size instead of
+// wrapping into rags, and it reads as authority rather than the soft,
+// round friendliness the earlier faces brought.
+const archivo = Archivo({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-display",
+});
 
 // The socials (WorldSpace) display face, for the house slides in the right
 // rail that are drawn on that platform's grammar.
@@ -25,6 +33,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Xtream Worldstreet — Crypto Livestreaming Platform",
   description: "Stream live, trade insights, and connect with the crypto community. Go live or explore streams on Xtream Worldstreet.",
+  // A shared link carries the mark; without this a preview is a blank card.
+  openGraph: {
+    title: "Xtream Worldstreet",
+    description: "Go live, flex your alpha, and get tipped in crypto.",
+    siteName: "Xtream",
+    type: "website",
+  },
+  twitter: { card: "summary_large_image", title: "Xtream Worldstreet" },
 };
 
 const isSatellite = process.env.NEXT_PUBLIC_CLERK_IS_SATELLITE === "true";
@@ -40,10 +56,24 @@ const signUpUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL || "/sign-up";
  * own /sign-in route. Two explicit branches — ClerkProvider's props are a
  * discriminated union, so a conditional spread doesn't type-check.
  */
+
+/** Clerk's own sign-in card, wearing Xtream's mark and ground. */
+const clerkAppearance = {
+  layout: { logoImageUrl: "/images/xtream-mark-square.png", logoPlacement: "inside" as const },
+  variables: {
+    colorPrimary: "#D6392C",
+    colorBackground: "#141417",
+    colorText: "#F2F2F3",
+    colorInputBackground: "#1B1B20",
+    borderRadius: "10px",
+  },
+};
+
 function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
   if (isSatellite && clerkDomain) {
     return (
       <ClerkProvider
+        appearance={clerkAppearance}
         domain={clerkDomain}
         isSatellite
         signInUrl={signInUrl}
@@ -54,7 +84,7 @@ function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
   return (
-    <ClerkProvider signInUrl={signInUrl} signUpUrl={signUpUrl}>
+    <ClerkProvider appearance={clerkAppearance} signInUrl={signInUrl} signUpUrl={signUpUrl}>
       {children}
     </ClerkProvider>
   );
@@ -67,7 +97,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkAuthProvider>
-      <html lang="en" className={`${dmSans.variable} ${spaceGrotesk.variable} ${poppins.variable} dark`}>
+      <html lang="en" className={`${dmSans.variable} ${archivo.variable} ${poppins.variable} dark`}>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         >

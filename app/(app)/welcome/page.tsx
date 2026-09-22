@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, ArrowRight, SealCheck, Eye, Flame } from "@phosphor-icons/react";
+import { Check, ArrowRight, SealCheck, Eye } from "@phosphor-icons/react";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CATEGORY_GROUPS, POPULAR_CATEGORIES, formatNumber, type Category } from "@/lib/categories";
 import type { CategorySummary } from "@/lib/discovery";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { BrandMark } from "@/components/ui/brand-mark";
 import { SelectField } from "@/components/ui/select-field";
 import { StreamArt } from "@/components/app/stream-art";
 import { FollowButton } from "@/components/app/follow-button";
@@ -204,9 +205,7 @@ export default function WelcomePage() {
         <div className="relative mx-auto flex max-w-[1400px] flex-col gap-8 px-6 pt-8 pb-12 md:px-10 md:pt-10 md:pb-16">
           <div className="flex items-center justify-between">
             <Link href="/explore" className="flex items-center gap-2.5">
-              <span className="flex size-9 items-center justify-center rounded-sm bg-primary/15 text-primary">
-                <Flame size={20} weight="fill" />
-              </span>
+              <BrandMark size={28} />
               <span className="text-lg font-bold tracking-tight text-foreground">Xtream</span>
             </Link>
             <div className="flex items-center gap-5">

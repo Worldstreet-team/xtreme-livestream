@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { BrandMark } from "@/components/ui/brand-mark";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Flame, List, MagnifyingGlass, X } from "@phosphor-icons/react";
+import { List, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -35,9 +36,7 @@ export function Navbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
-          <div className="flex size-9 items-center justify-center rounded-sm bg-primary/20 text-primary transition-colors group-hover:bg-primary/30">
-            <Flame size={22} weight="fill" />
-          </div>
+          <BrandMark size={30} />
           <span className="text-lg font-bold tracking-tight text-foreground">
             Xtream <span className="text-primary">Worldstreet</span>
           </span>
