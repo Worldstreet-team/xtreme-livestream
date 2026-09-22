@@ -94,7 +94,9 @@ export function GiftKeyboard({
       </div>
 
       {/* The stickers */}
-      <div className={cn("grid gap-1.5 px-3 pb-2", phone ? "grid-cols-4" : "grid-cols-4")}>
+      {/* Seventeen faces now — the grid scrolls under a cap so the Send
+          row stays on screen on a short phone. */}
+      <div className={cn("grid grid-cols-4 gap-1.5 overflow-y-auto px-3 pb-2 scrollbar-none", phone ? "max-h-[50dvh]" : "max-h-[46vh]")}>
         {GIFT_CATALOG.map((g) => {
           const active = picked === g.id;
           const tooRich = balanceMinor !== null && g.usdMinor > balanceMinor;

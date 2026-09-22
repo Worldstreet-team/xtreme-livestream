@@ -21,8 +21,8 @@ import {
 
 // Candidate for @xtreme/contracts once the web client adopts gifting too.
 const sendGiftBodySchema = z.object({
-  /** Gift value in USD cents (integer). $0.50 minimum, $500 cap per gift. */
-  amountUsdMinor: z.number().int().min(50).max(100_000),
+  /** Gift value in USD cents (integer). $0.50 minimum, $10,000 cap per gift — the Bank. */
+  amountUsdMinor: z.number().int().min(50).max(1_000_000),
   giftName: z.string().trim().max(50).optional(),
   emoji: z.string().trim().max(20).optional(),
   /** Which surface the gift was sent from — badged in chat like messages. */
