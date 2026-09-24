@@ -32,6 +32,11 @@ import type {
 	GroupBan,
 	GroupInfo,
 	GroupLink,
+	GroupLogEntry,
+	NotifyLevel,
+	Pin,
+	Poll,
+	UpdateGroupMemberInput,
 	GroupLinkPreview,
 	GroupPending,
 	GroupRoster,
@@ -158,8 +163,45 @@ export function createMessaging(options: MessagingOptions) {
 		me: () => get<Identity>("/v1/messaging/me"),
 
 		conversations: {
-			/** The inbox: every thread you are in, newest activity first. */
-			list: () => get<ConversationRow[]>("/v1/messaging/conversations"),
+			/** The inbox: every thread you are in, newest activity first.
+			 *  `source` lists only the threads a platform opened (yours, say);
+			 *  `kind` narrows to groups or DMs. */
+			list: (opts: { source?: Platform; kind?: "group" | "dm" } = {}) =>
+				get<ConversationRow[]>("/v1/messaging/conversations", opts),
+			/** Notifications for this thread: all, mentions only, or none. */
+			notifications: (conversationId: string, level: NotifyLevel) =>
+				patch<{ success: boolean; level: NotifyLevel }>(
+					`/v1/messaging/conversations/${conversationId}/notifications`,
+					{ level },
+				),
+			pins: {
+				list: (conversationId: string) =>
+					get<(Pin & { message: Message })[]>(`/v1/messaging/conversations/${conversationId}/pins`),
+				/** Three at most; `until` keeps it for a while. */
+				add: (conversationId: string, messageId: string, until?: "24h" | "7d" | "30d") =>
+					post<{ success: boolean; pins: Pin[] }>(`/v1/messaging/conversations/${conversationId}/pins`, {
+						messageId,
+						until,
+					}),
+				remove: (conversationId: string, messageId: string) =>
+					del<{ success: boolean; pins: Pin[] }>(
+						`/v1/messaging/conversations/${conversationId}/pins/${messageId}`,
+					),
+			},
+			/** The gallery: one thread's photos, clips, voice notes or links. */
+			media: (
+				conversationId: string,
+				opts: { kind?: "image" | "video" | "audio" | "link"; before?: string; limit?: number } = {},
+			) => get<Message[]>(`/v1/messaging/${conversationId}/media`, opts),
+			/** Search inside a thread: text, a member, or hasMedia. */
+			search: (
+				conversationId: string,
+				opts: { q?: string; from?: string; hasMedia?: boolean; before?: string; limit?: number },
+			) =>
+				get<Message[]>(`/v1/messaging/${conversationId}/search`, {
+					...opts,
+					hasMedia: opts.hasMedia ? 1 : undefined,
+				}),
 			/** The one thread with a person (a profile id), opened if needed.
 			 *  Born as a request when they do not follow you. `context` says
 			 *  what it is about (an order, a course); the first opener's sticks. */
@@ -201,7 +243,16 @@ export function createMessaging(options: MessagingOptions) {
 					`/v1/messaging/message/${messageId}/react`,
 					{ emoji },
 				),
-			unsend: (messageId: string) => del(`/v1/messaging/message/${messageId}`),
+			/** Delete for everyone (the default, within two days of sending),
+			 *  or for yourself only with scope "me", at any age. */
+			unsend: (messageId: string, scope: "everyone" | "me" = "everyone") =>
+				del(`/v1/messaging/message/${messageId}${scope === "me" ? "?scope=me" : ""}`),
+			/** Your own text, within fifteen minutes; a poll's question too. */
+			edit: (messageId: string, content: string) =>
+				patch<{ success: boolean; editedAt: string }>(`/v1/messaging/message/${messageId}`, { content }),
+			/** Vote: your picks replace your last ones; [] withdraws. */
+			vote: (messageId: string, optionIds: string[]) =>
+				post<{ success: boolean; poll: Poll }>(`/v1/messaging/message/${messageId}/vote`, { optionIds }),
 			/** Who has read a message of yours (groups): the sender only. */
 			receipts: (messageId: string) =>
 				get<MessageReceipts>(`/v1/messaging/message/${messageId}/receipts`),
@@ -253,6 +304,13 @@ export function createMessaging(options: MessagingOptions) {
 				del<{ success: boolean }>(`/v1/messaging/groups/${id}/messages/${messageId}`),
 			setRole: (id: string, profileId: string, role: "admin" | "member") =>
 				patch(`/v1/messaging/groups/${id}/members/${profileId}`, { role }),
+			/** Role, an admin's rights, or a restriction, in one call. */
+			updateMember: (id: string, profileId: string, input: UpdateGroupMemberInput) =>
+				patch<{ success: boolean; changed: string[] }>(`/v1/messaging/groups/${id}/members/${profileId}`, input),
+			/** Admins: who did what, newest first. */
+			log: (id: string) => get<GroupLogEntry[]>(`/v1/messaging/groups/${id}/log`),
+			/** The owner, within 30 days of deleting. */
+			restore: (id: string) => post<{ success: boolean; members: number }>(`/v1/messaging/groups/${id}/restore`),
 			/** Owner only: hand the group to another member. */
 			transfer: (id: string, to: string) =>
 				post(`/v1/messaging/groups/${id}/transfer`, { to }),

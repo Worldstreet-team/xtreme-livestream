@@ -87,8 +87,36 @@ export const MESSAGE_TYPES = [
 	"payment",
 	"system",
 	"contact",
+	"poll",
+	"group_invite",
 ] as const;
 export const messageTypeSchema = z.enum(MESSAGE_TYPES);
+
+/** A poll (audit G89). `votes` is absent on an anonymous poll; `counts`,
+ *  `total` and `mine` are computed for the reader on every read. */
+export const pollSchema = z.object({
+	question: z.string(),
+	options: z.array(z.object({ id: z.string(), text: z.string() })),
+	multi: z.boolean().optional(),
+	anonymous: z.boolean().optional(),
+	endsAt: isoDateSchema.optional(),
+	votes: z.array(z.object({ option: z.string(), profile: objectIdSchema, at: isoDateSchema })).optional(),
+	counts: z.record(z.string(), z.number()).optional(),
+	total: z.number().optional(),
+	/** The reader's own picks. */
+	mine: z.array(z.string()).optional(),
+});
+export type Poll = z.infer<typeof pollSchema>;
+
+/** A group invite card (audit G52): opens the group at groupLinkPath(code). */
+export const groupInviteCardSchema = z.object({
+	conversation: objectIdSchema,
+	name: z.string().optional(),
+	avatar: z.string().optional(),
+	memberCount: z.number(),
+	code: z.string(),
+});
+export type GroupInviteCard = z.infer<typeof groupInviteCardSchema>;
 export type MessageType = z.infer<typeof messageTypeSchema>;
 
 export const reactionSchema = z.object({
@@ -165,6 +193,15 @@ export const messageSchema = z.object({
 	 *  row stays as a tombstone. Render "Message removed by an admin". */
 	removedBy: objectIdSchema.optional(),
 	removedAt: isoDateSchema.optional(),
+	/** Edited by the sender; show "edited". */
+	editedAt: isoDateSchema.optional(),
+	/** Disappearing: gone at this moment. */
+	expiresAt: isoDateSchema.optional(),
+	/** The thread's own counter, so a reconnecting client knows what it missed. */
+	seq: z.number().optional(),
+	hasLink: z.boolean().optional(),
+	poll: pollSchema.optional(),
+	groupInvite: groupInviteCardSchema.optional(),
 	createdAt: isoDateSchema,
 	updatedAt: isoDateSchema.optional(),
 });
@@ -193,6 +230,28 @@ export const MEMBER_ROLES = ["owner", "admin", "member"] as const;
 export const memberRoleSchema = z.enum(MEMBER_ROLES);
 export type MemberRole = z.infer<typeof memberRoleSchema>;
 
+/** What an admin may do (audit G64). Absent means the defaults: everything
+ *  except appointing admins. */
+export const ADMIN_RIGHT_KEYS = [
+	"editInfo",
+	"deleteMessages",
+	"removeMembers",
+	"banMembers",
+	"approveJoins",
+	"manageLinks",
+	"restrictMembers",
+	"addAdmins",
+] as const;
+export type AdminRight = (typeof ADMIN_RIGHT_KEYS)[number];
+export const adminRightsSchema = z.object(
+	Object.fromEntries(ADMIN_RIGHT_KEYS.map((k) => [k, z.boolean().optional()])) as Record<AdminRight, z.ZodOptional<z.ZodBoolean>>,
+);
+export type AdminRights = z.infer<typeof adminRightsSchema>;
+
+export const NOTIFY_LEVELS = ["all", "mentions", "none"] as const;
+export const notifyLevelSchema = z.enum(NOTIFY_LEVELS);
+export type NotifyLevel = z.infer<typeof notifyLevelSchema>;
+
 export const conversationMemberSchema = z.object({
 	profile: objectIdSchema,
 	role: memberRoleSchema,
@@ -203,8 +262,30 @@ export const conversationMemberSchema = z.object({
 	readUpTo: objectIdSchema.optional(),
 	readUpToAt: isoDateSchema.optional(),
 	theme: z.unknown().optional(),
+	/** Who put them here and how. */
+	addedBy: objectIdSchema.optional(),
+	via: z.enum(["add", "invite", "link", "request", "platform", "create"]).optional(),
+	restrictedUntil: isoDateSchema.optional(),
+	notifyLevel: notifyLevelSchema.optional(),
+	rights: adminRightsSchema.optional(),
 });
 export type ConversationMember = z.infer<typeof conversationMemberSchema>;
+
+/** A pinned message (audit G88). */
+export const pinSchema = z.object({
+	message: objectIdSchema,
+	by: objectIdSchema,
+	at: isoDateSchema,
+	until: isoDateSchema.optional(),
+});
+export type Pin = z.infer<typeof pinSchema>;
+
+/** Slow mode steps in seconds; 0 is off. */
+export const SLOW_MODE_STEPS = [0, 10, 30, 60, 300, 900, 3600] as const;
+/** Disappearing message spans in seconds: off, a day, a week, 90 days. */
+export const DISAPPEAR_STEPS = [0, 86400, 604800, 7776000] as const;
+/** How much history a newcomer gets when the group hides the past. */
+export const HISTORY_SHARE_STEPS = [0, 25, 100] as const;
 
 export const lastMessageSchema = z.object({
 	_id: objectIdSchema.optional(),
@@ -278,6 +359,12 @@ export const conversationRowSchema = z.object({
 	memberCount: z.number().optional(),
 	/** Groups, admins' rows only: people asking to join. */
 	requestCount: z.number().optional(),
+	/** Pinned message ids. */
+	pins: z.array(objectIdSchema).optional(),
+	/** The caller's own notification level for this thread. */
+	notifyLevel: notifyLevelSchema.optional(),
+	/** Disappearing messages in force, seconds. */
+	disappearSec: z.number().optional(),
 	/** Groups: a call in progress, so the row can offer Join. */
 	call: groupCallSchema.optional(),
 	unreadCount: z.number(),
@@ -292,7 +379,20 @@ export type ConversationRow = z.infer<typeof conversationRowSchema>;
 export const sendMessageInputSchema = z.object({
 	conversationId: objectIdSchema,
 	content: z.string().max(4000).optional(),
-	type: z.enum(["text", "image", "video", "audio", "contact"]).optional(),
+	type: z.enum(["text", "image", "video", "audio", "contact", "poll", "group_invite"]).optional(),
+	/** type: "poll". Two to twelve options; `endsAt` at least a minute away. */
+	poll: z
+		.object({
+			question: z.string().min(1).max(300),
+			options: z.array(z.string().min(1).max(100)).min(2).max(12),
+			multi: z.boolean().optional(),
+			anonymous: z.boolean().optional(),
+			endsAt: isoDateSchema.optional(),
+		})
+		.optional(),
+	/** type: "group_invite": the group to invite them to; you must be
+	 *  allowed to make links there. */
+	groupInvite: z.object({ conversationId: objectIdSchema }).optional(),
 	/** The `key` from an upload, never the short-lived `url`. */
 	mediaUrl: z.string().optional(),
 	durationSec: z.number().nonnegative().optional(),
@@ -377,10 +477,37 @@ export const updateGroupInputSchema = z.object({
 	historyVisible: z.boolean().optional(),
 	/** Approve new members: link joins and members' adds wait for an admin. */
 	joinApproval: z.boolean().optional(),
+	/** With history hidden, the last 0, 25 or 100 messages a newcomer gets. */
+	historyShare: z.number().optional(),
+	/** One message per member per this many seconds; 0 off; admins exempt. */
+	slowModeSec: z.number().optional(),
+	/** New messages expire after this many seconds; 0 off. */
+	disappearSec: z.number().optional(),
 	/** Legacy: the same as settings.send = "admins". */
 	adminsOnly: z.boolean().optional(),
 });
 export type UpdateGroupInput = z.infer<typeof updateGroupInputSchema>;
+
+/** PATCH /v1/messaging/groups/:id/members/:profileId */
+export const updateGroupMemberInputSchema = z.object({
+	/** Owner, or an admin with addAdmins (to admin only). */
+	role: z.enum(["admin", "member"]).optional(),
+	/** Owner only, on an admin. */
+	rights: adminRightsSchema.optional(),
+	/** Pause their messages: "1h", "1d", "1w", or null to lift. */
+	restrict: z.enum(["1h", "1d", "1w"]).nullable().optional(),
+});
+export type UpdateGroupMemberInput = z.infer<typeof updateGroupMemberInputSchema>;
+
+/** One line of the admin log (audit G120). */
+export const groupLogEntrySchema = z.object({
+	at: isoDateSchema,
+	by: z.union([messageSenderSchema, objectIdSchema]),
+	action: z.string(),
+	target: z.union([messageSenderSchema, objectIdSchema]).optional(),
+	meta: z.record(z.string(), z.unknown()).optional(),
+});
+export type GroupLogEntry = z.infer<typeof groupLogEntrySchema>;
 
 /** What happened to each person you tried to add. */
 export const ADD_OUTCOMES = ["added", "invited", "already", "pending", "blocked", "banned", "full", "unknown"] as const;
@@ -412,6 +539,10 @@ export const groupInfoSchema = z.object({
 	settings: groupSettingsSchema,
 	historyVisible: z.boolean(),
 	joinApproval: z.boolean(),
+	historyShare: z.number().optional(),
+	slowModeSec: z.number().optional(),
+	disappearSec: z.number().optional(),
+	pins: z.array(pinSchema).optional(),
 	call: groupCallSchema.nullable(),
 	me: z.object({
 		role: memberRoleSchema.nullable(),
@@ -561,6 +692,16 @@ export const GROUP_ERROR_CODES = [
 	"REVOKED",
 	"EXPIRED",
 	"USED_UP",
+	"TOO_LONG",
+	"BAD_MEDIA",
+	"BAD_NAME",
+	"BAD_POLL",
+	"POLL_CLOSED",
+	"RESTRICTED",
+	"SLOW_MODE",
+	"TOO_OLD",
+	"PINS_FULL",
+	"ADD_LIMIT",
 ] as const;
 
 export const markReadInputSchema = z.object({
@@ -736,6 +877,35 @@ export const userEventSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("call:ended"),
 		conversationId: objectIdSchema,
+	}),
+	z.object({
+		type: z.literal("member:rights"),
+		conversationId: objectIdSchema,
+		profileId: objectIdSchema,
+		rights: adminRightsSchema,
+	}),
+	z.object({
+		type: z.literal("member:restricted"),
+		conversationId: objectIdSchema,
+		profileId: objectIdSchema,
+		/** null when the restriction was lifted. */
+		until: isoDateSchema.nullable(),
+	}),
+	z.object({
+		type: z.literal("message:edited"),
+		conversationId: objectIdSchema,
+		messageId: objectIdSchema,
+		content: z.string(),
+		editedAt: isoDateSchema,
+	}),
+	z.object({
+		type: z.literal("poll:updated"),
+		conversationId: objectIdSchema,
+		messageId: objectIdSchema,
+		counts: z.record(z.string(), z.number()),
+		total: z.number(),
+		/** Absent on an anonymous poll. */
+		votes: z.array(z.object({ option: z.string(), profile: objectIdSchema, at: isoDateSchema })).optional(),
 	}),
 ]);
 export type UserEvent = z.infer<typeof userEventSchema>;
