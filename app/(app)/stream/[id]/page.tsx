@@ -44,6 +44,7 @@ import { StreamCard } from "@/components/app/stream-card";
 import { apiFetch as discoveryFetch } from "@/lib/api-client";
 import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { MessageButton } from "@/components/app/message-button";
 import { formatNumber, type Category } from "@/lib/categories";
 import { stageLayout } from "@/lib/stage-layout";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,8 @@ interface StreamData {
     bio?: string;
     followers: number;
     isLive: boolean;
+    /** Clerk id: what WorldSpace messaging resolves the streamer by. */
+    authUserId?: string;
   };
 }
 
@@ -2456,6 +2459,18 @@ export default function StreamPage({
                 </div>
               </Link>
               {user && String(streamer._id) !== String(user.id) && (
+                <div className="flex items-start gap-2">
+                {streamer.authUserId && (
+                  <MessageButton
+                    recipient={streamer.authUserId}
+                    context={{
+                      kind: "stream",
+                      id: String(stream._id),
+                      title: stream.title,
+                      url: typeof window === "undefined" ? undefined : window.location.href,
+                    }}
+                  />
+                )}
                 <div className="flex flex-col items-end gap-1">
                 <button
                   onClick={toggleFollow}
@@ -2484,6 +2499,7 @@ export default function StreamPage({
                     {followError}
                   </p>
                 )}
+                </div>
                 </div>
               )}
             </div>

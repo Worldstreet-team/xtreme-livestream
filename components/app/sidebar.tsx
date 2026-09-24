@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   HouseLine,
+  ChatCircle,
   Compass,
   Pulse,
   HeartStraight,
@@ -27,6 +28,7 @@ import {
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { useUnreadThreads } from "@/lib/messaging";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
 import { formatUptime } from "@/lib/discovery";
@@ -168,6 +170,8 @@ const MAIN_NAV: NavItem[] = [
   { label: "Browse", href: "/browse", icon: Compass, public: true },
   { label: "Live feed", href: "/feed", icon: Pulse, public: true },
   { label: "Following", href: "/following", icon: HeartStraight, public: false },
+  // WorldSpace messaging, shared with every WorldStreet platform.
+  { label: "Messages", href: "/messages", icon: ChatCircle, public: false },
 ];
 
 const YOU_NAV: NavItem[] = [
@@ -199,6 +203,8 @@ export function Sidebar({
   const { user, isLoading, logout } = useAuth();
   const [productsOpen, setProductsOpen] = useState(false);
   const [liveCount, setLiveCount] = useState(0);
+  // WorldSpace threads with something new; the Messages row carries it.
+  const unreadThreads = useUnreadThreads(Boolean(user));
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
@@ -223,6 +229,7 @@ export function Sidebar({
   const renderItem = (item: NavItem, index: number, offset: number) => {
     const active = isActive(item.href);
     const showLiveDot = item.href === "/feed" && liveCount > 0;
+    const unread = item.href === "/messages" ? unreadThreads : 0;
     return (
       <Link
         key={item.href}
@@ -251,6 +258,18 @@ export function Sidebar({
           >
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-red-500" />
+          </span>
+        )}
+        {unread > 0 && (
+          // A count, unlike the live dot: messages are a backlog.
+          <span
+            className={cn(
+              "flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary-foreground",
+              narrow ? "absolute top-1 right-1.5" : "ml-auto"
+            )}
+            title={`${unread} unread`}
+          >
+            {unread}
           </span>
         )}
       </Link>

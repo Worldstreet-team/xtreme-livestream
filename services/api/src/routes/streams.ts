@@ -472,9 +472,13 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       // token request it fires next *does* reconcile and rejects with 400.
       await reconcileStream(stream);
 
+      // authUserId is what WorldSpace messaging resolves a person by, so the
+      // Message button on the stream page can reach a streamer who has
+      // never opened WorldSpace (platform plan, phase 3). Social publishes
+      // the same id on every public profile.
       await stream.populate(
         "streamerId",
-        "username displayName avatar bio followers isLive verified",
+        "username displayName avatar bio followers isLive verified authUserId",
       );
 
       return { success: true, data: { stream: stream.toJSON() } };

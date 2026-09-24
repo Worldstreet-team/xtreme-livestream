@@ -1,0 +1,11 @@
+{
+  "name": "@worldstreet/messaging-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vendored from worldstreetsocialmedia-gateway/packages/messaging-sdk until it is published; the source of truth is there.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": { "@worldstreet/messaging-contracts": "0.1.0" },
+  "peerDependencies": { "ably": ">=2.0.0" }
+}
