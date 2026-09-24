@@ -28,12 +28,19 @@ import type {
 	CallTokenResult,
 	ConversationRow,
 	CreateGroupInput,
+	CreateGroupLinkInput,
+	GroupBan,
 	GroupInfo,
+	GroupLink,
+	GroupLinkPreview,
 	GroupPending,
 	GroupRoster,
 	Identity,
+	JoinByLinkResult,
 	Message,
+	MessageReceipts,
 	MuteInput,
+	PastMember,
 	Platform,
 	UnreadResult,
 	SendMessageInput,
@@ -195,6 +202,9 @@ export function createMessaging(options: MessagingOptions) {
 					{ emoji },
 				),
 			unsend: (messageId: string) => del(`/v1/messaging/message/${messageId}`),
+			/** Who has read a message of yours (groups): the sender only. */
+			receipts: (messageId: string) =>
+				get<MessageReceipts>(`/v1/messaging/message/${messageId}/receipts`),
 		},
 
 		media: {
@@ -227,13 +237,20 @@ export function createMessaging(options: MessagingOptions) {
 				patch<{ success: boolean; changed: string[] }>(`/v1/messaging/groups/${id}`, input),
 			addMembers: (id: string, memberIds: string[]) =>
 				post<AddMembersResult>(`/v1/messaging/groups/${id}/members`, { memberIds }),
-			/** Remove someone (admins), or yourself to leave. */
-			removeMember: (id: string, profileId: string) =>
+			/** Remove someone (admins), or yourself to leave. `ban` keeps them
+			 *  out afterwards. */
+			removeMember: (id: string, profileId: string, opts: { ban?: boolean } = {}) =>
 				del<{ success: boolean; alreadyLeft?: boolean; dissolved?: boolean }>(
-					`/v1/messaging/groups/${id}/members/${profileId}`,
+					`/v1/messaging/groups/${id}/members/${profileId}${opts.ban ? "?ban=1" : ""}`,
 				),
-			leave: (id: string, myProfileId: string) =>
-				del<{ success: boolean }>(`/v1/messaging/groups/${id}/members/${myProfileId}`),
+			/** `quiet` posts no row; only the admins are told. */
+			leave: (id: string, myProfileId: string, opts: { quiet?: boolean } = {}) =>
+				del<{ success: boolean; quiet?: boolean; dissolved?: boolean }>(
+					`/v1/messaging/groups/${id}/members/${myProfileId}${opts.quiet ? "?quiet=1" : ""}`,
+				),
+			/** Admins: remove a message for everyone. */
+			removeMessage: (id: string, messageId: string) =>
+				del<{ success: boolean }>(`/v1/messaging/groups/${id}/messages/${messageId}`),
 			setRole: (id: string, profileId: string, role: "admin" | "member") =>
 				patch(`/v1/messaging/groups/${id}/members/${profileId}`, { role }),
 			/** Owner only: hand the group to another member. */
@@ -246,6 +263,40 @@ export function createMessaging(options: MessagingOptions) {
 			/** Decline your own invite, or (admins) withdraw someone's. */
 			withdrawInvite: (id: string, profileId: string) =>
 				del(`/v1/messaging/groups/${id}/invites/${profileId}`),
+			/** Admins: let someone in, or not. */
+			answerRequest: (id: string, profileId: string, approve: boolean) =>
+				post<{ success: boolean; approved: boolean }>(
+					`/v1/messaging/groups/${id}/requests/${profileId}`,
+					{ approve },
+				),
+			links: {
+				/** Admins: a new way in. Open it at groupLinkPath(link.code). */
+				create: (id: string, input: CreateGroupLinkInput = {}) =>
+					post<GroupLink>(`/v1/messaging/groups/${id}/links`, input),
+				list: (id: string) => get<GroupLink[]>(`/v1/messaging/groups/${id}/links`),
+				revoke: (id: string, code: string) =>
+					del<{ success: boolean }>(`/v1/messaging/groups/${id}/links/${encodeURIComponent(code)}`),
+				/** What a link opens onto, safe to show before joining. */
+				preview: (code: string) =>
+					get<GroupLinkPreview>(`/v1/messaging/groups/links/${encodeURIComponent(code)}`),
+				/** Join, or ask to when the group wants approval (`requested`). */
+				join: (code: string) =>
+					post<JoinByLinkResult>(`/v1/messaging/groups/links/${encodeURIComponent(code)}/join`),
+			},
+			bans: {
+				/** Admins: keep someone out; a member is removed too. `days`
+				 *  absent means for good. */
+				add: (id: string, profileId: string, days?: number) =>
+					post<{ success: boolean; until: string | null }>(`/v1/messaging/groups/${id}/bans`, {
+						profileId,
+						days,
+					}),
+				remove: (id: string, profileId: string) =>
+					del<{ success: boolean }>(`/v1/messaging/groups/${id}/bans/${profileId}`),
+				list: (id: string) => get<GroupBan[]>(`/v1/messaging/groups/${id}/bans`),
+			},
+			/** Admins: who left or was removed in the last 60 days. */
+			past: (id: string) => get<PastMember[]>(`/v1/messaging/groups/${id}/past`),
 		},
 
 		calls: {

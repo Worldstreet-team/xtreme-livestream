@@ -157,6 +157,14 @@ export const messageSchema = z.object({
 	/** Which platform it was sent from; absent on rows older than 2026-09-24.
 	 *  Show "via <platform>" when it differs from the one rendering it. */
 	source: platformSchema.optional(),
+	/** Groups: who this message mentions, by profile id. */
+	mentions: z.array(objectIdSchema).optional(),
+	/** Groups: an @everyone. */
+	mentionAll: z.boolean().optional(),
+	/** An admin removed it for everyone: content and media are gone and the
+	 *  row stays as a tombstone. Render "Message removed by an admin". */
+	removedBy: objectIdSchema.optional(),
+	removedAt: isoDateSchema.optional(),
 	createdAt: isoDateSchema,
 	updatedAt: isoDateSchema.optional(),
 });
@@ -225,6 +233,17 @@ export type ThreadContext = z.infer<typeof threadContextSchema>;
 
 /** An inbox row from GET /v1/messaging/conversations: a bare array, sorted
  *  newest activity first by the server. */
+/** A group call in progress: from the first ring to the starter's hang-up,
+ *  reconciled against the live room whenever the group is read. */
+export const groupCallSchema = z.object({
+	startedBy: objectIdSchema,
+	startedAt: isoDateSchema,
+	video: z.boolean(),
+	/** Who is in the room right now; only on GroupInfo. */
+	participants: z.array(z.string()).optional(),
+});
+export type GroupCall = z.infer<typeof groupCallSchema>;
+
 export const conversationRowSchema = z.object({
 	_id: objectIdSchema,
 	participants: z.array(participantSchema),
@@ -257,6 +276,10 @@ export const conversationRowSchema = z.object({
 		.optional(),
 	myRole: memberRoleSchema.optional(),
 	memberCount: z.number().optional(),
+	/** Groups, admins' rows only: people asking to join. */
+	requestCount: z.number().optional(),
+	/** Groups: a call in progress, so the row can offer Join. */
+	call: groupCallSchema.optional(),
 	unreadCount: z.number(),
 	isRequestForMe: z.boolean(),
 	createdAt: isoDateSchema.optional(),
@@ -282,6 +305,13 @@ export const sendMessageInputSchema = z.object({
 	peaks: z.array(z.number()).max(256).optional(),
 	groupKey: z.string().optional(),
 	contact: z.object({ profile: objectIdSchema }).optional(),
+	/** Groups: the profile ids the text mentions. The gateway keeps the
+	 *  ones on the roster and notifies them; a typed @handle with no id
+	 *  still works, this is the sure way. */
+	mentions: z.array(objectIdSchema).max(50).optional(),
+	/** Groups: @everyone. Allowed by the group's mentionAll setting up to
+	 *  32 members, admins only above that. Pushes through a mute. */
+	mentionAll: z.boolean().optional(),
 });
 export type SendMessageInput = z.infer<typeof sendMessageInputSchema>;
 
@@ -292,7 +322,11 @@ export const startConversationInputSchema = z.object({
 });
 
 /** GET /v1/messaging/unread: the badge. */
-export const unreadResultSchema = z.object({ threads: z.number().int().nonnegative() });
+export const unreadResultSchema = z.object({
+	threads: z.number().int().nonnegative(),
+	/** Unread messages that mention you (or @everyone), across groups. */
+	mentions: z.number().int().nonnegative().optional(),
+});
 export type UnreadResult = z.infer<typeof unreadResultSchema>;
 export type StartConversationInput = z.infer<typeof startConversationInputSchema>;
 
@@ -341,13 +375,15 @@ export const updateGroupInputSchema = z.object({
 	settings: groupSettingsSchema.optional(),
 	/** Whether people added later read what came before they joined. */
 	historyVisible: z.boolean().optional(),
+	/** Approve new members: link joins and members' adds wait for an admin. */
+	joinApproval: z.boolean().optional(),
 	/** Legacy: the same as settings.send = "admins". */
 	adminsOnly: z.boolean().optional(),
 });
 export type UpdateGroupInput = z.infer<typeof updateGroupInputSchema>;
 
 /** What happened to each person you tried to add. */
-export const ADD_OUTCOMES = ["added", "invited", "already", "pending", "blocked", "full", "unknown"] as const;
+export const ADD_OUTCOMES = ["added", "invited", "already", "pending", "blocked", "banned", "full", "unknown"] as const;
 export const addOutcomeSchema = z.enum(ADD_OUTCOMES);
 export type AddOutcome = z.infer<typeof addOutcomeSchema>;
 export const addResultSchema = z.object({ id: objectIdSchema, status: addOutcomeSchema });
@@ -375,6 +411,8 @@ export const groupInfoSchema = z.object({
 	pendingCount: z.number().optional(),
 	settings: groupSettingsSchema,
 	historyVisible: z.boolean(),
+	joinApproval: z.boolean(),
+	call: groupCallSchema.nullable(),
 	me: z.object({
 		role: memberRoleSchema.nullable(),
 		joinedAt: isoDateSchema.optional(),
@@ -413,6 +451,93 @@ export const groupPendingSchema = z.object({
 });
 export type GroupPending = z.infer<typeof groupPendingSchema>;
 
+/** POST /v1/messaging/groups/:id/links */
+export const createGroupLinkInputSchema = z.object({
+	title: z.string().trim().max(60).optional(),
+	/** No expiry when absent. */
+	expiresIn: z.enum(["1d", "7d", "30d"]).optional(),
+	/** No limit when absent. */
+	maxUses: z.number().int().positive().optional(),
+	/** Joining through this link waits for an admin. */
+	approval: z.boolean().optional(),
+});
+export type CreateGroupLinkInput = z.infer<typeof createGroupLinkInputSchema>;
+
+export const groupLinkSchema = z.object({
+	code: z.string(),
+	by: z.union([messageSenderSchema, objectIdSchema]),
+	at: isoDateSchema,
+	title: z.string().optional(),
+	expiresAt: isoDateSchema.optional(),
+	maxUses: z.number().optional(),
+	uses: z.number(),
+	approval: z.boolean().optional(),
+	revokedAt: isoDateSchema.optional(),
+});
+export type GroupLink = z.infer<typeof groupLinkSchema>;
+
+/** Where a link opens: `/join/<code>` on every platform. */
+export const groupLinkPath = (code: string) => `/join/${code}`;
+
+/** GET /v1/messaging/groups/links/:code, safe to show before joining. */
+export const LINK_STATES = ["NOT_FOUND", "REVOKED", "EXPIRED", "USED_UP"] as const;
+export const groupLinkPreviewSchema = z.object({
+	id: objectIdSchema,
+	name: z.string().optional(),
+	avatar: z.string().optional(),
+	description: z.string(),
+	memberCount: z.number(),
+	faces: z.array(
+		z.object({
+			_id: objectIdSchema,
+			firstName: z.string().optional(),
+			username: z.string(),
+			avatar: z.string().optional(),
+		}),
+	),
+	/** Joining will wait for an admin. */
+	approval: z.boolean(),
+	/** false with `why` when the link no longer works. */
+	open: z.boolean(),
+	why: z.enum(LINK_STATES).nullable(),
+	alreadyIn: z.boolean(),
+});
+export type GroupLinkPreview = z.infer<typeof groupLinkPreviewSchema>;
+
+/** POST /v1/messaging/groups/links/:code/join */
+export const joinByLinkResultSchema = z.object({
+	success: z.boolean(),
+	conversationId: objectIdSchema.optional(),
+	/** Already a member. */
+	already: z.boolean().optional(),
+	/** Waiting for an admin (HTTP 202). */
+	requested: z.boolean().optional(),
+});
+export type JoinByLinkResult = z.infer<typeof joinByLinkResultSchema>;
+
+export const groupBanSchema = z.object({
+	profile: z.union([participantSchema, objectIdSchema]),
+	by: z.union([messageSenderSchema, objectIdSchema]),
+	at: isoDateSchema,
+	/** Absent: for good. */
+	until: isoDateSchema.optional(),
+});
+export type GroupBan = z.infer<typeof groupBanSchema>;
+
+export const pastMemberSchema = z.object({
+	profile: participantSchema,
+	leftAt: isoDateSchema,
+});
+export type PastMember = z.infer<typeof pastMemberSchema>;
+
+/** GET /v1/messaging/message/:id/receipts, the sender only. */
+export const messageReceiptsSchema = z.object({
+	readBy: z.array(z.object({ profile: messageSenderSchema, readAt: isoDateSchema })),
+	/** Everyone who could have read it. */
+	total: z.number(),
+});
+export type MessageReceipts = z.infer<typeof messageReceiptsSchema>;
+
 export const muteInputSchema = z.object({
 	/** null unmutes. */
 	until: z.enum(["8h", "1w", "forever"]).nullable(),
@@ -431,6 +556,11 @@ export const GROUP_ERROR_CODES = [
 	"NOBODY_ADDABLE",
 	"BAD_AVATAR",
 	"UNDELETABLE",
+	"BANNED",
+	"NOT_FOUND",
+	"REVOKED",
+	"EXPIRED",
+	"USED_UP",
 ] as const;
 
 export const markReadInputSchema = z.object({
@@ -568,18 +698,44 @@ export const userEventSchema = z.discriminatedUnion("type", [
 		conversationId: objectIdSchema,
 		profileId: objectIdSchema,
 		by: objectIdSchema,
+		/** Admins only hear this one; no row was posted. */
+		quiet: z.boolean().optional(),
 	}),
 	z.object({
 		type: z.literal("member:removed"),
 		conversationId: objectIdSchema,
 		profileId: objectIdSchema,
 		by: objectIdSchema,
+		banned: z.boolean().optional(),
 	}),
 	z.object({
 		type: z.literal("member:role"),
 		conversationId: objectIdSchema,
 		profileId: objectIdSchema,
 		role: memberRoleSchema,
+	}),
+	/** An admin removed a message for everyone; render the tombstone. */
+	z.object({
+		type: z.literal("message:removed"),
+		conversationId: objectIdSchema,
+		messageId: objectIdSchema,
+		by: objectIdSchema,
+	}),
+	/** Admins: people asking to join. */
+	z.object({
+		type: z.literal("request:received"),
+		conversationId: objectIdSchema,
+		count: z.number(),
+	}),
+	z.object({
+		type: z.literal("call:started"),
+		conversationId: objectIdSchema,
+		by: objectIdSchema,
+		video: z.boolean(),
+	}),
+	z.object({
+		type: z.literal("call:ended"),
+		conversationId: objectIdSchema,
 	}),
 ]);
 export type UserEvent = z.infer<typeof userEventSchema>;
