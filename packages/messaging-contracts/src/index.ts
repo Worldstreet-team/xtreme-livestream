@@ -246,6 +246,15 @@ export const conversationRowSchema = z.object({
 	lastMessageAt: isoDateSchema.optional(),
 	/** DMs only. Groups render from kind, name, avatar and memberCount. */
 	otherParticipant: participantSchema.optional(),
+	/** A group invite for the caller, listed with the requests. */
+	isInvite: z.boolean().optional(),
+	invite: z
+		.object({
+			by: z.union([messageSenderSchema, objectIdSchema]),
+			at: isoDateSchema,
+			expiresAt: isoDateSchema,
+		})
+		.optional(),
 	myRole: memberRoleSchema.optional(),
 	memberCount: z.number().optional(),
 	unreadCount: z.number(),
@@ -287,18 +296,142 @@ export const unreadResultSchema = z.object({ threads: z.number().int().nonnegati
 export type UnreadResult = z.infer<typeof unreadResultSchema>;
 export type StartConversationInput = z.infer<typeof startConversationInputSchema>;
 
+/* ---------------- Groups ---------------- */
+
+/** Who may do what: "everyone" or "admins" per action. Owner and admins
+ *  may always. `send: "admins"` is the announcement-style lock. */
+export const groupPermissionSchema = z.enum(["everyone", "admins"]);
+export const GROUP_SETTING_KEYS = [
+	"send",
+	"media",
+	"addMembers",
+	"editInfo",
+	"pin",
+	"calls",
+	"mentionAll",
+	"money",
+] as const;
+export const groupSettingsSchema = z.object(
+	Object.fromEntries(GROUP_SETTING_KEYS.map((k) => [k, groupPermissionSchema.optional()])) as Record<
+		(typeof GROUP_SETTING_KEYS)[number],
+		z.ZodOptional<typeof groupPermissionSchema>
+	>,
+);
+export type GroupSettings = z.infer<typeof groupSettingsSchema>;
+
+/** A person's own rule for being put into groups: their privacy setting
+ *  `privacy.groupAdd`. Anyone the rule does not admit gets an invite. */
+export const GROUP_ADD_RULES = ["everyone", "following", "allies", "nobody"] as const;
+export const groupAddRuleSchema = z.enum(GROUP_ADD_RULES);
+export type GroupAddRule = z.infer<typeof groupAddRuleSchema>;
+
 export const createGroupInputSchema = z.object({
-	name: z.string().trim().min(1).max(60),
+	name: z.string().trim().min(1).max(80),
 	memberIds: z.array(objectIdSchema).min(1),
+	/** A key from an upload, never a URL of your own. */
+	avatar: z.string().optional(),
+	description: z.string().max(500).optional(),
 });
 export type CreateGroupInput = z.infer<typeof createGroupInputSchema>;
 
 export const updateGroupInputSchema = z.object({
-	name: z.string().trim().min(1).max(60).optional(),
+	name: z.string().trim().min(1).max(80).optional(),
 	avatar: z.string().optional(),
+	description: z.string().max(500).optional(),
+	settings: groupSettingsSchema.optional(),
+	/** Whether people added later read what came before they joined. */
+	historyVisible: z.boolean().optional(),
+	/** Legacy: the same as settings.send = "admins". */
 	adminsOnly: z.boolean().optional(),
 });
 export type UpdateGroupInput = z.infer<typeof updateGroupInputSchema>;
+
+/** What happened to each person you tried to add. */
+export const ADD_OUTCOMES = ["added", "invited", "already", "pending", "blocked", "full", "unknown"] as const;
+export const addOutcomeSchema = z.enum(ADD_OUTCOMES);
+export type AddOutcome = z.infer<typeof addOutcomeSchema>;
+export const addResultSchema = z.object({ id: objectIdSchema, status: addOutcomeSchema });
+export const addMembersResultSchema = z.object({
+	success: z.boolean(),
+	added: z.number(),
+	invited: z.number().optional(),
+	results: z.array(addResultSchema),
+});
+export type AddMembersResult = z.infer<typeof addMembersResultSchema>;
+
+/** GET /v1/messaging/groups/:id */
+export const groupInfoSchema = z.object({
+	id: objectIdSchema,
+	name: z.string().optional(),
+	description: z.string(),
+	avatar: z.string().optional(),
+	createdAt: isoDateSchema.optional(),
+	createdBy: objectIdSchema.optional(),
+	source: platformSchema.optional(),
+	context: threadContextSchema.optional(),
+	memberCount: z.number(),
+	adminCount: z.number(),
+	/** Admins only. */
+	pendingCount: z.number().optional(),
+	settings: groupSettingsSchema,
+	historyVisible: z.boolean(),
+	me: z.object({
+		role: memberRoleSchema.nullable(),
+		joinedAt: isoDateSchema.optional(),
+		leftAt: isoDateSchema.optional(),
+		muted: z.boolean(),
+		mutedUntil: isoDateSchema.optional(),
+		archived: z.boolean(),
+		invited: z.object({ by: objectIdSchema, expiresAt: isoDateSchema }).optional(),
+		/** Every action, true or false, so no client re-implements the policy. */
+		permissions: z.record(z.string(), z.boolean()),
+	}),
+});
+export type GroupInfo = z.infer<typeof groupInfoSchema>;
+
+/** GET /v1/messaging/groups/:id/members */
+export const groupRosterSchema = z.object({
+	total: z.number(),
+	offset: z.number(),
+	members: z.array(
+		z.object({
+			profile: participantSchema,
+			role: memberRoleSchema,
+			joinedAt: isoDateSchema.optional(),
+		}),
+	),
+});
+export type GroupRoster = z.infer<typeof groupRosterSchema>;
+
+/** Someone on the way in: an invite from a member, or a request to join. */
+export const groupPendingSchema = z.object({
+	profile: z.union([participantSchema, objectIdSchema]),
+	kind: z.enum(["invite", "request"]),
+	by: z.union([messageSenderSchema, objectIdSchema]),
+	at: isoDateSchema,
+	expiresAt: isoDateSchema,
+});
+export type GroupPending = z.infer<typeof groupPendingSchema>;
+
+export const muteInputSchema = z.object({
+	/** null unmutes. */
+	until: z.enum(["8h", "1w", "forever"]).nullable(),
+});
+export type MuteInput = z.infer<typeof muteInputSchema>;
+
+/** Codes a group refusal can carry, beside its message. */
+export const GROUP_ERROR_CODES = [
+	"NOT_MEMBER",
+	"NOT_ADMIN",
+	"NOT_OWNER",
+	"ADMINS_ONLY",
+	"MEDIA_ADMINS_ONLY",
+	"GROUP_FULL",
+	"INVITE_EXPIRED",
+	"NOBODY_ADDABLE",
+	"BAD_AVATAR",
+	"UNDELETABLE",
+] as const;
 
 export const markReadInputSchema = z.object({
 	/** The newest message id read; the server takes "now" when absent. */
@@ -411,6 +544,43 @@ export const userEventSchema = z.discriminatedUnion("type", [
 		conversationId: objectIdSchema,
 	}),
 	z.object({ type: z.literal("theme:updated") }),
+	// Groups (audit G150): structured, beside the system rows.
+	z.object({
+		type: z.literal("invite:received"),
+		conversationId: objectIdSchema,
+		name: z.string(),
+		by: objectIdSchema,
+		expiresAt: isoDateSchema,
+	}),
+	z.object({
+		type: z.literal("group:updated"),
+		conversationId: objectIdSchema,
+		patch: z.record(z.string(), z.unknown()),
+	}),
+	z.object({
+		type: z.literal("member:joined"),
+		conversationId: objectIdSchema,
+		profileIds: z.array(objectIdSchema),
+		by: objectIdSchema,
+	}),
+	z.object({
+		type: z.literal("member:left"),
+		conversationId: objectIdSchema,
+		profileId: objectIdSchema,
+		by: objectIdSchema,
+	}),
+	z.object({
+		type: z.literal("member:removed"),
+		conversationId: objectIdSchema,
+		profileId: objectIdSchema,
+		by: objectIdSchema,
+	}),
+	z.object({
+		type: z.literal("member:role"),
+		conversationId: objectIdSchema,
+		profileId: objectIdSchema,
+		role: memberRoleSchema,
+	}),
 ]);
 export type UserEvent = z.infer<typeof userEventSchema>;
 export type UserEventType = UserEvent["type"];

@@ -22,13 +22,18 @@
  * the gateway this way; the shapes come from @worldstreet/messaging-contracts.
  */
 import type {
+	AddMembersResult,
 	CallIncoming,
 	CallSignal,
 	CallTokenResult,
 	ConversationRow,
 	CreateGroupInput,
+	GroupInfo,
+	GroupPending,
+	GroupRoster,
 	Identity,
 	Message,
+	MuteInput,
 	Platform,
 	UnreadResult,
 	SendMessageInput,
@@ -160,9 +165,15 @@ export function createMessaging(options: MessagingOptions) {
 			/** For you only; the other side's shelf is their own. */
 			archive: (conversationId: string, archived: boolean) =>
 				patch(`/v1/messaging/conversations/${conversationId}/archive`, { archived }),
-			/** Deletes the thread for BOTH sides. */
+			/** Deletes the thread for BOTH sides; for a group, only the owner may. */
 			remove: (conversationId: string) =>
 				del(`/v1/messaging/conversations/${conversationId}`),
+			/** Mute for me: "8h", "1w", "forever", or null to unmute. */
+			mute: (conversationId: string, until: MuteInput["until"]) =>
+				patch<{ success: boolean; muted: boolean; mutedUntil: string | null }>(
+					`/v1/messaging/conversations/${conversationId}/mute`,
+					{ until },
+				),
 		},
 
 		messages: {
@@ -203,15 +214,38 @@ export function createMessaging(options: MessagingOptions) {
 		},
 
 		groups: {
-			create: (input: CreateGroupInput) => post<{ _id: string }>("/v1/messaging/groups", input),
+			/** The group in one read: info, settings, counts, and what I may do. */
+			get: (id: string) => get<GroupInfo>(`/v1/messaging/groups/${id}`),
+			/** The roster, paged and searchable. */
+			members: (id: string, opts: { offset?: number; limit?: number; q?: string } = {}) =>
+				get<GroupRoster>(`/v1/messaging/groups/${id}/members`, opts),
+			/** People you may add go straight in; the rest are invited. The
+			 *  answer says what happened to each id. */
+			create: (input: CreateGroupInput) =>
+				post<ConversationRow & { results: AddMembersResult["results"] }>("/v1/messaging/groups", input),
 			update: (id: string, input: UpdateGroupInput) =>
-				patch(`/v1/messaging/groups/${id}`, input),
+				patch<{ success: boolean; changed: string[] }>(`/v1/messaging/groups/${id}`, input),
 			addMembers: (id: string, memberIds: string[]) =>
-				post(`/v1/messaging/groups/${id}/members`, { memberIds }),
+				post<AddMembersResult>(`/v1/messaging/groups/${id}/members`, { memberIds }),
+			/** Remove someone (admins), or yourself to leave. */
 			removeMember: (id: string, profileId: string) =>
-				del(`/v1/messaging/groups/${id}/members/${profileId}`),
+				del<{ success: boolean; alreadyLeft?: boolean; dissolved?: boolean }>(
+					`/v1/messaging/groups/${id}/members/${profileId}`,
+				),
+			leave: (id: string, myProfileId: string) =>
+				del<{ success: boolean }>(`/v1/messaging/groups/${id}/members/${myProfileId}`),
 			setRole: (id: string, profileId: string, role: "admin" | "member") =>
 				patch(`/v1/messaging/groups/${id}/members/${profileId}`, { role }),
+			/** Owner only: hand the group to another member. */
+			transfer: (id: string, to: string) =>
+				post(`/v1/messaging/groups/${id}/transfer`, { to }),
+			/** Accept an invite to this group. */
+			join: (id: string) => post<{ success: boolean }>(`/v1/messaging/groups/${id}/join`),
+			/** Admins: who is on the way in. */
+			pending: (id: string) => get<GroupPending[]>(`/v1/messaging/groups/${id}/invites`),
+			/** Decline your own invite, or (admins) withdraw someone's. */
+			withdrawInvite: (id: string, profileId: string) =>
+				del(`/v1/messaging/groups/${id}/invites/${profileId}`),
 		},
 
 		calls: {
