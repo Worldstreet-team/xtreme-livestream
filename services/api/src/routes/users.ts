@@ -355,6 +355,10 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
             isLive: user.isLive,
             verified: user.verified,
             createdAt: user.createdAt,
+            // What WorldSpace messaging resolves a person by: the channel
+            // page's Message button needs it, the same way the stream page
+            // does. Social publishes the same id on every public profile.
+            authUserId: user.authUserId,
           },
           isFollowing,
         },

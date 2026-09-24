@@ -17,6 +17,8 @@ import {
 import { StreamCard } from "@/components/app/stream-card";
 import { UpcomingCard, RemindButton } from "@/components/app/upcoming-card";
 import { FollowButton } from "@/components/app/follow-button";
+import { MessageButton } from "@/components/app/message-button";
+import { useAuth } from "@/lib/auth-context";
 import { StreamArt } from "@/components/app/stream-art";
 import { Empty } from "@/components/app/empty";
 import { PillTabs } from "@/components/ui/tabs";
@@ -53,6 +55,8 @@ interface ChannelUser {
   isLive: boolean;
   verified: boolean;
   createdAt: string;
+  /** Clerk id: what WorldSpace messaging resolves the channel by. */
+  authUserId?: string;
 }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -75,6 +79,7 @@ export default function ChannelPage({
   const { username } = use(params);
 
   const [channel, setChannel] = useState<ChannelUser | null>(null);
+  const { user: viewer } = useAuth();
   const [isFollowing, setIsFollowing] = useState(false);
   const [streams, setStreams] = useState<RowItem[]>([]);
   const [also, setAlso] = useState<RowItem[]>([]);
@@ -330,6 +335,17 @@ export default function ChannelPage({
                 <Broadcast size={15} weight="fill" />
                 Watch live
               </Link>
+            )}
+            {viewer && channel.authUserId && viewer.id !== channel.id && (
+              <MessageButton
+                recipient={channel.authUserId}
+                context={{
+                  kind: "channel",
+                  id: channel.id,
+                  title: channel.displayName,
+                  url: typeof window === "undefined" ? undefined : window.location.href,
+                }}
+              />
             )}
             <FollowButton
               username={channel.username}

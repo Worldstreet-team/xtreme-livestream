@@ -16,10 +16,12 @@ import {
   ArrowUpRight,
   Coins,
   SealCheck,
+  ChatCircle,
 } from "@phosphor-icons/react";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useUnreadThreads } from "@/lib/messaging";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
@@ -42,11 +44,13 @@ import { BrandMark } from "@/components/ui/brand-mark";
 const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 const SPRING = "cubic-bezier(0.22, 1.15, 0.36, 1)";
 
-type Row = { label: string; href: string; icon: typeof Wallet; external?: boolean };
+type Row = { label: string; href: string; icon: typeof Wallet; external?: boolean; badge?: number };
 
 export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
+  // WorldSpace threads with something new; the Messages row carries it.
+  const unreadThreads = useUnreadThreads(Boolean(user));
   const close = () => onOpenChange(false);
 
   // Mount only while open or leaving, so the closed drawer costs nothing
@@ -107,6 +111,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
   const mine: Row[] = user
     ? [
         { label: "Your channel", href: `/c/${user.username}`, icon: Users },
+        { label: "Messages", href: "/messages", icon: ChatCircle, badge: unreadThreads },
         { label: "Dashboard", href: "/dashboard", icon: ChartDonut },
         { label: "Wallet", href: "/wallet", icon: Wallet },
         { label: "Rewards", href: "/rewards", icon: Diamond },
@@ -230,6 +235,11 @@ function DrawerRow({ row, active, hint }: { row: Row; active: boolean; hint?: st
         {hint && <span className="truncate text-[11.5px] font-normal text-muted-foreground/70">{hint}</span>}
       </span>
       {row.external && <ArrowUpRight size={14} className="shrink-0 text-muted-foreground/50" aria-hidden />}
+      {row.badge ? (
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary-foreground">
+          {row.badge}
+        </span>
+      ) : null}
     </>
   );
   if (row.external) {
