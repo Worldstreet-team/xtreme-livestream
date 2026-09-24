@@ -550,6 +550,8 @@ export const groupInfoSchema = z.object({
 		leftAt: isoDateSchema.optional(),
 		muted: z.boolean(),
 		mutedUntil: isoDateSchema.optional(),
+		notifyLevel: notifyLevelSchema.optional(),
+		restrictedUntil: isoDateSchema.optional(),
 		archived: z.boolean(),
 		invited: z.object({ by: objectIdSchema, expiresAt: isoDateSchema }).optional(),
 		/** Every action, true or false, so no client re-implements the policy. */
@@ -567,6 +569,13 @@ export const groupRosterSchema = z.object({
 			profile: participantSchema,
 			role: memberRoleSchema,
 			joinedAt: isoDateSchema.optional(),
+			/** Who put them here and how (audit G51). */
+			addedBy: z.union([messageSenderSchema, objectIdSchema]).optional(),
+			via: z.enum(["add", "invite", "link", "request", "platform", "create"]).optional(),
+			/** A pause in force. */
+			restrictedUntil: isoDateSchema.optional(),
+			/** Admins only. */
+			rights: adminRightsSchema.optional(),
 		}),
 	),
 });
