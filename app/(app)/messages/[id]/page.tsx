@@ -3,11 +3,12 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, PaperPlaneRight } from "@phosphor-icons/react";
-import type {
-  ConversationRow,
-  Message,
-  MessagingRealtime,
-  UserEvent,
+import {
+  viaLabel,
+  type ConversationRow,
+  type Message,
+  type MessagingRealtime,
+  type UserEvent,
 } from "@worldstreet/messaging-sdk";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -239,6 +240,12 @@ export default function ThreadPage({ params }: { params: Promise<{ id: string }>
                   </a>
                 ) : null}
                 {m.content && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
+                {/* The same banner both sides show when a message crossed
+                    platforms: WorldSpace says "via Xstream", this says
+                    "via WorldSpace". */}
+                {viaLabel(m.source, "xstream") && (
+                  <p className="mt-1 text-[0.65rem] opacity-60">{viaLabel(m.source, "xstream")}</p>
+                )}
               </div>
             </div>
           );

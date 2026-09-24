@@ -154,10 +154,30 @@ export const messageSchema = z.object({
 	/** The sender's own id for the row: the same one comes back, so an
 	 *  optimistic row and the stored row are one row. */
 	clientKey: z.string().optional(),
+	/** Which platform it was sent from; absent on rows older than 2026-09-24.
+	 *  Show "via <platform>" when it differs from the one rendering it. */
+	source: platformSchema.optional(),
 	createdAt: isoDateSchema,
 	updatedAt: isoDateSchema.optional(),
 });
 export type Message = z.infer<typeof messageSchema>;
+
+/** How each platform is named to people. */
+export const PLATFORM_LABELS: Record<Platform, string> = {
+	worldspace: "WorldSpace",
+	app: "WorldSpace",
+	dashboard: "Dashboard",
+	academy: "Academy",
+	shop: "Shop",
+	xstream: "Xstream",
+};
+
+/** "via Xstream" when a message crossed platforms, otherwise nothing. */
+export function viaLabel(source: Platform | undefined, here: Platform): string | null {
+	if (!source) return null;
+	const same = source === here || (["worldspace", "app"].includes(source) && ["worldspace", "app"].includes(here));
+	return same ? null : `via ${PLATFORM_LABELS[source]}`;
+}
 
 /* ---------------- Conversations ---------------- */
 
