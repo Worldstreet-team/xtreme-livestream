@@ -4,11 +4,13 @@ import type mongoose from "mongoose";
 import {
   chatMessageParamsSchema,
   createBanBodySchema,
+  featureBodySchema,
   streamIdParamsSchema,
   streamUserParamsSchema,
 } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
+import { featuredFrom, isDropMessage, sceneView, unfeatureMessage, unfeatureUser, writeFeatured } from "../featured.js";
 import { sendRoomData } from "../livekit.js";
 import { ChatMessage, Stream, StreamBan, type IStream } from "../models.js";
 
@@ -99,6 +101,11 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         __evt: "chat_delete",
         messageId: request.params.messageId,
       });
+      // A deleted line doesn't stay on screen either. The delete is done
+      // whatever happens here; a miss only means it comes down at its time.
+      await unfeatureMessage(stream._id, request.params.messageId).catch((err) =>
+        request.log.error({ err }, "taking a deleted line off screen failed"),
+      );
 
       return { success: true, data: { deleted: true } };
     },
@@ -170,6 +177,10 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         username: ban?.username ?? lastMessage?.username,
         until: expiresAt ? expiresAt.toISOString() : null,
       });
+      // Nor does anything of theirs that's featured — without failing the ban.
+      await unfeatureUser(stream._id, request.params.userId).catch((err) =>
+        request.log.error({ err }, "taking a banned user's line off screen failed"),
+      );
 
       return {
         success: true,
@@ -280,6 +291,66 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
       void sendRoomData(stream.livekitRoomName, { __evt: "unpin" });
 
       return { success: true, data: { pinned: false } };
+    },
+  );
+
+  app.post(
+    "/streams/:id/chat/:messageId/feature",
+    {
+      schema: {
+        tags: ["Moderation"],
+        summary: "Host: put a chat line or gift on screen (10, 20 or 60 seconds, or until taken down)",
+        security: [{ bearerAuth: [] }],
+        params: chatMessageParamsSchema,
+        body: featureBodySchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await loadStream(request.params.id);
+      requireHost(stream, dbUser._id);
+      if (!stream.isLive) {
+        throw new ApiError(409, "Go live first", "NOT_LIVE");
+      }
+
+      // From the stored row: what goes on screen is what was said.
+      const message = await ChatMessage.findOne({
+        _id: request.params.messageId,
+        streamId: stream._id,
+      }).lean();
+      if (!message) {
+        throw new ApiError(404, "Message not found", "MESSAGE_NOT_FOUND");
+      }
+      if (isDropMessage(message)) {
+        throw new ApiError(400, "Drops can't go on screen", "NOT_FEATURABLE");
+      }
+
+      const scene = await writeFeatured(stream._id, featuredFrom(message, request.body.seconds));
+      if (!scene) {
+        throw new ApiError(409, "Go live first", "NOT_LIVE");
+      }
+      return { success: true, data: { scene } };
+    },
+  );
+
+  app.delete(
+    "/streams/:id/chat/:messageId/feature",
+    {
+      schema: {
+        tags: ["Moderation"],
+        summary: "Host: take a chat line or gift off screen",
+        security: [{ bearerAuth: [] }],
+        params: chatMessageParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await loadStream(request.params.id);
+      requireHost(stream, dbUser._id);
+
+      // Only while it's still the one on screen — a newer pick stays up.
+      const scene = await unfeatureMessage(stream._id, request.params.messageId);
+      return { success: true, data: { scene: scene ?? sceneView(stream.scene) } };
     },
   );
 

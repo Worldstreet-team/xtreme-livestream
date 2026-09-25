@@ -5,6 +5,7 @@ import {
   SCENE_CARDS,
   SCENE_LAYOUTS,
   type BrandAccent,
+  type FeaturedItem,
   type LogoCorner,
   type LowerThirdStyle,
   type Scene,
@@ -22,9 +23,9 @@ import { apiUrl } from "@/lib/api-client";
  * `__evt: scene` data event.
  */
 
-export type { BrandAccent, LogoCorner, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
+export type { BrandAccent, FeaturedItem, LogoCorner, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
-export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", layers: [], version: 0 };
+export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", layers: [], featured: null, version: 0 };
 
 /** Whatever came off the wire — the API, room metadata, a data event — as a scene, or null. */
 export function readScene(raw: unknown): Scene | null {
@@ -35,9 +36,62 @@ export function readScene(raw: unknown): Scene | null {
     card: SCENE_CARDS.includes(r.card as SceneCard) ? (r.card as SceneCard) : null,
     cardNote: typeof r.cardNote === "string" ? r.cardNote.slice(0, 80) : "",
     layers: readLayers(r.layers),
+    featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };
 }
+
+/** The comment or gift on screen, if what came is one we can draw. */
+export function readFeatured(raw: unknown): FeaturedItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const orNull = (v: unknown) => (typeof v === "string" ? v : null);
+  if (!str(r.id) || !str(r.username) || Number.isNaN(Date.parse(str(r.at)))) return null;
+  return {
+    id: str(r.id),
+    kind: r.kind === "gift" ? "gift" : "chat",
+    userId: str(r.userId),
+    username: str(r.username),
+    avatar: str(r.avatar),
+    text: str(r.text).slice(0, 500),
+    emoji: orNull(r.emoji),
+    amount: orNull(r.amount),
+    currency: orNull(r.currency),
+    at: str(r.at),
+    until: orNull(r.until),
+    auto: r.auto === true,
+  };
+}
+
+/**
+ * When a featured item comes down, on this device's clock. Its span
+ * (until − at) caps the wait, so a device whose clock runs behind the
+ * server's doesn't keep it up longer than the host asked. Null: until the
+ * host takes it down.
+ */
+export function featuredDeadline(item: Pick<FeaturedItem, "at" | "until">, now: number) {
+  if (!item.until) return null;
+  const until = Date.parse(item.until);
+  const span = until - Date.parse(item.at);
+  return Math.min(until, now + span);
+}
+
+/** The lengths a host can put a comment up for; 0 is until they take it down. */
+export const FEATURE_LENGTHS: { seconds: 0 | 10 | 20 | 60; label: string }[] = [
+  { seconds: 10, label: "10s" },
+  { seconds: 20, label: "20s" },
+  { seconds: 60, label: "1 min" },
+  { seconds: 0, label: "Until I hide it" },
+];
+
+/** The gift tiers that go on screen by themselves; 0 is off. */
+export const FEATURE_GIFT_TIERS: { minor: 0 | 500 | 2000 | 10_000; label: string }[] = [
+  { minor: 0, label: "Off" },
+  { minor: 500, label: "$5+" },
+  { minor: 2000, label: "$20+" },
+  { minor: 10_000, label: "$100+" },
+];
 
 /**
  * The graphics, one of each kind at most, in the order they came. Anything

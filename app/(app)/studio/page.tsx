@@ -57,12 +57,15 @@ import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
+import { FeaturedPanel } from "@/components/app/featured-panel";
 import {
   CARDS,
   DEFAULT_BRAND,
   DEFAULT_SCENE,
   LAYOUTS,
+  newerScene,
   readBrand,
+  readScene,
   sceneFromMetadata,
   type Brand,
   type Scene,
@@ -242,6 +245,11 @@ export default function StudioPage() {
   const [localScreen, setLocalScreen] = useState<LocalVideoTrack | null>(null);
   /** The brand kit the graphics wear, saved to the channel. */
   const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
+  // Comments on screen: the channel's saved choices until changed here.
+  const [featureSecondsPick, setFeatureSecondsPick] = useState<number | null>(null);
+  const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
+  const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
+  const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
   /** The live session's facts, for room events and timers that outlive a render. */
   const liveRef = useRef({ streamId: null as string | null, source: "camera" as SourceType, title: "", micEnabled: true, camEnabled: true });
@@ -2306,6 +2314,33 @@ export default function StudioPage() {
     }
   };
 
+  /** The scene an API call answered with — the newer version wins, as everywhere. */
+  const takeScene = (raw: unknown) => {
+    const next = readScene(raw);
+    setScene((cur) => newerScene(cur, next) ?? cur);
+  };
+
+  /** Comments-on-screen choices save to the channel, like slow mode. */
+  const saveFeatureSettings = (settings: { featureSeconds?: number; featureGiftsFromMinor?: number }) => {
+    apiFetch("/api/user/me", { method: "PATCH", body: JSON.stringify({ settings }) }).catch(() =>
+      setError("Couldn't save that setting — it's on for this stream only.")
+    );
+  };
+
+  const takeDownFeatured = async () => {
+    const current = scene.featured;
+    if (!streamId || !current) return;
+    try {
+      const r = await apiFetch<{ success: boolean; data: { scene: unknown } }>(
+        `/api/streams/${streamId}/chat/${current.id}/feature`,
+        { method: "DELETE" }
+      );
+      takeScene(r.data.scene);
+    } catch {
+      setError("Couldn't take it down — it comes down at its time anyway.");
+    }
+  };
+
   // Sharing a screen beside the camera: the screen takes the preview's main
   // picture (what viewers see) and the camera moves to the corner; when the
   // share stops, the camera comes back.
@@ -2394,6 +2429,22 @@ export default function StudioPage() {
           A card covers the picture; the room still hears you.
         </p>
       </section>
+
+      <FeaturedPanel
+        featured={scene.featured ?? null}
+        seconds={featureSeconds}
+        giftsFrom={giftsFrom}
+        carded={Boolean(scene.card)}
+        onSeconds={(seconds) => {
+          setFeatureSecondsPick(seconds);
+          saveFeatureSettings({ featureSeconds: seconds });
+        }}
+        onGiftsFrom={(minor) => {
+          setGiftsFromPick(minor);
+          saveFeatureSettings({ featureGiftsFromMinor: minor });
+        }}
+        onTakeDown={() => void takeDownFeatured()}
+      />
 
       <SceneGraphicsPanel
         layers={scene.layers}
@@ -2845,7 +2896,18 @@ export default function StudioPage() {
             <>
               {roomHeader}
               <div className={cn("min-h-0 flex-1", panel !== "chat" && "hidden")}>
-                {streamId && <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost hostUsername={user?.username} />}
+                {streamId && (
+                  <LiveChat
+                    streamId={streamId}
+                    room={liveRoom}
+                    isLive={isLive}
+                    isHost
+                    hostUsername={user?.username}
+                    featured={scene.featured ?? null}
+                    featureSeconds={featureSeconds}
+                    onScene={takeScene}
+                  />
+                )}
               </div>
               {panelBody}
             </>
@@ -2859,7 +2921,17 @@ export default function StudioPage() {
       {isLive && streamId && mode === "phone" && (
         <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} header={<div className="pb-1">{roomHeader}</div>}>
           <div className={cn("h-full", panel !== "chat" && "hidden")}>
-            <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost hostUsername={user?.username} variant="sheet" />
+            <LiveChat
+              streamId={streamId}
+              room={liveRoom}
+              isLive={isLive}
+              isHost
+              hostUsername={user?.username}
+              variant="sheet"
+              featured={scene.featured ?? null}
+              featureSeconds={featureSeconds}
+              onScene={takeScene}
+            />
           </div>
           {panel !== "chat" && <div className="flex h-full flex-col">{panelBody}</div>}
         </DragSheet>

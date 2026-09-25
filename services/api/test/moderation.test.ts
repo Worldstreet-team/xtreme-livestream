@@ -78,7 +78,8 @@ vi.mock("../src/models.js", () => ({
       const doc = String(lookup) === STREAM_ID ? streamDoc : null;
       return Object.assign(Promise.resolve(doc), { select: async () => doc });
     },
-    findOneAndUpdate: async () => null,
+    // Thenable and .lean()-able, like a Mongoose query.
+    findOneAndUpdate: () => Object.assign(Promise.resolve(null), { lean: async () => null }),
     updateOne: async (
       _q: unknown,
       update: { $set?: Record<string, unknown> },

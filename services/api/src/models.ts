@@ -1,5 +1,5 @@
 import mongoose, { type Document, type Model, Schema } from "mongoose";
-import { type Category } from "@xtreme/contracts";
+import { type Category, type FeaturedItem } from "@xtreme/contracts";
 
 export interface IUser extends Document {
   authUserId: string;
@@ -65,6 +65,10 @@ export interface IUser extends Document {
      * community without it also being a lookup key for strangers.
      */
     discoverableByTag: boolean;
+    /** Gifts at or above this many cents go on screen by themselves; 0 is off. */
+    featureGiftsFromMinor: number;
+    /** How long a featured comment stays on screen, in seconds; 0 is until taken down. */
+    featureSeconds: number;
   };
   /**
    * The two-screen cold-start picker. Categories chosen seed the first
@@ -129,6 +133,8 @@ const userSchema = new Schema<IUser>(
       subscriberOnly: { type: Boolean, default: false },
       profanityFilter: { type: Boolean, default: true },
       discoverableByTag: { type: Boolean, default: true },
+      featureGiftsFromMinor: { type: Number, enum: [0, 500, 2000, 10_000], default: 0 },
+      featureSeconds: { type: Number, enum: [0, 10, 20, 60], default: 20 },
     },
     onboarding: {
       completedAt: { type: Date, default: null },
@@ -199,6 +205,12 @@ export interface IStream extends Document {
     cardNote: string;
     /** Graphics over the program — shapes validated by `sceneLayerSchema`. */
     layers: Array<Record<string, unknown>>;
+    /**
+     * The comment or gift on screen (`featuredItemSchema`), written only by
+     * the feature routes and the gift tier, with atomic updates — so it never
+     * races the host's own scene changes.
+     */
+    featured: FeaturedItem | null;
     version: number;
   };
   viewers: number;
@@ -286,6 +298,7 @@ const streamSchema = new Schema<IStream>(
       card: { type: String, enum: ["starting-soon", "brb", "ending", null], default: null },
       cardNote: { type: String, default: "", maxlength: 80 },
       layers: { type: [Schema.Types.Mixed], default: [] },
+      featured: { type: Schema.Types.Mixed, default: null },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },

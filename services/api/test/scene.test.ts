@@ -26,7 +26,7 @@ let streamDoc: {
   streamerId: ReturnType<typeof id>;
   isLive: boolean;
   livekitRoomName: string;
-  scene?: { layout: string; card: string | null; cardNote: string; version: number };
+  scene?: { layout: string; card: string | null; cardNote: string; featured?: unknown; version: number };
   save: () => Promise<void>;
 };
 
@@ -130,7 +130,7 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", layers: [], version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", layers: [], featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toEqual(scene);
     expect(streamDoc.save).toHaveBeenCalledTimes(1);
@@ -144,6 +144,15 @@ describe("PUT /streams/:id/scene", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.scene.layers).toEqual([{ kind: "ticker", text: "Follow for the drop" }]);
     expect(state.events[0]).toMatchObject({ __evt: "scene", scene: { layers: [{ kind: "ticker" }] } });
+  });
+
+  it("leaves what's featured on screen alone — the feature routes own it", async () => {
+    const featured = { id: "e".repeat(24), kind: "chat", text: "hi", until: null };
+    streamDoc.scene = { layout: "auto", card: null, cardNote: "", featured, version: 3 };
+
+    const response = await put({ layout: "solo" });
+
+    expect(response.json().data.scene).toMatchObject({ layout: "solo", featured, version: 4 });
   });
 
   it("only ever moves the version forward", async () => {

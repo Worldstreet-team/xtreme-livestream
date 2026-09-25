@@ -218,6 +218,42 @@ export const brandBodySchema = z
   })
   .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });
 
+/**
+ * A comment or gift the host puts on screen from chat (Phase 2, comments on
+ * screen). It's part of the scene but never in the PUT body: the API writes
+ * it from the stored chat row — whose words they are is never the client's
+ * say — and it comes down by itself at `until` (null: when the host says).
+ */
+export const FEATURE_SECONDS = [10, 20, 60] as const;
+/** Gift tiers that go on screen by themselves, in US cents; 0 is off. */
+export const FEATURE_GIFT_TIERS_MINOR = [0, 500, 2000, 10_000] as const;
+
+export const featureBodySchema = z.object({
+  seconds: z
+    .union([z.literal(10), z.literal(20), z.literal(60)])
+    .nullable()
+    .default(20),
+});
+
+export const featuredItemSchema = z.object({
+  /** The chat row's id. */
+  id: z.string(),
+  kind: z.enum(["chat", "gift"]),
+  userId: z.string(),
+  username: z.string(),
+  avatar: z.string(),
+  /** The message, or a gift's line ("sent a Rose"). */
+  text: z.string(),
+  emoji: z.string().nullable(),
+  /** A gift's amount as its chat row carries it ("5.00"). */
+  amount: z.string().nullable(),
+  currency: z.string().nullable(),
+  at: z.string(),
+  until: z.string().nullable(),
+  /** Put up by the gift tier rather than by the host's hand. */
+  auto: z.boolean(),
+});
+
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
 export type SceneCard = (typeof SCENE_CARDS)[number];
 export type SceneLayer = z.infer<typeof sceneLayerSchema>;
@@ -225,8 +261,10 @@ export type SceneLayerKind = (typeof SCENE_LAYER_KINDS)[number];
 export type LogoCorner = (typeof LOGO_CORNERS)[number];
 export type BrandAccent = (typeof BRAND_ACCENTS)[number];
 export type LowerThirdStyle = (typeof LOWER_THIRD_STYLES)[number];
-/** The scene as stored and broadcast: the body plus a version that only goes up. */
-export type Scene = z.infer<typeof sceneBodySchema> & { version: number };
+export type FeaturedItem = z.infer<typeof featuredItemSchema>;
+export type FeatureSeconds = (typeof FEATURE_SECONDS)[number];
+/** The scene as stored and broadcast: the body, what's featured, and a version that only goes up. */
+export type Scene = z.infer<typeof sceneBodySchema> & { version: number; featured?: FeaturedItem | null };
 
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -364,6 +402,12 @@ export const updateProfileBodySchema = z
         slowMode: z.boolean().optional(),
         subscriberOnly: z.boolean().optional(),
         profanityFilter: z.boolean().optional(),
+        /** Gifts at or above this many cents go on screen by themselves; 0 is off. */
+        featureGiftsFromMinor: z
+          .union([z.literal(0), z.literal(500), z.literal(2000), z.literal(10_000)])
+          .optional(),
+        /** How long a comment stays on screen; 0 is until the host takes it down. */
+        featureSeconds: z.union([z.literal(0), z.literal(10), z.literal(20), z.literal(60)]).optional(),
       })
       .strict()
       .optional(),

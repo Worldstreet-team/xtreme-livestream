@@ -10,6 +10,7 @@ import { ApiError } from "../errors.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
 import { sendRoomData } from "../livekit.js";
 import { applyBattleGift } from "../battles.js";
+import { autoFeatureGift } from "../featured.js";
 import { reconcileStream } from "../stream-service.js";
 import { assertNotBanned } from "./moderation.js";
 import {
@@ -182,6 +183,12 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           emoji: body.emoji,
           platform: body.platform,
         });
+
+        // A gift at the host's tier goes on screen by itself. Never lets a
+        // screen failure fail the gift.
+        await autoFeatureGift(stream._id, streamer, message, grossUsdMinor).catch((err) =>
+          request.log.error({ err }, "auto-featuring the gift failed"),
+        );
 
         return { success: true, message: "Gift sent", data: { gift, chatMessage: message } };
       } catch (error) {

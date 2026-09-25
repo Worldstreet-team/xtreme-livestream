@@ -8,6 +8,7 @@ import {
   ChatCircleDots,
   Clock,
   Gift,
+  MonitorPlay,
   Prohibit,
   PushPin,
   ShieldStar,
@@ -22,7 +23,9 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, type GiftDef } from "@/lib/gifts";
 import { GiftKeyboard } from "@/components/app/gift-keyboard";
-import { foldLines, mentions, type ChatMsg, type ChatPlatform } from "@/components/app/chat/lines";
+import { foldLines, giftUnit, isDrop, mentions, type ChatMsg, type ChatPlatform } from "@/components/app/chat/lines";
+import { useFeaturedShowing } from "@/lib/use-featured";
+import type { FeaturedItem } from "@/lib/scene";
 import {
   ArrivalTicker,
   Badges,
@@ -77,6 +80,12 @@ interface LiveChatProps {
   topGifters?: Supporter[];
   /** The host's username, so their lines wear a Host badge. */
   hostUsername?: string;
+  /** Host: what's on screen now — its line is marked, and its tool takes it down. */
+  featured?: FeaturedItem | null;
+  /** Host: how long a line goes up for, in seconds; 0 is until taken down. */
+  featureSeconds?: number;
+  /** Host: the scene the API answered with, so the studio shows it at once. */
+  onScene?: (scene: unknown) => void;
 }
 
 /**
@@ -106,6 +115,9 @@ export function LiveChat({
   beforeComposer,
   topGifters,
   hostUsername,
+  featured = null,
+  featureSeconds = 20,
+  onScene,
 }: LiveChatProps) {
   const skin: ChatSkin = variant === "overlay" ? "overlay" : "panel";
   const overlay = skin === "overlay";
@@ -537,6 +549,41 @@ export function LiveChat({
     }
   };
 
+  /** Put a line or gift on screen; the room redraws from the scene the API writes. */
+  const modFeature = async (messageId: string) => {
+    if (modBusy) return;
+    setModBusy(true);
+    try {
+      const res = await apiFetch<{ success: boolean; data: { scene: unknown } }>(
+        `/api/streams/${streamId}/chat/${messageId}/feature`,
+        { method: "POST", body: JSON.stringify({ seconds: featureSeconds || null }) }
+      );
+      onScene?.(res.data.scene);
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Couldn't put that on screen");
+    } finally {
+      setModBusy(false);
+      setModMenuFor(null);
+    }
+  };
+
+  const modUnfeature = async (messageId: string) => {
+    if (modBusy) return;
+    setModBusy(true);
+    try {
+      const res = await apiFetch<{ success: boolean; data: { scene: unknown } }>(
+        `/api/streams/${streamId}/chat/${messageId}/feature`,
+        { method: "DELETE" }
+      );
+      onScene?.(res.data.scene);
+    } catch {
+      // It comes down at its time anyway.
+    } finally {
+      setModBusy(false);
+      setModMenuFor(null);
+    }
+  };
+
   const modUnpin = async () => {
     setPinned(null);
     try {
@@ -668,7 +715,7 @@ export function LiveChat({
     />
   );
 
-  const toolButton = (label: string, onClick: () => void, icon: ReactNode, danger = false) => (
+  const toolButton = (label: string, onClick: () => void, icon: ReactNode, tone: "plain" | "danger" | "on" = "plain") => (
     <button
       type="button"
       onClick={onClick}
@@ -677,12 +724,25 @@ export function LiveChat({
       aria-label={label}
       className={cn(
         "flex size-7 items-center justify-center rounded-[8px] transition-colors disabled:opacity-50",
-        danger ? "text-chili-hi hover:bg-chili/15" : "text-muted-foreground hover:bg-white/10 hover:text-foreground"
+        tone === "danger"
+          ? "text-chili-hi hover:bg-chili/15"
+          : tone === "on"
+            ? "bg-ember/[0.16] text-ember-hi hover:bg-ember/25"
+            : "text-muted-foreground hover:bg-white/10 hover:text-foreground"
       )}
     >
       {icon}
     </button>
   );
+
+  // What's on screen now — its line wears "On stream", and its tool takes it down.
+  const showing = useFeaturedShowing(isHost ? featured : null);
+  const onStreamId = showing?.id ?? null;
+
+  const featureTool = (msg: ChatMsg) =>
+    onStreamId === msg.id
+      ? toolButton("Take off stream", () => modUnfeature(msg.id), <MonitorPlay size={13} weight="fill" />, "on")
+      : toolButton("Show on stream", () => modFeature(msg.id), <MonitorPlay size={13} />);
 
   const toolsFor = (msg: ChatMsg) =>
     isHost && !msg.isMod ? (
@@ -693,14 +753,29 @@ export function LiveChat({
         )}
         onClick={(e) => e.stopPropagation()}
       >
+        {featureTool(msg)}
         {toolButton("Pin message", () => modPinMessage(msg.id), <PushPin size={13} />)}
         {toolButton("Delete message", () => modDeleteMessage(msg.id), <Trash size={13} />)}
         {msg.userId && (
           <>
             {toolButton("Timeout 10 minutes", () => modBanUser(msg.userId!, 10), <Timer size={13} />)}
-            {toolButton("Ban from stream", () => modBanUser(msg.userId!), <Prohibit size={13} />, true)}
+            {toolButton("Ban from stream", () => modBanUser(msg.userId!), <Prohibit size={13} />, "danger")}
           </>
         )}
+      </div>
+    ) : null;
+
+  // A dollar gift can go on screen too; drops and points can't.
+  const giftToolsFor = (msg: ChatMsg) =>
+    isHost && giftUnit(msg) === "usd" && !isDrop(msg) ? (
+      <div
+        className={cn(
+          "absolute -top-1 right-1 z-10 items-center gap-0.5 rounded-[10px] bg-popover p-0.5 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.8)]",
+          modMenuFor === msg.id ? "flex" : "hidden group-hover:flex"
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {featureTool(msg)}
       </div>
     ) : null;
 
@@ -854,7 +929,18 @@ export function LiveChat({
               ) : line.kind === "stage" ? (
                 <StageLine msg={line.msg} skin={skin} />
               ) : line.kind === "gift" ? (
-                <GiftLine msg={line.msg} count={line.count} total={line.total} skin={skin} badges={badgesFor(line.msg)} />
+                <GiftLine
+                  msg={line.msg}
+                  count={line.count}
+                  total={line.total}
+                  skin={skin}
+                  badges={badgesFor(line.msg)}
+                  tools={giftToolsFor(line.msg)}
+                  onStream={onStreamId === line.msg.id}
+                  onTap={
+                    isHost && giftUnit(line.msg) === "usd" ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined
+                  }
+                />
               ) : (
                 <MessageLine
                   msg={line.msg}
@@ -862,6 +948,7 @@ export function LiveChat({
                   badges={badgesFor(line.msg)}
                   highlight={line.msg.username !== user?.username && mentions(line.msg.content, user?.username)}
                   tools={toolsFor(line.msg)}
+                  onStream={onStreamId === line.msg.id}
                   onTap={
                     // Tap-to-toggle keeps the tools reachable on touch.
                     isHost && !line.msg.isMod ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined

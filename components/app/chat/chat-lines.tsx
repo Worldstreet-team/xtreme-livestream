@@ -75,6 +75,20 @@ export function Badges({
   );
 }
 
+/** The host's chat marks the line that's on screen right now. */
+function OnStream({ skin }: { skin: ChatSkin }) {
+  return (
+    <span
+      className={cn(
+        "ml-1.5 inline-flex h-4 items-center gap-1 rounded-[4px] px-1 align-[1px] text-[9.5px] font-bold tracking-wide uppercase",
+        skin === "overlay" ? "bg-ember text-on-ember" : "bg-ember/[0.16] text-ember-hi"
+      )}
+    >
+      On stream
+    </span>
+  );
+}
+
 /** Someone speaking — or an emoji reaction, which is just a louder word. */
 export function MessageLine({
   msg,
@@ -83,6 +97,7 @@ export function MessageLine({
   highlight = false,
   tools,
   onTap,
+  onStream = false,
 }: {
   msg: ChatMsg;
   skin: ChatSkin;
@@ -92,6 +107,8 @@ export function MessageLine({
   /** The host's tools for this line, if any. */
   tools?: ReactNode;
   onTap?: () => void;
+  /** The host has this line on screen. */
+  onStream?: boolean;
 }) {
   const reaction = msg.type === "reaction";
   if (skin === "overlay") {
@@ -102,6 +119,7 @@ export function MessageLine({
           {badges}
           <span className="mr-1.5 font-semibold text-white/70">{msg.username}</span>
           <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
+          {onStream && <OnStream skin={skin} />}
         </p>
         {tools}
       </div>
@@ -123,6 +141,7 @@ export function MessageLine({
           {msg.username}
         </span>
         <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
+        {onStream && <OnStream skin={skin} />}
       </p>
       {tools}
     </div>
@@ -136,12 +155,20 @@ export function GiftLine({
   total,
   skin,
   badges,
+  tools,
+  onTap,
+  onStream = false,
 }: {
   msg: ChatMsg;
   count: number;
   total: number;
   skin: ChatSkin;
   badges: ReactNode;
+  /** The host's tools for this gift, if any. */
+  tools?: ReactNode;
+  onTap?: () => void;
+  /** The host has this gift on screen. */
+  onStream?: boolean;
 }) {
   const def = giftByEmoji(msg.emoji);
   const unit = giftUnit(msg);
@@ -157,7 +184,7 @@ export function GiftLine({
 
   if (skin === "overlay") {
     return (
-      <div className={cn("flex w-fit max-w-full items-center gap-2 py-[3px]", ON_VIDEO)}>
+      <div className={cn("group relative flex w-fit max-w-full items-center gap-2 py-[3px]", ON_VIDEO)} onClick={onTap}>
         <GiftArt emoji={msg.emoji ?? "🎁"} size={30} className="-my-1 shrink-0" />
         <p className="min-w-0 text-[13.5px] leading-snug text-white">
           {badges}
@@ -165,12 +192,17 @@ export function GiftLine({
           {what}
           {count > 1 && <span className="ml-1 font-mono font-bold">×{count}</span>}
           <span className={cn("ml-1.5 font-bold", unit === "pts" ? "text-ember-hi" : "text-value")}>{amount}</span>
+          {onStream && <OnStream skin={skin} />}
         </p>
+        {tools}
       </div>
     );
   }
   return (
-    <div className={cn("my-1 flex items-center gap-3 rounded-[12px] px-2.5 py-2", big ? "bg-ember/[0.12]" : "bg-white/[0.045]")}>
+    <div
+      onClick={onTap}
+      className={cn("group relative my-1 flex items-center gap-3 rounded-[12px] px-2.5 py-2", big ? "bg-ember/[0.12]" : "bg-white/[0.045]")}
+    >
       <GiftArt emoji={msg.emoji ?? "🎁"} size={big ? 40 : 30} className="shrink-0" />
       <p className="min-w-0 flex-1 text-[13px] leading-snug">
         {badges}
@@ -179,10 +211,12 @@ export function GiftLine({
         </span>
         <span className="text-foreground/75"> {what}</span>
         {count > 1 && <span className="ml-1 font-mono text-[12px] font-bold text-foreground">×{count}</span>}
+        {onStream && <OnStream skin={skin} />}
       </p>
       <span className={cn("shrink-0 font-mono text-[13px] font-bold tabular-nums", unit === "pts" ? "text-ember-hi" : "text-value")}>
         {amount}
       </span>
+      {tools}
     </div>
   );
 }

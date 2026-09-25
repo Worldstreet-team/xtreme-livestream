@@ -189,6 +189,16 @@
     transform: translateX(0);
   }
 }
+@keyframes graphic-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
 @keyframes graphic-in-down {
   from {
     opacity: 0;

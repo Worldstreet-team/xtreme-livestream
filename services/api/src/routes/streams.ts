@@ -276,6 +276,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           card: scene?.card ?? null,
           cardNote: scene?.cardNote ?? "",
           layers: scene?.layers ?? [],
+          featured: null,
           version: scene ? 1 : 0,
         },
         // Stamps the version the thumbnail URL is cache-busted on.
@@ -499,6 +500,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         card: request.body.card,
         cardNote: request.body.cardNote,
         layers: request.body.layers,
+        // Not the host's to set here: the feature routes own it (featured.ts).
+        featured: stream.scene?.featured ?? null,
         version: (stream.scene?.version ?? 0) + 1,
       };
       stream.scene = scene;

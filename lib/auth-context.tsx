@@ -32,6 +32,10 @@ export interface AppUser {
     subscriberOnly: boolean;
     profanityFilter: boolean;
     discoverableByTag?: boolean;
+    /** Gifts at or above this many cents go on screen by themselves; 0 is off. */
+    featureGiftsFromMinor?: number;
+    /** How long a featured comment stays up, in seconds; 0 is until taken down. */
+    featureSeconds?: number;
   };
   /** Cold-start picker state; `completedAt` null means never seen or skipped. */
   onboarding?: {

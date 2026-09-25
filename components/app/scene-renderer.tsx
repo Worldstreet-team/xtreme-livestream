@@ -1,23 +1,30 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { stageLayout } from "@/lib/stage-layout";
 import { useNow } from "@/lib/use-now";
+import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { GiftArt } from "@/components/app/gift-art";
 import {
   ACCENTS,
   CARDS,
   DEFAULT_BRAND,
+  featuredDeadline,
   formatCountdown,
   guestsShown,
   layerOf,
   type Brand,
+  type FeaturedItem,
   type LogoCorner,
   type Scene,
   type SceneCard,
   type SceneLayer,
 } from "@/lib/scene";
+
+/** How long a graphic takes to leave. */
+const EXIT_MS = 320;
 
 export interface SceneCell {
   key: string;
@@ -121,16 +128,15 @@ export function SceneRenderer({
           accent={ACCENTS[brand.accent].fill}
         />
       )}
-      {scene.layers.length > 0 && (
-        <SceneGraphics
-          layers={scene.layers}
-          brand={brand}
-          carded={Boolean(scene.card)}
-          battle={forceAuto}
-          pipShown={showPip}
-          insets={insets}
-        />
-      )}
+      <SceneGraphics
+        layers={scene.layers}
+        featured={scene.featured ?? null}
+        brand={brand}
+        carded={Boolean(scene.card)}
+        battle={forceAuto}
+        pipShown={showPip}
+        insets={insets}
+      />
     </div>
   );
 }
@@ -139,14 +145,15 @@ export function SceneRenderer({
  * The host's graphics, each in its place: the banner and countdown at the
  * top, the lower third and ticker at the bottom, the logo in its corner.
  *
- * A card takes the lower third and the banner down with the picture
- * they're about, and draws the countdown itself, big, as its centrepiece;
- * the ticker and logo stay over it. A battle owns the top of the frame, so
+ * A card takes the lower third, the banner and a featured comment down with
+ * the picture they're about, and draws the countdown itself, big, as its
+ * centrepiece; the ticker and logo stay over it. A battle owns the top of the frame, so
  * what's up there stands aside until it ends; and the corner camera keeps
  * the top right, moving a logo set there across to the left.
  */
 function SceneGraphics({
   layers,
+  featured,
   brand,
   carded,
   battle,
@@ -154,6 +161,7 @@ function SceneGraphics({
   insets,
 }: {
   layers: SceneLayer[];
+  featured: FeaturedItem | null;
   brand: Brand;
   carded: boolean;
   battle: boolean;
@@ -171,6 +179,21 @@ function SceneGraphics({
   if (corner?.startsWith("top") && battle) corner = null;
   const topLogo = corner?.startsWith("top") ? corner : null;
   const bottomLogo = corner && !corner.startsWith("top") ? corner : null;
+
+  // What's featured, and — for a moment after the host takes it down — what
+  // was, so it can leave rather than vanish. Adjusted while rendering, the
+  // way React has props drive state, rather than in an effect.
+  const [shown, setShown] = useState<{ item: FeaturedItem; leaving: boolean } | null>(
+    featured ? { item: featured, leaving: false } : null
+  );
+  // A new `at` is a new showing — the host can put the same line up again.
+  if (featured && (featured.id !== shown?.item.id || featured.at !== shown.item.at)) {
+    setShown({ item: featured, leaving: false });
+  } else if (!featured && shown && !shown.leaving) {
+    setShown({ ...shown, leaving: true });
+  }
+  const clearShown = useCallback(() => setShown((cur) => (cur?.leaving ? null : cur)), []);
+  const card = !carded && shown ? shown : null;
   const logoImg = (className?: string) => (
     // eslint-disable-next-line @next/next/no-img-element -- the host's own logo, served versioned by the API
     <img
@@ -217,8 +240,13 @@ function SceneGraphics({
           </div>
         )}
 
-        {(lowerThird || ticker || bottomLogo) && (
+        {(lowerThird || ticker || bottomLogo || card) && (
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-[calc(var(--g-m)/2)]">
+            {card && (
+              <div className={cn("flex px-[var(--g-m)]", !lowerThird && !bottomLogo && !ticker && "pb-[var(--g-m)]")}>
+                <FeaturedCard key={`${card.item.id}:${card.item.at}`} item={card.item} leaving={card.leaving} onGone={clearShown} />
+              </div>
+            )}
             {/* The lower third's row: a bottom logo stacks above it on the
                 left, or shares its baseline on the right. */}
             {(lowerThird || bottomLogo) && (
@@ -244,6 +272,77 @@ function SceneGraphics({
             {ticker && <TickerGraphic key={ticker.text} text={ticker.text} />}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A chat line or gift the host put on screen: who, and what they said or
+ * sent — a gift in gold, since it's money. It slides in, and slides out by
+ * itself at its deadline, or at once when the host takes it down.
+ */
+function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: boolean; onGone: () => void }) {
+  const [phase, setPhase] = useState<"in" | "out" | "gone">(() => {
+    const deadline = featuredDeadline(item, Date.now());
+    return deadline !== null && deadline <= Date.now() ? "gone" : "in";
+  });
+
+  // On the times, not the object: a scene update rebuilds the object, and
+  // the deadline is taken once, when the showing is first seen.
+  const { at, until } = item;
+  useEffect(() => {
+    const deadline = featuredDeadline({ at, until }, Date.now());
+    if (deadline === null) return;
+    const left = deadline - Date.now();
+    const out = setTimeout(() => setPhase((p) => (p === "gone" ? p : "out")), Math.max(0, left - EXIT_MS));
+    const gone = setTimeout(() => setPhase("gone"), Math.max(0, left));
+    return () => {
+      clearTimeout(out);
+      clearTimeout(gone);
+    };
+  }, [at, until]);
+
+  useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(onGone, EXIT_MS);
+    return () => clearTimeout(t);
+  }, [leaving, onGone]);
+
+  if (phase === "gone") return null;
+  const gift = item.kind === "gift";
+  const def = gift ? giftByEmoji(item.emoji) : null;
+  const amount = gift && item.amount ? centsToDollars(Math.round(parseFloat(item.amount) * 100)) : null;
+
+  return (
+    <div
+      className={cn(
+        "flex max-w-[min(100%,30rem)] min-w-0 items-stretch overflow-hidden rounded-[clamp(8px,1cqw,14px)] bg-black/80 text-[clamp(13px,1.8cqw,22px)]",
+        leaving || phase === "out"
+          ? "motion-safe:animate-[graphic-out-left_320ms_ease-in_both] motion-reduce:opacity-0"
+          : "motion-safe:animate-[graphic-in-left_460ms_var(--ease-spring)_both]"
+      )}
+    >
+      <span aria-hidden className="w-[clamp(3px,0.45cqw,6px)] shrink-0 bg-[var(--g-fill)]" />
+      <div className="flex min-w-0 items-center gap-[0.65em] py-[0.6em] pr-[1em] pl-[0.65em]">
+        <span className="size-[2.1em] shrink-0">
+          {gift ? (
+            <GiftArt emoji={item.emoji ?? "🎁"} size={48} className="size-full!" />
+          ) : (
+            <UserAvatar src={item.avatar} name={item.username} size={48} className="size-full!" />
+          )}
+        </span>
+        <p className="min-w-0">
+          <span className="block truncate text-[0.7em] font-semibold text-white/65">{item.username}</span>
+          {gift ? (
+            <span className="mt-[0.1em] block leading-snug font-semibold text-white">
+              {def?.verb ?? item.text}
+              {amount && <span className="ml-[0.4em] font-money text-value tabular-nums">{amount}</span>}
+            </span>
+          ) : (
+            <span className="mt-[0.1em] line-clamp-3 leading-snug font-medium break-words text-white">{item.text}</span>
+          )}
+        </p>
       </div>
     </div>
   );
