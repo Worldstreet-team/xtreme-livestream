@@ -28,7 +28,7 @@ const TABS = [
   { label: "Home", href: "/explore", icon: HouseLine },
   { label: "Browse", href: "/browse", icon: Compass },
   { label: "Go live", href: "/studio", icon: Broadcast, create: true },
-  { label: "Live feed", href: "/feed", icon: PlayCircle, live: true },
+  { label: "Live feed", href: "/feed", icon: PlayCircle },
   { label: "Messages", href: "/messages", icon: ChatCircleDots },
 ] as const;
 
@@ -75,10 +75,6 @@ export function MobileTabBar() {
             )}
           >
             <t.icon size={23} weight={active ? "fill" : "regular"} aria-hidden />
-            {"live" in t && t.live && !active && (
-              // A broadcast dot: streams are happening now, not a backlog.
-              <span className="absolute top-2.5 right-[calc(50%-16px)] size-1.5 rounded-full bg-chili" aria-hidden />
-            )}
             {t.label}
             {active && (
               <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-ember motion-safe:animate-[xt-pop_.35s_var(--ease-spring)_both]" />

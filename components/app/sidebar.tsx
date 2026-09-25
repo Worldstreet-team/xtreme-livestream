@@ -222,7 +222,6 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
-  const [liveCount, setLiveCount] = useState(0);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
@@ -265,7 +264,6 @@ export function Sidebar({
 
   const renderItem = (item: NavItem, index: number, offset: number) => {
     const active = isActive(item.href);
-    const showLiveDot = item.href === "/feed" && liveCount > 0;
     return (
       <Link
         key={item.href}
@@ -289,17 +287,6 @@ export function Sidebar({
         {active && narrow && (
           // On the icon rail the dot sits under the glyph, as on the phone's tab bar.
           <span aria-hidden className="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-ember" />
-        )}
-        {showLiveDot && !active && (
-          // A broadcast dot, not a count: streams are happening now, they
-          // aren't a backlog.
-          <span
-            className={cn("relative flex size-2 shrink-0", narrow ? "absolute top-2 right-2.5" : "ml-auto")}
-            title={`${liveCount} live now`}
-          >
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-chili" />
-          </span>
         )}
       </Link>
     );
@@ -356,7 +343,7 @@ export function Sidebar({
             )}
           </nav>
 
-          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={noop} onLiveCount={setLiveCount} />
+          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={noop} />
 
           <div className="flex-1" />
 
@@ -652,9 +639,8 @@ function RailSection({
  * what this stream's audience also watches. Nothing else: what's live for
  * everyone is the home's job, and the rail doesn't repeat it.
  */
-function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed: boolean; pathname: string; onNavigate: () => void; onLiveCount: (n: number) => void }) {
+function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pathname: string; onNavigate: () => void }) {
   const { isAuthenticated } = useAuth();
-  const [total, setTotal] = useState(0);
   const [top, setTop] = useState<LiveRow[]>([]);
   const [followed, setFollowed] = useState<FollowedRow[]>([]);
   const [also, setAlso] = useState<LiveRow[]>([]);
@@ -668,12 +654,10 @@ function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed:
     let cancelled = false;
     async function load() {
       try {
-        // The biggest rooms feed the suggestions; the total lights the Live
-        // feed row's dot.
-        const res = await apiFetch<{ success: boolean; data: { streams: LiveRow[]; pagination: { total: number } } }>(`/api/streams?live=true&sort=viewers&limit=30`);
+        // The biggest rooms feed the suggestions.
+        const res = await apiFetch<{ success: boolean; data: { streams: LiveRow[] } }>(`/api/streams?live=true&sort=viewers&limit=30`);
         if (cancelled) return;
         setTop(res.data.streams);
-        setTotal(res.data.pagination.total);
       } catch {
         // Section simply stays hidden.
       }
@@ -683,7 +667,6 @@ function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed:
     return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
-  useEffect(() => { onLiveCount(total); }, [total, onLiveCount]);
 
   useEffect(() => {
     if (!isAuthenticated) return;

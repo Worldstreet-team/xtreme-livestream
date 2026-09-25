@@ -129,18 +129,14 @@ export default function FeedPage() {
 
   return (
     <div className="fixed inset-0 z-30 bg-black md:left-[var(--rail-w,16rem)]">
-      {/* Header: the way back, where you are, and which feed. */}
+      {/* Header: the way back and which feed — no counter, no indicator
+          (owner, 2026-09-25: "why am i even seeing indicator in the live
+          feed or count?"). The arrows are the only way-finding. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)] md:px-6 md:pt-6">
         <Link href="/explore" aria-label="Back to home" className="obj press pointer-events-auto flex size-10 items-center justify-center rounded-full text-white">
           <ArrowLeft size={18} weight="bold" />
         </Link>
-        <p className="flex items-center gap-2 font-wide text-[15px] font-bold tracking-[-0.01em] text-white">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-chili" />
-          </span>
-          Live feed
-        </p>
+        <p className="font-wide text-[15px] font-bold tracking-[-0.01em] text-white">Live feed</p>
         {following.length > 0 && (
           <CapsuleTabs
             onDark
@@ -153,11 +149,6 @@ export default function FeedPage() {
             value={tab}
             onChange={pickTab}
           />
-        )}
-        {shown.length > 0 && (
-          <span className="obj ml-auto rounded-full px-2.5 py-1 font-mono text-[11.5px] font-semibold text-white/85 tabular-nums">
-            {Math.min(index + 1, shown.length)} / {shown.length}
-          </span>
         )}
       </div>
 
