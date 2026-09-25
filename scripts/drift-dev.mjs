@@ -8,6 +8,7 @@
 // wanders within a band around it: climbers drift up toward 1.6x, faders
 // toward 0.6x, flat ones jitter — and anything past its band is pulled back.
 import { MongoClient } from "mongodb";
+import { ensureBattles } from "./dev-battles.mjs";
 
 const URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const DB = process.env.MONGODB_DB_NAME || "xtreme-livestream";
@@ -15,7 +16,8 @@ const EVERY_MS = 30_000;
 
 const client = new MongoClient(URI);
 await client.connect();
-const streams = client.db(DB).collection("streams");
+const db = client.db(DB);
+const streams = db.collection("streams");
 
 // Baseline per stream, captured on the first tick this process sees it.
 const baseline = new Map();
@@ -49,7 +51,10 @@ async function tick() {
     };
   });
   if (ops.length) await streams.bulkWrite(ops, { ordered: false });
-  process.stdout.write(`drift: nudged ${ops.length} live streams at ${new Date().toISOString().slice(11, 19)}\n`);
+  // Battles too: gifts drip into the running ones, and a fresh pair starts
+  // whenever the API's sweep settles one.
+  const b = await ensureBattles(db);
+  process.stdout.write(`drift: nudged ${ops.length} live streams, ${b.running + b.started} battles live at ${new Date().toISOString().slice(11, 19)}\n`);
 }
 
 await tick();

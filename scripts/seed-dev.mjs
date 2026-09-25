@@ -17,9 +17,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { MongoClient, ObjectId } from "mongodb";
+import { ensureBattles } from "./dev-battles.mjs";
 
 const URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const DB = process.env.MONGODB_DB_NAME || "xtreme-livestream";
+
+/* ---------- viewer names ---------- */
+
+const FIRST = ["Tolu", "Chidi", "Amaka", "Seun", "Ife", "Kwame", "Zainab", "Bisi", "Emeka", "Nneka", "Dayo", "Kemi",
+  "Obi", "Yemi", "Funmi", "Tunde", "Ada", "Segun", "Halima", "Jide", "Lola", "Uche", "Rita", "Femi", "Ngozi",
+  "Sade", "Kofi", "Ama", "Musa", "Temi"];
+const LAST = ["Gold", "Moves", "Lagos", "Wins", "Vibes", "Plays", "Bull", "Stacks"];
+
+/** "Tolu Gold", "Chidi Moves" … unique for the 60 seeded viewers. */
+function viewerName(v) {
+  return `${FIRST[v % FIRST.length]} ${LAST[Math.floor(v / FIRST.length) % LAST.length]}`;
+}
+
+/** Their handle, the way people actually pick one: "tolu.gold", "chidimoves23". */
+function viewerHandle(v) {
+  const [first, last] = viewerName(v).toLowerCase().split(" ");
+  const style = v % 3;
+  return style === 0 ? `${first}.${last}` : style === 1 ? `${first}${last}${(v * 7) % 90 + 10}` : `${first}_${last}`;
+}
 
 /* ---------- real photography ---------- */
 
@@ -293,27 +313,62 @@ function thumbnailPng(hue) {
 
 // [username, displayName, bio, verified, followers]
 const STREAMERS = [
-  ["satoshiwatch", "Satoshi Watch", "BTC macro, every session open.", true, 184_000],
-  ["amarapixels", "Amara Pixels", "Ranked grind. Mic always on.", false, 128_500],
-  ["thegoalpost", "The Goalpost", "Match reactions and tactics.", true, 210_300],
-  ["nnekabeats", "Nneka Beats", "Amapiano sets, live production.", false, 77_900],
-  ["justmalik", "Just Malik", "Just chatting, mostly nonsense.", false, 55_100],
-  ["chefkwame", "Chef Kwame", "Street food, big flames, no measuring.", true, 96_400],
-  ["zaraonair", "Zara On Air", "Lagos to the world, phone in hand.", false, 143_200],
-  ["tobidraws", "Tobi Draws", "Big canvases, small brushes, live.", false, 38_700],
-  ["djlethal", "DJ Lethal", "House, amapiano, and whatever you request.", true, 121_600],
-  ["funkefit", "Funke Fit", "Sweat with me from your living room.", false, 64_300],
-  ["degenlagos", "Degen Lagos", "Memecoins and bad decisions.", false, 41_200],
+  ["satoshi.watch", "Satoshi 📈", "BTC macro, every session open.", true, 184_000],
+  ["amarapixels_", "Amara ✨", "Ranked grind. Mic always on.", false, 128_500],
+  ["thegoalpost_tv", "The Goalpost ⚽", "Match reactions and tactics.", true, 210_300],
+  ["nneka.beats", "Nneka Beats 🎹", "Amapiano sets, live production.", false, 77_900],
+  ["justmalik01", "Malik", "Just chatting, mostly nonsense.", false, 55_100],
+  ["chefkwame", "Chef Kwame 🔥", "Street food, big flames, no measuring.", true, 96_400],
+  ["zara.onair", "Zara 🇳🇬", "Lagos to the world, phone in hand.", false, 143_200],
+  ["tobidraws_", "Tobi Draws 🎨", "Big canvases, small brushes, live.", false, 38_700],
+  ["djlethal_ng", "DJ LETHAL", "House, amapiano, and whatever you request.", true, 121_600],
+  ["funke.fit", "Funke Fit 💪", "Sweat with me from your living room.", false, 64_300],
+  ["degen.lagos", "Degen 🐸", "Memecoins and bad decisions.", false, 41_200],
   ["kojo_fx", "Kojo FX", "Forex + crypto correlation desk.", true, 63_800],
-  ["priyaplays", "Priya Plays", "Mobile esports, ranked with subs.", true, 88_900],
-  ["lanrelaughs", "Lanre Laughs", "Comedy hour, your DMs are the material.", false, 72_400],
-  ["adaezewatches", "Adaeze Watches", "Anime watch parties and hot takes.", false, 29_800],
-  ["midemotors", "Mide Motors", "Cars, detailing, track days.", false, 46_100],
+  ["priyaplays07", "Priya 🎮", "Mobile esports, ranked with subs.", true, 88_900],
+  ["lanre.laughs", "Lanre 😂", "Comedy hour, your DMs are the material.", false, 72_400],
+  ["adaeze.watches", "Adaeze 🍥", "Anime watch parties and hot takes.", false, 29_800],
+  ["midemotors_", "Mide Motors 🏁", "Cars, detailing, track days.", false, 46_100],
+  // The second wave (2026-09-24): enough rooms that every vertical on the
+  // home fills two rows, and the small categories aren't lonely.
+  ["yemi_ranked", "Yemi", "Radiant peak. Coaching on request.", false, 52_300],
+  ["obiplays954", "Obi", "Story games, big reactions.", false, 19_800],
+  ["chessqueen.ada", "Chess Queen Ada ♟️", "Blitz with chat, puzzles between.", true, 33_400],
+  ["ff_dayo", "FF DAYO", "Free Fire tournaments, squad up.", false, 27_600],
+  ["esportsng", "Esports NG", "Tournament broadcasts, Lagos qualifiers.", true, 61_200],
+  ["hoops.central", "Hoops Central 🏀", "NBA nights, tip-off talk.", false, 44_900],
+  ["ringside_ike", "Ike", "Fight nights, live reactions.", false, 38_100],
+  ["pitlane.sade", "Sade 🏎️", "F1 weekends, telemetry on screen.", true, 29_700],
+  ["betslipbros", "Betslip Bros", "Weekend accas, honest sweats.", false, 22_400],
+  ["mcbrightflow", "MC Bright", "Freestyles over chat's beats.", false, 41_000],
+  ["gospelhour.live", "Gospel Hour 🙏", "Sunday worship, live band.", true, 58_600],
+  ["producerkay_", "Kay", "Beats from scratch, every night.", false, 35_200],
+  ["djtemi", "DJ TEMI", "Afro house all night.", false, 47_300],
+  ["pipsandcandles", "Pips & Candles", "London session, chart by chart.", false, 26_800],
+  ["wallstreetwole", "Wole", "US open, earnings, no hype.", true, 71_500],
+  ["chart.witch", "Chart Witch 🔮", "TA only. The candles don't lie.", false, 31_900],
+  ["defidan", "Dan", "Yield farming, live positions.", false, 24_100],
+  ["nft.nene", "Nene", "Mint day, art, on-chain drama.", false, 18_700],
+  ["moviemayowa", "Mayowa 🎬", "Watch parties, spoilers allowed.", false, 27_200],
+  ["thelateshow_ng", "The Late Show", "Late night talk, guests, calls.", true, 66_900],
+  ["gossipgeng", "Gossip Geng 👀", "Celebrity news, hot takes.", false, 39_500],
+  ["auntybola.cooks", "Aunty Bola", "Sunday rice, no shortcuts.", false, 52_800],
+  ["fitwithtomi", "Tomi", "Strength. Form first.", false, 21_300],
+  ["glowbyzee", "Zee ✨", "Skincare routines, honest reviews.", false, 34_600],
+  ["styledbyefe", "Efe", "Outfits, thrift hauls, fits.", false, 29_900],
+  ["wanderwithdami", "Dami 🌍", "On the road, phone in hand.", false, 43_700],
+  ["lens.ladi", "Ladi", "Photo walks, edits live.", false, 16_400],
+  ["aiart.abi", "Abi", "Prompts, renders, critique.", false, 22_900],
+  ["codewithchi", "Chi 💻", "Building in public, TypeScript.", false, 37_100],
+  ["ml.musa", "Musa", "Training runs, live loss curves.", false, 14_800],
+  ["couchtalk", "Couch Talk 🛋️", "Your hottest takes, my couch.", false, 48_200],
+  ["ehis_irl", "Ehis", "Abuja streets, live.", false, 25_600],
+  ["podcast.pam", "Pam 🎙️", "Long conversations, live audience.", true, 40_300],
 ];
 
 // [title, category, tags, viewers, streamerIdx]  — one live room per streamer.
 const STREAMS = [
-  ["Ranked to Radiant — day 9, no sleep", "Video Games", ["valorant", "ranked"], 15_640, 1],
+  ["Ranked to Radiant — day 9, no sleep", "VALORANT", ["valorant", "ranked"], 15_640, 1],
   ["Arsenal vs City — live watchalong", "Football (Soccer)", ["epl", "watchalong"], 31_205, 2],
   ["Amapiano log drum session, live from Lagos", "Afrobeats & Amapiano", ["amapiano", "live-set"], 6_120, 3],
   ["Rating your fits — send them in", "Just Chatting", ["chat", "fits"], 3_450, 4],
@@ -325,10 +380,43 @@ const STREAMS = [
   ["Memecoin roulette — you pick, I ape $50", "Memecoins & Degen", ["solana", "degen"], 8_902, 10],
   ["London open: DXY, gold and the crypto bid", "Crypto Markets", ["forex", "dxy"], 2_740, 11],
   ["BTC reclaiming 90k — live desk, open Q&A", "Crypto Markets", ["btc", "macro"], 12_483, 0],
-  ["COD Mobile ranked with subs", "Mobile Gaming", ["codm", "subs"], 5_560, 12],
+  ["COD Mobile ranked with subs", "Call of Duty: Mobile", ["codm", "subs"], 5_560, 12],
   ["Roasting your DMs — comedy hour", "Comedy & Memes", ["roast", "dms"], 6_040, 13],
   ["One Piece watch party — ep. 1100", "Anime & Manga", ["onepiece", "watchparty"], 3_870, 14],
   ["Detailing a G-Wagon in three hours", "Cars & Automotive", ["detailing", "gwagon"], 1_930, 15],
+  ["Coaching a Gold player to Plat — live", "League of Legends", ["valorant", "coaching"], 7_840, 16],
+  ["Silent Hill 2 remake, first playthrough", "Video Games", ["horror", "blind"], 4_210, 17],
+  ["Blitz vs chat — beat me, win points", "Chess & Tabletop", ["blitz", "chess"], 2_960, 18],
+  ["Free Fire squad ranked, road to Heroic", "Garena Free Fire", ["freefire", "ranked"], 6_330, 19],
+  ["Lagos Open qualifiers — day 2", "Esports", ["tournament", "qualifiers"], 11_780, 20],
+  ["Lakers vs Celtics — tip-off talk", "Basketball", ["nba", "watchalong"], 8_450, 21],
+  ["Fight night reactions — main card", "Boxing & MMA", ["ufc", "reactions"], 5_920, 22],
+  ["Qualifying live — telemetry on screen", "Motorsport & F1", ["f1", "quali"], 4_070, 23],
+  ["Weekend acca sweat — 6 legs in", "Betting & Fantasy", ["acca", "sweat"], 2_180, 24],
+  ["Freestyle Friday — drop a beat in chat", "Hip-Hop & Rap", ["freestyle", "bars"], 5_130, 25],
+  ["Sunday worship, live band", "Gospel & Worship", ["worship", "liveband"], 9_610, 26],
+  ["Making a beat from your samples", "Production & DJ", ["beats", "fl"], 3_380, 27],
+  ["Afro house till 2am", "Afrobeats & Amapiano", ["afrohouse", "set"], 7_260, 28],
+  ["London session — GBPUSD, gold", "Forex & Currencies", ["gbpusd", "london"], 3_940, 29],
+  ["US open: earnings week, live desk", "Stocks & Equities", ["earnings", "nasdaq"], 6_720, 30],
+  ["Reading the 4H — BTC, ETH, SOL", "Charts & Technical Analysis", ["ta", "btc"], 4_480, 31],
+  ["Yield farming with real money — live positions", "DeFi", ["defi", "yield"], 2_640, 32],
+  ["Mint day — art review and on-chain drama", "NFTs & Collectibles", ["nft", "mint"], 1_870, 33],
+  ["Nollywood watch party — spoilers allowed", "Movies & TV", ["nollywood", "watchparty"], 5_540, 34],
+  ["The Late Show — guests and your calls", "Podcasts & Talk", ["talk", "callin"], 7_090, 35],
+  ["Celebrity news — this week's mess", "Celebrity & Pop Culture", ["gist", "news"], 4_310, 36],
+  ["Sunday rice, no shortcuts", "Food & Cooking", ["jollof", "sunday"], 6_880, 37],
+  ["Strength session — form first", "Fitness & Training", ["strength", "form"], 2_450, 38],
+  ["Skincare routine, live and honest", "Beauty & Skincare", ["skincare", "routine"], 3_760, 39],
+  ["Thrift haul try-on — rate the fits", "Fashion & Style", ["thrift", "fits"], 4_950, 40],
+  ["On the road to Calabar — car vlog", "Travel & Adventure", ["roadtrip", "calabar"], 3_120, 41],
+  ["Photo walk, Lekki — editing live after", "Photography", ["photowalk", "lightroom"], 1_640, 42],
+  ["Prompting portraits — rate the renders", "Digital & AI Art", ["aiart", "prompts"], 2_090, 43],
+  ["Building the app in public — TypeScript", "Software & Coding", ["typescript", "buildinpublic"], 3_570, 44],
+  ["Training a model live — watch the loss curve", "AI & Machine Learning", ["ml", "training"], 1_980, 45],
+  ["Your hottest takes, my couch", "Just Chatting", ["takes", "chat"], 6_210, 46],
+  ["Abuja streets at night — IRL", "IRL", ["abuja", "night"], 4_730, 47],
+  ["Long conversation, live audience", "Podcasts & Talk", ["podcast", "live"], 3_860, 48],
 ];
 
 const HUES = [12, 198, 285, 42, 330, 160, 265, 95, 220, 8, 250, 175, 300, 130, 55, 20];
@@ -576,11 +664,13 @@ async function main() {
   ];
   const viewers = [];
   for (let v = 0; v < 60; v++) {
+    // Names people would actually pick, so leaderboards and chat read true.
+    const name = viewerName(v);
     viewers.push({
       authUserId: `seed_viewer_${v}`,
       email: `viewer${v}@example.com`,
-      username: `viewer_${v}`,
-      displayName: `Viewer ${v}`,
+      username: viewerHandle(v),
+      displayName: name,
       avatar: "",
       bio: "",
       followers: 0,
@@ -661,6 +751,11 @@ async function main() {
     });
   }
   await db.collection("gifttransactions").insertMany(gifts);
+
+  // Two battles running and three booked, so the battle surfaces have
+  // something to show. drift-dev.mjs keeps them coming as clocks run out.
+  const battleSummary = await ensureBattles(db);
+  console.log(`battles: ${battleSummary.started} live, ${battleSummary.booked} booked`);
 
   console.log(
     `seeded ${users.length} streamers, ${viewers.length} viewers, ${streams.length} live, ${past.length} past, ${upcoming.length} upcoming, ${sessions.length} watch sessions, ${follows.length} follows`,
