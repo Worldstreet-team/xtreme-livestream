@@ -275,6 +275,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           layout: scene?.layout ?? "auto",
           card: scene?.card ?? null,
           cardNote: scene?.cardNote ?? "",
+          layers: scene?.layers ?? [],
           version: scene ? 1 : 0,
         },
         // Stamps the version the thumbnail URL is cache-busted on.
@@ -497,6 +498,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         layout: request.body.layout,
         card: request.body.card,
         cardNote: request.body.cardNote,
+        layers: request.body.layers,
         version: (stream.scene?.version ?? 0) + 1,
       };
       stream.scene = scene;
@@ -532,7 +534,9 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
 
       await stream.populate(
         "streamerId",
-        "username displayName avatar bio followers isLive verified",
+        // The brand kit rides along (not the logo's bytes — its version,
+        // which builds the logo's URL) so graphics draw in the right accent.
+        "username displayName avatar bio followers isLive verified brand.accent brand.lowerThird brand.logoVersion",
       );
 
       return { success: true, data: { stream: stream.toJSON() } };

@@ -41,6 +41,17 @@ export interface IUser extends Document {
   /** YYYY-MM-DD of the last day a watch bonus was paid — drives the daily streak. */
   lastWatchDay: string;
   watchStreakDays: number;
+  /**
+   * The brand kit: the accent the stream's graphics wear, the lower third's
+   * shape, and a logo for the corner of the picture — stored inline like a
+   * thumbnail and served at /users/:id/logo?v=<logoVersion>.
+   */
+  brand?: {
+    accent: string;
+    lowerThird: string;
+    logo: string;
+    logoVersion: number;
+  };
   settings: {
     autoRecord: boolean;
     slowMode: boolean;
@@ -106,6 +117,12 @@ const userSchema = new Schema<IUser>(
     pointsBalance: { type: Number, default: 0, min: 0 },
     lastWatchDay: { type: String, default: "" },
     watchStreakDays: { type: Number, default: 0 },
+    brand: {
+      accent: { type: String, enum: ["ember", "chili", "white", "sky", "mint", "lilac"], default: "ember" },
+      lowerThird: { type: String, enum: ["bar", "pill"], default: "bar" },
+      logo: { type: String, default: "" },
+      logoVersion: { type: Number, default: 0 },
+    },
     settings: {
       autoRecord: { type: Boolean, default: false },
       slowMode: { type: Boolean, default: false },
@@ -180,6 +197,8 @@ export interface IStream extends Document {
     layout: string;
     card: string | null;
     cardNote: string;
+    /** Graphics over the program — shapes validated by `sceneLayerSchema`. */
+    layers: Array<Record<string, unknown>>;
     version: number;
   };
   viewers: number;
@@ -266,6 +285,7 @@ const streamSchema = new Schema<IStream>(
       layout: { type: String, enum: ["auto", "solo", "split", "trio", "grid", "screen-face"], default: "auto" },
       card: { type: String, enum: ["starting-soon", "brb", "ending", null], default: null },
       cardNote: { type: String, default: "", maxlength: 80 },
+      layers: { type: [Schema.Types.Mixed], default: [] },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },

@@ -56,7 +56,18 @@ import { LivePreview } from "@/components/app/live-preview";
 import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
-import { CARDS, DEFAULT_SCENE, LAYOUTS, sceneFromMetadata, type Scene, type SceneLayout } from "@/lib/scene";
+import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
+import {
+  CARDS,
+  DEFAULT_BRAND,
+  DEFAULT_SCENE,
+  LAYOUTS,
+  readBrand,
+  sceneFromMetadata,
+  type Brand,
+  type Scene,
+  type SceneLayout,
+} from "@/lib/scene";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -229,6 +240,8 @@ export default function StudioPage() {
   const [openOnCard, setOpenOnCard] = useState(false);
   /** The screen being shared alongside the camera — the preview's main picture while it is. */
   const [localScreen, setLocalScreen] = useState<LocalVideoTrack | null>(null);
+  /** The brand kit the graphics wear, saved to the channel. */
+  const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
   /** The live session's facts, for room events and timers that outlive a render. */
   const liveRef = useRef({ streamId: null as string | null, source: "camera" as SourceType, title: "", micEnabled: true, camEnabled: true });
@@ -1072,7 +1085,7 @@ export default function StudioPage() {
       if (!resume) {
         setScene(
           openOnCard
-            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), version: 1 }
+            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), layers: [], version: 1 }
             : DEFAULT_SCENE
         );
       }
@@ -2238,7 +2251,7 @@ export default function StudioPage() {
    * Change the scene. Shown at once here, then saved and broadcast by the
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
-  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote">>) => {
+  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers">>) => {
     if (!streamId) return;
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
@@ -2246,12 +2259,50 @@ export default function StudioPage() {
     try {
       const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
         method: "PUT",
-        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote }),
+        // The whole scene every time: what's left out goes back to its default.
+        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, layers: next.layers }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
     } catch (err) {
       setScene(before);
       setError(err instanceof Error ? err.message : "Couldn't change the scene");
+    }
+  };
+
+  // The brand kit, for the preview and the Scenes panel.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { brand: unknown } }>("/api/users/me/brand")
+      .then((r) => {
+        if (!cancelled) setBrand(readBrand(r.data.brand));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  /** Save part of the brand kit: colours show at once, a logo once it's stored. */
+  const saveBrand = async (patch: BrandPatch) => {
+    const before = brand;
+    setBrand((b) => ({
+      ...b,
+      ...(patch.accent ? { accent: patch.accent } : {}),
+      ...(patch.lowerThird ? { lowerThird: patch.lowerThird } : {}),
+    }));
+    try {
+      const r = await apiFetch<{ success: boolean; data: { brand: unknown } }>("/api/users/me/brand", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setBrand(readBrand(r.data.brand));
+    } catch (err) {
+      setBrand(before);
+      if (patch.logo && err instanceof ApiError && err.status === 400) {
+        throw new Error("That image is too big even squeezed down — try a simpler one.");
+      }
+      throw new Error("Couldn't save that — try again.");
     }
   };
 
@@ -2343,6 +2394,17 @@ export default function StudioPage() {
           A card covers the picture; the room still hears you.
         </p>
       </section>
+
+      <SceneGraphicsPanel
+        layers={scene.layers}
+        brand={brand}
+        hostName={user?.displayName || user?.username || ""}
+        streamTitle={title}
+        carded={Boolean(scene.card)}
+        battle={Boolean(opponentStreamId)}
+        onLayers={(layers) => void applyScene({ layers })}
+        onBrand={saveBrand}
+      />
     </div>
   );
 
@@ -2532,6 +2594,13 @@ export default function StudioPage() {
               }
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
               guests={stageOthers}
+              brand={brand}
+              // Full-bleed on a phone: graphics keep between the live row and the room's drawer.
+              insets={
+                mode === "phone" && orientation === "portrait"
+                  ? { top: "calc(max(env(safe-area-inset-top), 12px) + 2.75rem)", bottom: "46dvh" }
+                  : undefined
+              }
             />
           </div>
         </div>

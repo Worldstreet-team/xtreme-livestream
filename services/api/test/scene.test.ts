@@ -70,8 +70,25 @@ vi.mock("../src/models.js", () => ({
 }));
 
 describe("the scene contract", () => {
-  it("defaults to the automatic layout with no card", () => {
-    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "" });
+  it("defaults to the automatic layout with no card and no graphics", () => {
+    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", layers: [] });
+  });
+
+  it("takes each graphic once, with what it needs", () => {
+    const layers = [
+      { kind: "lower-third", title: "Amara", subtitle: "Ranked to Radiant" },
+      { kind: "banner", text: "Giveaway at 100 allies" },
+      { kind: "ticker", text: "Next stream Friday 8pm · Follow for the drop" },
+      { kind: "countdown", label: "Match starts", endsAt: new Date(Date.now() + 300_000).toISOString() },
+      { kind: "logo", corner: "bottom-right" },
+    ];
+    expect(sceneBodySchema.safeParse({ layers }).success).toBe(true);
+  });
+
+  it("refuses two of the same graphic, an empty banner and a countdown with no end", () => {
+    expect(sceneBodySchema.safeParse({ layers: [{ kind: "banner", text: "a" }, { kind: "banner", text: "b" }] }).success).toBe(false);
+    expect(sceneBodySchema.safeParse({ layers: [{ kind: "banner", text: "" }] }).success).toBe(false);
+    expect(sceneBodySchema.safeParse({ layers: [{ kind: "countdown", endsAt: "soon" }] }).success).toBe(false);
   });
 
   it("refuses a layout it doesn't know and a note past 80 characters", () => {
@@ -113,12 +130,20 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", layers: [], version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toEqual(scene);
     expect(streamDoc.save).toHaveBeenCalledTimes(1);
     expect(state.metadata).toEqual([{ room: "room-1", scene }]);
     expect(state.events).toEqual([{ __evt: "scene", scene }]);
+  });
+
+  it("carries graphics through to the room", async () => {
+    const response = await put({ layers: [{ kind: "ticker", text: "Follow for the drop" }] });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.scene.layers).toEqual([{ kind: "ticker", text: "Follow for the drop" }]);
+    expect(state.events[0]).toMatchObject({ __evt: "scene", scene: { layers: [{ kind: "ticker" }] } });
   });
 
   it("only ever moves the version forward", async () => {

@@ -6,12 +6,15 @@
  * Resize and compress an image file to a base64 data URI.
  * @param file - The image file to process
  * @param maxSize - Maximum width/height in pixels (maintains aspect ratio)
- * @param quality - JPEG quality (0-1)
+ * @param quality - JPEG/WebP quality (0-1)
+ * @param type - Output format. JPEG flattens transparency; a logo wants
+ *   WebP (browsers that can't encode it, like Safari, hand back PNG).
  */
 export function compressImage(
   file: File,
   maxSize: number = 256,
-  quality: number = 0.8
+  quality: number = 0.8,
+  type: "image/jpeg" | "image/webp" | "image/png" = "image/jpeg"
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -43,7 +46,7 @@ export function compressImage(
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const dataUrl = canvas.toDataURL(type, quality);
         resolve(dataUrl);
       };
       img.onerror = () => reject(new Error("Failed to load image"));

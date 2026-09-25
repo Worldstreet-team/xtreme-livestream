@@ -177,6 +177,28 @@
     transform: scaleY(1);
   }
 }
+/* Scene graphics: a lower third slides in from its edge; the banner and
+   countdown drop in from the top. */
+@keyframes graphic-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes graphic-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 /* The flat gift banner: in from the left, out the same way. */
 @keyframes gift-slide-in {
   from {

@@ -1,16 +1,33 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
+  brandBodySchema,
   searchUsersQuerySchema,
+  streamIdParamsSchema,
   topStreamersQuerySchema,
   updateProfileBodySchema,
   usernameParamsSchema,
 } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
-import { ensureUserIngress, rotateUserIngress } from "../livekit.js";
+import { ensureUserIngress, rotateUserIngress, sendRoomData } from "../livekit.js";
 import { Follow, Stream, User, type IUser } from "../models.js";
-import { thumbnailUrlFor } from "../stream-service.js";
+import { parseImageDataUri, thumbnailUrlFor } from "../stream-service.js";
+
+/**
+ * The brand kit as clients see it: the logo as a versioned URL (never its
+ * bytes), keyed by user id so any username works in it.
+ */
+function brandView(user: Pick<IUser, "_id" | "brand">) {
+  const b = user.brand;
+  const logoVersion = b?.logo ? (b.logoVersion ?? 0) : 0;
+  return {
+    accent: b?.accent ?? "ember",
+    lowerThird: b?.lowerThird ?? "bar",
+    logoVersion,
+    logoUrl: logoVersion > 0 ? `/api/users/${String(user._id)}/logo?v=${logoVersion}` : null,
+  };
+}
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -172,6 +189,88 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
           }),
         },
       };
+    },
+  );
+
+  app.get(
+    "/users/me/brand",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Your brand kit: accent, lower-third style and logo",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      return { success: true, data: { brand: brandView(dbUser) } };
+    },
+  );
+
+  app.patch(
+    "/users/me/brand",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Update your brand kit — a new logo gets a new version",
+        security: [{ bearerAuth: [] }],
+        body: brandBodySchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const body = request.body;
+      const brand = {
+        accent: dbUser.brand?.accent ?? "ember",
+        lowerThird: dbUser.brand?.lowerThird ?? "bar",
+        logo: dbUser.brand?.logo ?? "",
+        logoVersion: dbUser.brand?.logoVersion ?? 0,
+      };
+      if (body.accent) brand.accent = body.accent;
+      if (body.lowerThird) brand.lowerThird = body.lowerThird;
+      if (body.logo !== undefined && body.logo !== brand.logo) {
+        brand.logo = body.logo;
+        // A new logo is a new URL, so every cache lets the old one go.
+        brand.logoVersion = body.logo ? Date.now() : 0;
+      }
+      dbUser.brand = brand;
+      await dbUser.save();
+      const view = brandView(dbUser);
+      // On air, the room redraws in the new colours at once; anyone joining
+      // later reads the brand off the stream.
+      const live = await Stream.findOne({ streamerId: dbUser._id, isLive: true }).select("livekitRoomName").lean();
+      if (live?.livekitRoomName) await sendRoomData(live.livekitRoomName, { __evt: "brand", brand: view });
+      return { success: true, data: { brand: view } };
+    },
+  );
+
+  app.get(
+    "/users/:id/logo",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "A creator's logo as an image (long-lived, versioned cache)",
+        params: streamIdParamsSchema,
+      },
+      config: { rateLimit: false },
+    },
+    async (request, reply) => {
+      const user = await User.findById(request.params.id).select("brand.logo brand.logoVersion").lean();
+      const logo = user?.brand?.logo;
+      if (!logo) throw new ApiError(404, "No logo", "NO_LOGO");
+      if (!logo.startsWith("data:")) return reply.redirect(logo, 302);
+      const image = parseImageDataUri(logo);
+      if (!image) throw new ApiError(415, "Stored logo is not a readable image", "LOGO_UNREADABLE");
+      const etag = `"logo-${user?.brand?.logoVersion ?? 0}"`;
+      if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+      return reply
+        .header("Content-Type", image.contentType)
+        .header("ETag", etag)
+        // The URL carries ?v=<logoVersion>: a new logo is a new URL.
+        .header("Cache-Control", "public, max-age=31536000, immutable")
+        // Embedded on the web app's origin, like thumbnails.
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
+        .send(image.body);
     },
   );
 

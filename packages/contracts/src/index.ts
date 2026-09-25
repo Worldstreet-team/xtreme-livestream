@@ -168,14 +168,63 @@ export const searchUsersQuerySchema = z.object({
 export const SCENE_LAYOUTS = ["auto", "solo", "split", "trio", "grid", "screen-face"] as const;
 export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
 
+/**
+ * Graphics drawn over the program (Phase 2, graphics and brand kit): one of
+ * each at most. They render as DOM on every screen — crisp at any quality
+ * layer — in the creator's brand accent.
+ */
+export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo"] as const;
+export const LOGO_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+
+export const sceneLayerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("lower-third"),
+    title: z.string().trim().min(1).max(48),
+    subtitle: z.string().trim().max(72).default(""),
+  }),
+  z.object({ kind: z.literal("banner"), text: z.string().trim().min(1).max(100) }),
+  z.object({ kind: z.literal("ticker"), text: z.string().trim().min(1).max(240) }),
+  z.object({
+    kind: z.literal("countdown"),
+    label: z.string().trim().max(40).default(""),
+    endsAt: z.string().datetime(),
+  }),
+  z.object({ kind: z.literal("logo"), corner: z.enum(LOGO_CORNERS).default("top-right") }),
+]);
+
 export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
   cardNote: z.string().trim().max(80).default(""),
+  layers: z
+    .array(sceneLayerSchema)
+    .max(SCENE_LAYER_KINDS.length)
+    .default([])
+    .refine((layers) => new Set(layers.map((l) => l.kind)).size === layers.length, "One of each graphic at most"),
 });
+
+/**
+ * A creator's brand kit: the accent their graphics wear, the lower third's
+ * shape, and a logo for the corner of the picture ("" removes it).
+ */
+export const BRAND_ACCENTS = ["ember", "chili", "white", "sky", "mint", "lilac"] as const;
+export const LOWER_THIRD_STYLES = ["bar", "pill"] as const;
+
+export const brandBodySchema = z
+  .object({
+    accent: z.enum(BRAND_ACCENTS).optional(),
+    lowerThird: z.enum(LOWER_THIRD_STYLES).optional(),
+    logo: imageSourceSchema.optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });
 
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
 export type SceneCard = (typeof SCENE_CARDS)[number];
+export type SceneLayer = z.infer<typeof sceneLayerSchema>;
+export type SceneLayerKind = (typeof SCENE_LAYER_KINDS)[number];
+export type LogoCorner = (typeof LOGO_CORNERS)[number];
+export type BrandAccent = (typeof BRAND_ACCENTS)[number];
+export type LowerThirdStyle = (typeof LOWER_THIRD_STYLES)[number];
 /** The scene as stored and broadcast: the body plus a version that only goes up. */
 export type Scene = z.infer<typeof sceneBodySchema> & { version: number };
 

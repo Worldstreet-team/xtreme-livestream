@@ -50,7 +50,7 @@ import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
-import { DEFAULT_SCENE, guestsShown, newerScene, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { DEFAULT_SCENE, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
@@ -185,6 +185,8 @@ interface StreamData {
     bio?: string;
     followers: number;
     isLive: boolean;
+    /** The brand kit the graphics wear — the logo as a version, never its bytes. */
+    brand?: { accent?: string; lowerThird?: string; logoVersion?: number; logoUrl?: string | null };
   };
 }
 
@@ -808,6 +810,12 @@ export default function StreamPage({
           if (data.__evt === "scene") {
             const next = readScene((data as { scene?: unknown }).scene);
             setStream((prev) => (prev ? { ...prev, scene: newerScene(prev.scene, next) } : prev));
+            return;
+          }
+          // The host changed their brand kit: the graphics redraw in it.
+          if (data.__evt === "brand") {
+            const brand = (data as { brand?: StreamData["streamerId"]["brand"] }).brand;
+            if (brand) setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, brand } } : prev));
             return;
           }
           // The host's feed dropped or came back — the API decides, the
@@ -1713,6 +1721,7 @@ export default function StreamPage({
   const streamer = stream.streamerId;
 
   const hostName = streamer.displayName || streamer.username;
+  const brand = readBrand(streamer.brand, streamer._id);
 
   /** The native share sheet where there is one; the clipboard, said out loud, where there isn't. */
   const shareStream = () => {
@@ -1781,6 +1790,8 @@ export default function StreamPage({
   // In a battle the scoreboard stays up top (gifts still count), so the
   // card sits below it rather than under it.
   const battleUp = Boolean(battle && (isBattleActive(battle) || battle.status === "ended"));
+  /** The player's badges and controls are up (they fade while live and idle). */
+  const chromeShown = controlsVisible || !stream.isLive;
   const brbCard = (
     <div className={cn("absolute inset-0 flex items-center justify-center bg-black/85", battleUp && "pt-24")}>
       <div className="max-w-sm px-8 text-center">
@@ -2014,6 +2025,9 @@ export default function StreamPage({
             }
             pipClassName="top-[132px] right-3"
             guests={others}
+            brand={brand}
+            // Graphics keep between the header and the chat lane.
+            insets={{ top: "124px", bottom: "calc(34dvh + 96px + env(safe-area-inset-bottom))" }}
           />
         </div>
 
@@ -2026,7 +2040,7 @@ export default function StreamPage({
         {/* Status overlays */}
         {hostAway
           ? brbCard
-          : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && (
+          : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-8 text-center">
                   <Spinner className="mx-auto size-7 text-white/70" />
@@ -2458,6 +2472,14 @@ export default function StreamPage({
                   }
                   pipClassName="top-14 right-3"
                   guests={others}
+                  brand={brand}
+                  // Clear of the badges and controls while they show (and of
+                  // "Turn sound on", which never hides); the frame's own
+                  // edges once they fade.
+                  insets={{
+                    top: chromeShown || muted ? "52px" : "0px",
+                    bottom: chromeShown ? "60px" : "0px",
+                  }}
                 />
               );
             })()}
@@ -2502,7 +2524,7 @@ export default function StreamPage({
                 viewer is on the way back in after their own drop. */}
             {hostAway
               ? brbCard
-              : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && (
+              : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                     <div className="px-6 text-center">
                       <Spinner className="mx-auto size-7 text-white/70" />
