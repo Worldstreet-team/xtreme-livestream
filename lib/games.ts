@@ -38,7 +38,24 @@ export interface GameView {
   correctOutcome: string | null;
   winners: GameWinner[];
   settledAt: string | null;
+  /** A vote, not a bet: picks carry no stake and nobody wins points. */
+  voteOnly?: boolean;
   mine?: { outcome: string; stakePoints: number; wonPoints: number } | null;
+}
+
+/** An unsettled game gives every stake and ticket back after this long. */
+export const STALE_REFUND_HOURS = 24;
+
+/** Whether entering costs points — the case the refund promise is for. */
+export function holdsStakes(g: GameView) {
+  return (g.type === "prediction" && !g.voteOnly) || (g.type === "raffle" && g.ticketPoints > 0);
+}
+
+/** Share of the picks on an outcome — how a vote (or a quiz) is split. */
+export function pickShare(g: GameView, id: string) {
+  const o = g.outcomes.find((x) => x.id === id);
+  if (!o || g.entries === 0) return 1 / g.outcomes.length;
+  return o.entries / g.entries;
 }
 
 export interface LiveGameItem {

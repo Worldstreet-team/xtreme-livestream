@@ -52,6 +52,8 @@ const createGameBodySchema = z
     prizePoints: z.number().int().min(0).max(10_000).default(0),
     /** Quiz: index of the right outcome. */
     correctIndex: z.number().int().min(0).max(3).nullable().default(null),
+    /** Prediction: a vote — no stakes, no payouts. */
+    voteOnly: z.boolean().default(false),
   })
   .refine((b) => b.type === "raffle" || b.outcomes.length >= 2, { message: "At least two outcomes", path: ["outcomes"] })
   .refine((b) => b.type !== "quiz" || (b.correctIndex !== null && b.correctIndex < b.outcomes.length), { message: "Mark the right answer", path: ["correctIndex"] });
@@ -146,7 +148,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const game = await Game.findById(request.params.id);
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (game.hostId.equals(dbUser._id)) throw new ApiError(400, "The host can't play their own game", "HOST_ENTRY");
-      if (game.type === "prediction" && (request.body.stakePoints < MIN_STAKE || request.body.stakePoints > MAX_STAKE)) {
+      if (game.type === "prediction" && !game.voteOnly && (request.body.stakePoints < MIN_STAKE || request.body.stakePoints > MAX_STAKE)) {
         throw new ApiError(400, `Stake between ${MIN_STAKE} and ${MAX_STAKE} points`, "BAD_STAKE");
       }
       try {
@@ -180,11 +182,12 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (!game.hostId.equals(dbUser._id)) throw new ApiError(403, "Only the host settles", "NOT_HOST");
       try {
-        await settleGame(game, request.body.winningOutcome ?? null);
+        await settleGame(game, request.body.winningOutcome ?? null, dbUser._id);
         await audit(dbUser._id, "game.settle", "game", game._id as mongoose.Types.ObjectId, { type: game.type, winningOutcome: game.winningOutcome, poolPoints: game.poolPoints, entries: game.entries });
       } catch (error) {
         const code = error instanceof Error ? error.message : "";
         if (code === "NOT_SETTLEABLE") throw new ApiError(409, "This game is already settled", "GAME_SETTLED");
+        if (code === "SETTLER_ENTERED") throw new ApiError(409, "You have points in this game — someone without a stake has to settle it", "SETTLER_ENTERED");
         if (code === "BAD_OUTCOME") throw new ApiError(400, "Pick the outcome that happened", "BAD_OUTCOME");
         throw error;
       }

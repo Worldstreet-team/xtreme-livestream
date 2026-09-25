@@ -913,6 +913,11 @@ export interface IGame extends Document {
   correctOutcome: string | null;
   /** Raffle: who was drawn. */
   winners: mongoose.Types.ObjectId[];
+  /**
+   * Prediction: a vote, not a bet — picks carry no stake and settling pays
+   * nothing. For outcomes the host controls, and where staking isn't wanted.
+   */
+  voteOnly: boolean;
   settledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -928,6 +933,7 @@ const gameSchema = new Schema<IGame>(
     prizePoints: { type: Number, default: 0 },
     correctOutcome: { type: String, default: null },
     winners: { type: [Schema.Types.ObjectId], default: [] },
+    voteOnly: { type: Boolean, default: false },
     status: { type: String, enum: ["open", "locked", "settled", "cancelled"], default: "open" },
     question: { type: String, required: true, maxlength: 140 },
     outcomes: [

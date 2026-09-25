@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { ChatMessage, Game, GameEntry, Stream, User, WatchSession, type GameType, type IGame, type IStream } from "./models.js";
 import { sendRoomData } from "./livekit.js";
 import { awardPoints } from "./points.js";
+import { audit } from "./rewards.js";
 
 /**
  * Games run inside a stream, on one engine:
@@ -23,6 +24,12 @@ export const MAX_STAKE = 5000;
 export const DROP_POINTS = 50;
 export const DROP_EVERY_MS = 20 * 60_000;
 export const DROP_MIN_WATCH_MS = 20 * 60_000;
+/**
+ * A game its host never settles gives every stake and ticket back after
+ * this long — held points are never stuck (Twitch and Kick both refund an
+ * unsettled prediction after 24 hours).
+ */
+export const STALE_REFUND_MS = 24 * 60 * 60_000;
 
 export interface GameView {
   id: string;
@@ -42,6 +49,8 @@ export interface GameView {
   correctOutcome: string | null;
   winners: { userId: string; username: string; displayName: string; avatar: string }[];
   settledAt: string | null;
+  /** A vote, not a bet: no stakes, no payouts. */
+  voteOnly: boolean;
   /** The caller's own entry, when they have one. */
   mine?: { outcome: string; stakePoints: number; wonPoints: number } | null;
 }
@@ -68,6 +77,7 @@ export async function toGameView(g: IGame, mine?: { outcome: string; stakePoints
     correctOutcome: g.status === "settled" ? g.correctOutcome : null,
     winners: winners.map((u) => ({ userId: String(u._id), username: u.username, displayName: u.displayName || u.username, avatar: u.avatar })),
     settledAt: g.settledAt ? g.settledAt.toISOString() : null,
+    voteOnly: Boolean(g.voteOnly),
     ...(mine !== undefined ? { mine } : {}),
   };
 }
@@ -101,6 +111,8 @@ export interface CreateGameInput {
   prizePoints: number;
   /** Quiz: index into outcomes. */
   correctIndex: number | null;
+  /** Prediction: run it as a vote — no stakes, no payouts. */
+  voteOnly?: boolean;
 }
 
 export async function createGame(stream: IStream, hostId: mongoose.Types.ObjectId, input: CreateGameInput) {
@@ -124,6 +136,7 @@ export async function createGame(stream: IStream, hostId: mongoose.Types.ObjectI
     prizePoints: input.prizePoints,
     correctOutcome:
       input.type === "quiz" && input.correctIndex !== null && input.correctIndex < input.outcomes.length ? idAt(input.correctIndex) : null,
+    voteOnly: input.type === "prediction" && Boolean(input.voteOnly),
   });
   await fanOutGame(game, stream);
   return game;
@@ -136,7 +149,8 @@ export async function enterGame(game: IGame, userId: mongoose.Types.ObjectId, ou
   if (!game.outcomes.some((o) => o.id === pick)) throw new Error("BAD_OUTCOME");
   if (await GameEntry.exists({ gameId: game._id, userId })) throw new Error("ALREADY_IN");
 
-  const cost = game.type === "prediction" ? stake : game.type === "raffle" ? game.ticketPoints : 0;
+  // A vote-only prediction takes the pick and nothing else.
+  const cost = game.type === "prediction" ? (game.voteOnly ? 0 : stake) : game.type === "raffle" ? game.ticketPoints : 0;
   const reason = game.type === "raffle" ? "raffle_ticket" : "game_stake";
   if (cost > 0) await awardPoints(userId, -cost, reason, game._id as mongoose.Types.ObjectId); // throws InsufficientPointsError
   try {
@@ -156,12 +170,17 @@ export async function enterGame(game: IGame, userId: mongoose.Types.ObjectId, ou
 
 /**
  * Settle, by type. Prediction: pro-rata split of the pool among the winning
- * outcome's entries (all refunded if nobody backed it). Raffle: draw N
- * distinct tickets, split tickets + prize equally. Quiz: every correct entry
- * gets the prize.
+ * outcome's entries (all refunded if nobody backed it; a vote pays nothing).
+ * Raffle: draw N distinct tickets, split tickets + prize equally. Quiz: every
+ * correct entry gets the prize.
+ *
+ * `settlerId` is whoever is declaring the outcome. Someone with points in a
+ * game never settles it — the host can't enter their own games, and the same
+ * rule holds for anyone else ever given the button.
  */
-export async function settleGame(game: IGame, winningOutcome: string | null) {
+export async function settleGame(game: IGame, winningOutcome: string | null, settlerId?: mongoose.Types.ObjectId) {
   if (!["open", "locked"].includes(game.status)) throw new Error("NOT_SETTLEABLE");
+  if (settlerId && (await GameEntry.exists({ gameId: game._id, userId: settlerId }))) throw new Error("SETTLER_ENTERED");
   const ref = game._id as mongoose.Types.ObjectId;
 
   if (game.type === "prediction") {
@@ -176,7 +195,9 @@ export async function settleGame(game: IGame, winningOutcome: string | null) {
       }
     }
     if (winners.length === 0) {
-      for (const e of await GameEntry.find({ gameId: game._id })) await awardPoints(e.userId, e.stakePoints, "game_refund", ref).catch(() => {});
+      for (const e of await GameEntry.find({ gameId: game._id })) {
+        if (e.stakePoints > 0) await awardPoints(e.userId, e.stakePoints, "game_refund", ref).catch(() => {});
+      }
     }
     game.winningOutcome = winningOutcome;
     game.winners = winners.map((e) => e.userId).slice(0, 5);
@@ -235,7 +256,38 @@ export async function cancelGame(game: IGame) {
   return game;
 }
 
-/** Once a second: close windows that ran out; quizzes settle themselves the moment they close. */
+/**
+ * Every game whose window closed more than STALE_REFUND_MS ago and was
+ * never settled: cancelled, every stake and ticket refunded, and the
+ * auto-refund written to the audit log. Returns how many it closed out.
+ */
+export async function refundStaleGames(now = Date.now()) {
+  const stale = await Game.find({
+    status: { $in: ["open", "locked"] },
+    closesAt: { $lte: new Date(now - STALE_REFUND_MS) },
+  });
+  let refunded = 0;
+  for (const g of stale) {
+    try {
+      await cancelGame(g);
+      await audit(null, "game.auto_refund", "game", g._id as mongoose.Types.ObjectId, {
+        type: g.type,
+        entries: g.entries,
+        poolPoints: g.poolPoints,
+        closedAt: g.closesAt,
+      });
+      refunded += 1;
+    } catch (error) {
+      console.error("stale game refund failed:", error);
+    }
+  }
+  return refunded;
+}
+
+/**
+ * Once a second: close windows that ran out; quizzes settle themselves the
+ * moment they close. Once a minute: refund games nobody settled in a day.
+ */
 export function startGameSweep() {
   const tick = async () => {
     const due = await Game.find({ status: "open", closesAt: { $lte: new Date() } });
@@ -250,6 +302,7 @@ export function startGameSweep() {
     }
   };
   setInterval(() => void tick().catch((e) => console.error("game sweep failed:", e)), 1000);
+  setInterval(() => void refundStaleGames().catch((e) => console.error("stale game sweep failed:", e)), 60_000);
 }
 
 /**

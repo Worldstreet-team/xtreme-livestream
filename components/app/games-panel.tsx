@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
-import { GAME_LABEL, formatPoints, secondsToClose, type GameType, type GameView } from "@/lib/games";
+import { GAME_LABEL, STALE_REFUND_HOURS, formatPoints, holdsStakes, pickShare, secondsToClose, type GameType, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/pill";
 import { PillTabs } from "@/components/ui/tabs";
+import { SwitchField } from "@/components/ui/selection-controls";
 
 /**
  * The host's side of games, in the studio. Pick a type — prediction,
@@ -36,6 +37,8 @@ export function GamesPanel({
   const [ticket, setTicket] = useState(0);
   const [winnersCount, setWinnersCount] = useState(1);
   const [prize, setPrize] = useState(100);
+  /** Prediction as a vote: no stakes, no payouts. */
+  const [voteOnly, setVoteOnly] = useState(false);
   const now = useNow(!!game && game.status === "open");
 
   useEffect(() => {
@@ -79,7 +82,7 @@ export function GamesPanel({
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{game.question}</span>
           <span className="flex items-center gap-1 text-[11.5px] text-muted-foreground tabular-nums">
             <Coins size={11} weight="fill" className="text-amber-300" />
-            {isRaffle ? formatPoints(game.poolPoints + game.prizePoints) : isQuiz ? `${formatPoints(game.prizePoints)} each` : formatPoints(game.poolPoints)} · {game.entries} in
+            {isRaffle ? formatPoints(game.poolPoints + game.prizePoints) : isQuiz ? `${formatPoints(game.prizePoints)} each` : game.voteOnly ? "Vote" : formatPoints(game.poolPoints)} · {game.entries} in
           </span>
           <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", game.status === "open" ? "bg-white text-neutral-950" : "bg-white/[0.1] text-muted-foreground")}>
             {game.status === "open" ? formatClock(left) : "Locked"}
@@ -97,7 +100,7 @@ export function GamesPanel({
               <span className="text-[11px] text-muted-foreground">Settle:</span>
               {game.outcomes.map((o) => (
                 <Pill key={o.id} size="sm" variant="soft" tone="green" icon={<Trophy size={12} weight="fill" />} onClick={() => post(`/api/games/${game.id}/settle`, { winningOutcome: o.id })} disabled={busy}>
-                  {o.label} <span className="ml-1 text-[10.5px] opacity-70 tabular-nums">{Math.round((game.poolPoints ? o.points / game.poolPoints : 1 / game.outcomes.length) * 100)}%</span>
+                  {o.label} <span className="ml-1 text-[10.5px] opacity-70 tabular-nums">{Math.round((game.voteOnly ? pickShare(game, o.id) : game.poolPoints ? o.points / game.poolPoints : 1 / game.outcomes.length) * 100)}%</span>
                 </Pill>
               ))}
             </>
@@ -106,6 +109,11 @@ export function GamesPanel({
             Cancel &amp; refund
           </Pill>
         </div>
+        {holdsStakes(game) && (
+          <p className="text-[11px] text-muted-foreground/70">
+            Settle within {STALE_REFUND_HOURS} hours — after that every stake goes back on its own.
+          </p>
+        )}
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>
     );
@@ -194,6 +202,16 @@ export function GamesPanel({
               </label>
             </div>
           )}
+          {type === "prediction" && (
+            <div className="mt-2">
+              <SwitchField
+                label="Vote only — no points at stake"
+                description="Use it when the outcome is up to you. Viewers pick; nobody stakes or wins points."
+                checked={voteOnly}
+                onCheckedChange={setVoteOnly}
+              />
+            </div>
+          )}
           {type !== "prediction" && (
             <label className="mt-2 block text-[11px] text-muted-foreground">
               {type === "raffle" ? "Prize added to the pot (pts)" : "Points per correct answer"}
@@ -223,10 +241,11 @@ export function GamesPanel({
                   winnersCount,
                   prizePoints: type === "prediction" ? 0 : prize,
                   correctIndex: type === "quiz" ? correct : null,
+                  voteOnly: type === "prediction" && voteOnly,
                 })
               }
             >
-              Open {GAME_LABEL[type].toLowerCase()}
+              Open {type === "prediction" && voteOnly ? "vote" : GAME_LABEL[type].toLowerCase()}
             </Pill>
           </div>
         </div>

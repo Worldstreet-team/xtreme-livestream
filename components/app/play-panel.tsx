@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Coins, Lock, Trophy, Check, X, Sparkle, Ticket, Question } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { GAME_LABEL, STAKES, announcePoints, formatPoints, outcomeShare, payoutMultiplier, secondsToClose, type GameView } from "@/lib/games";
+import { GAME_LABEL, STAKES, STALE_REFUND_HOURS, announcePoints, formatPoints, holdsStakes, outcomeShare, payoutMultiplier, pickShare, secondsToClose, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,9 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
   const won = settled && !!game.mine && game.mine.wonPoints > 0;
   const isRaffle = game.type === "raffle";
   const isQuiz = game.type === "quiz";
+  // A vote: picks, no stakes — split by how many chose each side.
+  const isVote = game.type === "prediction" && !!game.voteOnly;
+  const byPicks = isQuiz || isVote;
 
   const enter = async () => {
     if (!isAuthenticated) {
@@ -54,7 +57,7 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
     try {
       const r = await apiFetch<{ success: boolean; data: { game: GameView; pointsBalance: number } }>(`/api/games/${game.id}/enter`, {
         method: "POST",
-        body: JSON.stringify({ outcome: isRaffle ? "ticket" : pick, stakePoints: game.type === "prediction" ? stake : 0 }),
+        body: JSON.stringify({ outcome: isRaffle ? "ticket" : pick, stakePoints: game.type === "prediction" && !isVote ? stake : 0 }),
       });
       onChange(r.data.game);
       announcePoints(r.data.pointsBalance);
@@ -69,14 +72,16 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
     ? `${formatPoints(game.poolPoints + game.prizePoints)} pts pot · ${game.entries} in`
     : isQuiz
       ? `${formatPoints(game.prizePoints)} pts each · ${game.entries} in`
-      : `${formatPoints(game.poolPoints)} pts · ${game.entries} in`;
+      : isVote
+        ? `No stakes · ${game.entries} voted`
+        : `${formatPoints(game.poolPoints)} pts · ${game.entries} in`;
 
   return (
     <section className="shrink-0 border-b border-white/[0.06] bg-card px-3.5 py-3" aria-label={GAME_LABEL[game.type]}>
       <div className="mb-2 flex items-center gap-2">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-amber-300 uppercase">
           <Icon size={12} weight="fill" />
-          {GAME_LABEL[game.type]}
+          {isVote ? "Vote" : GAME_LABEL[game.type]}
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
           <Coins size={12} weight="fill" className="text-amber-300" />
@@ -97,8 +102,8 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
       {!isRaffle && (
         <div className="mt-2.5 flex flex-col gap-1.5">
           {game.outcomes.map((o) => {
-            const share = isQuiz ? (game.entries ? o.entries / game.entries : 1 / game.outcomes.length) : outcomeShare(game, o.id);
-            const mult = isQuiz ? null : payoutMultiplier(game, o.id);
+            const share = byPicks ? pickShare(game, o.id) : outcomeShare(game, o.id);
+            const mult = byPicks ? null : payoutMultiplier(game, o.id);
             const isPick = pick === o.id;
             const isWinner = settled && game.winningOutcome === o.id;
             return (
@@ -148,7 +153,11 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
       {settled ? (
         <p className={cn("mt-2.5 text-[12.5px] font-medium", won ? "text-emerald-300" : "text-muted-foreground")}>
           {game.mine
-            ? won
+            ? isVote
+              ? game.mine.outcome === game.winningOutcome
+                ? "You called it."
+                : "Not this time."
+              : won
               ? `${isQuiz ? "Correct" : isRaffle ? "Drawn" : "You called it"} — +${formatPoints(game.mine.wonPoints)} pts`
               : isQuiz
                 ? "Not that one."
@@ -166,11 +175,13 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
             ? "You're in the draw."
             : isQuiz
               ? `Answer locked: ${game.outcomes.find((o) => o.id === game.mine!.outcome)?.label}.`
-              : `You're in with ${formatPoints(game.mine!.stakePoints)} pts on ${game.outcomes.find((o) => o.id === game.mine!.outcome)?.label}.`}
+              : isVote
+                ? `Your vote: ${game.outcomes.find((o) => o.id === game.mine!.outcome)?.label}.`
+                : `You're in with ${formatPoints(game.mine!.stakePoints)} pts on ${game.outcomes.find((o) => o.id === game.mine!.outcome)?.label}.`}
         </p>
       ) : open ? (
         <div className="mt-2.5 flex items-center gap-1.5">
-          {game.type === "prediction" && (
+          {game.type === "prediction" && !isVote && (
             <div className="flex gap-1">
               {STAKES.map((s) => (
                 <button
@@ -188,14 +199,20 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
           {isRaffle && (
             <span className="text-[12px] text-muted-foreground">{game.ticketPoints > 0 ? `${game.ticketPoints} pts a ticket` : "Free to enter"} · {game.winnersCount} drawn</span>
           )}
-          <Pill size="sm" variant="primary" className="ml-auto" icon={isRaffle ? <Ticket size={13} weight="fill" /> : <Coins size={13} weight="fill" />} onClick={enter} disabled={(!isRaffle && !pick) || busy}>
-            {isRaffle ? "Enter" : isQuiz ? (pick ? "Lock answer" : "Pick one") : pick ? `Stake ${stake}` : "Pick one"}
+          <Pill size="sm" variant="primary" className="ml-auto" icon={isRaffle ? <Ticket size={13} weight="fill" /> : isVote || isQuiz ? <Check size={13} weight="bold" /> : <Coins size={13} weight="fill" />} onClick={enter} disabled={(!isRaffle && !pick) || busy}>
+            {isRaffle ? "Enter" : isQuiz ? (pick ? "Lock answer" : "Pick one") : isVote ? (pick ? "Vote" : "Pick one") : pick ? `Stake ${stake}` : "Pick one"}
           </Pill>
         </div>
       ) : (
         <p className="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
           <Lock size={12} />
           {isRaffle ? "Entries closed — drawing soon." : "Entries closed — waiting on the result."}
+        </p>
+      )}
+      {/* The promise that makes staking safe: held points never get stuck. */}
+      {holdsStakes(game) && (game.status === "open" || game.status === "locked") && (
+        <p className="mt-2 text-[11px] text-muted-foreground/70">
+          Not settled within {STALE_REFUND_HOURS} hours? Every stake comes back.
         </p>
       )}
       {error && (
