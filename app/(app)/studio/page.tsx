@@ -255,6 +255,8 @@ export default function StudioPage() {
   const liveRef = useRef({ streamId: null as string | null, source: "camera" as SourceType, title: "", micEnabled: true, camEnabled: true });
   // Wired to the real handlers further down, once they're declared.
   const onRoomGoneRef = useRef<(reason: DisconnectReasonType | undefined, reasons: typeof DisconnectReasonType) => void>(() => {});
+  /** Set by a takedown event, so the room closing next is explained. */
+  const takenDownRef = useRef(false);
   const attemptRejoinRef = useRef<() => Promise<void>>(async () => {});
   /** When a resumed stream really started, so its clock doesn't restart at 0:00. */
   const resumedStartRef = useRef<Date | null>(null);
@@ -552,6 +554,12 @@ export default function StudioPage() {
           state?: string;
           graceMs?: number;
         };
+        // A platform admin took the stream down after a report; the room
+        // closes next, and the host is told why.
+        if (data.__evt === "takedown") {
+          takenDownRef.current = true;
+          return;
+        }
         // The encoder dropped or came back — the API decides, we display.
         if (data.__evt === "feed") {
           setFeedDropped(data.state === "reconnecting");
@@ -1497,7 +1505,12 @@ export default function StudioPage() {
       reason === reasons.PARTICIPANT_REMOVED
     ) {
       resetAfterLive();
-      setError("Your stream was taken off the air.");
+      setError(
+        takenDownRef.current
+          ? "Your stream was taken down after a report was reviewed. It broke the community rules."
+          : "Your stream was taken off the air."
+      );
+      takenDownRef.current = false;
       return;
     }
     if (rejoinRef.current) return;

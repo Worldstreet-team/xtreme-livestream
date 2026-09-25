@@ -111,15 +111,22 @@ export function MessageLine({
   onStream?: boolean;
 }) {
   const reaction = msg.type === "reaction";
+  // Held by the filter: only its writer sees it, faded, until a moderator decides.
+  const waiting = msg.pending ? (
+    <span className={cn("mt-0.5 block text-[11px] font-medium", skin === "overlay" ? "text-white/60" : "text-muted-foreground")}>
+      Only you can see this — waiting for a moderator
+    </span>
+  ) : null;
   if (skin === "overlay") {
     return (
-      <div className={cn("group relative flex w-fit max-w-full items-start gap-2 py-[3px]", ON_VIDEO)} onClick={onTap}>
+      <div className={cn("group relative flex w-fit max-w-full items-start gap-2 py-[3px]", ON_VIDEO, msg.pending && "opacity-70")} onClick={onTap}>
         <UserAvatar src={msg.avatar} name={msg.username} size={22} className="mt-px size-[22px] shrink-0" />
         <p className="min-w-0 text-[13.5px] leading-snug break-words text-white">
           {badges}
           <span className="mr-1.5 font-semibold text-white/70">{msg.username}</span>
           <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
           {onStream && <OnStream skin={skin} />}
+          {waiting}
         </p>
         {tools}
       </div>
@@ -131,7 +138,8 @@ export function MessageLine({
       onClick={onTap}
       className={cn(
         "group relative flex gap-2 rounded-[8px] px-2 py-[5px] transition-colors hover:bg-white/[0.035]",
-        highlight && "bg-ember/[0.08] hover:bg-ember/[0.12]"
+        highlight && "bg-ember/[0.08] hover:bg-ember/[0.12]",
+        msg.pending && "opacity-60"
       )}
     >
       <UserAvatar src={msg.avatar} name={msg.username} size={20} className="mt-[2px] size-5 shrink-0" />
@@ -142,6 +150,7 @@ export function MessageLine({
         </span>
         <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
         {onStream && <OnStream skin={skin} />}
+        {waiting}
       </p>
       {tools}
     </div>

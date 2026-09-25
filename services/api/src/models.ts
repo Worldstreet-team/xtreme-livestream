@@ -563,9 +563,10 @@ export interface INotification extends Document {
   /**
    * live = someone you follow went live; reminder = a stream you asked
    * about started; mod_added = a creator made you a moderator; report = a
-   * report reached the review queue (platform admins only).
+   * report reached the review queue (platform admins only); takedown = your
+   * stream was taken down after a report.
    */
-  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report";
+  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown";
   /** Who did the thing (the streamer who went live). */
   actorId: mongoose.Types.ObjectId;
   actorName: string;
@@ -588,7 +589,7 @@ const notificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report"],
+      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown"],
       default: "live",
     },
     actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },

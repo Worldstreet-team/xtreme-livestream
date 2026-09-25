@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { unfeatureMessage } from "../featured.js";
 import { closeRoom, sendRoomData } from "../livekit.js";
-import { ChatMessage, Report, Stream, User } from "../models.js";
+import { ChatMessage, Notification, Report, Stream, User } from "../models.js";
 import { markStreamEnded } from "../stream-service.js";
 
 /**
@@ -150,6 +150,16 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
             }
             stream.takenDownAt = new Date();
             await stream.save();
+            // The creator is told, not left to find a missing stream.
+            await Notification.create({
+              userId: stream.streamerId,
+              type: "takedown",
+              actorId: admin._id,
+              actorName: "Xtream Trust & Safety",
+              streamId: stream._id,
+              streamTitle: stream.title,
+              link: "",
+            }).catch(() => {});
           }
         }
       }

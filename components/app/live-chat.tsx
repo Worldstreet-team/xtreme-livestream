@@ -7,6 +7,7 @@ import {
   ArrowUp,
   ChatCircleDots,
   Clock,
+  Flag,
   Gift,
   MonitorPlay,
   Prohibit,
@@ -26,6 +27,9 @@ import { GiftKeyboard } from "@/components/app/gift-keyboard";
 import { foldLines, giftUnit, isDrop, mentions, type ChatMsg, type ChatPlatform } from "@/components/app/chat/lines";
 import { useFeaturedShowing } from "@/lib/use-featured";
 import type { FeaturedItem } from "@/lib/scene";
+import type { ChannelRole, ModsCanFeature } from "@xtreme/contracts";
+import { HeldQueue, type HeldLine } from "@/components/app/chat/held-queue";
+import { ReportMenu } from "@/components/app/chat/report-menu";
 import {
   ArrivalTicker,
   Badges,
@@ -86,6 +90,29 @@ interface LiveChatProps {
   featureSeconds?: number;
   /** Host: the scene the API answered with, so the studio shows it at once. */
   onScene?: (scene: unknown) => void;
+  /** Host: the lines moderators suggested for the screen, as they change. */
+  onFeatureQueue?: (queue: unknown) => void;
+}
+
+/** The room's rules as this viewer meets them (GET /streams/:id/role, then room events). */
+interface RoomRules {
+  role: ChannelRole | null;
+  shield: boolean;
+  modsCanFeature?: ModsCanFeature;
+}
+
+/** A held line off the wire. */
+function toHeldLine(raw: Record<string, unknown>): HeldLine {
+  return {
+    id: String(raw.id),
+    userId: raw.userId ? String(raw.userId) : undefined,
+    username: String(raw.username ?? ""),
+    avatar: String(raw.avatar ?? ""),
+    content: String(raw.content ?? ""),
+    type: "text",
+    at: typeof raw.at === "number" ? raw.at : Date.now(),
+    heldLabel: String(raw.heldLabel ?? "Held"),
+  };
 }
 
 /**
@@ -118,6 +145,7 @@ export function LiveChat({
   featured = null,
   featureSeconds = 20,
   onScene,
+  onFeatureQueue,
 }: LiveChatProps) {
   const skin: ChatSkin = variant === "overlay" ? "overlay" : "panel";
   const overlay = skin === "overlay";
@@ -149,22 +177,33 @@ export function LiveChat({
   /** Reading back: the scroll stays put and new lines are counted instead. */
   const [paused, setPaused] = useState(false);
   const [unseen, setUnseen] = useState(0);
+  /** Who I am in this room, and whether Shield is up. The studio's host is the host outright. */
+  const [rules, setRules] = useState<RoomRules>({ role: null, shield: false });
+  const role: ChannelRole | null = isHost ? "host" : rules.role;
+  const canModerate = role !== null;
+  /** What the filter is holding — moderators only. */
+  const [held, setHeld] = useState<HeldLine[]>([]);
+  const [heldBusy, setHeldBusy] = useState<string | null>(null);
+  /** My own held lines, so their outcome can be told to me. */
+  const pendingIdsRef = useRef<Set<string>>(new Set());
+  /** The line whose report menu is open. */
+  const [reportFor, setReportFor] = useState<string | null>(null);
+  /** A passing confirmation ("Suggested to the host"). */
+  const [notice, setNotice] = useState<string | null>(null);
+  const onFeatureQueueRef = useRef(onFeatureQueue);
+  useEffect(() => {
+    onFeatureQueueRef.current = onFeatureQueue;
+  }, [onFeatureQueue]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const attachedRef = useRef(false);
   // Ids already drawn — the local echo and the server's room broadcast of
   // the same persisted message must not both appear.
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const slowModeRef = useRef(false);
-  const seededSlowMode = useRef(false);
   const pausedRef = useRef(false);
   /** Lines appended since the scroll last caught up. */
   const appendedRef = useRef(0);
   const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    slowModeRef.current = slowMode;
-  }, [slowMode]);
 
   // The battle bar's "Back this side" opens the same gift panel from outside
   // the chat column, so backing a side is one tap from the player.
@@ -174,13 +213,45 @@ export function LiveChat({
     return () => window.removeEventListener("xtreme:open-gifts", open);
   }, []);
 
-  // Host: seed slow mode from the saved profile setting.
+  // The room's rules — my role, Shield, slow mode — for everyone, signed in or not.
   useEffect(() => {
-    if (isHost && user && !seededSlowMode.current) {
-      seededSlowMode.current = true;
-      setSlowMode(user.settings?.slowMode ?? false);
-    }
-  }, [isHost, user]);
+    if (!streamId) return;
+    let cancelled = false;
+    apiFetch<{
+      success: boolean;
+      data: { role: ChannelRole | null; shield: boolean; slowMode: boolean; modsCanFeature?: ModsCanFeature };
+    }>(`/api/streams/${streamId}/role`)
+      .then((r) => {
+        if (cancelled) return;
+        setRules({ role: r.data.role, shield: r.data.shield, modsCanFeature: r.data.modsCanFeature });
+        setSlowMode(r.data.slowMode);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId, user?.id]);
+
+  // Moderators: what's already waiting when they open the chat.
+  useEffect(() => {
+    if (!streamId || !canModerate) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { held: Record<string, unknown>[] } }>(`/api/streams/${streamId}/chat/held`)
+      .then((r) => {
+        if (!cancelled) setHeld(r.data.held.map(toHeldLine));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId, canModerate]);
+
+  // A passing confirmation clears itself.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 2600);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   // Countdown while a slow-mode cooldown is running.
   useEffect(() => {
@@ -286,6 +357,10 @@ export function LiveChat({
           const data = JSON.parse(new TextDecoder().decode(payload)) as Partial<ChatMsg> & {
             __evt?: string;
             enabled?: boolean;
+            on?: boolean;
+            role?: ChannelRole | null;
+            outcome?: "approved" | "denied";
+            queue?: unknown;
             messageId?: string;
             until?: string | null;
             message?: PinnedMessage;
@@ -295,11 +370,47 @@ export function LiveChat({
           if (data.__evt) {
             switch (data.__evt) {
               case "slowmode":
-                if (!isHost) setSlowMode(!!data.enabled);
+                setSlowMode(!!data.enabled);
                 return;
-              // The host deleted one message: it vanishes for everyone at once.
+              case "shield":
+                setRules((r) => ({ ...r, shield: !!data.on }));
+                return;
+              // Made (or unmade) a moderator while watching: the tools follow at once.
+              case "role":
+                setRules((r) => ({ ...r, role: data.role ?? null }));
+                return;
+              // Moderators: a line the filter caught.
+              case "held": {
+                const line = toHeldLine(data.message as unknown as Record<string, unknown>);
+                setHeld((h) => (h.some((x) => x.id === line.id) ? h : [...h, line]));
+                return;
+              }
+              // Let in or kept out — off every moderator's queue; and if it
+              // was mine, I hear which.
+              case "held_resolved": {
+                const id = data.messageId;
+                if (!id) return;
+                setHeld((h) => h.filter((x) => x.id !== id));
+                if (pendingIdsRef.current.has(id)) {
+                  pendingIdsRef.current.delete(id);
+                  if (data.outcome === "approved") {
+                    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pending: false } : m)));
+                  } else {
+                    setMessages((prev) => prev.filter((m) => m.id !== id));
+                    setChatError("A moderator didn't let your message through.");
+                  }
+                }
+                return;
+              }
+              case "feature_queue":
+                onFeatureQueueRef.current?.(data.queue);
+                return;
+              // A deleted message vanishes for everyone at once — and from the held queue.
               case "chat_delete":
-                if (data.messageId) setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+                if (data.messageId) {
+                  setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+                  setHeld((h) => h.filter((x) => x.id !== data.messageId));
+                }
                 return;
               // A ban wipes that user's lines everywhere; the banned client
               // also locks its own composer.
@@ -378,20 +489,6 @@ export function LiveChat({
 
       room.on(RoomEvent.DataReceived, handleData);
       (room as unknown as Record<string, unknown>).__chatHandler = handleData;
-
-      // Host: tell viewers who join mid-stream whether slow mode is on.
-      if (isHost) {
-        const handleJoin = () => {
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ __evt: "slowmode", enabled: slowModeRef.current }));
-            room.localParticipant.publishData(payload, { reliable: true });
-          } catch {
-            // Room may be disconnected.
-          }
-        };
-        room.on(RoomEvent.ParticipantConnected, handleJoin);
-        (room as unknown as Record<string, unknown>).__joinHandler = handleJoin;
-      }
     };
 
     setup();
@@ -400,12 +497,10 @@ export function LiveChat({
       if (eventName && room) {
         const handler = (room as unknown as Record<string, unknown>).__chatHandler;
         if (handler) room.off(eventName as Parameters<typeof room.off>[0], handler as Parameters<typeof room.off>[1]);
-        const joinHandler = (room as unknown as Record<string, unknown>).__joinHandler;
-        if (joinHandler) room.off("participantConnected" as Parameters<typeof room.off>[0], joinHandler as Parameters<typeof room.off>[1]);
       }
       attachedRef.current = false;
     };
-  }, [room, user?.id, isHost, append, noteArrival]);
+  }, [room, user?.id, append, noteArrival]);
 
   // Follow the bottom — unless the reader has scrolled up, in which case
   // the new lines are counted for the pill instead.
@@ -440,25 +535,46 @@ export function LiveChat({
     el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
-  // Host: toggle slow mode, tell the room, keep the preference.
+  // Host and moderators: slow mode for the room — the API keeps it on the
+  // channel and tells everyone.
   const toggleSlowMode = useCallback(
-    (enabled: boolean) => {
+    async (enabled: boolean) => {
       setSlowMode(enabled);
-      if (room?.localParticipant) {
-        try {
-          const payload = new TextEncoder().encode(JSON.stringify({ __evt: "slowmode", enabled }));
-          room.localParticipant.publishData(payload, { reliable: true });
-        } catch {
-          // Room may be disconnected.
-        }
+      try {
+        await apiFetch(`/api/streams/${streamId}/slowmode`, { method: "POST", body: JSON.stringify({ enabled }) });
+      } catch {
+        setSlowMode(!enabled);
       }
-      apiFetch("/api/user/me", {
-        method: "PATCH",
-        body: JSON.stringify({ settings: { slowMode: enabled } }),
-      }).catch(() => {});
     },
-    [room]
+    [streamId]
   );
+
+  // Host and lead moderators: Shield — allies only, slow mode, links and
+  // scams blocked, new accounts held.
+  const toggleShield = async (on: boolean) => {
+    setRules((r) => ({ ...r, shield: on }));
+    try {
+      await apiFetch(`/api/streams/${streamId}/shield`, { method: "POST", body: JSON.stringify({ on }) });
+    } catch (err) {
+      setRules((r) => ({ ...r, shield: !on }));
+      setChatError(err instanceof Error ? err.message : "Couldn't change Shield");
+    }
+  };
+
+  // Moderators: decide on a held line.
+  const decideHeld = async (id: string, letIn: boolean) => {
+    setHeldBusy(id);
+    try {
+      await apiFetch(letIn ? `/api/streams/${streamId}/chat/${id}/approve` : `/api/streams/${streamId}/chat/${id}`, {
+        method: letIn ? "POST" : "DELETE",
+      });
+      setHeld((h) => h.filter((x) => x.id !== id));
+    } catch {
+      // Another moderator may have decided first; the event will tidy up.
+    } finally {
+      setHeldBusy(null);
+    }
+  };
 
   /**
    * Persist first, then show. The API fans the saved message into the room
@@ -468,12 +584,14 @@ export function LiveChat({
   const submitMessage = async (msg: Omit<ChatMsg, "id" | "at">, body: Record<string, unknown>) => {
     setChatError(null);
     let savedId: string | null = null;
+    let heldForReview = false;
     try {
-      const saved = await apiFetch<{ success: boolean; data: { message: { _id: string } } }>(
+      const saved = await apiFetch<{ success: boolean; data: { message: { _id: string }; held?: boolean } }>(
         `/api/streams/${streamId}/chat`,
         { method: "POST", body: JSON.stringify(body) }
       );
       savedId = saved?.data?.message?._id ?? null;
+      heldForReview = Boolean(saved?.data?.held);
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Couldn't send that message.");
       // Slow mode: start the countdown so the input says so.
@@ -491,7 +609,9 @@ export function LiveChat({
       return false;
     }
     // The saved id, so the room's broadcast of this same message dedupes.
-    append([{ ...msg, id: savedId ?? `local-${Date.now()}`, at: Date.now() }]);
+    const id = savedId ?? `local-${Date.now()}`;
+    append([{ ...msg, id, at: Date.now(), ...(heldForReview ? { pending: true } : {}) }]);
+    if (heldForReview) pendingIdsRef.current.add(id);
     // Sending is also "I want to see the latest".
     pausedRef.current = false;
     setPaused(false);
@@ -554,11 +674,12 @@ export function LiveChat({
     if (modBusy) return;
     setModBusy(true);
     try {
-      const res = await apiFetch<{ success: boolean; data: { scene: unknown } }>(
+      const res = await apiFetch<{ success: boolean; data: { scene?: unknown; suggested?: boolean } }>(
         `/api/streams/${streamId}/chat/${messageId}/feature`,
         { method: "POST", body: JSON.stringify({ seconds: featureSeconds || null }) }
       );
-      onScene?.(res.data.scene);
+      if (res.data.suggested) setNotice("Suggested to the host");
+      else onScene?.(res.data.scene);
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Couldn't put that on screen");
     } finally {
@@ -597,7 +718,7 @@ export function LiveChat({
     const content = input.trim();
     if (!content || !user || sending) return;
     // Slow mode: viewers wait between messages; the host doesn't.
-    if (slowMode && !isHost && cooldownLeft > 0) return;
+    if (slowFor && cooldownLeft > 0) return;
     setSending(true);
     setInput("");
     const ok = await submitMessage(
@@ -606,7 +727,7 @@ export function LiveChat({
     );
     // A refused message comes back to the input rather than vanishing.
     if (!ok) setInput(content);
-    else if (slowMode && !isHost) setCooldownLeft(SLOW_MODE_SECONDS);
+    else if (slowFor) setCooldownLeft(SLOW_MODE_SECONDS);
     setSending(false);
   };
 
@@ -739,51 +860,91 @@ export function LiveChat({
   const showing = useFeaturedShowing(isHost ? featured : null);
   const onStreamId = showing?.id ?? null;
 
+  // The screen button: the host's, and a moderator's as the host allows —
+  // straight up, or as a suggestion the host decides on.
+  const canFeature = role === "host" || rules.modsCanFeature === "on";
   const featureTool = (msg: ChatMsg) =>
-    onStreamId === msg.id
-      ? toolButton("Take off stream", () => modUnfeature(msg.id), <MonitorPlay size={13} weight="fill" />, "on")
-      : toolButton("Show on stream", () => modFeature(msg.id), <MonitorPlay size={13} />);
+    canFeature
+      ? onStreamId === msg.id
+        ? toolButton("Take off stream", () => modUnfeature(msg.id), <MonitorPlay size={13} weight="fill" />, "on")
+        : toolButton("Show on stream", () => modFeature(msg.id), <MonitorPlay size={13} />)
+      : canModerate && rules.modsCanFeature === "suggest"
+        ? toolButton("Suggest for the screen", () => modFeature(msg.id), <MonitorPlay size={13} />)
+        : null;
 
-  const toolsFor = (msg: ChatMsg) =>
-    isHost && !msg.isMod ? (
-      <div
-        className={cn(
-          "absolute -top-1 right-1 z-10 items-center gap-0.5 rounded-[10px] bg-popover p-0.5 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.8)]",
-          modMenuFor === msg.id ? "flex" : "hidden group-hover:flex"
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
+  const isMine = (msg: ChatMsg) =>
+    Boolean(user) && (msg.userId ? msg.userId === user!.id : msg.username === user!.username);
+  const toolbar = (id: string, children: ReactNode) => (
+    <div
+      className={cn(
+        "absolute -top-1 right-1 z-10 items-center gap-0.5 rounded-[10px] bg-popover p-0.5 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.8)]",
+        modMenuFor === id || reportFor === id ? "flex" : "hidden group-hover:flex"
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+
+  /**
+   * A line's tools. Moderators act on viewers' lines; the host also on a
+   * moderator's (though never bans one — that's removing them as a
+   * moderator first). Everyone else can report someone else's line.
+   */
+  const toolsFor = (msg: ChatMsg) => {
+    if (msg.pending || isMine(msg)) return null;
+    const hostLine = Boolean(hostUsername) && msg.username === hostUsername;
+    if (!canModerate) {
+      if (!user || hostLine) return null;
+      return toolbar(
+        msg.id,
+        <>
+          {toolButton("Report", () => {
+            setReportFor(msg.id);
+            setModMenuFor(msg.id);
+          }, <Flag size={13} />)}
+          {reportFor === msg.id && streamId && (
+            <ReportMenu
+              streamId={streamId}
+              messageId={msg.id}
+              username={msg.username}
+              onClose={() => {
+                setReportFor(null);
+                setModMenuFor(null);
+              }}
+            />
+          )}
+        </>
+      );
+    }
+    if (role !== "host" && (hostLine || msg.isMod)) return null;
+    return toolbar(
+      msg.id,
+      <>
         {featureTool(msg)}
         {toolButton("Pin message", () => modPinMessage(msg.id), <PushPin size={13} />)}
         {toolButton("Delete message", () => modDeleteMessage(msg.id), <Trash size={13} />)}
-        {msg.userId && (
+        {msg.userId && !msg.isMod && (
           <>
             {toolButton("Timeout 10 minutes", () => modBanUser(msg.userId!, 10), <Timer size={13} />)}
             {toolButton("Ban from stream", () => modBanUser(msg.userId!), <Prohibit size={13} />, "danger")}
           </>
         )}
-      </div>
-    ) : null;
+      </>
+    );
+  };
 
   // A dollar gift can go on screen too; drops and points can't.
-  const giftToolsFor = (msg: ChatMsg) =>
-    isHost && giftUnit(msg) === "usd" && !isDrop(msg) ? (
-      <div
-        className={cn(
-          "absolute -top-1 right-1 z-10 items-center gap-0.5 rounded-[10px] bg-popover p-0.5 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.8)]",
-          modMenuFor === msg.id ? "flex" : "hidden group-hover:flex"
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {featureTool(msg)}
-      </div>
-    ) : null;
+  const giftFeaturable = (msg: ChatMsg) => canModerate && giftUnit(msg) === "usd" && !isDrop(msg) && featureTool(msg) !== null;
+  const giftToolsFor = (msg: ChatMsg) => (giftFeaturable(msg) ? toolbar(msg.id, featureTool(msg)) : null);
 
+  // Slow mode — or Shield, which brings it — holds back viewers, never moderators.
+  const slowFor = (slowMode || rules.shield) && !canModerate;
   const canSend = Boolean(input.trim()) && cooldownLeft === 0 && !sending;
   const placeholder =
     cooldownLeft > 0
       ? `Slow mode — wait ${cooldownLeft}s`
-      : slowMode && !isHost
+      : slowFor
         ? `Slow mode · ${SLOW_MODE_SECONDS}s between messages`
         : isHost
           ? "Message your viewers"
@@ -823,42 +984,64 @@ export function LiveChat({
             <div className="flex min-w-0 items-center gap-2">
               <ChatCircleDots size={16} weight="fill" className="shrink-0 text-muted-foreground" />
               <h3 className="text-[14px] font-semibold text-foreground">Stream chat</h3>
-              {slowMode && (
-                <span className="flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-                  <Clock size={11} />
-                  Slow
+              {rules.shield ? (
+                <span className="flex items-center gap-1 rounded-full bg-ember/[0.14] px-2 py-0.5 text-[11px] font-semibold text-ember-hi">
+                  <ShieldStar size={11} weight="fill" />
+                  Shield
                 </span>
+              ) : (
+                slowMode && (
+                  <span className="flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                    <Clock size={11} />
+                    Slow
+                  </span>
+                )
               )}
             </div>
-            {isHost && (
+            {canModerate && (
               <div className="flex items-center gap-0.5">
                 {iconButton(slowMode ? "Turn slow mode off" : "Turn slow mode on", slowMode, () => toggleSlowMode(!slowMode), <Clock size={16} />)}
-                {iconButton("Moderation", showModTools, () => setShowModTools(!showModTools), <ShieldStar size={16} />)}
+                {iconButton("Moderation", showModTools, () => setShowModTools(!showModTools), (
+                  <span className="relative">
+                    <ShieldStar size={16} weight={rules.shield ? "fill" : "regular"} className={rules.shield ? "text-ember-hi" : undefined} />
+                    {held.length > 0 && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-ember" />}
+                  </span>
+                ))}
               </div>
             )}
           </header>
 
           <TopGiftersBar gifters={topGifters ?? []} />
 
-          {isHost && showModTools && (
+          {canModerate && showModTools && (
             <div className="mx-3 mb-2 rounded-[12px] bg-white/[0.04] px-3.5 py-3">
-              <label className="flex cursor-pointer items-center justify-between gap-3">
-                <span className="text-[12.5px] font-medium text-foreground/90">
-                  Slow mode
-                  <span className="block text-[11px] font-normal text-muted-foreground">
-                    Viewers wait {SLOW_MODE_SECONDS}s between messages
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleSlowMode(!slowMode)}
-                  role="switch"
-                  aria-checked={slowMode}
-                  className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", slowMode ? "bg-ember" : "bg-white/15")}
+              <p className="caps mb-2.5 font-mono text-[10px] text-muted-foreground">
+                {role === "host" ? "Your room" : role === "lead" ? "Lead moderator" : "Moderator"}
+              </p>
+              <ModSwitch
+                label="Slow mode"
+                hint={`Viewers wait ${SLOW_MODE_SECONDS}s between messages`}
+                on={slowMode}
+                onChange={(v) => void toggleSlowMode(v)}
+              />
+              {(role === "host" || role === "lead") && (
+                <div className="mt-3">
+                  <ModSwitch
+                    label="Shield"
+                    hint="Allies only, slow mode, links and scams blocked, brand-new accounts held"
+                    on={rules.shield}
+                    onChange={(v) => void toggleShield(v)}
+                  />
+                </div>
+              )}
+              {role === "host" && (
+                <a
+                  href="/settings#chat"
+                  className="mt-3 flex h-8 items-center justify-center rounded-full bg-white/[0.06] text-[12px] font-semibold text-foreground/85 transition-colors hover:bg-white/[0.1]"
                 >
-                  <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-all", slowMode ? "left-[calc(100%-1.125rem)]" : "left-0.5")} />
-                </button>
-              </label>
+                  Chat filter and moderators
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -872,6 +1055,34 @@ export function LiveChat({
             </div>
           )}
         </>
+      )}
+
+      {/* Shield: the room hears it's up, and why the rules are tighter. */}
+      {rules.shield && (
+        <div
+          className={cn(
+            "flex items-center gap-2 text-[12px] leading-snug font-medium",
+            overlay
+              ? "pointer-events-auto mb-1.5 w-fit rounded-full bg-black/60 px-3 py-1.5 text-white/90"
+              : "mx-2 mb-2 rounded-[12px] bg-ember/[0.1] px-3 py-2 text-ember-hi"
+          )}
+        >
+          <ShieldStar size={14} weight="fill" className="shrink-0" />
+          {/* Over video it's a pill, so it keeps to one line. */}
+          <span className={overlay ? "whitespace-nowrap" : undefined}>
+            {overlay ? "Shield is up · allies only" : `Shield is up — allies only, ${SLOW_MODE_SECONDS}s between messages`}
+          </span>
+        </div>
+      )}
+
+      {canModerate && (
+        <HeldQueue held={held} skin={skin} busyId={heldBusy} onApprove={(id) => void decideHeld(id, true)} onDeny={(id) => void decideHeld(id, false)} />
+      )}
+
+      {notice && (
+        <p className={cn("text-[12px] font-medium", overlay ? "pointer-events-auto mb-1.5 w-fit rounded-full bg-black/60 px-3 py-1.5 text-white/90" : "mx-3 mb-2 text-ember-hi")}>
+          {notice}
+        </p>
       )}
 
       {/* The lines, and the pill that brings a reader back down. */}
@@ -899,7 +1110,7 @@ export function LiveChat({
                 <span className="mr-1.5 font-semibold">{pinned.username}</span>
                 {pinned.content}
               </p>
-              {isHost && (
+              {canModerate && (
                 <button
                   type="button"
                   onClick={modUnpin}
@@ -937,9 +1148,7 @@ export function LiveChat({
                   badges={badgesFor(line.msg)}
                   tools={giftToolsFor(line.msg)}
                   onStream={onStreamId === line.msg.id}
-                  onTap={
-                    isHost && giftUnit(line.msg) === "usd" ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined
-                  }
+                  onTap={giftFeaturable(line.msg) ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined}
                 />
               ) : (
                 <MessageLine
@@ -950,8 +1159,8 @@ export function LiveChat({
                   tools={toolsFor(line.msg)}
                   onStream={onStreamId === line.msg.id}
                   onTap={
-                    // Tap-to-toggle keeps the tools reachable on touch.
-                    isHost && !line.msg.isMod ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined
+                    // Tap-to-toggle keeps the tools (or Report) reachable on touch.
+                    toolsFor(line.msg) ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined
                   }
                 />
               )}
@@ -1100,6 +1309,28 @@ export function LiveChat({
           <p className="py-2 text-center text-[12px] text-muted-foreground/60">Chat is offline — the stream has ended</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A switch in the moderation panel: what it does, and whether it's on. */
+function ModSwitch({ label, hint, on, onChange }: { label: string; hint: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[12.5px] font-medium text-foreground/90">
+        {label}
+        <span className="block text-[11px] font-normal text-muted-foreground">{hint}</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(!on)}
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", on ? "bg-ember" : "bg-white/15")}
+      >
+        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-all", on ? "left-[calc(100%-1.125rem)]" : "left-0.5")} />
+      </button>
     </div>
   );
 }

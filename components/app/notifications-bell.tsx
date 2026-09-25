@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellRinging, Broadcast } from "@/components/icons";
+import { Bell, BellRinging, Broadcast, Flag, ShieldStar } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -20,13 +20,35 @@ import {
 
 interface NotificationRow {
   id: string;
-  /** live = someone you follow went live; reminder = a stream you asked about started. */
-  type?: "live" | "reminder";
+  /**
+   * live = someone you follow went live; reminder = a stream you asked
+   * about started; mod_added = a creator made you a moderator; report = a
+   * report for the queue (admins); takedown = your stream was taken down.
+   */
+  type?: "live" | "reminder" | "mod_added" | "report" | "takedown" | "battle_invite" | "battle_result";
   actorName: string;
-  streamId: string;
+  streamId: string | null;
   streamTitle: string;
+  /** Where the row opens when it isn't a stream. */
+  link?: string;
   read: boolean;
   createdAt: string;
+}
+
+/** What each kind of row says after its actor's name, and where it opens. */
+function describe(n: NotificationRow) {
+  switch (n.type) {
+    case "reminder":
+      return { verb: "just started the stream you asked about", detail: n.streamTitle };
+    case "mod_added":
+      return { verb: `made you a ${n.streamTitle || "moderator"} of their channel`, detail: "" };
+    case "report":
+      return { verb: "reported", detail: n.streamTitle };
+    case "takedown":
+      return { verb: "took down your stream after a report", detail: n.streamTitle };
+    default:
+      return { verb: "went live", detail: n.streamTitle };
+  }
 }
 
 const POLL_MS = 30_000;
@@ -154,7 +176,7 @@ export function NotificationsBell({
               {rows.map((n) => (
                 <Link
                   key={n.id}
-                  href={`/stream/${n.streamId}`}
+                  href={n.link || (n.streamId && n.type !== "takedown" ? `/stream/${n.streamId}` : "/settings#chat")}
                   onClick={() => {
                     setOpen(false);
                     onNavigate?.();
@@ -174,20 +196,21 @@ export function NotificationsBell({
                   >
                     {n.type === "reminder" ? (
                       <BellRinging size={14} weight="fill" />
+                    ) : n.type === "mod_added" || n.type === "takedown" ? (
+                      <ShieldStar size={14} weight="fill" />
+                    ) : n.type === "report" ? (
+                      <Flag size={14} weight="fill" />
                     ) : (
                       <Broadcast size={14} weight="fill" />
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs text-foreground/90">
-                      <span className="font-semibold">{n.actorName}</span>{" "}
-                      {n.type === "reminder"
-                        ? "just started the stream you asked about"
-                        : "went live"}
+                      <span className="font-semibold">{n.actorName}</span> {describe(n).verb}
                     </span>
-                    {n.streamTitle && (
+                    {describe(n).detail && (
                       <span className="mt-0.5 block truncate text-[0.7rem] text-muted-foreground">
-                        {n.streamTitle}
+                        {describe(n).detail}
                       </span>
                     )}
                     <span className="mt-0.5 block text-[0.6rem] text-muted-foreground/50">

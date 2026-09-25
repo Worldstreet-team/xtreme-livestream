@@ -25,6 +25,7 @@ import {
   HandWaving,
   Check,
   Info,
+  ShieldStar,
 } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { Pill, PillLink } from "@/components/ui/pill";
@@ -201,6 +202,8 @@ export default function StreamPage({
   const [stream, setStream] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Taken down by the platform after a report — on load (410) or while watching. */
+  const [removed, setRemoved] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   /** Why the last follow/unfollow was refused, shown next to the button. */
@@ -488,6 +491,7 @@ export default function StreamPage({
         setStream(res.data.stream);
         setLikeCount(res.data.stream.likes ?? 0);
       } catch (err) {
+        if (err instanceof ApiError && err.status === 410) setRemoved(true);
         if (!opts.quiet) {
           setError(err instanceof Error ? err.message : "Failed to load stream");
         }
@@ -816,6 +820,11 @@ export default function StreamPage({
           if (data.__evt === "brand") {
             const brand = (data as { brand?: StreamData["streamerId"]["brand"] }).brand;
             if (brand) setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, brand } } : prev));
+            return;
+          }
+          // Taken down while we watch: the room closes next; say why.
+          if (data.__evt === "takedown") {
+            setRemoved(true);
             return;
           }
           // The host's feed dropped or came back — the API decides, the
@@ -1703,6 +1712,18 @@ export default function StreamPage({
       <div className="flex min-h-screen items-center justify-center">
         <Spinner variant="orbit" />
       </div>
+    );
+  }
+
+  if (removed) {
+    return (
+      <Empty
+        className="min-h-screen"
+        icon={<ShieldStar size={36} />}
+        title="This stream was removed"
+        body="It was taken down after a report, for breaking the community rules."
+        action={{ label: "Browse live channels", href: "/explore" }}
+      />
     );
   }
 

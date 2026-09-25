@@ -25,6 +25,8 @@ export interface ChatMsg {
   emoji?: string;
   /** Epoch ms, for the hover time. */
   at: number;
+  /** My own line, held by the filter: only I see it, waiting on a moderator. */
+  pending?: boolean;
 }
 
 /** One thing in the chat, ready to draw. */

@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select-field";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { ChatSafety } from "@/components/app/settings/chat-safety";
 
 /**
  * Settings, in the same grammar as Schedule and Your channel (owner,
@@ -559,32 +560,36 @@ function ChatSection() {
 
   return (
     <section id="chat" aria-labelledby="chat-title" className="scroll-mt-32">
-      <SectionHead id="chat" title="Chat" lede="The rules in your room. They apply the moment you flip them — even mid-stream." />
+      <SectionHead id="chat" title="Chat" lede="The rules in your room, what's filtered, and who keeps it. Changes apply at once — even mid-stream." />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
-        <div className={cn(TILE, "p-6 md:p-8 lg:col-span-8")}>
-          <div className="flex items-center justify-between gap-3">
-            <p className={EYEBROW}>Moderation</p>
-            <Flash flash={flash} />
-          </div>
-          <div className="mt-3 grid divide-y divide-white/[0.06]">
-            <div className="py-2">
-              <SwitchField label="Slow mode" description="Thirty seconds between messages. Enforced on the server — you're exempt in your own room." checked={values.slowMode} onCheckedChange={(v) => set("slowMode", v)} />
-            </div>
-            <div className="py-2">
-              <SwitchField label="Followers-only chat" description="Only people who follow you can send messages." checked={values.subscriberOnly} onCheckedChange={(v) => set("subscriberOnly", v)} />
-            </div>
-            <div className="py-2">
-              <SwitchField label="Profanity filter" description="Coming soon — nothing is filtered yet, so this stays off for now." checked={false} disabled />
-            </div>
-          </div>
-        </div>
-        <div className={cn(TILE, "flex flex-col p-6 md:p-7 lg:col-span-4")}>
-          <p className={EYEBROW}>Replays</p>
-          <div className="mt-3">
-            <SwitchField label="Record my streams" description="Coming soon — replays aren't available yet." checked={false} disabled />
-          </div>
-          <p className="mt-auto pt-5 text-[12px] leading-relaxed text-muted-foreground/80">Recent broadcasts and their numbers live on Your channel.</p>
-        </div>
+        {user && (
+          <ChatSafety
+            userId={user.id}
+            rules={
+              <div className={cn(TILE, "p-6 md:p-7")}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className={EYEBROW}>Room rules</p>
+                  <Flash flash={flash} />
+                </div>
+                <div className="mt-3 grid divide-y divide-white/[0.06]">
+                  <div className="py-2">
+                    <SwitchField label="Slow mode" description="Thirty seconds between messages. You and your moderators are exempt." checked={values.slowMode} onCheckedChange={(v) => set("slowMode", v)} />
+                  </div>
+                  <div className="py-2">
+                    <SwitchField label="Followers-only chat" description="Only your allies can send messages." checked={values.subscriberOnly} onCheckedChange={(v) => set("subscriberOnly", v)} />
+                  </div>
+                  <div className="py-2">
+                    <SwitchField label="Record my streams" description="Coming soon — replays aren't available yet." checked={false} disabled />
+                  </div>
+                </div>
+                <p className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-muted-foreground">
+                  <Shield size={14} className="mt-px shrink-0" />
+                  Shield is one tap in your room&apos;s chat while you&apos;re live: allies only, slow mode, links and scams blocked.
+                </p>
+              </div>
+            }
+          />
+        )}
       </div>
     </section>
   );
