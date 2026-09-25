@@ -828,6 +828,7 @@ export type PointsReason =
   | "raffle_win"
   | "quiz_win"
   | "redeem"
+  | "quest"
   | "adjust";
 
 /** Every change to a points balance, with the balance it left behind. */
@@ -854,6 +855,34 @@ pointsLedgerSchema.index({ userId: 1, createdAt: -1 });
 pointsLedgerSchema.index({ reason: 1, createdAt: -1 });
 
 export const PointsLedger = mongoose.model<IPointsLedger>("PointsLedger", pointsLedgerSchema);
+
+/**
+ * A quest paid out: one row per user, quest and period ("2026-09-24",
+ * "2026-W39", or "once" for milestones). The unique index is the guard
+ * against paying the same quest twice — the claim writes this row first
+ * and only then moves points.
+ */
+export interface IQuestClaim extends Document {
+  userId: mongoose.Types.ObjectId;
+  questId: string;
+  periodKey: string;
+  points: number;
+  createdAt: Date;
+}
+
+const questClaimSchema = new Schema<IQuestClaim>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    questId: { type: String, required: true, maxlength: 60 },
+    periodKey: { type: String, required: true, maxlength: 20 },
+    points: { type: Number, required: true, min: 1 },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } },
+);
+
+questClaimSchema.index({ userId: 1, questId: 1, periodKey: 1 }, { unique: true });
+
+export const QuestClaim = mongoose.model<IQuestClaim>("QuestClaim", questClaimSchema);
 
 export type GameStatus = "open" | "locked" | "settled" | "cancelled";
 

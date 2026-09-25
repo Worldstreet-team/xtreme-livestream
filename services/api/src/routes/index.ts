@@ -8,6 +8,7 @@ import { coLiveRoutes } from "./colive.js";
 import { guestRoutes } from "./guests.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
+import { rewardRoutes } from "./rewards.js";
 import { streamActionRoutes } from "./stream-actions.js";
 import { streamRoutes } from "./streams.js";
 import { userRoutes } from "./users.js";
@@ -22,6 +23,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(giftRoutes);
   await fastify.register(battleRoutes);
   await fastify.register(gameRoutes);
+  await fastify.register(rewardRoutes);
   await fastify.register(guestRoutes);
   await fastify.register(coLiveRoutes);
   await fastify.register(moderationRoutes);

@@ -181,6 +181,9 @@ export const updateStreamBodySchema = createStreamBodySchema
     message: "At least one field is required",
   });
 
+/** How far ahead a stream can be booked. */
+export const SCHEDULE_HORIZON_MS = 365 * 24 * 60 * 60_000;
+
 export const scheduleStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,
@@ -188,15 +191,19 @@ export const scheduleStreamBodySchema = z.object({
   thumbnail: imageSourceSchema.default(""),
   notifyFollowers: z.boolean().default(true),
   postToWorldSpace: z.boolean().default(false),
-  /** ISO timestamp, from a few minutes out to thirty days ahead. */
+  /**
+   * ISO timestamp, from a few minutes out to a year ahead. It was thirty
+   * days; the owner didn't want bookings boxed in by dates we pick
+   * (2026-09-24), and a year still stops typos landing in 2062.
+   */
   scheduledStartAt: z
     .string()
     .datetime()
     .refine((value) => {
       const t = new Date(value).getTime();
       const now = Date.now();
-      return t > now + 2 * 60_000 && t < now + 30 * 24 * 60 * 60_000;
-    }, "Scheduled time must be between a few minutes and thirty days from now"),
+      return t > now + 2 * 60_000 && t < now + SCHEDULE_HORIZON_MS;
+    }, "Pick a time at least a few minutes from now and within the next year"),
 });
 
 /** What a viewer was shown. Batched from the client, at most a grid per call. */

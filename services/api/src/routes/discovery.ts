@@ -247,6 +247,8 @@ export const discoveryRoutes: FastifyPluginAsync = async (fastify) => {
         // satisfies the unique index without reserving a LiveKit room.
         livekitRoomName: `upcoming-${dbUser._id}-${Date.now()}`,
         notifyFollowers: request.body.notifyFollowers,
+        // The cross-post choice has to survive until the stream starts.
+        postToWorldSpace: request.body.postToWorldSpace,
       });
 
       return {

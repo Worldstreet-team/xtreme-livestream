@@ -18,6 +18,7 @@ import {
   toGameView,
 } from "../games.js";
 import { InsufficientPointsError, ensureWelcomeGrant } from "../points.js";
+import { readyCount } from "../quests.js";
 import { thumbnailUrlFor } from "../stream-service.js";
 import { DAILY_REDEEM_CAP_POINTS, MIN_REDEEM_POINTS, POINTS_PER_USD, RedeemError, audit, redeemPoints } from "../rewards.js";
 import { isTreasuryConfigured } from "../wallet.js";
@@ -216,12 +217,17 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const { dbUser } = await authenticate(request);
       const granted = await ensureWelcomeGrant(dbUser._id);
       const user = await User.findById(dbUser._id).select("pointsBalance watchStreakDays").lean();
-      const ledger = await PointsLedger.find({ userId: dbUser._id }).sort({ createdAt: -1 }).limit(20).lean();
+      const [ledger, questsReady] = await Promise.all([
+        PointsLedger.find({ userId: dbUser._id }).sort({ createdAt: -1 }).limit(20).lean(),
+        // The points chip's dot: quests finished and waiting to be claimed.
+        readyCount(dbUser._id).catch(() => 0),
+      ]);
       return {
         success: true,
         data: {
           balance: user?.pointsBalance ?? 0,
           streakDays: user?.watchStreakDays ?? 0,
+          questsReady,
           welcomed: granted !== null,
           ledger: ledger.map((l) => ({ delta: l.delta, balanceAfter: l.balanceAfter, reason: l.reason, at: l.createdAt })),
         },
