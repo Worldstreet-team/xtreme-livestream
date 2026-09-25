@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { featuredDeadline, type FeaturedItem } from "@/lib/scene";
+import { serverNow } from "@/lib/server-clock";
 
 /**
  * The featured item while it's still on screen, and null once its time is
@@ -19,8 +20,9 @@ export function useFeaturedShowing(featured: FeaturedItem | null | undefined): F
   // and the deadline must be taken once, when the showing is first seen.
   useEffect(() => {
     if (!key || !at || !until) return;
-    const deadline = featuredDeadline({ at, until }, Date.now())!;
-    const t = setTimeout(() => setExpired(key), Math.max(0, deadline - Date.now()));
+    // Deadlines are on the server's clock (lib/server-clock.ts).
+    const deadline = featuredDeadline({ at, until }, serverNow())!;
+    const t = setTimeout(() => setExpired(key), Math.max(0, deadline - serverNow()));
     return () => clearTimeout(t);
   }, [key, at, until]);
 

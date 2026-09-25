@@ -6,6 +6,7 @@ import { QrCode } from "@/components/app/qr-code";
 import { cn } from "@/lib/utils";
 import { compressImage } from "@/lib/image-utils";
 import { useNow } from "@/lib/use-now";
+import { serverNow, serverOffset } from "@/lib/server-clock";
 import {
   ACCENTS,
   BRAND_FONT_CLASS,
@@ -131,7 +132,8 @@ export function SceneGraphicsPanel({
 
   const lowerThirdLayer = (): SceneLayer => ({ kind: "lower-third", title: title.trim(), subtitle: subtitle.trim() });
   const ctaLayer = (): SceneLayer => ({ kind: "cta", title: ctaTitleDraft.trim(), url: ctaUrlClean });
-  const countdownEnds = () => new Date(Date.now() + cdMinutes * 60_000).toISOString();
+  // Stamped on the server's clock, so it ends at the same moment for every viewer.
+  const countdownEnds = () => new Date(serverNow() + cdMinutes * 60_000).toISOString();
 
   return (
     <div className="flex flex-col gap-6">
@@ -441,7 +443,7 @@ function GraphicCard({
 }
 
 function CountdownStatus({ endsAt }: { endsAt: string }) {
-  const now = useNow();
+  const now = useNow() + serverOffset();
   const left = Date.parse(endsAt) - now;
   return <span className="tabular-nums">{left > 0 ? `${formatCountdown(left)} left` : "Done — on screen for a minute more"}</span>;
 }

@@ -13,6 +13,8 @@
  * It now throws, so a misconfigured deploy is obvious immediately.
  */
 
+import { recordServerTime } from "@/lib/server-clock";
+
 /** Base URL of the standalone API service. Required. */
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
@@ -77,11 +79,15 @@ export async function apiFetch<T = unknown>(
   const token = await getSessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const sentAt = Date.now();
   const res = await fetch(target, {
     ...options,
     headers,
     credentials: "include", // Send httpOnly cookies automatically
   });
+  // Keep the app on the server's clock (countdowns, on-screen timers).
+  const stamped = Number(res.headers.get("x-server-time"));
+  if (stamped) recordServerTime(stamped, sentAt, Date.now());
 
   // Parse defensively: an error page, a misrouted request, or a gateway
   // failure can return HTML or an empty body. Calling res.json() directly

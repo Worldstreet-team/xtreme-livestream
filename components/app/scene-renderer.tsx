@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { cn } from "@/lib/utils";
 import { stageLayout } from "@/lib/stage-layout";
 import { useNow } from "@/lib/use-now";
+import { serverNow, serverOffset } from "@/lib/server-clock";
 import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
@@ -336,17 +337,18 @@ function SceneGraphics({
  */
 function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: boolean; onGone: () => void }) {
   const [phase, setPhase] = useState<"in" | "out" | "gone">(() => {
-    const deadline = featuredDeadline(item, Date.now());
-    return deadline !== null && deadline <= Date.now() ? "gone" : "in";
+    // Deadlines are on the server's clock (lib/server-clock.ts).
+    const deadline = featuredDeadline(item, serverNow());
+    return deadline !== null && deadline <= serverNow() ? "gone" : "in";
   });
 
   // On the times, not the object: a scene update rebuilds the object, and
   // the deadline is taken once, when the showing is first seen.
   const { at, until } = item;
   useEffect(() => {
-    const deadline = featuredDeadline({ at, until }, Date.now());
+    const deadline = featuredDeadline({ at, until }, serverNow());
     if (deadline === null) return;
-    const left = deadline - Date.now();
+    const left = deadline - serverNow();
     const out = setTimeout(() => setPhase((p) => (p === "gone" ? p : "out")), Math.max(0, left - EXIT_MS));
     const gone = setTimeout(() => setPhase("gone"), Math.max(0, left));
     return () => {
@@ -517,7 +519,8 @@ function TickerGraphic({ text }: { text: string }) {
  * says so for a minute, then steps off the screen by itself.
  */
 function CountdownGraphic({ label, endsAt }: { label: string; endsAt: string }) {
-  const now = useNow();
+  // On the server's clock: every viewer counts down together.
+  const now = useNow() + serverOffset();
   const left = Date.parse(endsAt) - now;
   if (left < -60_000) return null;
   return (
@@ -593,7 +596,7 @@ function SceneCardView({
 
 /** The card's countdown: the label small, the time big; once it runs out, the bars again. */
 function CardCountdown({ label, endsAt, color, fallback }: { label: string; endsAt: string; color: string; fallback: ReactNode }) {
-  const now = useNow();
+  const now = useNow() + serverOffset();
   const left = Date.parse(endsAt) - now;
   if (left <= 0) return fallback;
   return (

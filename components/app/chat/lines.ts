@@ -32,7 +32,7 @@ export interface ChatMsg {
 /** One thing in the chat, ready to draw. */
 export type ChatLine =
   | { kind: "chat"; id: string; msg: ChatMsg }
-  | { kind: "gift"; id: string; msg: ChatMsg; count: number; total: number }
+  | { kind: "gift"; id: string; msg: ChatMsg; count: number; total: number; ids: string[] }
   | { kind: "drops"; id: string; catches: ChatMsg[] }
   | { kind: "stage"; id: string; msg: ChatMsg };
 
@@ -86,8 +86,10 @@ export function foldLines(list: ChatMsg[]): ChatLine[] {
       if (combo) {
         last.count += 1;
         last.total += giftAmount(msg);
+        // Any gift in the run can be the one on screen (the tier puts up the newest).
+        last.ids.push(msg.id);
       } else {
-        lines.push({ kind: "gift", id: msg.id, msg, count: 1, total: giftAmount(msg) });
+        lines.push({ kind: "gift", id: msg.id, msg, count: 1, total: giftAmount(msg), ids: [msg.id] });
       }
       continue;
     }

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { ChatText, Gift, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useNow } from "@/lib/use-now";
+import { serverNow, serverOffset } from "@/lib/server-clock";
 import { useFeaturedShowing } from "@/lib/use-featured";
 import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -165,8 +166,8 @@ export function FeaturedPanel({
 
 /** Fixed when first seen — `featuredDeadline` guards a slow clock from the moment it's asked. */
 function TimeLeft({ item }: { item: FeaturedItem }) {
-  const [deadline] = useState(() => featuredDeadline(item, Date.now()));
-  const now = useNow(deadline !== null);
+  const [deadline] = useState(() => featuredDeadline(item, serverNow()));
+  const now = useNow(deadline !== null) + serverOffset();
   if (deadline === null) return <>Up until you take it down</>;
   return <span className="tabular-nums">{formatCountdown(deadline - now)} left</span>;
 }

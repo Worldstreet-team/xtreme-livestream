@@ -118,6 +118,12 @@ export async function buildApp() {
     (_request, body, done) => done(null, body),
   );
 
+  // Every answer carries the server's clock, so countdowns and on-screen
+  // timers read the same on every device, whatever its own clock says.
+  app.addHook("onSend", async (_request, reply) => {
+    reply.header("X-Server-Time", String(Date.now()));
+  });
+
   await app.register(cors, {
     credentials: true,
     // Must be explicit: the default only advertises the "simple" methods
@@ -125,6 +131,8 @@ export async function buildApp() {
     // silently breaks unfollow, unlike, and profile/stream updates.
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+    // The app keeps its countdowns on the server's clock (lib/server-clock.ts).
+    exposedHeaders: ["X-Server-Time"],
     origin(origin, callback) {
       if (isAllowedOrigin(origin)) {
         callback(null, true);

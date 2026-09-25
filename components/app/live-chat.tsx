@@ -1147,7 +1147,7 @@ export function LiveChat({
                   skin={skin}
                   badges={badgesFor(line.msg)}
                   tools={giftToolsFor(line.msg)}
-                  onStream={onStreamId === line.msg.id}
+                  onStream={onStreamId !== null && line.ids.includes(onStreamId)}
                   onTap={giftFeaturable(line.msg) ? () => setModMenuFor((cur) => (cur === line.id ? null : line.id)) : undefined}
                 />
               ) : (
