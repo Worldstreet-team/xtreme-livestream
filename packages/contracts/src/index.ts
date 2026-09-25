@@ -173,7 +173,7 @@ export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
  * each at most. They render as DOM on every screen — crisp at any quality
  * layer — in the creator's brand accent.
  */
-export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo"] as const;
+export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta"] as const;
 export const LOGO_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 
 export const sceneLayerSchema = z.discriminatedUnion("kind", [
@@ -190,6 +190,17 @@ export const sceneLayerSchema = z.discriminatedUnion("kind", [
     endsAt: z.string().datetime(),
   }),
   z.object({ kind: z.literal("logo"), corner: z.enum(LOGO_CORNERS).default("top-right") }),
+  // A call to action with a QR code: "Scan for merch", a link to follow.
+  z.object({
+    kind: z.literal("cta"),
+    title: z.string().trim().min(1).max(40),
+    url: z
+      .string()
+      .trim()
+      .max(300)
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), "Use a web address (http or https)"),
+  }),
 ]);
 
 export const sceneBodySchema = z.object({
@@ -209,12 +220,28 @@ export const sceneBodySchema = z.object({
  */
 export const BRAND_ACCENTS = ["ember", "chili", "white", "sky", "mint", "lilac"] as const;
 export const LOWER_THIRD_STYLES = ["bar", "pill"] as const;
+/** The faces a creator's graphics can wear — all ones the app already loads. */
+export const BRAND_FONTS = ["wide", "clean", "rounded", "mono"] as const;
+
+/** Graphics a creator reuses, kept with their brand kit. */
+export const brandPresetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("lower-third"),
+    title: z.string().trim().min(1).max(48),
+    subtitle: z.string().trim().max(72).default(""),
+  }),
+  z.object({ kind: z.literal("banner"), text: z.string().trim().min(1).max(100) }),
+  z.object({ kind: z.literal("ticker"), text: z.string().trim().min(1).max(240) }),
+]);
+export const MAX_BRAND_PRESETS = 12;
 
 export const brandBodySchema = z
   .object({
     accent: z.enum(BRAND_ACCENTS).optional(),
     lowerThird: z.enum(LOWER_THIRD_STYLES).optional(),
+    font: z.enum(BRAND_FONTS).optional(),
     logo: imageSourceSchema.optional(),
+    presets: z.array(brandPresetSchema).max(MAX_BRAND_PRESETS).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });
 
@@ -261,6 +288,8 @@ export type SceneLayerKind = (typeof SCENE_LAYER_KINDS)[number];
 export type LogoCorner = (typeof LOGO_CORNERS)[number];
 export type BrandAccent = (typeof BRAND_ACCENTS)[number];
 export type LowerThirdStyle = (typeof LOWER_THIRD_STYLES)[number];
+export type BrandFont = (typeof BRAND_FONTS)[number];
+export type BrandPreset = z.infer<typeof brandPresetSchema>;
 export type FeaturedItem = z.infer<typeof featuredItemSchema>;
 export type FeatureSeconds = (typeof FEATURE_SECONDS)[number];
 /** The scene as stored and broadcast: the body, what's featured, and a version that only goes up. */

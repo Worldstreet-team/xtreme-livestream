@@ -1,10 +1,13 @@
 import {
   BRAND_ACCENTS,
+  BRAND_FONTS,
   LOGO_CORNERS,
   LOWER_THIRD_STYLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
   type BrandAccent,
+  type BrandFont,
+  type BrandPreset,
   type FeaturedItem,
   type LogoCorner,
   type LowerThirdStyle,
@@ -23,7 +26,7 @@ import { apiUrl } from "@/lib/api-client";
  * `__evt: scene` data event.
  */
 
-export type { BrandAccent, FeaturedItem, LogoCorner, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
+export type { BrandAccent, BrandFont, BrandPreset, FeaturedItem, LogoCorner, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
 export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", layers: [], featured: null, version: 0 };
 
@@ -155,6 +158,11 @@ function readLayer(raw: unknown): SceneLayer | null {
     }
     case "logo":
       return { kind: "logo", corner: LOGO_CORNERS.includes(r.corner as LogoCorner) ? (r.corner as LogoCorner) : "top-right" };
+    case "cta": {
+      const title = text(r.title, 40);
+      const url = typeof r.url === "string" && /^https?:\/\//i.test(r.url.trim()) ? r.url.trim().slice(0, 300) : "";
+      return title && url ? { kind: "cta", title, url } : null;
+    }
     default:
       return null;
   }
@@ -178,10 +186,44 @@ export function withLayer(layers: SceneLayer[], kind: SceneLayerKind, layer: Sce
 export interface Brand {
   accent: BrandAccent;
   lowerThird: LowerThirdStyle;
+  /** The face titles wear. */
+  font: BrandFont;
   logoUrl: string | null;
+  /** Graphics kept for reuse (only the creator's own brand carries them). */
+  presets: BrandPreset[];
 }
 
-export const DEFAULT_BRAND: Brand = { accent: "ember", lowerThird: "bar", logoUrl: null };
+export const DEFAULT_BRAND: Brand = { accent: "ember", lowerThird: "bar", font: "wide", logoUrl: null, presets: [] };
+
+/** Each brand font as the class that sets it — faces the app already loads. */
+export const BRAND_FONT_CLASS: Record<BrandFont, string> = {
+  wide: "font-wide",
+  clean: "font-sans",
+  rounded: "font-poppins",
+  mono: "font-mono",
+};
+
+export const BRAND_FONT_LABELS: Record<BrandFont, string> = {
+  wide: "Wide",
+  clean: "Clean",
+  rounded: "Rounded",
+  mono: "Mono",
+};
+
+/** Presets off the wire: the ones this build can use, in order. */
+export function readPresets(raw: unknown): BrandPreset[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BrandPreset[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+    if (r.kind === "lower-third" && str(r.title, 48)) out.push({ kind: "lower-third", title: str(r.title, 48), subtitle: str(r.subtitle, 72) });
+    else if (r.kind === "banner" && str(r.text, 100)) out.push({ kind: "banner", text: str(r.text, 100) });
+    else if (r.kind === "ticker" && str(r.text, 240)) out.push({ kind: "ticker", text: str(r.text, 240) });
+  }
+  return out;
+}
 
 /**
  * The brand as the API sends it: `/users/me/brand` gives the logo's URL; a
@@ -201,7 +243,9 @@ export function readBrand(raw: unknown, userId?: string): Brand {
   return {
     accent: BRAND_ACCENTS.includes(r.accent as BrandAccent) ? (r.accent as BrandAccent) : "ember",
     lowerThird: LOWER_THIRD_STYLES.includes(r.lowerThird as LowerThirdStyle) ? (r.lowerThird as LowerThirdStyle) : "bar",
+    font: BRAND_FONTS.includes(r.font as BrandFont) ? (r.font as BrandFont) : "wide",
     logoUrl: path ? apiUrl(path) : null,
+    presets: readPresets(r.presets),
   };
 }
 
@@ -223,6 +267,11 @@ export const LOWER_THIRDS: { id: LowerThirdStyle; label: string }[] = [
   { id: "bar", label: "Bar" },
   { id: "pill", label: "Pill" },
 ];
+
+/** "shop.example.com/merch" — a link as people read it, not as it's typed. */
+export function shortUrl(url: string) {
+  return url.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
+}
 
 export const LOGO_CORNER_LABELS: Record<LogoCorner, string> = {
   "top-left": "Top left",

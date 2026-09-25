@@ -24,8 +24,10 @@ function brandView(user: Pick<IUser, "_id" | "brand">) {
   return {
     accent: b?.accent ?? "ember",
     lowerThird: b?.lowerThird ?? "bar",
+    font: b?.font ?? "wide",
     logoVersion,
     logoUrl: logoVersion > 0 ? `/api/users/${String(user._id)}/logo?v=${logoVersion}` : null,
+    presets: b?.presets ?? [],
   };
 }
 
@@ -223,11 +225,15 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       const brand = {
         accent: dbUser.brand?.accent ?? "ember",
         lowerThird: dbUser.brand?.lowerThird ?? "bar",
+        font: dbUser.brand?.font ?? "wide",
         logo: dbUser.brand?.logo ?? "",
         logoVersion: dbUser.brand?.logoVersion ?? 0,
+        presets: dbUser.brand?.presets ?? [],
       };
       if (body.accent) brand.accent = body.accent;
       if (body.lowerThird) brand.lowerThird = body.lowerThird;
+      if (body.font) brand.font = body.font;
+      if (body.presets) brand.presets = body.presets;
       if (body.logo !== undefined && body.logo !== brand.logo) {
         brand.logo = body.logo;
         // A new logo is a new URL, so every cache lets the old one go.

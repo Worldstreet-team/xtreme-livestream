@@ -90,7 +90,7 @@ describe("brand kit", () => {
     const response = await patch({ accent: "sky", lowerThird: "pill" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().data.brand).toEqual({ accent: "sky", lowerThird: "pill", logoVersion: 0, logoUrl: null });
+    expect(response.json().data.brand).toEqual({ accent: "sky", lowerThird: "pill", font: "wide", logoVersion: 0, logoUrl: null, presets: [] });
     expect(state.user?.save).toHaveBeenCalledTimes(1);
   });
 
@@ -116,7 +116,7 @@ describe("brand kit", () => {
     await patch({ accent: "mint" });
 
     expect(state.events).toEqual([
-      { room: "room-7", payload: { __evt: "brand", brand: { accent: "mint", lowerThird: "bar", logoVersion: 0, logoUrl: null } } },
+      { room: "room-7", payload: { __evt: "brand", brand: { accent: "mint", lowerThird: "bar", font: "wide", logoVersion: 0, logoUrl: null, presets: [] } } },
     ]);
   });
 
@@ -124,6 +124,22 @@ describe("brand kit", () => {
     await patch({ accent: "mint" });
 
     expect(state.events).toEqual([]);
+  });
+
+  it("keeps a title face and graphics saved for reuse", async () => {
+    const presets = [
+      { kind: "lower-third", title: "Tolu", subtitle: "@tolu_plays" },
+      { kind: "banner", text: "Giveaway at 100 allies" },
+    ];
+    const response = await patch({ font: "rounded", presets });
+
+    expect(response.json().data.brand).toMatchObject({ font: "rounded", presets });
+  });
+
+  it("refuses a face it doesn't know and more than twelve saved graphics", async () => {
+    expect((await patch({ font: "comic" })).statusCode).toBe(400);
+    const many = Array.from({ length: 13 }, (_, i) => ({ kind: "banner", text: `Banner ${i}` }));
+    expect((await patch({ presets: many })).statusCode).toBe(400);
   });
 
   it("refuses an empty change and an accent it doesn't know", async () => {

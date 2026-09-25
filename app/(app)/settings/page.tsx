@@ -14,6 +14,9 @@ import { SelectField } from "@/components/ui/select-field";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { ChatSafety } from "@/components/app/settings/chat-safety";
+import { BrandKit, type BrandPatch } from "@/components/app/scene-graphics-panel";
+import { SceneRenderer } from "@/components/app/scene-renderer";
+import { DEFAULT_BRAND, DEFAULT_SCENE, readBrand, type Brand, type Scene } from "@/lib/scene";
 
 /**
  * Settings, in the same grammar as Schedule and Your channel (owner,
@@ -28,6 +31,7 @@ import { ChatSafety } from "@/components/app/settings/chat-safety";
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "streaming", label: "Streaming" },
+  { id: "brand", label: "Brand" },
   { id: "chat", label: "Chat" },
   { id: "feed", label: "Your feed" },
   { id: "account", label: "Account" },
@@ -115,6 +119,7 @@ export default function SettingsPage() {
       <div className="flex flex-col gap-10 md:gap-14">
         <ProfileSection />
         <StreamingSection />
+        <BrandSection />
         <ChatSection />
         <FeedSection />
         <AccountSection />
@@ -530,6 +535,91 @@ function KeyRow({
         {copied ? "Copied" : "Copy"}
       </button>
     </div>
+  );
+}
+
+/* ── Brand ───────────────────────────────────────────────────────────── */
+
+/**
+ * The brand kit, set up before going live: the same controls as the
+ * studio's, beside the graphics drawn the way viewers will see them.
+ */
+function BrandSection() {
+  const { user } = useAuth();
+  const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
+  const [flash, show] = useSavedFlash();
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { brand: unknown } }>("/api/users/me/brand")
+      .then((r) => !cancelled && setBrand(readBrand(r.data.brand)))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async (patch: BrandPatch) => {
+    const before = brand;
+    setBrand((b) => ({
+      ...b,
+      ...(patch.accent ? { accent: patch.accent } : {}),
+      ...(patch.lowerThird ? { lowerThird: patch.lowerThird } : {}),
+      ...(patch.font ? { font: patch.font } : {}),
+    }));
+    try {
+      const r = await apiFetch<{ success: boolean; data: { brand: unknown } }>("/api/users/me/brand", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setBrand(readBrand(r.data.brand));
+      show(true, "Saved");
+    } catch (e) {
+      setBrand(before);
+      show(false, e instanceof Error ? e.message : "Couldn't save that");
+      throw e;
+    }
+  };
+
+  const name = user?.displayName || user?.username || "Your name";
+  // The graphics a stream usually opens with, in this brand.
+  const preview: Scene = {
+    ...DEFAULT_SCENE,
+    layers: [
+      { kind: "lower-third", title: name, subtitle: "Live on Xtream" },
+      { kind: "ticker", text: "Your ticker runs here — next stream, a giveaway, a thank-you" },
+      ...(brand.logoUrl ? [{ kind: "logo" as const, corner: "top-right" as const }] : []),
+    ],
+  };
+
+  return (
+    <section id="brand" aria-labelledby="brand-title" className="scroll-mt-32">
+      <SectionHead id="brand" title="Brand" lede="How your graphics look on every stream: your colour, your lower third, your title face and your logo." />
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+        <div className={cn(TILE, "p-6 md:p-7 lg:col-span-5")}>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <p className={EYEBROW}>Brand kit</p>
+            <Flash flash={flash} />
+          </div>
+          <BrandKit brand={brand} onBrand={save} onLogoRemoved={() => {}} heading={false} />
+        </div>
+        <div className={cn(TILE, "flex flex-col p-3 lg:col-span-7")}>
+          <div className="relative aspect-video overflow-hidden rounded-[14px] bg-[radial-gradient(120%_90%_at_30%_20%,#3a2320_0%,#1a1012_55%,#0b0708_100%)]">
+            <SceneRenderer
+              scene={preview}
+              portrait={false}
+              main={<div aria-hidden className="size-full" />}
+              guests={[]}
+              host={{ name, avatar: user?.avatar }}
+              brand={brand}
+            />
+          </div>
+          <p className="mt-3 px-2 pb-1 text-[12.5px] text-muted-foreground">
+            As viewers see it. Put graphics up from the Scenes tab while you&apos;re live.
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -85,6 +85,13 @@ describe("the scene contract", () => {
     expect(sceneBodySchema.safeParse({ layers }).success).toBe(true);
   });
 
+  it("takes a call to action with a web address, and nothing else", () => {
+    expect(sceneBodySchema.safeParse({ layers: [{ kind: "cta", title: "Scan for merch", url: "https://shop.example.com/merch" }] }).success).toBe(true);
+    for (const url of ["javascript:alert(1)", "not a url", "ftp://files.example.com/x", ""]) {
+      expect(sceneBodySchema.safeParse({ layers: [{ kind: "cta", title: "Scan", url }] }).success, url).toBe(false);
+    }
+  });
+
   it("refuses two of the same graphic, an empty banner and a countdown with no end", () => {
     expect(sceneBodySchema.safeParse({ layers: [{ kind: "banner", text: "a" }, { kind: "banner", text: "b" }] }).success).toBe(false);
     expect(sceneBodySchema.safeParse({ layers: [{ kind: "banner", text: "" }] }).success).toBe(false);

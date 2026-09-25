@@ -7,14 +7,17 @@ import { useNow } from "@/lib/use-now";
 import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
+import { QrCode } from "@/components/app/qr-code";
 import {
   ACCENTS,
+  BRAND_FONT_CLASS,
   CARDS,
   DEFAULT_BRAND,
   featuredDeadline,
   formatCountdown,
   guestsShown,
   layerOf,
+  shortUrl,
   type Brand,
   type FeaturedItem,
   type LogoCorner,
@@ -126,6 +129,7 @@ export function SceneRenderer({
           host={host}
           countdown={layerOf(scene.layers, "countdown")}
           accent={ACCENTS[brand.accent].fill}
+          fontClass={BRAND_FONT_CLASS[brand.font]}
         />
       )}
       <SceneGraphics
@@ -169,7 +173,9 @@ function SceneGraphics({
   insets?: { top?: string; bottom?: string };
 }) {
   const accent = ACCENTS[brand.accent];
+  const fontClass = BRAND_FONT_CLASS[brand.font] ?? "font-wide";
   const lowerThird = carded ? undefined : layerOf(layers, "lower-third");
+  const cta = carded ? undefined : layerOf(layers, "cta");
   const banner = carded || battle ? undefined : layerOf(layers, "banner");
   const countdown = carded || battle ? undefined : layerOf(layers, "countdown");
   const ticker = layerOf(layers, "ticker");
@@ -231,7 +237,10 @@ function SceneGraphics({
             {banner && (
               <p
                 key={banner.text}
-                className="max-w-[min(100%,36rem)] rounded-[clamp(4px,0.6cqw,8px)] bg-[var(--g-fill)] px-[0.9em] py-[0.45em] text-center font-wide text-[clamp(12px,1.8cqw,24px)] leading-tight font-bold tracking-[-0.01em] text-balance text-[var(--g-ink)] motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+                className={cn(
+                  "max-w-[min(100%,36rem)] rounded-[clamp(4px,0.6cqw,8px)] bg-[var(--g-fill)] px-[0.9em] py-[0.45em] text-center text-[clamp(12px,1.8cqw,24px)] leading-tight font-bold tracking-[-0.01em] text-balance text-[var(--g-ink)] motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]",
+                  fontClass
+                )}
               >
                 {banner.text}
               </p>
@@ -240,7 +249,7 @@ function SceneGraphics({
           </div>
         )}
 
-        {(lowerThird || ticker || bottomLogo || card) && (
+        {(lowerThird || ticker || bottomLogo || card || cta) && (
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-[calc(var(--g-m)/2)]">
             {card && (
               <div className={cn("flex px-[var(--g-m)]", !lowerThird && !bottomLogo && !ticker && "pb-[var(--g-m)]")}>
@@ -249,24 +258,35 @@ function SceneGraphics({
             )}
             {/* The lower third's row: a bottom logo stacks above it on the
                 left, or shares its baseline on the right. */}
-            {(lowerThird || bottomLogo) && (
+            {(lowerThird || bottomLogo || cta) && (
+              // Side by side on a wide frame; on a narrow one (a phone) the
+              // right-hand column stacks above, so the name keeps its width.
               <div
                 className={cn(
-                  "flex gap-[calc(var(--g-m)/2)] px-[var(--g-m)]",
-                  bottomLogo === "bottom-left" ? "flex-col items-start" : "items-end",
+                  "flex flex-col-reverse gap-[calc(var(--g-m)/2)] px-[var(--g-m)] @lg:flex-row @lg:items-end",
                   !ticker && "pb-[var(--g-m)]"
                 )}
               >
-                {bottomLogo === "bottom-left" && logoImg()}
-                {lowerThird && (
-                  <LowerThird
-                    key={`${lowerThird.title}|${lowerThird.subtitle}`}
-                    title={lowerThird.title}
-                    subtitle={lowerThird.subtitle}
-                    style={brand.lowerThird}
-                  />
+                {/* Left: the lower third, a bottom-left logo above it. */}
+                <div className="flex min-w-0 flex-1 flex-col items-start gap-[calc(var(--g-m)/2)]">
+                  {bottomLogo === "bottom-left" && logoImg()}
+                  {lowerThird && (
+                    <LowerThird
+                      key={`${lowerThird.title}|${lowerThird.subtitle}`}
+                      title={lowerThird.title}
+                      subtitle={lowerThird.subtitle}
+                      style={brand.lowerThird}
+                      fontClass={fontClass}
+                    />
+                  )}
+                </div>
+                {/* Right: the call to action, a bottom-right logo above it. */}
+                {(bottomLogo === "bottom-right" || cta) && (
+                  <div className="flex shrink-0 flex-col items-end gap-[calc(var(--g-m)/2)] self-end @lg:self-auto">
+                    {bottomLogo === "bottom-right" && logoImg()}
+                    {cta && <CtaGraphic key={`${cta.title}|${cta.url}`} title={cta.title} url={cta.url} fontClass={fontClass} />}
+                  </div>
                 )}
-                {bottomLogo === "bottom-right" && logoImg("ml-auto")}
               </div>
             )}
             {ticker && <TickerGraphic key={ticker.text} text={ticker.text} />}
@@ -353,13 +373,23 @@ function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: 
  * its ink, the subtitle on a dark strip beneath. "Pill": the title in an
  * accent capsule inside a dark one, the subtitle beside it.
  */
-function LowerThird({ title, subtitle, style }: { title: string; subtitle: string; style: Brand["lowerThird"] }) {
+function LowerThird({
+  title,
+  subtitle,
+  style,
+  fontClass,
+}: {
+  title: string;
+  subtitle: string;
+  style: Brand["lowerThird"];
+  fontClass: string;
+}) {
   const enter = "min-w-0 motion-safe:animate-[graphic-in-left_460ms_var(--ease-spring)_both]";
   if (style === "pill") {
     return (
       <div className={cn(enter, "flex max-w-[min(100%,38rem)] items-center gap-[0.6em] rounded-full bg-black/75 p-[0.3em] pr-[1em] text-[clamp(13px,1.8cqw,22px)]")}>
         {/* The name keeps its width; the subtitle is what gives way. */}
-        <span className="max-w-full shrink-0 truncate rounded-full bg-[var(--g-fill)] px-[0.8em] py-[0.3em] font-wide leading-tight font-bold tracking-[-0.01em] text-[var(--g-ink)]">
+        <span className={cn("max-w-full shrink-0 truncate rounded-full bg-[var(--g-fill)] px-[0.8em] py-[0.3em] leading-tight font-bold tracking-[-0.01em] text-[var(--g-ink)]", fontClass)}>
           {title}
         </span>
         {subtitle && <span className="min-w-0 truncate text-[0.85em] font-medium text-white/85">{subtitle}</span>}
@@ -368,7 +398,12 @@ function LowerThird({ title, subtitle, style }: { title: string; subtitle: strin
   }
   return (
     <div className={cn(enter, "flex max-w-[min(62%,34rem)] flex-col items-start")}>
-      <span className="max-w-full truncate rounded-t-[clamp(3px,0.4cqw,6px)] rounded-br-[clamp(3px,0.4cqw,6px)] bg-[var(--g-fill)] px-[0.7em] py-[0.3em] font-wide text-[clamp(14px,2.3cqw,30px)] leading-tight font-bold tracking-[-0.015em] text-[var(--g-ink)]">
+      <span
+        className={cn(
+          "max-w-full truncate rounded-t-[clamp(3px,0.4cqw,6px)] rounded-br-[clamp(3px,0.4cqw,6px)] bg-[var(--g-fill)] px-[0.7em] py-[0.3em] text-[clamp(14px,2.3cqw,30px)] leading-tight font-bold tracking-[-0.015em] text-[var(--g-ink)]",
+          fontClass
+        )}
+      >
         {title}
       </span>
       {subtitle && (
@@ -377,6 +412,34 @@ function LowerThird({ title, subtitle, style }: { title: string; subtitle: strin
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * A call to action: a QR code on a white tile — drawn as one SVG path, so
+ * it stays sharp and scannable whatever the video's quality — the host's
+ * line, and the link as people read it. On a viewer's own screen it's also
+ * a link they can tap.
+ */
+function CtaGraphic({ title, url, fontClass }: { title: string; url: string; fontClass: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      // The tap is the link's, not the player's underneath.
+      onClick={(e) => e.stopPropagation()}
+      className="pointer-events-auto flex max-w-[min(20em,100%)] items-stretch overflow-hidden rounded-[clamp(8px,1cqw,14px)] bg-black/80 text-[clamp(12px,1.55cqw,19px)] motion-safe:animate-[graphic-in-left_460ms_var(--ease-spring)_both]"
+    >
+      <span aria-hidden className="w-[clamp(3px,0.45cqw,6px)] shrink-0 bg-[var(--g-fill)]" />
+      <span className="flex min-w-0 items-center gap-[0.7em] p-[0.5em] pr-[0.9em]">
+        <QrCode value={url} label={`QR code for ${shortUrl(url)}`} className="size-[4.8em] shrink-0 rounded-[0.35em]" />
+        <span className="min-w-0">
+          <span className={cn("block leading-tight font-bold text-white", fontClass)}>{title}</span>
+          <span className="mt-[0.35em] block truncate font-mono text-[0.72em] text-white/65">{shortUrl(url)}</span>
+        </span>
+      </span>
+    </a>
   );
 }
 
@@ -451,12 +514,14 @@ function SceneCardView({
   host,
   countdown,
   accent,
+  fontClass = "font-wide",
 }: {
   card: SceneCard;
   note: string;
   host: { name: string; avatar?: string | null };
   countdown?: { label: string; endsAt: string };
   accent: string;
+  fontClass?: string;
 }) {
   const def = CARDS.find((c) => c.id === card) ?? CARDS[0];
   const bars =
@@ -482,7 +547,7 @@ function SceneCardView({
           ringGapClassName="bg-[#0b0708]"
         />
         <p className="caps mt-4 max-w-full truncate font-mono text-[10.5px] text-white/50 @lg:mt-5 @lg:text-[12px]">{host.name}</p>
-        <p className="mt-2 font-wide text-[26px] leading-none font-bold tracking-[-0.03em] text-balance text-white @lg:text-[46px]">{def.title}</p>
+        <p className={cn("mt-2 text-[26px] leading-none font-bold tracking-[-0.03em] text-balance text-white @lg:text-[46px]", fontClass)}>{def.title}</p>
         <p className="mt-3 max-w-[36ch] text-[13px] leading-relaxed text-white/60 @lg:text-[16px]">{note || def.body}</p>
         {countdown ? (
           <CardCountdown key={countdown.endsAt} label={countdown.label} endsAt={countdown.endsAt} color={accent} fallback={bars} />

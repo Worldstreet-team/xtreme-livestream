@@ -2315,6 +2315,8 @@ export default function StudioPage() {
       ...b,
       ...(patch.accent ? { accent: patch.accent } : {}),
       ...(patch.lowerThird ? { lowerThird: patch.lowerThird } : {}),
+      ...(patch.font ? { font: patch.font } : {}),
+      ...(patch.presets ? { presets: patch.presets } : {}),
     }));
     try {
       const r = await apiFetch<{ success: boolean; data: { brand: unknown } }>("/api/users/me/brand", {
@@ -2513,6 +2515,10 @@ export default function StudioPage() {
         brand={brand}
         hostName={user?.displayName || user?.username || ""}
         streamTitle={title}
+        people={liveGuests.map((g) => ({
+          name: guestTiles.find((t) => t.identity === g.userId)?.name || g.username,
+          username: g.username,
+        }))}
         carded={Boolean(scene.card)}
         battle={Boolean(opponentStreamId)}
         onLayers={(layers) => void applyScene({ layers })}

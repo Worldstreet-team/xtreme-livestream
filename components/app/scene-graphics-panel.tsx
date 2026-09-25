@@ -1,30 +1,56 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { ImageSquare, Trash } from "@/components/icons";
+import { ImageSquare, Trash, X } from "@/components/icons";
+import { QrCode } from "@/components/app/qr-code";
 import { cn } from "@/lib/utils";
 import { compressImage } from "@/lib/image-utils";
 import { useNow } from "@/lib/use-now";
 import {
   ACCENTS,
+  BRAND_FONT_CLASS,
+  BRAND_FONT_LABELS,
   LOGO_CORNER_LABELS,
   LOWER_THIRDS,
   formatCountdown,
   layerOf,
+  shortUrl,
   withLayer,
   type Brand,
   type BrandAccent,
+  type BrandFont,
+  type BrandPreset,
   type LogoCorner,
   type LowerThirdStyle,
   type SceneLayer,
 } from "@/lib/scene";
+import { MAX_BRAND_PRESETS } from "@xtreme/contracts";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 const FIELD =
   "h-10 w-full rounded-full bg-white/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-white/[0.09]";
 const COUNTDOWN_MINUTES = [1, 3, 5, 10, 15, 30];
 
-export type BrandPatch = { accent?: BrandAccent; lowerThird?: LowerThirdStyle; logo?: string };
+export type BrandPatch = {
+  accent?: BrandAccent;
+  lowerThird?: LowerThirdStyle;
+  font?: BrandFont;
+  logo?: string;
+  presets?: BrandPreset[];
+};
+
+/** A web address someone typed, as one the QR can carry ("shop.example.com" works too). */
+function normalizeUrl(raw: string) {
+  const t = raw.trim();
+  if (!t) return "";
+  const withScheme = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  try {
+    const u = new URL(withScheme);
+    return u.hostname.includes(".") ? u.toString() : "";
+  } catch {
+    return "";
+  }
+}
 
 /**
  * The studio's graphics: what's on the picture now (lower third, banner,
@@ -40,6 +66,7 @@ export function SceneGraphicsPanel({
   brand,
   hostName,
   streamTitle,
+  people = [],
   carded,
   battle,
   onLayers,
@@ -49,6 +76,8 @@ export function SceneGraphicsPanel({
   brand: Brand;
   hostName: string;
   streamTitle: string;
+  /** Who's on stage with the host — a tap puts their name in the lower third. */
+  people?: { name: string; username?: string }[];
   /** A card is up: the lower third and banner wait under it. */
   carded: boolean;
   /** A battle has the top of the picture. */
@@ -63,6 +92,7 @@ export function SceneGraphicsPanel({
   const ticker = layerOf(layers, "ticker");
   const countdown = layerOf(layers, "countdown");
   const logo = layerOf(layers, "logo");
+  const cta = layerOf(layers, "cta");
 
   // Drafts: null until typed in, so they follow what's on air (a resumed
   // stream's graphics) and the defaults until then.
@@ -73,6 +103,8 @@ export function SceneGraphicsPanel({
   const [cdLabel, setCdLabel] = useState<string | null>(null);
   const [cdMinutes, setCdMinutes] = useState(5);
   const [corner, setCorner] = useState<LogoCorner | null>(null);
+  const [ctaTitle, setCtaTitle] = useState<string | null>(null);
+  const [ctaUrl, setCtaUrl] = useState<string | null>(null);
 
   const title = (ltTitle ?? lowerThird?.title ?? hostName).slice(0, 48);
   const subtitle = (ltSubtitle ?? lowerThird?.subtitle ?? streamTitle).slice(0, 72);
@@ -80,11 +112,25 @@ export function SceneGraphicsPanel({
   const tickerDraft = tickerText ?? ticker?.text ?? "";
   const cdLabelDraft = cdLabel ?? countdown?.label ?? "";
   const cornerDraft = corner ?? logo?.corner ?? "top-right";
+  const ctaTitleDraft = ctaTitle ?? cta?.title ?? "";
+  const ctaUrlDraft = ctaUrl ?? cta?.url ?? "";
+  const ctaUrlClean = normalizeUrl(ctaUrlDraft);
+
+  // Presets: kept with the brand kit, a row per kind under its fields.
+  const presets = brand.presets ?? [];
+  const presetsFull = presets.length >= MAX_BRAND_PRESETS;
+  const samePreset = (a: BrandPreset, b: BrandPreset) => JSON.stringify(a) === JSON.stringify(b);
+  const savePreset = (preset: BrandPreset) => {
+    if (presets.some((p) => samePreset(p, preset)) || presetsFull) return;
+    void onBrand({ presets: [...presets, preset] }).catch(() => {});
+  };
+  const dropPreset = (preset: BrandPreset) => void onBrand({ presets: presets.filter((p) => !samePreset(p, preset)) }).catch(() => {});
 
   const put = (layer: SceneLayer) => onLayers(withLayer(layers, layer.kind, layer));
   const take = (kind: SceneLayer["kind"]) => onLayers(withLayer(layers, kind, null));
 
   const lowerThirdLayer = (): SceneLayer => ({ kind: "lower-third", title: title.trim(), subtitle: subtitle.trim() });
+  const ctaLayer = (): SceneLayer => ({ kind: "cta", title: ctaTitleDraft.trim(), url: ctaUrlClean });
   const countdownEnds = () => new Date(Date.now() + cdMinutes * 60_000).toISOString();
 
   return (
@@ -118,6 +164,34 @@ export function SceneGraphicsPanel({
               aria-label="Lower third subtitle"
               className={FIELD}
             />
+            {people.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" aria-label="Names on stage">
+                {[{ name: hostName, username: undefined as string | undefined, you: true }, ...people.map((p) => ({ ...p, you: false }))].map((p) => (
+                  <button
+                    key={`${p.name}-${p.username ?? "you"}`}
+                    type="button"
+                    onClick={() => {
+                      setLtTitle(p.name);
+                      setLtSubtitle(p.you ? streamTitle.slice(0, 72) : p.username ? `@${p.username}` : "");
+                    }}
+                    className="press h-7 max-w-full truncate rounded-full bg-white/[0.06] px-2.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-white/[0.1]"
+                  >
+                    {p.you ? "You" : p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <PresetRow
+              presets={presets.filter((p): p is Extract<BrandPreset, { kind: "lower-third" }> => p.kind === "lower-third")}
+              label={(p) => (p.subtitle ? `${p.title} · ${p.subtitle}` : p.title)}
+              onPick={(p) => {
+                setLtTitle(p.title);
+                setLtSubtitle(p.subtitle);
+              }}
+              onDrop={dropPreset}
+              canSave={Boolean(title.trim()) && !presetsFull}
+              onSave={() => savePreset({ kind: "lower-third", title: title.trim(), subtitle: subtitle.trim() })}
+            />
           </GraphicCard>
 
           <GraphicCard
@@ -137,6 +211,14 @@ export function SceneGraphicsPanel({
               aria-label="Banner text"
               className={FIELD}
             />
+            <PresetRow
+              presets={presets.filter((p): p is Extract<BrandPreset, { kind: "banner" }> => p.kind === "banner")}
+              label={(p) => p.text}
+              onPick={(p) => setBannerText(p.text)}
+              onDrop={dropPreset}
+              canSave={Boolean(bannerDraft.trim()) && !presetsFull}
+              onSave={() => savePreset({ kind: "banner", text: bannerDraft.trim() })}
+            />
           </GraphicCard>
 
           <GraphicCard
@@ -155,6 +237,14 @@ export function SceneGraphicsPanel({
               placeholder="Next stream Friday at 8 · Follow so you don't miss it"
               aria-label="Ticker text"
               className={FIELD}
+            />
+            <PresetRow
+              presets={presets.filter((p): p is Extract<BrandPreset, { kind: "ticker" }> => p.kind === "ticker")}
+              label={(p) => p.text}
+              onPick={(p) => setTickerText(p.text)}
+              onDrop={dropPreset}
+              canSave={Boolean(tickerDraft.trim()) && !presetsFull}
+              onSave={() => savePreset({ kind: "ticker", text: tickerDraft.trim() })}
             />
           </GraphicCard>
 
@@ -197,6 +287,47 @@ export function SceneGraphicsPanel({
                 ))}
               </div>
             )}
+          </GraphicCard>
+
+          <GraphicCard
+            title="QR code"
+            on={Boolean(cta)}
+            canShow={Boolean(ctaTitleDraft.trim() && ctaUrlClean)}
+            dirty={Boolean(cta) && (cta!.title !== ctaTitleDraft.trim() || cta!.url !== ctaUrlClean)}
+            onShow={() => put(ctaLayer())}
+            onHide={() => take("cta")}
+          >
+            <div className="flex gap-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <input
+                  value={ctaTitleDraft}
+                  onChange={(e) => setCtaTitle(e.target.value)}
+                  maxLength={40}
+                  placeholder="Scan for merch"
+                  aria-label="What the QR code is for"
+                  className={FIELD}
+                />
+                <input
+                  value={ctaUrlDraft}
+                  onChange={(e) => setCtaUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && ctaTitleDraft.trim() && ctaUrlClean && put(ctaLayer())}
+                  inputMode="url"
+                  maxLength={300}
+                  placeholder="shop.example.com/merch"
+                  aria-label="Where it goes"
+                  className={FIELD}
+                />
+              </div>
+              {/* What viewers will scan, as they'll see it. */}
+              <span className="flex size-[88px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-white/[0.06]">
+                {ctaUrlClean ? (
+                  <QrCode value={ctaUrlClean} label={`QR code for ${shortUrl(ctaUrlClean)}`} className="size-full rounded-[10px]" />
+                ) : (
+                  <span className="px-2 text-center text-[10.5px] leading-tight text-muted-foreground">Add a link to see its code</span>
+                )}
+              </span>
+            </div>
+            {ctaUrlDraft.trim() && !ctaUrlClean && <p className="text-[11.5px] text-chili-hi">That doesn&apos;t look like a web address.</p>}
           </GraphicCard>
 
           <GraphicCard
@@ -341,18 +472,66 @@ function CornerPicker({ value, onChange }: { value: LogoCorner; onChange: (c: Lo
   );
 }
 
+/** Saved graphics of one kind: tap to use, × to forget, and Save for what's in the fields. */
+function PresetRow<P extends BrandPreset>({
+  presets,
+  label,
+  onPick,
+  onDrop,
+  canSave,
+  onSave,
+}: {
+  presets: P[];
+  label: (p: P) => string;
+  onPick: (p: P) => void;
+  onDrop: (p: P) => void;
+  canSave: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {presets.map((p) => (
+        <span key={label(p)} className="group/preset flex h-7 max-w-full items-center rounded-full bg-white/[0.06] transition-colors hover:bg-white/[0.1]">
+          <button type="button" onClick={() => onPick(p)} className="min-w-0 truncate pl-2.5 text-[11.5px] font-medium text-foreground/85" title={label(p)}>
+            {label(p).length > 28 ? `${label(p).slice(0, 27)}…` : label(p)}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDrop(p)}
+            aria-label={`Forget “${label(p)}”`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ))}
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={!canSave}
+        className="press h-7 rounded-full px-2 text-[11.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+      >
+        + Save for later
+      </button>
+    </div>
+  );
+}
+
 /**
  * The brand kit: the accent every graphic wears, the lower third's shape,
  * and the logo. Saved to the channel, so it carries to every stream.
  */
-function BrandKit({
+export function BrandKit({
   brand,
   onBrand,
   onLogoRemoved,
+  heading = true,
 }: {
   brand: Brand;
   onBrand: (patch: BrandPatch) => Promise<void>;
   onLogoRemoved: () => void;
+  /** The studio names the section; Settings has its own heading. */
+  heading?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -395,8 +574,8 @@ function BrandKit({
   };
 
   return (
-    <section aria-labelledby="scenes-brand">
-      <p id="scenes-brand" className={LABEL}>Brand</p>
+    <section aria-labelledby={heading ? "scenes-brand" : undefined} aria-label={heading ? undefined : "Brand kit"}>
+      {heading && <p id="scenes-brand" className={LABEL}>Brand</p>}
 
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-[13px] font-medium text-foreground/85">Accent</span>
@@ -443,6 +622,34 @@ function BrandKit({
                   {s.id === "bar" && <span className="h-[3px] w-5 rounded-[1px] bg-white/60" />}
                 </span>
                 {s.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Four faces don't fit beside a label in the studio's column — they get their own line. */}
+      <div className="mt-3.5 flex flex-col gap-2">
+        <span className="text-[13px] font-medium text-foreground/85">Titles</span>
+        <div role="radiogroup" aria-label="Title font" className="flex flex-wrap gap-1.5">
+          {(Object.keys(BRAND_FONT_CLASS) as BrandFont[]).map((f) => {
+            const on = brand.font === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                title={BRAND_FONT_LABELS[f]}
+                onClick={() => !on && void save({ font: f })}
+                className={cn(
+                  "press flex h-9 items-center rounded-full px-3 text-[12px] transition-colors",
+                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                )}
+              >
+                {/* Each face shown in itself. */}
+                <span className={cn("text-[14px] leading-none font-bold", BRAND_FONT_CLASS[f])}>Aa</span>
+                <span className="ml-1.5 font-semibold">{BRAND_FONT_LABELS[f]}</span>
               </button>
             );
           })}

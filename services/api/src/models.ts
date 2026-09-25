@@ -60,8 +60,12 @@ export interface IUser extends Document {
   brand?: {
     accent: string;
     lowerThird: string;
+    /** The face the graphics' titles wear (BRAND_FONTS). */
+    font: string;
     logo: string;
     logoVersion: number;
+    /** Graphics kept for reuse (brandPresetSchema), newest last. */
+    presets: Array<Record<string, unknown>>;
   };
   /**
    * The channel's safety kit: the chat filter's level per category, the
@@ -148,8 +152,10 @@ const userSchema = new Schema<IUser>(
     brand: {
       accent: { type: String, enum: ["ember", "chili", "white", "sky", "mint", "lilac"], default: "ember" },
       lowerThird: { type: String, enum: ["bar", "pill"], default: "bar" },
+      font: { type: String, enum: ["wide", "clean", "rounded", "mono"], default: "wide" },
       logo: { type: String, default: "" },
       logoVersion: { type: Number, default: 0 },
+      presets: { type: [Schema.Types.Mixed], default: [] },
     },
     safety: {
       filters: {

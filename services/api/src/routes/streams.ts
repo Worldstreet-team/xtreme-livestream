@@ -546,7 +546,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         "streamerId",
         // The brand kit rides along (not the logo's bytes — its version,
         // which builds the logo's URL) so graphics draw in the right accent.
-        "username displayName avatar bio followers isLive verified brand.accent brand.lowerThird brand.logoVersion",
+        "username displayName avatar bio followers isLive verified brand.accent brand.lowerThird brand.font brand.logoVersion",
       );
 
       return { success: true, data: { stream: stream.toJSON() } };
