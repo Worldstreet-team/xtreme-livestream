@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { stageLayout } from "@/lib/stage-layout";
 import { useNow } from "@/lib/use-now";
@@ -31,6 +31,156 @@ import {
 
 /** How long a graphic takes to leave. */
 const EXIT_MS = 320;
+/** How long a tile takes to glide to its new place when the layout changes. */
+const GLIDE_MS = 440;
+/** Quick to go, gentle to land — and never past the mark, so a tile can't cross into its neighbour. */
+const GLIDE_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+/** A tile's box in the program's own coordinates, and its corner radius. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  r: number;
+}
+
+function between(a: Box, b: Box, t: number): Box {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    w: a.w + (b.w - a.w) * t,
+    h: a.h + (b.h - a.h) * t,
+    r: a.r + (b.r - a.r) * t,
+  };
+}
+
+/**
+ * Layout changes glide (Phase 2, transitions). A tile is two boxes: the
+ * cell, which the layout places, and the picture inside it. When the layout
+ * changes — a guest joins, split becomes grid, Chart + face takes the host
+ * into the corner — every cell is measured before and after, and its
+ * picture is eased from the old box to the new one by its edges, so it
+ * moves and re-crops like a real frame (a scale would squash a face, and
+ * the name on it). A tile that's new fades in where it lands.
+ *
+ * Boxes are kept relative to the program, so scrolling the page in between
+ * doesn't throw them, and re-measured when it resizes, so a resize or a
+ * fullscreen just lands. A second change mid-glide carries on from where
+ * the picture is. Reduced motion lands at once.
+ */
+function useGlide(signature: string) {
+  const frame = useRef<HTMLDivElement>(null);
+  const cells = useRef(new Map<string, HTMLElement>());
+  const boxes = useRef(new Map<string, Box>());
+  const gliding = useRef(new Map<string, { from: Box; to: Box; run: Animation }>());
+  const lastSignature = useRef<string | null>(null);
+
+  const cell = useCallback(
+    (key: string) => (el: HTMLElement | null) => {
+      if (el) cells.current.set(key, el);
+      else {
+        cells.current.delete(key);
+        gliding.current.delete(key);
+      }
+    },
+    []
+  );
+
+  const measure = useCallback(() => {
+    const origin = frame.current?.getBoundingClientRect();
+    const next = new Map<string, Box>();
+    if (!origin) return next;
+    for (const [key, el] of cells.current) {
+      const r = el.getBoundingClientRect();
+      next.set(key, {
+        x: r.left - origin.left,
+        y: r.top - origin.top,
+        w: r.width,
+        h: r.height,
+        r: parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0,
+      });
+    }
+    return next;
+  }, []);
+
+  // A resize moves the cells without a render: keep the boxes true to it.
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      boxes.current = measure();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure]);
+
+  useLayoutEffect(() => {
+    const changed = lastSignature.current !== null && lastSignature.current !== signature;
+    lastSignature.current = signature;
+    const before = boxes.current;
+    const after = measure();
+    boxes.current = after;
+    if (!changed || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    for (const [key, el] of cells.current) {
+      const picture = el.firstElementChild;
+      const to = after.get(key);
+      if (!(picture instanceof HTMLElement) || typeof picture.animate !== "function" || !to?.w || !to.h) continue;
+      // Mid-glide, the picture is between its last two boxes: carry on from there.
+      let from = before.get(key);
+      const running = gliding.current.get(key);
+      if (running?.run.playState === "running") {
+        from = between(running.from, running.to, running.run.effect?.getComputedTiming().progress ?? 1);
+      }
+      running?.run.cancel();
+      gliding.current.delete(key);
+
+      if (!from) {
+        picture.animate([{ opacity: 0, transform: "scale(0.96)" }, { opacity: 1, transform: "none" }], {
+          duration: GLIDE_MS,
+          easing: GLIDE_EASE,
+        });
+        continue;
+      }
+      if (Math.max(Math.abs(from.x - to.x), Math.abs(from.y - to.y), Math.abs(from.w - to.w), Math.abs(from.h - to.h)) < 1) continue;
+      // The picture's edges, as insets from the cell it's landing in.
+      const edges = (b: Box) => ({
+        top: `${b.y - to.y}px`,
+        right: `${to.x + to.w - b.x - b.w}px`,
+        bottom: `${to.y + to.h - b.y - b.h}px`,
+        left: `${b.x - to.x}px`,
+        borderRadius: `${b.r}px`,
+      });
+      const run = picture.animate([edges(from), edges(to)], { id: "glide", duration: GLIDE_MS, easing: GLIDE_EASE });
+      gliding.current.set(key, { from, to, run });
+    }
+  });
+
+  return { frame, cell };
+}
+
+/**
+ * `value` while it's set; for `ms` after it's cleared, the last one it had,
+ * marked leaving — so what it drew can go rather than vanish. Adjusted while
+ * rendering, as SceneGraphics holds a featured comment. `value` must keep its
+ * identity from render to render (a prop, or memoized).
+ */
+function useLinger<T>(value: T | null, ms: number): { value: T; leaving: boolean } | null {
+  const [prev, setPrev] = useState(value);
+  const [gone, setGone] = useState<T | null>(null);
+  if (value !== prev) {
+    setPrev(value);
+    setGone(value === null ? prev : null);
+  }
+  useEffect(() => {
+    if (gone === null) return;
+    const t = setTimeout(() => setGone(null), ms);
+    return () => clearTimeout(t);
+  }, [gone, ms]);
+  if (value !== null) return { value, leaving: false };
+  return gone === null ? null : { value: gone, leaving: true };
+}
 
 export interface SceneCell {
   key: string;
@@ -97,28 +247,43 @@ export function SceneRenderer({
   const showPip = Boolean(pip) && shown.length === 0 && layout !== "solo" && !chartMode;
   // A logo up top lands top-left in chart mode (the camera has the right), so the chart's header steps down.
   const logoTop = Boolean(brand.logoUrl && layerOf(scene.layers, "logo")?.corner.startsWith("top"));
+  // What moves the tiles: the layout, who's shown, the frame's shape.
+  const { frame, cell } = useGlide([layout, portrait ? "p" : "l", shown.map((g) => g.key).join(","), showPip ? "pip" : ""].join("|"));
+  // The chart and a card each stay a moment after they're taken down, fading
+  // as the picture comes back over them, rather than cutting to black.
+  const chart = useLinger(chartMode ? (scene.chart ?? DEFAULT_CHART) : null, EXIT_MS);
+  const cardNow = useMemo(() => (scene.card ? { card: scene.card, note: scene.cardNote } : null), [scene.card, scene.cardNote]);
+  const card = useLinger(cardNow, EXIT_MS);
 
   return (
     // Isolated: the program — picture, card, graphics — is one layer, and
     // whatever the surface draws after it (its controls, its status
     // screens, gifts) sits on top.
-    <div className="@container relative isolate size-full">
-      {chartMode && (
+    <div ref={frame} className="@container relative isolate size-full">
+      {chart && (
         // The chart keeps to the part of the frame the surface leaves clear —
         // under a phone's header and above its chat — like the graphics do.
         <div
-          className="absolute inset-x-0 bg-[#0b0708] transition-[top,bottom] duration-300 ease-out"
+          className={cn(
+            "absolute inset-x-0 bg-[#0b0708] transition-[top,bottom] duration-300 ease-out",
+            chart.leaving
+              ? "motion-safe:animate-[fade-out_320ms_ease-in_both] motion-reduce:hidden"
+              : "motion-safe:animate-[fade-in_300ms_ease-out_both]"
+          )}
           style={{ top: insets?.top ?? 0, bottom: insets?.bottom ?? 0 }}
         >
-          <MarketChart chart={scene.chart ?? DEFAULT_CHART} accent={ACCENTS[brand.accent]} headerLow={logoTop} maxCandles={portrait ? 45 : 90} />
+          <MarketChart chart={chart.value} accent={ACCENTS[brand.accent]} headerLow={logoTop} maxCandles={portrait ? 45 : 90} />
         </div>
       )}
       <div className={cn("grid size-full gap-px", grid.container)}>
         {/* In chart mode this same cell becomes the corner camera — restyled,
-            not moved, so the host's video element is never remounted. */}
+            not moved, so the host's video element is never remounted. The
+            cell is where the layout puts the tile; the picture inside it is
+            what glides there (useGlide), so the cell itself doesn't clip. */}
         <div
+          ref={cell("host")}
           className={cn(
-            "relative overflow-hidden",
+            "relative",
             chartMode
               ? cn(
                   "absolute z-10 aspect-video rounded-[12px] bg-black [&_video]:object-cover",
@@ -128,37 +293,40 @@ export function SceneRenderer({
               : grid.hostCell
           )}
         >
-          {/* Sharing a screen in chart mode: the face is the camera, so the
-              screen stays attached but out of sight. */}
-          <div className={cn("size-full", chartMode && pip && "invisible")}>{main}</div>
-          {chartMode && pip && <div className="absolute inset-0">{pip}</div>}
-          {mainLabel && shown.length > 0 && (
-            <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
-              <span className="block truncate text-xs font-semibold text-white">{mainLabel}</span>
-            </div>
-          )}
-          {showPip && (
-            <div
-              className={cn(
-                "absolute z-10 aspect-video overflow-hidden rounded-[12px] bg-black",
-                layout === "screen-face" ? "w-[30%]" : "w-[24%]",
-                pipClassName ?? "top-3 right-3"
-              )}
-            >
-              {pip}
-            </div>
-          )}
+          <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
+            {/* Sharing a screen in chart mode: the face is the camera, so the
+                screen stays attached but out of sight. */}
+            <div className={cn("size-full", chartMode && pip && "invisible")}>{main}</div>
+            {chartMode && pip && <div className="absolute inset-0">{pip}</div>}
+            {mainLabel && shown.length > 0 && (
+              <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
+                <span className="block truncate text-xs font-semibold text-white">{mainLabel}</span>
+              </div>
+            )}
+            {showPip && (
+              <div
+                className={cn(
+                  "absolute z-10 aspect-video overflow-hidden rounded-[12px] bg-black motion-safe:animate-[fade-in_300ms_ease-out_both]",
+                  layout === "screen-face" ? "w-[30%]" : "w-[24%]",
+                  pipClassName ?? "top-3 right-3"
+                )}
+              >
+                {pip}
+              </div>
+            )}
+          </div>
         </div>
         {shown.map((g) => (
-          <div key={g.key} className="relative overflow-hidden">
-            {g.node}
+          <div key={g.key} ref={cell(g.key)} className="relative">
+            <div className="absolute inset-0 overflow-hidden rounded-[inherit]">{g.node}</div>
           </div>
         ))}
       </div>
-      {scene.card && (
+      {card && (
         <SceneCardView
-          card={scene.card}
-          note={scene.cardNote}
+          card={card.value.card}
+          note={card.value.note}
+          leaving={card.leaving}
           host={host}
           countdown={layerOf(scene.layers, "countdown")}
           accent={ACCENTS[brand.accent].fill}
@@ -546,6 +714,7 @@ function CountdownGraphic({ label, endsAt }: { label: string; endsAt: string }) 
 function SceneCardView({
   card,
   note,
+  leaving = false,
   host,
   countdown,
   accent,
@@ -553,6 +722,8 @@ function SceneCardView({
 }: {
   card: SceneCard;
   note: string;
+  /** Taken down: it fades off the picture rather than cutting. */
+  leaving?: boolean;
   host: { name: string; avatar?: string | null };
   countdown?: { label: string; endsAt: string };
   accent: string;
@@ -572,7 +743,14 @@ function SceneCardView({
       </span>
     ) : null;
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden bg-[#0b0708] px-6 text-center">
+    <div
+      className={cn(
+        "absolute inset-0 z-10 flex items-center justify-center overflow-hidden bg-[#0b0708] px-6 text-center",
+        leaving
+          ? "pointer-events-none motion-safe:animate-[fade-out_320ms_ease-in_both] motion-reduce:hidden"
+          : "motion-safe:animate-[fade-in_280ms_ease-out_both]"
+      )}
+    >
       <div className="flex max-w-full flex-col items-center">
         <UserAvatar
           src={host.avatar}
