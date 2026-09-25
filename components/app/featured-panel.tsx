@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { ChatText, Gift, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useNow } from "@/lib/use-now";
 import { useFeaturedShowing } from "@/lib/use-featured";
@@ -13,6 +14,7 @@ import {
   featuredDeadline,
   formatCountdown,
   type FeaturedItem,
+  type SuggestedLine,
 } from "@/lib/scene";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
@@ -24,6 +26,9 @@ const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
  * and taken down, not where they're picked.
  */
 export function FeaturedPanel({
+  queue = [],
+  onPutUp,
+  onDismiss,
   featured,
   seconds,
   giftsFrom,
@@ -32,6 +37,10 @@ export function FeaturedPanel({
   onGiftsFrom,
   onTakeDown,
 }: {
+  /** Lines moderators suggested, waiting on the host. */
+  queue?: SuggestedLine[];
+  onPutUp?: (messageId: string) => void;
+  onDismiss?: (messageId: string) => void;
   featured: FeaturedItem | null;
   /** How long a comment goes up for; 0 is until taken down. */
   seconds: number;
@@ -48,6 +57,44 @@ export function FeaturedPanel({
   return (
     <section aria-labelledby="scenes-featured">
       <p id="scenes-featured" className={LABEL}>On screen</p>
+
+      {queue.length > 0 && (
+        <div className="mt-2.5 rounded-[12px] bg-ember/[0.08] p-2">
+          <p className="flex items-center gap-2 px-1.5 pt-0.5 pb-1.5 text-[12px] font-semibold text-ember-hi">
+            <span className="rounded-full bg-ember px-1.5 font-mono text-[10.5px] font-bold text-on-ember tabular-nums">{queue.length}</span>
+            Suggested by your moderators
+          </p>
+          <ul className="flex flex-col gap-1">
+            {queue.map((q) => (
+              <li key={q.messageId} className="flex items-start gap-2.5 rounded-[10px] bg-black/25 px-2.5 py-2">
+                <span className="mt-0.5 shrink-0 text-muted-foreground">{q.kind === "gift" ? <Gift size={14} /> : <ChatText size={14} />}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-2 text-[12.5px] leading-snug break-words">
+                    <span className="mr-1.5 font-semibold">{q.username}</span>
+                    <span className="text-foreground/85">{q.text}</span>
+                  </span>
+                  {q.suggestedBy && <span className="mt-0.5 block text-[11px] text-muted-foreground">from @{q.suggestedBy}</span>}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onPutUp?.(q.messageId)}
+                  className="press h-7 shrink-0 rounded-full bg-white px-2.5 text-[11.5px] font-bold text-[#0b0708]"
+                >
+                  Put up
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDismiss?.(q.messageId)}
+                  aria-label={`Turn down ${q.username}'s line`}
+                  className="press flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+                >
+                  <X size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {showing ? (
         <div className="mt-2.5 rounded-[12px] bg-white/[0.07] p-3">

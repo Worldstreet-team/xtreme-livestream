@@ -65,11 +65,13 @@ import {
   LAYOUTS,
   newerScene,
   readBrand,
+  readFeatureQueue,
   readScene,
   sceneFromMetadata,
   type Brand,
   type Scene,
   type SceneLayout,
+  type SuggestedLine,
 } from "@/lib/scene";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
@@ -248,6 +250,8 @@ export default function StudioPage() {
   // Comments on screen: the channel's saved choices until changed here.
   const [featureSecondsPick, setFeatureSecondsPick] = useState<number | null>(null);
   const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
+  /** Lines moderators suggested for the screen, waiting on me. */
+  const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
@@ -2340,6 +2344,48 @@ export default function StudioPage() {
     );
   };
 
+  // What's waiting when the room opens (a resume, a reload); the chat
+  // follows the queue from there.
+  useEffect(() => {
+    if (!streamId || !isLive) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { queue: unknown } }>(`/api/streams/${streamId}/feature-queue`)
+      .then((r) => {
+        if (!cancelled) setFeatureQueue(readFeatureQueue(r.data.queue));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId, isLive]);
+
+  /** A suggested line: up on screen (it leaves the queue), or turned down. */
+  const putUpSuggested = async (messageId: string) => {
+    if (!streamId) return;
+    try {
+      const r = await apiFetch<{ success: boolean; data: { scene: unknown } }>(`/api/streams/${streamId}/chat/${messageId}/feature`, {
+        method: "POST",
+        body: JSON.stringify({ seconds: featureSeconds || null }),
+      });
+      takeScene(r.data.scene);
+      setFeatureQueue((q) => q.filter((x) => x.messageId !== messageId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't put that up");
+    }
+  };
+  const dismissSuggested = async (messageId: string) => {
+    if (!streamId) return;
+    setFeatureQueue((q) => q.filter((x) => x.messageId !== messageId));
+    try {
+      const r = await apiFetch<{ success: boolean; data: { queue: unknown } }>(`/api/streams/${streamId}/feature-queue/${messageId}`, {
+        method: "DELETE",
+      });
+      setFeatureQueue(readFeatureQueue(r.data.queue));
+    } catch {
+      // It stays turned down here; the next queue event settles it.
+    }
+  };
+
   const takeDownFeatured = async () => {
     const current = scene.featured;
     if (!streamId || !current) return;
@@ -2444,6 +2490,9 @@ export default function StudioPage() {
       </section>
 
       <FeaturedPanel
+        queue={featureQueue}
+        onPutUp={(id) => void putUpSuggested(id)}
+        onDismiss={(id) => void dismissSuggested(id)}
         featured={scene.featured ?? null}
         seconds={featureSeconds}
         giftsFrom={giftsFrom}
@@ -2919,6 +2968,7 @@ export default function StudioPage() {
                     featured={scene.featured ?? null}
                     featureSeconds={featureSeconds}
                     onScene={takeScene}
+                    onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
                   />
                 )}
               </div>
@@ -2944,6 +2994,7 @@ export default function StudioPage() {
               featured={scene.featured ?? null}
               featureSeconds={featureSeconds}
               onScene={takeScene}
+              onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
             />
           </div>
           {panel !== "chat" && <div className="flex h-full flex-col">{panelBody}</div>}

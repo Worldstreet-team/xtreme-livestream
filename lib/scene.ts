@@ -77,6 +77,29 @@ export function featuredDeadline(item: Pick<FeaturedItem, "at" | "until">, now: 
   return Math.min(until, now + span);
 }
 
+/** A line a moderator suggested for the screen, waiting on the host. */
+export interface SuggestedLine {
+  messageId: string;
+  username: string;
+  text: string;
+  kind: "chat" | "gift";
+  suggestedBy: string;
+}
+
+export function readFeatureQueue(raw: unknown): SuggestedLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((q): q is Record<string, unknown> => Boolean(q) && typeof q === "object")
+    .map((q) => ({
+      messageId: String(q.messageId ?? ""),
+      username: String(q.username ?? ""),
+      text: String(q.text ?? ""),
+      kind: q.kind === "gift" ? ("gift" as const) : ("chat" as const),
+      suggestedBy: String(q.suggestedBy ?? ""),
+    }))
+    .filter((q) => q.messageId);
+}
+
 /** The lengths a host can put a comment up for; 0 is until they take it down. */
 export const FEATURE_LENGTHS: { seconds: 0 | 10 | 20 | 60; label: string }[] = [
   { seconds: 10, label: "10s" },
