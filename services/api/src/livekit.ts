@@ -220,6 +220,22 @@ export async function isIdentityInRoom(roomName: string, identity: string) {
 }
 
 /**
+ * The room's metadata carries the live scene, so a viewer joining mid-stream
+ * draws the host's layout from their first frame (the data event only
+ * reaches whoever is already in). Best-effort, like sendRoomData.
+ */
+export async function setRoomScene(roomName: string, scene: unknown) {
+  try {
+    await roomService.updateRoomMetadata(roomName, JSON.stringify({ scene }));
+  } catch (error) {
+    const msg = String((error as Error)?.message ?? error);
+    if (!/not.?found|does not exist/i.test(msg)) {
+      console.error(`LiveKit updateRoomMetadata ${roomName} failed:`, msg);
+    }
+  }
+}
+
+/**
  * Server-side fan-out into a live room's data channel.
  *
  * Chat, tips and likes used to reach other viewers only via the *sender's*

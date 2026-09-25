@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
   createStreamBodySchema,
   listStreamsQuerySchema,
+  sceneBodySchema,
   streamIdParamsSchema,
   updateStreamBodySchema,
 } from "@xtreme/contracts";
@@ -10,7 +11,7 @@ import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { ensureUserIngress,
-  createToken } from "../livekit.js";
+  createToken, sendRoomData, setRoomScene } from "../livekit.js";
 import { Stream, User, type IStream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
 import {
@@ -265,9 +266,17 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         },
       );
 
-      const { scheduledStreamId, ...body } = request.body;
+      const { scheduledStreamId, scene, ...body } = request.body;
       const fields = {
         ...body,
+        // A fresh program every broadcast — a reused booking must not
+        // inherit last time's card.
+        scene: {
+          layout: scene?.layout ?? "auto",
+          card: scene?.card ?? null,
+          cardNote: scene?.cardNote ?? "",
+          version: scene ? 1 : 0,
+        },
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,
@@ -448,6 +457,53 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             : {}),
         },
       };
+    },
+  );
+
+  /**
+   * Set the program's scene — the layout, and any card over it. The host's
+   * call, while live. The version only goes up, and the scene reaches the
+   * room twice: as room metadata, which a viewer joining later reads on
+   * connect, and as a data event (`__evt: scene`), which everyone already
+   * in — WorldSpace clients included — hears at once.
+   */
+  app.put(
+    "/streams/:id/scene",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Set the live scene: layout and card",
+        params: streamIdParamsSchema,
+        body: sceneBodySchema,
+        security: [{ bearerAuth: [] }],
+      },
+      config: {
+        rateLimit: { max: 60, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id);
+      if (!stream) {
+        throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+      if (!stream.streamerId.equals(dbUser._id)) {
+        throw new ApiError(403, "Only the host changes the scene", "NOT_HOST");
+      }
+      if (!stream.isLive) {
+        throw new ApiError(409, "Go live first", "NOT_LIVE");
+      }
+      const scene = {
+        layout: request.body.layout,
+        card: request.body.card,
+        cardNote: request.body.cardNote,
+        version: (stream.scene?.version ?? 0) + 1,
+      };
+      stream.scene = scene;
+      await stream.save();
+      await setRoomScene(stream.livekitRoomName, scene);
+      void sendRoomData(stream.livekitRoomName, { __evt: "scene", scene });
+      return { success: true, data: { scene } };
     },
   );
 

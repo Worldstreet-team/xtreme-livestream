@@ -1,0 +1,155 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { sceneBodySchema } from "@xtreme/contracts";
+
+/**
+ * The scene engine's contract: the host sets the program's layout and card
+ * while live; the version only goes up; and the scene reaches the room both
+ * as metadata (for whoever joins later) and as a data event (for everyone
+ * already in).
+ */
+
+const HOST_ID = "a".repeat(24);
+const VIEWER_ID = "b".repeat(24);
+const STREAM_ID = "d".repeat(24);
+
+const id = (v: string) => ({ toString: () => v, equals: (o: unknown) => String(o) === v });
+
+const state = vi.hoisted(() => ({
+  caller: "" as string,
+  metadata: [] as Array<{ room: string; scene: unknown }>,
+  events: [] as Array<Record<string, unknown>>,
+}));
+
+let streamDoc: {
+  _id: ReturnType<typeof id>;
+  streamerId: ReturnType<typeof id>;
+  isLive: boolean;
+  livekitRoomName: string;
+  scene?: { layout: string; card: string | null; cardNote: string; version: number };
+  save: () => Promise<void>;
+};
+
+vi.mock("../src/auth.js", () => ({
+  authenticate: async () => ({ authUserId: "clerk_x", dbUser: { _id: { toString: () => state.caller } } }),
+  getOptionalAuthUserId: () => "clerk_x",
+}));
+
+vi.mock("../src/livekit.js", () => ({
+  roomService: { listParticipants: async () => [] },
+  ingressClient: {},
+  webhookReceiver: { receive: async () => ({ event: "ignored" }) },
+  createToken: async () => "token",
+  ensureUserIngress: async () => ({ ingressId: "", url: "", streamKey: "" }),
+  deleteIngress: async () => {},
+  isBroadcasterConnected: async () => true,
+  isIdentityInRoom: async () => false,
+  setParticipantPublishPermission: async () => {},
+  setRoomScene: async (room: string, scene: unknown) => {
+    state.metadata.push({ room, scene });
+  },
+  sendRoomData: async (_room: string, payload: Record<string, unknown>) => {
+    state.events.push(payload);
+  },
+}));
+
+vi.mock("../src/models.js", () => ({
+  Stream: {
+    findById: (lookup: unknown) => {
+      const doc = String(lookup) === STREAM_ID ? streamDoc : null;
+      return Object.assign(Promise.resolve(doc), { select: async () => doc });
+    },
+  },
+  User: {},
+  Follow: {},
+  ChatMessage: {},
+  StreamBan: { findOne: async () => null },
+  Report: {},
+  StreamLike: {},
+  GiftTransaction: {},
+}));
+
+describe("the scene contract", () => {
+  it("defaults to the automatic layout with no card", () => {
+    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "" });
+  });
+
+  it("refuses a layout it doesn't know and a note past 80 characters", () => {
+    expect(sceneBodySchema.safeParse({ layout: "mosaic" }).success).toBe(false);
+    expect(sceneBodySchema.safeParse({ card: "brb", cardNote: "x".repeat(81) }).success).toBe(false);
+  });
+});
+
+describe("PUT /streams/:id/scene", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    const { buildApp } = await import("../src/app.js");
+    app = await buildApp();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    streamDoc = {
+      _id: id(STREAM_ID),
+      streamerId: id(HOST_ID),
+      isLive: true,
+      livekitRoomName: "room-1",
+      scene: { layout: "auto", card: null, cardNote: "", version: 0 },
+      save: vi.fn(async () => {}),
+    };
+    state.caller = HOST_ID;
+    state.metadata.length = 0;
+    state.events.length = 0;
+  });
+
+  const put = (body: Record<string, unknown>) =>
+    app.inject({ method: "PUT", url: `/v1/streams/${STREAM_ID}/scene`, payload: body });
+
+  it("lets the host set the scene, bumps the version and tells the room both ways", async () => {
+    const response = await put({ layout: "screen-face" });
+
+    expect(response.statusCode).toBe(200);
+    const scene = { layout: "screen-face", card: null, cardNote: "", version: 1 };
+    expect(response.json().data.scene).toEqual(scene);
+    expect(streamDoc.scene).toEqual(scene);
+    expect(streamDoc.save).toHaveBeenCalledTimes(1);
+    expect(state.metadata).toEqual([{ room: "room-1", scene }]);
+    expect(state.events).toEqual([{ __evt: "scene", scene }]);
+  });
+
+  it("only ever moves the version forward", async () => {
+    await put({ card: "starting-soon", cardNote: "Kicking off at 8" });
+    const response = await put({ card: null });
+
+    expect(response.json().data.scene.version).toBe(2);
+    expect(response.json().data.scene.card).toBeNull();
+  });
+
+  it("refuses anyone but the host", async () => {
+    state.caller = VIEWER_ID;
+
+    const response = await put({ layout: "solo" });
+
+    expect(response.statusCode).toBe(403);
+    expect(state.metadata).toEqual([]);
+  });
+
+  it("refuses a stream that isn't live", async () => {
+    streamDoc.isLive = false;
+
+    const response = await put({ card: "brb" });
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("refuses a layout it doesn't know", async () => {
+    const response = await put({ layout: "mosaic" });
+
+    expect(response.statusCode).toBe(400);
+    expect(streamDoc.save).not.toHaveBeenCalled();
+  });
+});

@@ -49,7 +49,8 @@ import { apiFetch as discoveryFetch } from "@/lib/api-client";
 import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
-import { stageLayout } from "@/lib/stage-layout";
+import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
+import { DEFAULT_SCENE, guestsShown, newerScene, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
@@ -174,6 +175,8 @@ interface StreamData {
   pinnedMessage?: PinnedMessage | null;
   /** Set while the host's feed has dropped and the stream is holding for it. */
   feedDroppedAt?: string | null;
+  /** How the program is laid out: layout and card (see lib/scene.ts). */
+  scene?: Scene;
   streamerId: {
     _id: string;
     username: string;
@@ -235,6 +238,14 @@ export default function StreamPage({
    */
   const [hostTrackEpoch, setHostTrackEpoch] = useState(0);
   const videoTrackRef = useRef<AttachableVideoTrack | null>(null);
+  /**
+   * The host's two possible pictures. A shared screen takes the main
+   * picture, with the camera in the corner (the scene decides the rest);
+   * `videoTrackRef` is whichever of them is the main one.
+   */
+  const hostCameraRef = useRef<AttachableVideoTrack | null>(null);
+  const hostScreenRef = useRef<AttachableVideoTrack | null>(null);
+  const [hostFeeds, setHostFeeds] = useState({ camera: false, screen: false });
   /**
    * Concurrent watchers, derived from the room roster.
    *
@@ -645,7 +656,10 @@ export default function StreamPage({
             participant.identity === hostId ||
             participant.identity === `obs-${hostId}`
           ) {
-            videoTrackRef.current = track;
+            if ((track as { source?: string }).source === "screen_share") hostScreenRef.current = track;
+            else hostCameraRef.current = track;
+            videoTrackRef.current = hostScreenRef.current ?? hostCameraRef.current;
+            setHostFeeds({ camera: Boolean(hostCameraRef.current), screen: Boolean(hostScreenRef.current) });
             setHasVideo(true);
             setHostTrackEpoch((n) => n + 1);
           } else {
@@ -684,7 +698,12 @@ export default function StreamPage({
 
       room.on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
         if (!track) return;
-        track.detach().forEach((el) => el.remove());
+        // Only the audio elements are ours to remove (we made them). The
+        // video elements belong to React — removing them too left a host
+        // who reconnected, or a guest who republished, attached to a
+        // <video> no longer in the page: a black player until a reload.
+        const detached = track.detach();
+        if (track.kind === Track.Kind.Audio) detached.forEach((el) => el.remove());
         audioElsRef.current.delete(track);
         if (track.kind === Track.Kind.Video) {
           const hostId = streamerIdRef.current;
@@ -692,8 +711,13 @@ export default function StreamPage({
             participant.identity === hostId ||
             participant.identity === `obs-${hostId}`
           ) {
-            videoTrackRef.current = null;
-            setHasVideo(false);
+            if (hostScreenRef.current === track) hostScreenRef.current = null;
+            else if (hostCameraRef.current === track) hostCameraRef.current = null;
+            else hostCameraRef.current = hostScreenRef.current = null;
+            videoTrackRef.current = hostScreenRef.current ?? hostCameraRef.current;
+            setHostFeeds({ camera: Boolean(hostCameraRef.current), screen: Boolean(hostScreenRef.current) });
+            setHasVideo(Boolean(videoTrackRef.current));
+            setHostTrackEpoch((n) => n + 1);
           } else {
             guestTracksRef.current.delete(participant.identity);
             setGuestVideos((prev) =>
@@ -720,6 +744,9 @@ export default function StreamPage({
         setConnected(false);
         setHasVideo(false);
         videoTrackRef.current = null;
+        hostCameraRef.current = null;
+        hostScreenRef.current = null;
+        setHostFeeds({ camera: false, screen: false });
         audioElsRef.current.forEach((el) => el.remove());
         audioElsRef.current.clear();
         guestTracksRef.current.clear();
@@ -777,6 +804,12 @@ export default function StreamPage({
             state?: string;
             graceMs?: number;
           };
+          // The host changed the scene: the newer version wins.
+          if (data.__evt === "scene") {
+            const next = readScene((data as { scene?: unknown }).scene);
+            setStream((prev) => (prev ? { ...prev, scene: newerScene(prev.scene, next) } : prev));
+            return;
+          }
           // The host's feed dropped or came back — the API decides, the
           // player shows "Be right back" while it's away.
           if (data.__evt === "feed") {
@@ -929,8 +962,19 @@ export default function StreamPage({
         }
       });
 
+      // The scene rides on the room's metadata: whoever joins mid-stream
+      // draws the host's layout from the first frame.
+      room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
+        const next = sceneFromMetadata(metadata);
+        setStream((prev) => (prev ? { ...prev, scene: newerScene(prev.scene, next) } : prev));
+      });
+
       await room.connect(res.data.livekitUrl, res.data.token);
       roomRef.current = room;
+      {
+        const joined = sceneFromMetadata(room.metadata);
+        if (joined) setStream((prev) => (prev ? { ...prev, scene: newerScene(prev.scene, joined) } : prev));
+      }
       setConnected(true);
       setRejoining(false);
       setPlayingElsewhere(false);
@@ -1928,56 +1972,49 @@ export default function StreamPage({
 
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
-    const stageCount =
-      1 +
-      guestVideos.length +
-      (stageState === "live" && localStageTrack ? 1 : 0);
-    // Split along the screen's long axis — rows while upright, columns once
-    // the phone is turned. See lib/stage-layout.ts.
-    const layout = stageLayout(stageCount, portraitScreen);
+    const scene = stream.scene ?? DEFAULT_SCENE;
+    const others: SceneCell[] = [
+      ...guestVideos.map((g) => ({
+        key: g.identity,
+        node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
+      })),
+      ...(stageState === "live" && localStageTrack
+        ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
+        : []),
+    ];
+    const sharing = guestsShown(scene.layout, others.length) > 0;
     return (
       <div className="fixed inset-0 z-[60] bg-black">
-        {/* Stage — full-bleed, orientation-aware */}
-        <div className={cn("absolute inset-0 grid gap-px", layout.container)}>
-          <div className={cn("relative overflow-hidden", layout.hostCell)}>
-            <video
-              ref={videoElRef}
-              autoPlay
-              playsInline
-              className={cn(
-                "size-full",
-                // Portrait phones fill the frame; landscape feeds letterbox
-                // rather than cropping half the scene away.
-                stageCount > 1 || feedPortrait
-                  ? "object-cover"
-                  : "object-contain"
-              )}
-            />
-            {stageCount > 1 && (
-              <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
-                <span className="block truncate text-xs font-semibold text-white">
-                  {hostName}
-                </span>
-              </div>
-            )}
-          </div>
-          {guestVideos.map((g) => (
-            <StageTile
-              key={g.identity}
-              fill
-              track={guestTracksRef.current.get(g.identity)}
-              label={g.name}
-            />
-          ))}
-          {stageState === "live" && localStageTrack && (
-            <StageTile
-              fill
-              track={localStageTrack}
-              label="You"
-              self
-              micOn={stageMicOn}
-            />
-          )}
+        {/* The program, drawn from the scene — full-bleed, and split along
+            the screen's long axis: rows while upright, columns once the
+            phone is turned (lib/stage-layout.ts). */}
+        <div className="absolute inset-0">
+          <SceneRenderer
+            scene={scene}
+            portrait={portraitScreen}
+            host={{ name: hostName, avatar: streamer.avatar }}
+            mainLabel={hostName}
+            main={
+              <video
+                ref={videoElRef}
+                autoPlay
+                playsInline
+                className={cn(
+                  "size-full",
+                  // Portrait phones fill the frame; landscape feeds and a
+                  // shared screen letterbox rather than lose their edges.
+                  sharing || (feedPortrait && !hostFeeds.screen) ? "object-cover" : "object-contain"
+                )}
+              />
+            }
+            pip={
+              hostFeeds.screen && hostFeeds.camera ? (
+                <StageTile fill track={hostCameraRef.current ?? undefined} label={hostName} />
+              ) : undefined
+            }
+            pipClassName="top-[132px] right-3"
+            guests={others}
+          />
         </div>
 
         {/* Light falls off at the bottom, so the chat lane reads on any picture. */}
@@ -2352,82 +2389,76 @@ export default function StreamPage({
                 own picture — 150px before the first frame — and the controls
                 pinned to its bottom float halfway up the player. */}
             <div className="relative h-full min-w-0 flex-1">
-            {/* Stage grid — the player splits as people join the live:
-                1 = full frame, 2 = side by side, 3 = host tall + two
-                stacked, 4 = 2×2. The host cell keeps its element across
-                layout changes so the track never re-attaches. */}
+            {/* The program, drawn from the scene: the host — their screen
+                when they share one, camera in the corner — the guests and a
+                battle's other side as the layout allows, and any card over
+                the lot. The main video element keeps its place across
+                layout changes, so the track never re-attaches. */}
             {(() => {
-              // In a battle the opponent's room takes the second tile — a
-              // muted preview of their broadcast, side by side with this one.
-              const opponentStreamId =
+              const opponent =
                 battle && isBattleActive(battle)
                   ? sideOf(battle, id) === "host"
-                    ? battle.challenger.streamId
-                    : battle.host.streamId
+                    ? battle.challenger
+                    : battle.host
                   : null;
-              const stageCount =
-                1 +
-                guestVideos.length +
-                (opponentStreamId ? 1 : 0) +
-                (stageState === "live" && localStageTrack ? 1 : 0);
-              // The desktop player is always wider than it is tall.
-              const layout = stageLayout(stageCount, false);
+              const scene = stream.scene ?? DEFAULT_SCENE;
+              const others: SceneCell[] = [
+                ...(opponent
+                  ? [
+                      {
+                        key: "opponent",
+                        node: (
+                          <div className="relative size-full bg-black">
+                            <LivePreview
+                              streamId={opponent.streamId}
+                              className="absolute inset-0"
+                              poster={<div className="absolute inset-0 bg-black" />}
+                              fallbackSrc={null}
+                            />
+                            <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
+                              <span className="block truncate text-xs font-semibold text-white">
+                                {opponent.displayName}
+                                <span className="font-medium text-white/60"> · muted</span>
+                              </span>
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...guestVideos.map((g) => ({
+                  key: g.identity,
+                  node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
+                })),
+                ...(stageState === "live" && localStageTrack
+                  ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
+                  : []),
+              ];
+              const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
               return (
-                <div className={cn("grid size-full gap-px", layout.container)}>
-                  <div
-                    className={cn("relative overflow-hidden", layout.hostCell)}
-                  >
+                <SceneRenderer
+                  scene={scene}
+                  // The desktop player is always wider than it is tall.
+                  portrait={false}
+                  forceAuto={Boolean(opponent)}
+                  host={{ name: hostName, avatar: streamer.avatar }}
+                  mainLabel={hostName}
+                  main={
                     <video
                       ref={videoElRef}
                       autoPlay
                       playsInline
-                      className={cn(
-                        "size-full",
-                        stageCount > 1 ? "object-cover" : "object-contain"
-                      )}
+                      className={cn("size-full", sharing ? "object-cover" : "object-contain")}
                     />
-                    {stageCount > 1 && (
-                      <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
-                        <span className="block truncate text-xs font-semibold text-white">
-                          {hostName}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {opponentStreamId && battle && (
-                    <div className="relative overflow-hidden bg-black">
-                      <LivePreview
-                        streamId={opponentStreamId}
-                        className="absolute inset-0"
-                        poster={<div className="absolute inset-0 bg-black" />}
-                        fallbackSrc={null}
-                      />
-                      <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
-                        <span className="block truncate text-xs font-semibold text-white">
-                          {(sideOf(battle, id) === "host" ? battle.challenger : battle.host).displayName}
-                          <span className="font-medium text-white/60"> · muted</span>
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {guestVideos.map((g) => (
-                    <StageTile
-                      key={g.identity}
-                      fill
-                      track={guestTracksRef.current.get(g.identity)}
-                      label={g.name}
-                    />
-                  ))}
-                  {stageState === "live" && localStageTrack && (
-                    <StageTile
-                      fill
-                      track={localStageTrack}
-                      label="You"
-                      self
-                      micOn={stageMicOn}
-                    />
-                  )}
-                </div>
+                  }
+                  pip={
+                    hostFeeds.screen && hostFeeds.camera ? (
+                      <StageTile fill track={hostCameraRef.current ?? undefined} label={hostName} />
+                    ) : undefined
+                  }
+                  pipClassName="top-14 right-3"
+                  guests={others}
+                />
               );
             })()}
 

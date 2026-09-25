@@ -171,6 +171,17 @@ export interface IStream extends Document {
   notifyFollowers?: boolean;
   /** Cross-post this broadcast to the WorldSpace feed. Off by default. */
   postToWorldSpace?: boolean;
+  /**
+   * How the program is laid out right now — see `sceneBodySchema` in
+   * @xtreme/contracts. The version only goes up, so clients hearing the
+   * room metadata and the data event in either order keep the newer one.
+   */
+  scene?: {
+    layout: string;
+    card: string | null;
+    cardNote: string;
+    version: number;
+  };
   viewers: number;
   peakViewers: number;
   /**
@@ -250,6 +261,13 @@ const streamSchema = new Schema<IStream>(
     feedDroppedAt: { type: Date, default: null },
     notifyFollowers: { type: Boolean, default: true },
     postToWorldSpace: { type: Boolean, default: false },
+    scene: {
+      _id: false,
+      layout: { type: String, enum: ["auto", "solo", "split", "trio", "grid", "screen-face"], default: "auto" },
+      card: { type: String, enum: ["starting-soon", "brb", "ending", null], default: null },
+      cardNote: { type: String, default: "", maxlength: 80 },
+      version: { type: Number, default: 0, min: 0 },
+    },
     viewers: { type: Number, default: 0, min: 0 },
     peakViewers: { type: Number, default: 0, min: 0 },
     viewerSeconds: { type: Number, default: 0, min: 0 },

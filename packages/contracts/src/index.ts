@@ -153,6 +153,32 @@ export const searchUsersQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(8),
 });
 
+/**
+ * Scenes (Phase 2, the scene engine): how the program is laid out, as data
+ * every screen draws the same way — the watch page, the studio preview and,
+ * once recording lands, the egress template.
+ *
+ * - layout: `auto` splits by who's on (the behaviour before scenes);
+ *   `solo` is the host alone; `split`, `trio` and `grid` bring in one,
+ *   two or three guests; `screen-face` puts the shared screen up with the
+ *   host's camera in the corner.
+ * - card: a full-frame card over the program — Starting soon, Be right
+ *   back, or Thanks for watching — with an optional line from the host.
+ */
+export const SCENE_LAYOUTS = ["auto", "solo", "split", "trio", "grid", "screen-face"] as const;
+export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
+
+export const sceneBodySchema = z.object({
+  layout: z.enum(SCENE_LAYOUTS).default("auto"),
+  card: z.enum(SCENE_CARDS).nullable().default(null),
+  cardNote: z.string().trim().max(80).default(""),
+});
+
+export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
+export type SceneCard = (typeof SCENE_CARDS)[number];
+/** The scene as stored and broadcast: the body plus a version that only goes up. */
+export type Scene = z.infer<typeof sceneBodySchema> & { version: number };
+
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,
@@ -172,10 +198,13 @@ export const createStreamBodySchema = z.object({
    * the upcoming card, its reminders and its URL become the live broadcast.
    */
   scheduledStreamId: objectIdSchema.optional(),
+  /** Go live with this scene already up — "Starting soon", say — so the
+   *  first frame anyone sees is the card, not the camera finding its feet. */
+  scene: sceneBodySchema.optional(),
 });
 
 export const updateStreamBodySchema = createStreamBodySchema
-  .omit({ scheduledStreamId: true })
+  .omit({ scheduledStreamId: true, scene: true })
   .partial()
   .refine((body) => Object.keys(body).length > 0, {
     message: "At least one field is required",
@@ -183,6 +212,7 @@ export const updateStreamBodySchema = createStreamBodySchema
 
 /** How far ahead a stream can be booked. */
 export const SCHEDULE_HORIZON_MS = 365 * 24 * 60 * 60_000;
+
 
 export const scheduleStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),

@@ -36,6 +36,7 @@ import {
   Sparkle,
   DotsThree,
   CellSignalLow,
+  LayoutIcon,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -54,7 +55,8 @@ import { GamesPanel } from "@/components/app/games-panel";
 import { LivePreview } from "@/components/app/live-preview";
 import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
-import { stageLayout } from "@/lib/stage-layout";
+import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
+import { CARDS, DEFAULT_SCENE, LAYOUTS, sceneFromMetadata, type Scene, type SceneLayout } from "@/lib/scene";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -76,7 +78,7 @@ type SourceType = "camera" | "screen" | "obs";
 type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
-type Panel = "chat" | "stage" | "viewers" | "stats" | "battle" | "games" | "more";
+type Panel = "chat" | "stage" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -94,6 +96,43 @@ interface StageUser {
 }
 
 /** 720p either way round — the same pixels, turned to match the shape. */
+/** A layout drawn small: where the people go, the way the scene will place them. */
+function LayoutThumb({ layout }: { layout: SceneLayout }) {
+  const cell = "rounded-[3px] bg-current opacity-35";
+  return (
+    <span aria-hidden className="relative block aspect-video w-full overflow-hidden rounded-[6px] bg-current/[0.08] p-[3px]">
+      {layout === "auto" ? (
+        <span className="flex size-full items-center justify-center font-mono text-[10px] font-bold opacity-70">AUTO</span>
+      ) : layout === "solo" ? (
+        <span className={cn("block size-full", cell)} />
+      ) : layout === "split" ? (
+        <span className="grid size-full grid-cols-2 gap-[3px]">
+          <span className={cell} />
+          <span className={cell} />
+        </span>
+      ) : layout === "trio" ? (
+        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
+          <span className={cn("row-span-2", cell)} />
+          <span className={cell} />
+          <span className={cell} />
+        </span>
+      ) : layout === "grid" ? (
+        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
+          <span className={cell} />
+          <span className={cell} />
+          <span className={cell} />
+          <span className={cell} />
+        </span>
+      ) : (
+        <span className="relative block size-full">
+          <span className={cn("absolute inset-0", cell)} />
+          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
+        </span>
+      )}
+    </span>
+  );
+}
+
 function captureResolution(o: Orientation) {
   return o === "portrait"
     ? { width: 720, height: 1280, frameRate: 30 }
@@ -180,6 +219,16 @@ export default function StudioPage() {
   const [conn, setConn] = useState<"live" | "reconnecting" | "rejoining">("live");
   /** A screen share can't restart without a click — browsers insist on one. */
   const [needsReshare, setNeedsReshare] = useState(false);
+
+  // ---- Scenes ----
+  /** The program's scene as the room sees it: layout and card. */
+  const [scene, setScene] = useState<Scene>(DEFAULT_SCENE);
+  /** A line under the card, the host's own words. */
+  const [cardNote, setCardNote] = useState("");
+  /** Go live on "Starting soon" rather than straight into the camera. */
+  const [openOnCard, setOpenOnCard] = useState(false);
+  /** The screen being shared alongside the camera — the preview's main picture while it is. */
+  const [localScreen, setLocalScreen] = useState<LocalVideoTrack | null>(null);
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
   /** The live session's facts, for room events and timers that outlive a render. */
   const liveRef = useRef({ streamId: null as string | null, source: "camera" as SourceType, title: "", micEnabled: true, camEnabled: true });
@@ -881,9 +930,27 @@ export default function StudioPage() {
       onRoomGoneRef.current(reason, DisconnectReason);
     });
 
+    // The scene rides on the room's metadata — the same one viewers read.
+    room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
+      if (roomRef.current !== room) return;
+      const next = sceneFromMetadata(metadata);
+      if (next) setScene((cur) => (next.version >= cur.version ? next : cur));
+    });
+    // Sharing stopped from the browser's own bar: the preview goes back to the camera.
+    room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        setScreenShareActive(false);
+        setLocalScreen(null);
+      }
+    });
+
     await room.connect(livekitUrl, livekitToken);
     roomRef.current = room;
     setLiveRoom(room);
+    {
+      const joined = sceneFromMetadata(room.metadata);
+      if (joined) setScene(joined);
+    }
 
     // Publish camera/screen + audio — unless OBS is the source, in which
     // case the encoder publishes and this tab only watches. A rejoin puts
@@ -980,6 +1047,7 @@ export default function StudioPage() {
             thumbnail,
             source: src,
             postToWorldSpace,
+            ...(openOnCard ? { scene: { layout: "auto", card: "starting-soon", cardNote: cardNote.trim() } } : {}),
             ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
           }),
         });
@@ -999,6 +1067,15 @@ export default function StudioPage() {
       // Step 3: into the room, feed published.
       await joinRoom(livekitUrl, livekitToken, src);
 
+      // A fresh broadcast starts on the scene it asked for; a resume reads
+      // the room's own (joinRoom picked it up from the metadata).
+      if (!resume) {
+        setScene(
+          openOnCard
+            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), version: 1 }
+            : DEFAULT_SCENE
+        );
+      }
       setConn("live");
       setIsLive(true);
       setPanel("chat");
@@ -1069,6 +1146,8 @@ export default function StudioPage() {
     stopRejoin();
     setConn("live");
     setNeedsReshare(false);
+    setScene(DEFAULT_SCENE);
+    setLocalScreen(null);
     videoTrackRef.current = null;
     audioTrackRef.current = null;
     setIsLive(false);
@@ -1133,9 +1212,13 @@ export default function StudioPage() {
       if (screenShareActive) {
         await roomRef.current.localParticipant.setScreenShareEnabled(false);
         setScreenShareActive(false);
+        setLocalScreen(null);
       } else {
-        await roomRef.current.localParticipant.setScreenShareEnabled(true);
+        const pub = await roomRef.current.localParticipant.setScreenShareEnabled(true);
         setScreenShareActive(true);
+        // Beside a camera, the screen takes the preview's main picture —
+        // what viewers see — with the camera in the corner.
+        if (source === "camera" && pub?.track) setLocalScreen(pub.track as LocalVideoTrack);
       }
     } catch {
       // User cancelled screen share picker — that's fine
@@ -1674,8 +1757,25 @@ export default function StudioPage() {
         ? battle.challenger.streamId
         : battle.host.streamId
       : null;
-  const stageCount = 1 + guestTiles.length + (opponentStreamId ? 1 : 0);
-  const layout = stageLayout(stageCount, orientation === "portrait");
+  // The others on stage, in the order the scene brings them in.
+  const stageOthers: SceneCell[] = [
+    ...(opponentStreamId && battle && streamId
+      ? [
+          {
+            key: "opponent",
+            node: (
+              <div className="relative size-full bg-black">
+                <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+                <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
+                  {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
+                </span>
+              </div>
+            ),
+          },
+        ]
+      : []),
+    ...guestTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
+  ];
   const idle = !isLive && (source !== "camera" || !previewTrack);
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
 
@@ -1965,6 +2065,16 @@ export default function StudioPage() {
         </div>
       )}
 
+      {/* Open on a card: the first frame anyone sees is "Starting soon". */}
+      <div className="border-t border-white/[0.06] pt-3">
+        <SwitchField
+          label="Open on “Starting soon”"
+          description={openOnCard ? "Viewers see the card first. Take it down from Scenes when you're ready." : "Viewers see your picture the moment you go live."}
+          checked={openOnCard}
+          onCheckedChange={setOpenOnCard}
+        />
+      </div>
+
       {/* Where it goes — the same switch as Settings and Schedule. */}
       <div className="border-t border-white/[0.06] pt-3">
         <SwitchField
@@ -2000,6 +2110,7 @@ export default function StudioPage() {
   const roomTabs: CapsuleTab<Panel>[] = [
     { id: "chat", label: "Chat", icon: ChatText },
     { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length },
+    { id: "scenes", label: "Scenes", icon: LayoutIcon },
     { id: "battle", label: "Battle", icon: Sword },
     { id: "games", label: "Games", icon: Sparkle },
     { id: "more", label: "More", icon: DotsThree },
@@ -2013,7 +2124,7 @@ export default function StudioPage() {
         aria-pressed={on}
         className={cn(
           "press flex h-9 min-w-0 items-center gap-2 rounded-full px-3.5 text-[13px] font-semibold transition-colors",
-          on ? "bg-white text-[#0b0708] shadow-[0_6px_18px_-8px_rgba(255,255,255,0.55)]" : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]",
+          on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]",
         )}
       >
         {icon}
@@ -2123,6 +2234,118 @@ export default function StudioPage() {
     </div>
   );
 
+  /**
+   * Change the scene. Shown at once here, then saved and broadcast by the
+   * API (room metadata + an `__evt: scene`); a refusal puts it back.
+   */
+  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote">>) => {
+    if (!streamId) return;
+    const before = scene;
+    const next = { ...scene, ...patch, version: scene.version + 1 };
+    setScene(next);
+    try {
+      const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
+        method: "PUT",
+        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote }),
+      });
+      setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
+    } catch (err) {
+      setScene(before);
+      setError(err instanceof Error ? err.message : "Couldn't change the scene");
+    }
+  };
+
+  // Sharing a screen beside the camera: the screen takes the preview's main
+  // picture (what viewers see) and the camera moves to the corner; when the
+  // share stops, the camera comes back.
+  useEffect(() => {
+    const el = videoElRef.current;
+    if (!el || !isLive || source !== "camera") return;
+    const track = localScreen ?? videoTrackRef.current;
+    track?.attach(el);
+  }, [localScreen, isLive, source]);
+
+  const scenesPanel = (
+    <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
+      <section aria-labelledby="scenes-layout">
+        <p id="scenes-layout" className={SETUP_LABEL}>Layout</p>
+        <div className="mt-2.5 grid grid-cols-3 gap-2">
+          {LAYOUTS.map((l) => {
+            const on = scene.layout === l.id;
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => void applyScene({ layout: l.id })}
+                aria-pressed={on}
+                title={l.hint}
+                className={cn(
+                  "press flex flex-col items-stretch gap-2 rounded-[12px] p-2 text-[12px] font-semibold transition-colors",
+                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.05] text-foreground/85 hover:bg-white/[0.08]"
+                )}
+              >
+                <LayoutThumb layout={l.id} />
+                <span className="truncate text-center">{l.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
+          {LAYOUTS.find((l) => l.id === scene.layout)?.hint}.{" "}
+          {battle ? "A battle keeps its split until it ends." : "Viewers see the change at once."}
+        </p>
+      </section>
+
+      <section aria-labelledby="scenes-cards">
+        <p id="scenes-cards" className={SETUP_LABEL}>Cards</p>
+        <div className="mt-2.5 flex flex-col gap-2">
+          {CARDS.map((c) => {
+            const on = scene.card === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => void applyScene({ card: on ? null : c.id, cardNote: cardNote.trim() })}
+                aria-pressed={on}
+                className={cn(
+                  "press flex items-center justify-between gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors",
+                  on ? "bg-ember text-on-ember" : "bg-white/[0.05] text-foreground hover:bg-white/[0.08]"
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-semibold">{c.title}</span>
+                  <span className={cn("mt-0.5 block text-[12px] leading-snug", on ? "text-on-ember/75" : "text-muted-foreground")}>
+                    {on ? "On screen now — tap to take it down" : c.body}
+                  </span>
+                </span>
+                <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", on ? "bg-on-ember/[0.14]" : "bg-white/[0.08]")}>
+                  {on ? "Showing" : "Show"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <label className="mt-3 block">
+          <span className="sr-only">A line under the card</span>
+          <input
+            value={cardNote}
+            onChange={(e) => setCardNote(e.target.value)}
+            onBlur={() => {
+              // A card already up takes the new line.
+              if (scene.card && cardNote.trim() !== scene.cardNote) void applyScene({ cardNote: cardNote.trim() });
+            }}
+            maxLength={80}
+            placeholder="Add a line under the card (optional)"
+            className="h-10 w-full rounded-full bg-white/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-white/[0.09]"
+          />
+        </label>
+        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
+          A card covers the picture; the room still hears you.
+        </p>
+      </section>
+    </div>
+  );
+
   const viewersPanel = (
     <div className="px-4 pt-3 pb-4">
       {connectedViewers.length === 0 ? (
@@ -2199,6 +2422,7 @@ export default function StudioPage() {
       <div className={cn("min-h-0 flex-1", panel !== "stage" && "hidden")}>
         <div className="h-full overflow-y-auto">{stagePanel}</div>
       </div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "scenes" && "hidden")}>{scenesPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "viewers" && "hidden")}>{viewersPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "stats" && "hidden")}>{statsPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "battle" && "hidden")}>
@@ -2285,31 +2509,30 @@ export default function StudioPage() {
                 : "aspect-video w-[min(100cqw,calc(100cqh*16/9))]",
             )}
           >
-            <div className={cn("grid size-full gap-px", layout.container)}>
-              <div className={cn("relative overflow-hidden", layout.hostCell)}>
+            {/* What viewers see, drawn by the same renderer: the layout, a
+                shared screen with the camera in the corner, and any card. */}
+            <SceneRenderer
+              scene={scene}
+              portrait={orientation === "portrait"}
+              forceAuto={Boolean(opponentStreamId)}
+              host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
+              mainLabel="You"
+              main={
                 <video
                   ref={videoElRef}
                   autoPlay
                   muted
                   playsInline
-                  className={cn("size-full object-cover", source === "camera" && facing === "user" && "-scale-x-100")}
+                  className={cn(
+                    "size-full",
+                    localScreen || source === "screen" ? "object-contain" : "object-cover",
+                    source === "camera" && facing === "user" && !localScreen && "-scale-x-100"
+                  )}
                 />
-                {stageCount > 1 && (
-                  <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">You</span>
-                )}
-              </div>
-              {opponentStreamId && battle && streamId && (
-                <div className="relative overflow-hidden bg-black">
-                  <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-                  <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">
-                    {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
-                  </span>
-                </div>
-              )}
-              {guestTiles.map((t) => (
-                <StageTile key={t.identity} fill track={guestTracksRef.current.get(t.identity)} label={t.name} />
-              ))}
-            </div>
+              }
+              pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
+              guests={stageOthers}
+            />
           </div>
         </div>
 

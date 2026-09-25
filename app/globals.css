@@ -167,6 +167,16 @@
   }
 }
 
+/* A scene card's bars: the frame keeps moving, so it never reads as frozen. */
+@keyframes scene-bars {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
 /* The flat gift banner: in from the left, out the same way. */
 @keyframes gift-slide-in {
   from {

@@ -70,7 +70,7 @@ export function CapsuleTabs<T extends string>({
       {!expanding && thumb && (
         <span
           aria-hidden
-          className="absolute top-1 bottom-1 rounded-full bg-white shadow-[0_6px_18px_-8px_rgba(255,255,255,0.55)] transition-[left,width] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none"
+          className="absolute top-1 bottom-1 rounded-full bg-white transition-[left,width] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none"
           style={{ left: thumb.left, width: thumb.width }}
         />
       )}
@@ -91,7 +91,7 @@ export function CapsuleTabs<T extends string>({
               expanding
                 ? cn(
                     "transition-[flex-grow,background-color,color,box-shadow] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none",
-                    on ? "flex-[2.6] gap-2 bg-white px-3.5 text-[#0b0708] shadow-[0_6px_18px_-8px_rgba(255,255,255,0.55)]" : "flex-1 text-white/55 hover:bg-white/[0.07] hover:text-white",
+                    on ? "flex-[2.6] gap-2 bg-white px-3.5 text-[#0b0708]" : "flex-1 text-white/55 hover:bg-white/[0.07] hover:text-white",
                   )
                 : cn("flex-1 px-4 transition-colors duration-200", on ? "text-[#0b0708]" : "text-white/60 hover:text-white"),
             )}
