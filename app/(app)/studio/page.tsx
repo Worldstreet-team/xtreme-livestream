@@ -60,7 +60,10 @@ import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-grap
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import {
   CARDS,
+  CHART_INTERVAL_LABELS,
+  CHART_MARKETS,
   DEFAULT_BRAND,
+  DEFAULT_CHART,
   DEFAULT_SCENE,
   LAYOUTS,
   newerScene,
@@ -69,7 +72,9 @@ import {
   readScene,
   sceneFromMetadata,
   type Brand,
+  type ChartInterval,
   type Scene,
+  type SceneChart,
   type SceneLayout,
   type SuggestedLine,
 } from "@/lib/scene";
@@ -139,6 +144,14 @@ function LayoutThumb({ layout }: { layout: SceneLayout }) {
           <span className={cell} />
           <span className={cell} />
         </span>
+      ) : layout === "chart-face" ? (
+        // A little rising chart, the face in the corner.
+        <span className="relative block size-full">
+          <svg viewBox="0 0 40 22" preserveAspectRatio="none" className="absolute inset-0 size-full opacity-60">
+            <polyline points="1,18 8,15 14,16 20,10 26,12 32,6 39,8" fill="none" stroke="currentColor" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+          </svg>
+          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
+        </span>
       ) : (
         <span className="relative block size-full">
           <span className={cn("absolute inset-0", cell)} />
@@ -146,6 +159,80 @@ function LayoutThumb({ layout }: { layout: SceneLayout }) {
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * Chart + face's market: the usual ones a tap away, any other pair typed
+ * ("ADA-USD"), and the candle size. Changes go straight to the room.
+ */
+function MarketPicker({ chart, onChart }: { chart: SceneChart; onChart: (chart: SceneChart) => void }) {
+  const [draft, setDraft] = useState("");
+  const typed = draft.trim().toUpperCase();
+  const valid = /^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(typed);
+  return (
+    <div className="mt-3 rounded-[12px] bg-white/[0.04] p-3">
+      <p className="text-[12.5px] font-semibold">Market</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {CHART_MARKETS.map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={chart.symbol === m}
+            onClick={() => chart.symbol !== m && onChart({ ...chart, symbol: m })}
+            className={cn(
+              "press h-8 rounded-full px-3 font-mono text-[11.5px] font-semibold transition-colors",
+              chart.symbol === m ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+            )}
+          >
+            {m.replace("-", "/")}
+          </button>
+        ))}
+      </div>
+      <form
+        className="mt-2 flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!valid) return;
+          onChart({ ...chart, symbol: typed });
+          setDraft("");
+        }}
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={CHART_MARKETS.includes(chart.symbol as (typeof CHART_MARKETS)[number]) ? "Another pair, like ADA-USD" : chart.symbol}
+          aria-label="Another market"
+          maxLength={15}
+          className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-white/[0.09]"
+        />
+        <button
+          type="submit"
+          disabled={!valid}
+          className="press h-9 shrink-0 rounded-full bg-white px-3.5 text-[12px] font-bold text-[#0b0708] disabled:opacity-40"
+        >
+          Chart it
+        </button>
+      </form>
+      <div role="radiogroup" aria-label="Candle size" className="mt-3 flex items-center gap-1.5">
+        <span className="mr-1 text-[12px] text-muted-foreground">Candles</span>
+        {(Object.keys(CHART_INTERVAL_LABELS) as ChartInterval[]).map((iv) => (
+          <button
+            key={iv}
+            type="button"
+            role="radio"
+            aria-checked={chart.interval === iv}
+            onClick={() => chart.interval !== iv && onChart({ ...chart, interval: iv })}
+            className={cn(
+              "press h-7 rounded-full px-2.5 font-mono text-[11.5px] font-semibold transition-colors",
+              chart.interval === iv ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+            )}
+          >
+            {CHART_INTERVAL_LABELS[iv]}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1105,7 +1192,7 @@ export default function StudioPage() {
       if (!resume) {
         setScene(
           openOnCard
-            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), layers: [], version: 1 }
+            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), chart: null, layers: [], version: 1 }
             : DEFAULT_SCENE
         );
       }
@@ -2276,7 +2363,7 @@ export default function StudioPage() {
    * Change the scene. Shown at once here, then saved and broadcast by the
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
-  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers">>) => {
+  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart">>) => {
     if (!streamId) return;
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
@@ -2285,7 +2372,7 @@ export default function StudioPage() {
       const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
         method: "PUT",
         // The whole scene every time: what's left out goes back to its default.
-        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, layers: next.layers }),
+        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, chart: next.chart ?? null, layers: next.layers }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
     } catch (err) {
@@ -2423,7 +2510,7 @@ export default function StudioPage() {
               <button
                 key={l.id}
                 type="button"
-                onClick={() => void applyScene({ layout: l.id })}
+                onClick={() => void applyScene(l.id === "chart-face" && !scene.chart ? { layout: l.id, chart: DEFAULT_CHART } : { layout: l.id })}
                 aria-pressed={on}
                 title={l.hint}
                 className={cn(
@@ -2441,6 +2528,9 @@ export default function StudioPage() {
           {LAYOUTS.find((l) => l.id === scene.layout)?.hint}.{" "}
           {battle ? "A battle keeps its split until it ends." : "Viewers see the change at once."}
         </p>
+        {scene.layout === "chart-face" && (
+          <MarketPicker chart={scene.chart ?? DEFAULT_CHART} onChart={(chart) => void applyScene({ chart })} />
+        )}
       </section>
 
       <section aria-labelledby="scenes-cards">

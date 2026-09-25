@@ -8,11 +8,13 @@ import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { QrCode } from "@/components/app/qr-code";
+import { MarketChart } from "@/components/app/market-chart";
 import {
   ACCENTS,
   BRAND_FONT_CLASS,
   CARDS,
   DEFAULT_BRAND,
+  DEFAULT_CHART,
   featuredDeadline,
   formatCountdown,
   guestsShown,
@@ -89,16 +91,46 @@ export function SceneRenderer({
   const layout = forceAuto ? "auto" : scene.layout;
   const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
   const grid = stageLayout(1 + shown.length, portrait);
-  const showPip = Boolean(pip) && shown.length === 0 && layout !== "solo";
+  // Chart + face: the chart has the frame and the host's face the corner.
+  const chartMode = layout === "chart-face";
+  const showPip = Boolean(pip) && shown.length === 0 && layout !== "solo" && !chartMode;
+  // A logo up top lands top-left in chart mode (the camera has the right), so the chart's header steps down.
+  const logoTop = Boolean(brand.logoUrl && layerOf(scene.layers, "logo")?.corner.startsWith("top"));
 
   return (
     // Isolated: the program — picture, card, graphics — is one layer, and
     // whatever the surface draws after it (its controls, its status
     // screens, gifts) sits on top.
     <div className="@container relative isolate size-full">
+      {chartMode && (
+        // The chart keeps to the part of the frame the surface leaves clear —
+        // under a phone's header and above its chat — like the graphics do.
+        <div
+          className="absolute inset-x-0 bg-[#0b0708] transition-[top,bottom] duration-300 ease-out"
+          style={{ top: insets?.top ?? 0, bottom: insets?.bottom ?? 0 }}
+        >
+          <MarketChart chart={scene.chart ?? DEFAULT_CHART} accent={ACCENTS[brand.accent]} headerLow={logoTop} maxCandles={portrait ? 45 : 90} />
+        </div>
+      )}
       <div className={cn("grid size-full gap-px", grid.container)}>
-        <div className={cn("relative overflow-hidden", grid.hostCell)}>
-          {main}
+        {/* In chart mode this same cell becomes the corner camera — restyled,
+            not moved, so the host's video element is never remounted. */}
+        <div
+          className={cn(
+            "relative overflow-hidden",
+            chartMode
+              ? cn(
+                  "absolute z-10 aspect-video rounded-[12px] bg-black [&_video]:object-cover",
+                  portrait ? "w-[40%]" : "w-[30%]",
+                  pipClassName ?? "top-3 right-3"
+                )
+              : grid.hostCell
+          )}
+        >
+          {/* Sharing a screen in chart mode: the face is the camera, so the
+              screen stays attached but out of sight. */}
+          <div className={cn("size-full", chartMode && pip && "invisible")}>{main}</div>
+          {chartMode && pip && <div className="absolute inset-0">{pip}</div>}
           {mainLabel && shown.length > 0 && (
             <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
               <span className="block truncate text-xs font-semibold text-white">{mainLabel}</span>
@@ -138,7 +170,7 @@ export function SceneRenderer({
         brand={brand}
         carded={Boolean(scene.card)}
         battle={forceAuto}
-        pipShown={showPip}
+        pipShown={showPip || chartMode}
         insets={insets}
       />
     </div>

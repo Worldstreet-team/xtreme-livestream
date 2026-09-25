@@ -59,6 +59,7 @@ export function sceneView(scene: Partial<IStream["scene"]> | undefined | null) {
     layout: scene?.layout ?? "auto",
     card: scene?.card ?? null,
     cardNote: scene?.cardNote ?? "",
+    chart: scene?.chart ?? null,
     layers: scene?.layers ?? [],
     featured: scene?.featured ?? null,
     version: scene?.version ?? 0,

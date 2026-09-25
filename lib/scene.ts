@@ -1,6 +1,7 @@
 import {
   BRAND_ACCENTS,
   BRAND_FONTS,
+  CHART_INTERVALS,
   LOGO_CORNERS,
   LOWER_THIRD_STYLES,
   SCENE_CARDS,
@@ -8,11 +9,13 @@ import {
   type BrandAccent,
   type BrandFont,
   type BrandPreset,
+  type ChartInterval,
   type FeaturedItem,
   type LogoCorner,
   type LowerThirdStyle,
   type Scene,
   type SceneCard,
+  type SceneChart,
   type SceneLayer,
   type SceneLayerKind,
   type SceneLayout,
@@ -26,9 +29,27 @@ import { apiUrl } from "@/lib/api-client";
  * `__evt: scene` data event.
  */
 
-export type { BrandAccent, BrandFont, BrandPreset, FeaturedItem, LogoCorner, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
+export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
-export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", layers: [], featured: null, version: 0 };
+export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], featured: null, version: 0 };
+
+/** What Chart + face shows until the host picks a market. */
+export const DEFAULT_CHART: SceneChart = { symbol: "BTC-USD", interval: "5m" };
+
+/** The markets a host reaches for first; any "BASE-QUOTE" pair works. */
+export const CHART_MARKETS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD", "USDT-USD"] as const;
+
+export const CHART_INTERVAL_LABELS: Record<ChartInterval, string> = { "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h" };
+
+/** A market off the wire, if it's one we can chart. */
+export function readChart(raw: unknown): SceneChart | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const symbol = typeof r.symbol === "string" ? r.symbol.trim().toUpperCase() : "";
+  if (!/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(symbol)) return null;
+  const interval = CHART_INTERVALS.includes(r.interval as ChartInterval) ? (r.interval as ChartInterval) : "5m";
+  return { symbol, interval };
+}
 
 /** Whatever came off the wire — the API, room metadata, a data event — as a scene, or null. */
 export function readScene(raw: unknown): Scene | null {
@@ -38,6 +59,7 @@ export function readScene(raw: unknown): Scene | null {
     layout: SCENE_LAYOUTS.includes(r.layout as SceneLayout) ? (r.layout as SceneLayout) : "auto",
     card: SCENE_CARDS.includes(r.card as SceneCard) ? (r.card as SceneCard) : null,
     cardNote: typeof r.cardNote === "string" ? r.cardNote.slice(0, 80) : "",
+    chart: readChart(r.chart),
     layers: readLayers(r.layers),
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
@@ -313,7 +335,7 @@ export function newerScene(current: Scene | null | undefined, next: Scene | null
  */
 export function guestsShown(layout: SceneLayout, available: number, forceAuto = false) {
   if (forceAuto || layout === "auto") return available;
-  if (layout === "solo" || layout === "screen-face") return 0;
+  if (layout === "solo" || layout === "screen-face" || layout === "chart-face") return 0;
   if (layout === "split") return Math.min(1, available);
   if (layout === "trio") return Math.min(2, available);
   return Math.min(3, available);
@@ -326,6 +348,7 @@ export const LAYOUTS: { id: SceneLayout; label: string; hint: string }[] = [
   { id: "trio", label: "Trio", hint: "You and two guests" },
   { id: "grid", label: "Grid", hint: "Up to four of you" },
   { id: "screen-face", label: "Screen + face", hint: "Your screen, your camera in the corner" },
+  { id: "chart-face", label: "Chart + face", hint: "A live market chart, your camera in the corner" },
 ];
 
 export const CARDS: { id: SceneCard; title: string; body: string }[] = [

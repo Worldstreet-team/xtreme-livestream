@@ -165,7 +165,24 @@ export const searchUsersQuerySchema = z.object({
  * - card: a full-frame card over the program — Starting soon, Be right
  *   back, or Thanks for watching — with an optional line from the host.
  */
-export const SCENE_LAYOUTS = ["auto", "solo", "split", "trio", "grid", "screen-face"] as const;
+export const SCENE_LAYOUTS = ["auto", "solo", "split", "trio", "grid", "screen-face", "chart-face"] as const;
+
+/**
+ * Chart + face: a live market chart drawn by every viewer's screen (not
+ * video), the host's camera in the corner. Markets are "BASE-QUOTE"
+ * pairs ("BTC-USD"); candles come through the API (/market/candles).
+ */
+export const CHART_INTERVALS = ["1m", "5m", "15m", "1h"] as const;
+export const marketSymbolSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/, "A market looks like BTC-USD");
+export const sceneChartSchema = z.object({
+  symbol: marketSymbolSchema,
+  interval: z.enum(CHART_INTERVALS).default("5m"),
+});
+export const marketCandlesQuerySchema = sceneChartSchema;
 export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
 
 /**
@@ -207,6 +224,8 @@ export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
   cardNote: z.string().trim().max(80).default(""),
+  /** The market Chart + face shows (kept when the layout changes, for next time). */
+  chart: sceneChartSchema.nullable().default(null),
   layers: z
     .array(sceneLayerSchema)
     .max(SCENE_LAYER_KINDS.length)
@@ -282,6 +301,8 @@ export const featuredItemSchema = z.object({
 });
 
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
+export type ChartInterval = (typeof CHART_INTERVALS)[number];
+export type SceneChart = z.infer<typeof sceneChartSchema>;
 export type SceneCard = (typeof SCENE_CARDS)[number];
 export type SceneLayer = z.infer<typeof sceneLayerSchema>;
 export type SceneLayerKind = (typeof SCENE_LAYER_KINDS)[number];

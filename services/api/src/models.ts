@@ -260,6 +260,8 @@ export interface IStream extends Document {
     layout: string;
     card: string | null;
     cardNote: string;
+    /** Chart + face's market (`sceneChartSchema`), or null. */
+    chart: { symbol: string; interval: string } | null;
     /** Graphics over the program — shapes validated by `sceneLayerSchema`. */
     layers: Array<Record<string, unknown>>;
     /**
@@ -367,9 +369,10 @@ const streamSchema = new Schema<IStream>(
     postToWorldSpace: { type: Boolean, default: false },
     scene: {
       _id: false,
-      layout: { type: String, enum: ["auto", "solo", "split", "trio", "grid", "screen-face"], default: "auto" },
+      layout: { type: String, enum: ["auto", "solo", "split", "trio", "grid", "screen-face", "chart-face"], default: "auto" },
       card: { type: String, enum: ["starting-soon", "brb", "ending", null], default: null },
       cardNote: { type: String, default: "", maxlength: 80 },
+      chart: { type: Schema.Types.Mixed, default: null },
       layers: { type: [Schema.Types.Mixed], default: [] },
       featured: { type: Schema.Types.Mixed, default: null },
       version: { type: Number, default: 0, min: 0 },
