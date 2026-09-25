@@ -1,7 +1,8 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import { useEffect, useState } from "react";
-import { Coins, Lock, Trophy, Check, X, Sparkle, Ticket, Question } from "@phosphor-icons/react";
+import { Coins, Lock, Trophy, Check, X, Sparkle, Ticket, Question } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { GAME_LABEL, STAKES, announcePoints, formatPoints, outcomeShare, payoutMultiplier, secondsToClose, type GameView } from "@/lib/games";
@@ -11,7 +12,6 @@ import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/pill";
 import { UserAvatar } from "@/components/ui/user-avatar";
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 const ICON = { prediction: Sparkle, raffle: Ticket, quiz: Question } as const;
 
@@ -72,7 +72,7 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
       : `${formatPoints(game.poolPoints)} pts · ${game.entries} in`;
 
   return (
-    <section className="shrink-0 border-b border-white/[0.06] bg-[oklch(0.13_0.005_285)] px-3.5 py-3" aria-label={GAME_LABEL[game.type]}>
+    <section className="shrink-0 border-b border-white/[0.06] bg-card px-3.5 py-3" aria-label={GAME_LABEL[game.type]}>
       <div className="mb-2 flex items-center gap-2">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-amber-300 uppercase">
           <Icon size={12} weight="fill" />
@@ -178,7 +178,7 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
                   type="button"
                   onClick={() => setStake(s)}
                   aria-pressed={stake === s}
-                  className={cn("h-8 rounded-full px-2.5 text-[12px] font-semibold tabular-nums transition-colors", stake === s ? "bg-white text-neutral-950" : "bg-[#26262D] text-foreground/90 hover:bg-[#31313A]")}
+                  className={cn("h-8 rounded-full px-2.5 text-[12px] font-semibold tabular-nums transition-colors", stake === s ? "bg-white text-neutral-950" : "bg-control text-foreground/90 hover:bg-control-hover")}
                 >
                   {s}
                 </button>

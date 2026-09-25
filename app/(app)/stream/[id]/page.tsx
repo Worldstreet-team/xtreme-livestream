@@ -7,7 +7,6 @@ import {
   Heart,
   ShareNetwork,
   Flag,
-  UserPlus,
   Clock,
   CornersOut,
   Crown,
@@ -23,19 +22,23 @@ import {
   CellSignalLow,
   ChatCircleDots,
   VideoCamera,
-  CaretLeft,
   HandWaving,
   Check,
-} from "@phosphor-icons/react";
+  Info,
+} from "@/components/icons";
 import { Empty } from "@/components/app/empty";
-import { Pill } from "@/components/ui/pill";
-import { Badge } from "@/components/ui/badge";
+import { Pill, PillLink } from "@/components/ui/pill";
+import { Badge, LiveBadge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
+import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/feedback";
+import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
 import { LivePreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
 import { SupportersStrip, ScheduleList } from "@/components/app/supporters-strip";
-import { CalendarBlank } from "@phosphor-icons/react";
+import { CalendarBlank } from "@/components/icons";
 import type { GameView } from "@/lib/games";
 import Link from "next/link";
 import { LiveChat, type PinnedMessage } from "@/components/app/live-chat";
@@ -75,6 +78,84 @@ const REPORT_REASONS: Array<{ value: string; label: string }> = [
   { value: "copyright", label: "Copyright violation" },
   { value: "other", label: "Other" },
 ];
+
+const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
+/** Section titles under the player — the same voice as the shelves below them. */
+const SECTION_TITLE =
+  "mb-3.5 flex min-w-0 items-center gap-2.5 font-wide text-[17px] font-bold tracking-[-0.02em] text-foreground md:text-[19px]";
+
+/** A round control on the picture: the black object, white while it's on. */
+function playerButton(on = false) {
+  return cn(
+    "press flex size-10 items-center justify-center rounded-full transition-colors",
+    on ? "obj-on" : "obj text-white/85 hover:text-white"
+  );
+}
+
+/** "2:09:14" → "2h 09m"; "41:07" → "41m" — how long a stream ran. */
+function runTime(duration: string) {
+  const parts = duration.split(":").map(Number);
+  if (parts.some(Number.isNaN)) return null;
+  if (parts.length === 3) return parts[0] > 0 ? `${parts[0]}h ${String(parts[1]).padStart(2, "0")}m` : `${parts[1]}m`;
+  if (parts.length === 2) return parts[0] > 0 ? `${parts[0]}m` : null;
+  return null;
+}
+
+/**
+ * One round button in the phone view's action column, its word under it —
+ * the same object the live feed's column uses. Chili for the stage's
+ * warnings (a muted mic, leaving), Ember while a request is waiting.
+ */
+function RailButton({
+  icon,
+  label,
+  title,
+  onClick,
+  disabled,
+  tone = "obj",
+  pulse = false,
+  badge,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "obj" | "chili" | "ember";
+  pulse?: boolean;
+  badge?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={title}
+      title={title}
+      className="press flex flex-col items-center gap-1 disabled:opacity-50"
+    >
+      <span
+        className={cn(
+          "relative flex size-12 items-center justify-center rounded-full transition-colors",
+          tone === "obj" && "obj text-white",
+          tone === "chili" && "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)]",
+          tone === "ember" && "bg-ember text-on-ember shadow-glow-ember",
+          pulse && "animate-pulse"
+        )}
+      >
+        {icon}
+        {badge ? (
+          <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-chili px-1 text-[10px] font-bold text-white tabular-nums ring-2 ring-black">
+            {badge}
+          </span>
+        ) : null}
+      </span>
+      <span className="text-[11px] font-semibold text-white/85 tabular-nums [text-shadow:0_1px_4px_rgba(0,0,0,0.6)]">
+        {label}
+      </span>
+    </button>
+  );
+}
 
 interface StreamData {
   _id: string;
@@ -116,6 +197,10 @@ export default function StreamPage({
   const [followLoading, setFollowLoading] = useState(false);
   /** Why the last follow/unfollow was refused, shown next to the button. */
   const [followError, setFollowError] = useState<string | null>(null);
+  /** Bumped on each new ally so the ring burst replays; 0 = never shown. */
+  const [allyBurst, setAllyBurst] = useState(0);
+  /** Share fell back to the clipboard — say so for a moment. */
+  const [copied, setCopied] = useState(false);
   const [elapsed, setElapsed] = useState("0:00");
 
   // LiveKit
@@ -231,6 +316,7 @@ export default function StreamPage({
       viewers: number;
       thumbnailUrl?: string | null;
       streamerName: string;
+      streamerAvatar?: string;
     }>
   >([]);
   const [watchNextLoaded, setWatchNextLoaded] = useState(false);
@@ -339,6 +425,15 @@ export default function StreamPage({
   const [reportBusy, setReportBusy] = useState(false);
   const [reportDone, setReportDone] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  // Escape closes the report dialog, like every other dialog in the app.
+  useEffect(() => {
+    if (!showReport) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowReport(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showReport]);
 
   // Auto-hide video controls after mouse inactivity
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -1334,7 +1429,7 @@ export default function StreamPage({
               category: string;
               viewers: number;
               thumbnailUrl?: string | null;
-              streamerId?: { displayName?: string; username?: string };
+              streamerId?: { displayName?: string; username?: string; avatar?: string };
               guests?: Array<{ username: string; status: string }>;
             }>;
           };
@@ -1357,6 +1452,7 @@ export default function StreamPage({
                 viewers: s.viewers,
                 thumbnailUrl: s.thumbnailUrl,
                 streamerName: guest ? `${host} with ${guest}` : host,
+                streamerAvatar: s.streamerId?.avatar,
               };
             })
         );
@@ -1414,6 +1510,7 @@ export default function StreamPage({
         method: wasFollowing ? "DELETE" : "POST",
       });
       syncFollow(!wasFollowing, wasFollowing ? -1 : 1);
+      if (!wasFollowing) setAllyBurst((b) => b + 1);
     } catch (err) {
       const code =
         err instanceof ApiError &&
@@ -1498,7 +1595,7 @@ export default function StreamPage({
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <Spinner variant="orbit" />
       </div>
     );
   }
@@ -1517,43 +1614,140 @@ export default function StreamPage({
 
   const streamer = stream.streamerId;
 
+  const hostName = streamer.displayName || streamer.username;
+
+  /** The native share sheet where there is one; the clipboard, said out loud, where there isn't. */
+  const shareStream = () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      navigator.share({ title: stream.title, text: `Watch ${stream.title} live on Xtream!`, url }).catch(() => {});
+      return;
+    }
+    void navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  };
+
+  /**
+   * Ally, the page's one white action. Signed-out visitors get the same
+   * button and land on sign-in, coming back here after — allying is the most
+   * common reason anyone makes an account. The moment it lands, the ring
+   * bursts (Afterglow's allied beat).
+   */
+  const allyButton = (size: "sm" | "md") =>
+    isOwner ? null : !user ? (
+      <PillLink external href={signInHref(`/stream/${id}`)} size={size} variant="primary" icon={<Heart size={size === "sm" ? 13 : 16} weight="fill" />}>
+        Ally
+      </PillLink>
+    ) : (
+      <span className="relative inline-flex shrink-0">
+        {allyBurst > 0 && isFollowing && (
+          <span
+            key={allyBurst}
+            aria-hidden
+            className="pointer-events-none absolute -inset-1.5 rounded-full bg-heat [mask:linear-gradient(#000_0_0)_content-box_exclude,linear-gradient(#000_0_0)] p-[2px] motion-safe:animate-[xt-ring-burst_.7s_var(--ease-out)_both] motion-reduce:hidden"
+          />
+        )}
+        <Pill
+          size={size}
+          variant={isFollowing ? "soft" : "primary"}
+          icon={
+            isFollowing ? (
+              <Check size={size === "sm" ? 13 : 16} weight="bold" className="text-ember-hi" />
+            ) : (
+              <Heart size={size === "sm" ? 13 : 16} weight="fill" />
+            )
+          }
+          onClick={toggleFollow}
+          disabled={followLoading}
+          aria-pressed={isFollowing}
+          title={isFollowing ? `You're allied with ${hostName} — tap to leave` : `Ally with ${hostName}`}
+        >
+          {isFollowing ? "Allied" : "Ally"}
+        </Pill>
+      </span>
+    );
+
   // Shared by the desktop page and the mobile immersive view.
   const mergeOverlay = mergingInto && (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80">
-      <div className="flex flex-col items-center gap-3 px-6 text-center">
-        <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="text-base font-semibold text-foreground">
-          The lives are merging
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Taking you to the combined stream…
-        </p>
+    <div className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/80">
+      <div className="flex flex-col items-center gap-4 px-6 text-center">
+        <Spinner variant="orbit" />
+        <div>
+          <p className="font-wide text-[19px] font-bold tracking-[-0.02em] text-foreground">
+            The lives are merging
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Taking you to the combined stream…
+          </p>
+        </div>
       </div>
     </div>
   );
 
+  // How the stream went, in the numbers it actually has.
+  const ranFor = stream.duration ? runTime(stream.duration) : null;
+  const recap = [
+    ranFor ? { key: "ran", icon: <Clock size={13} />, label: `Ran ${ranFor}` } : null,
+    (stream.peakViewers ?? 0) > 0
+      ? { key: "peak", icon: <Eye size={13} />, label: `${formatNumber(stream.peakViewers ?? 0)} at peak` }
+      : null,
+    likeCount > 0
+      ? { key: "likes", icon: <Heart size={13} weight="fill" />, label: `${formatNumber(likeCount)} likes` }
+      : null,
+  ].filter((r): r is { key: string; icon: React.ReactElement; label: string } => r !== null);
+
+  // The stream is over: who it was, how it went, and who's live instead. A
+  // sheet from the bottom on phones, a dialog on wider screens.
   const endedOverlay = streamEnded && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80">
+    <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/75 sm:items-start sm:p-6">
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stream-ended-title"
         className={cn(
-          "mx-4 my-8 w-full rounded-2xl border border-white/10 bg-background p-6 text-center shadow-2xl sm:p-8",
-          watchNext.length > 0 ? "max-w-2xl" : "max-w-sm"
+          // my-auto rather than items-center: a dialog taller than the
+          // window scrolls from its top instead of losing it.
+          "w-full rounded-t-[26px] bg-surface-raised px-5 pt-6 pb-[max(env(safe-area-inset-bottom),20px)] shadow-overlay sm:my-auto sm:rounded-[26px] sm:p-7",
+          watchNext.length > 0 ? "sm:max-w-[640px]" : "sm:max-w-[420px]"
         )}
       >
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-red-500/10">
-          <Eye size={26} className="text-red-400" />
+        <div className="flex items-center gap-3.5">
+          <UserAvatar
+            src={streamer.avatar}
+            name={hostName}
+            size={52}
+            ring="seen"
+            ringGapClassName="bg-surface-raised"
+          />
+          <div className="min-w-0">
+            <p className={EYEBROW}>Stream ended</p>
+            <h2
+              id="stream-ended-title"
+              className="mt-1 font-wide text-[21px] leading-tight font-bold tracking-[-0.03em] text-balance text-foreground sm:text-[23px]"
+            >
+              {hostName} has wrapped up
+            </h2>
+          </div>
         </div>
-        <h2 className="text-xl font-bold text-foreground">Stream Has Ended</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The host has ended this livestream.
-        </p>
+        {recap.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {recap.map((r) => (
+              <Badge key={r.key} variant="muted" size="md" icon={r.icon}>
+                {r.label}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         {watchNext.length > 0 ? (
           <>
-            <p className="mt-5 mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Live right now
-            </p>
-            <div className="grid grid-cols-2 gap-3 text-left">
+            <div className="mt-7 flex items-center gap-2">
+              <LiveBadge size="xs" />
+              <p className="text-[15px] font-semibold text-foreground">Live right now</p>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-x-3 sm:gap-y-4">
               {watchNext.map((s) => (
                 <a
                   key={s._id}
@@ -1561,62 +1755,83 @@ export default function StreamPage({
                   // same dynamic segment keeps this component instance —
                   // and all its ended-stream state — alive.
                   href={`/stream/${s._id}`}
-                  className="group overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] transition-colors hover:border-primary/30"
+                  className="press group -mx-1.5 flex items-center gap-3 rounded-[16px] p-1.5 transition-colors hover:bg-white/[0.05] sm:mx-0 sm:block sm:p-0 sm:hover:bg-transparent"
                 >
-                  <div className="relative aspect-video bg-black">
+                  <div className="relative aspect-video w-[118px] shrink-0 overflow-hidden rounded-[12px] bg-black sm:w-full">
                     {s.thumbnailUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={apiUrl(s.thumbnailUrl)}
                         alt=""
-                        className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                       />
                     ) : (
                       <div className="flex size-full items-center justify-center text-white/20">
-                        <Eye size={24} />
+                        <VideoCamera size={24} />
                       </div>
                     )}
-                    <span className="absolute top-1.5 left-1.5 rounded bg-red-600 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
-                      LIVE
-                    </span>
-                    <span className="absolute right-1.5 bottom-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[0.6rem] text-white/90">
-                      {formatNumber(s.viewers)} watching
-                    </span>
+                    <LiveBadge size="xs" className="absolute top-1.5 left-1.5" />
+                    <Badge
+                      variant="glass"
+                      size="xs"
+                      icon={<Eye size={10} />}
+                      className="absolute right-1.5 bottom-1.5"
+                    >
+                      {formatNumber(s.viewers)}
+                    </Badge>
                   </div>
-                  <div className="p-2.5">
-                    <p className="truncate text-xs font-semibold text-foreground group-hover:text-primary">
-                      {s.title}
-                    </p>
-                    <p className="mt-0.5 truncate text-[0.65rem] text-muted-foreground">
-                      {s.streamerName}
-                    </p>
+                  <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:mt-2.5">
+                    <UserAvatar
+                      src={s.streamerAvatar}
+                      name={s.streamerName || "?"}
+                      size={28}
+                      className="hidden size-7 shrink-0 sm:flex"
+                    />
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 text-[13.5px] leading-snug font-semibold text-foreground">
+                        {s.title}
+                      </p>
+                      <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                        {s.streamerName}
+                        <span className="text-muted-foreground/50"> · {s.category}</span>
+                      </p>
+                    </div>
                   </div>
                 </a>
               ))}
             </div>
-            <button
-              onClick={() => router.push("/explore")}
-              className="mt-5 h-10 w-full rounded-lg border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Browse all streams
-            </button>
+            <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <PillLink href={`/c/${streamer.username}`} variant="glass" size="lg">
+                Visit channel
+              </PillLink>
+              <PillLink href="/explore" variant="primary" size="lg">
+                Browse live streams
+              </PillLink>
+            </div>
           </>
         ) : (
           <>
-            {watchNextLoaded && (
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                Redirecting to Explore in{" "}
-                <span className="font-semibold text-foreground">
-                  {countdown}s
-                </span>
-              </p>
-            )}
-            <button
-              onClick={() => router.push("/explore")}
-              className="mt-6 h-10 w-full rounded-lg bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
-            >
-              Go to Explore Now
-            </button>
+            <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
+              {watchNextLoaded ? (
+                <>
+                  No one else is live right now. Taking you to Explore in{" "}
+                  <span className="font-mono font-semibold text-foreground tabular-nums">
+                    {countdown}s
+                  </span>
+                  .
+                </>
+              ) : (
+                "Looking for who's live…"
+              )}
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <Pill variant="primary" size="lg" onClick={() => router.push("/explore")} className="w-full">
+                Go to Explore now
+              </Pill>
+              <PillLink href={`/c/${streamer.username}`} variant="ghost" size="lg" className="w-full">
+                Visit channel
+              </PillLink>
+            </div>
           </>
         )}
       </div>
@@ -1651,9 +1866,9 @@ export default function StreamPage({
               )}
             />
             {stageCount > 1 && (
-              <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-md bg-black/75 px-2 py-1">
-                <span className="truncate text-xs font-medium text-white">
-                  {streamer.displayName || streamer.username}
+              <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
+                <span className="block truncate text-xs font-semibold text-white">
+                  {hostName}
                 </span>
               </div>
             )}
@@ -1683,89 +1898,94 @@ export default function StreamPage({
         {/* Status overlays */}
         {stream.isLive && connected && !hasVideo && !playbackError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <div className="px-6 text-center">
-              <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-              <p className="text-base font-semibold text-white/70">
-                Waiting for the broadcaster
+            <div className="px-8 text-center">
+              <Spinner className="mx-auto size-7 text-white/70" />
+              <p className="mt-4 font-wide text-[17px] font-bold tracking-[-0.02em] text-white/85">
+                {feedReconnecting ? "Reconnecting…" : "Waiting for the broadcaster"}
+              </p>
+              <p className="mt-1 text-[13px] text-white/50">
+                {feedReconnecting
+                  ? "Their connection dropped for a moment — stay put."
+                  : "The picture appears the moment they start sending."}
               </p>
             </div>
           </div>
         )}
         {stream.isLive && playbackError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <div className="px-6 text-center">
-              <p className="text-base font-semibold text-white/60">
+            <div className="px-8 text-center">
+              <p className="font-wide text-[17px] font-bold tracking-[-0.02em] text-white/80">
                 {playbackError}
               </p>
-              <button
-                onClick={() => router.push("/explore")}
-                className="mt-4 h-9 rounded-lg bg-white/[0.08] px-4 text-sm font-medium text-white/80"
-              >
+              <PillLink href="/explore" variant="glass" size="md" className="mt-5">
                 Browse live streams
-              </button>
+              </PillLink>
             </div>
           </div>
         )}
         {!stream.isLive && !streamEnded && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <p className="text-base font-semibold text-white/60">
+            <p className="font-wide text-[17px] font-bold tracking-[-0.02em] text-white/70">
               This stream is offline
             </p>
           </div>
         )}
 
-        {/* Top bar */}
-        <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)]">
-          <button
-            onClick={() => router.push("/explore")}
-            aria-label="Leave stream"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-black/65 text-white"
-          >
-            <CaretLeft size={18} />
-          </button>
-          <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/65 py-1 pr-1.5 pl-1">
-            <UserAvatar
-              src={streamer.avatar}
-              name={streamer.displayName || streamer.username}
-              size={28}
-              className="size-7 shrink-0"
-            />
-            <div className="min-w-0 leading-tight">
-              <p className="truncate text-xs font-semibold text-white">
-                {streamer.displayName || streamer.username}
-              </p>
-              <p className="truncate text-[0.6rem] text-white/60">
-                {formatNumber(streamer.followers)} allies
-              </p>
+        {/* Light falls off at the top, so the bar reads on any picture. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-32 bg-gradient-to-b from-black/60 to-transparent" />
+
+        {/* Top bar: who's on — face in its ring, name, allies, Ally — then
+            the room's count and the way out. What's on sits under it. */}
+        <div className="absolute inset-x-0 top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),12px)]">
+          <div className="flex items-center gap-2">
+            <div className="obj flex min-w-0 items-center gap-2 rounded-full p-1">
+              <Link href={`/c/${streamer.username}`} className="flex min-w-0 items-center gap-2 pr-1">
+                <UserAvatar
+                  src={streamer.avatar}
+                  name={hostName}
+                  size={30}
+                  ring={stream.isLive ? "live" : "seen"}
+                  ringGapClassName="bg-black"
+                />
+                <span className="min-w-0 leading-tight">
+                  <span className="block truncate font-wide text-[13.5px] font-bold tracking-[-0.02em] text-white">
+                    {hostName}
+                  </span>
+                  <span className="block truncate text-[10.5px] text-white/65 tabular-nums">
+                    {formatNumber(streamer.followers)} allies
+                  </span>
+                </span>
+              </Link>
+              {!isFollowing && allyButton("sm")}
             </div>
-            {user && !isOwner && !isFollowing && (
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <Badge variant="glass" size="md" icon={<Eye size={13} />}>
+                {formatNumber(connected ? viewerCount : stream.viewers)}
+              </Badge>
               <button
-                onClick={toggleFollow}
-                disabled={followLoading}
-                className="ml-1 h-7 shrink-0 rounded-full bg-primary px-3 text-[0.7rem] font-semibold text-primary-foreground disabled:opacity-50"
+                onClick={() => router.push("/explore")}
+                aria-label="Leave stream"
+                className="obj press flex size-9 items-center justify-center rounded-full text-white"
               >
-                Ally
+                <X size={17} weight="bold" />
               </button>
-            )}
+            </div>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            {stream.isLive && (
-              <span className="flex items-center gap-1 rounded-full bg-red-600 px-2 py-1 text-[0.65rem] font-bold text-white">
-                LIVE
-              </span>
-            )}
-            <span className="flex items-center gap-1 rounded-full bg-black/65 px-2 py-1 text-[0.65rem] text-white/85 tabular-nums">
-              <Eye size={12} />
-              {formatNumber(connected ? viewerCount : stream.viewers)}
-            </span>
+          <div className="mt-2 flex items-center gap-1.5">
+            {stream.isLive && <LiveBadge size="md" />}
+            <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
+              <Badge variant="glass" size="md" className="max-w-[60vw] truncate">
+                {stream.category}
+              </Badge>
+            </Link>
           </div>
         </div>
 
-        {/* Unmute pill */}
+        {/* Unmute — the one control that never hides. */}
         {muted && stream.isLive && hasVideo && !playbackError && (
           <button
             onClick={toggleMute}
-            className="absolute top-[max(env(safe-area-inset-top),12px)] left-1/2 z-40 mt-14 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white"
+            className="obj-on press absolute top-[max(env(safe-area-inset-top),12px)] left-1/2 z-40 mt-24 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
           >
             <SpeakerSlash size={16} weight="fill" />
             Tap to unmute
@@ -1774,103 +1994,69 @@ export default function StreamPage({
 
         {/* Right action rail — above the chat layer, which is painted after
             it and would otherwise sit over these buttons. */}
-        <div className="absolute right-2 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-4">
-          <button
+        <div className="absolute right-2.5 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-3.5">
+          <RailButton
+            title={liked ? "Liked" : "Like"}
+            label={likeCount > 0 ? formatNumber(likeCount) : "Like"}
             onClick={() => {
               heartsRef.current?.push();
               if (user && !liked) void toggleLike();
             }}
-            aria-label="Like"
-            className="flex flex-col items-center gap-0.5"
-          >
-            <span className="flex size-11 items-center justify-center rounded-full bg-black/65">
-              <Heart
-                size={24}
-                weight={liked ? "fill" : "regular"}
-                className={liked ? "text-red-500" : "text-white"}
-              />
-            </span>
-            <span className="text-[0.65rem] font-medium text-white/85 tabular-nums">
-              {likeCount > 0 ? formatNumber(likeCount) : "Like"}
-            </span>
-          </button>
-          <button
-            onClick={() => {
-              const url = window.location.href;
-              if (navigator.share) {
-                navigator
-                  .share({ title: stream.title, url })
-                  .catch(() => {});
-              } else {
-                navigator.clipboard?.writeText(url);
-              }
-            }}
-            aria-label="Share"
-            className="flex size-11 items-center justify-center rounded-full bg-black/65 text-white"
-          >
-            <ShareNetwork size={22} />
-          </button>
+            icon={<Heart size={23} weight="fill" className={liked ? "text-chili" : "text-white"} />}
+          />
+          <RailButton
+            title="Share this stream"
+            label={copied ? "Copied" : "Share"}
+            onClick={shareStream}
+            icon={copied ? <Check size={21} weight="bold" /> : <ShareNetwork size={22} weight="fill" />}
+          />
           {user && !isOwner && stream.isLive && connected && (
             stageState === "idle" ? (
-              <button
+              <RailButton
+                title="Ask to join the stream"
+                label="Join"
                 onClick={requestStage}
                 disabled={stageBusy}
-                aria-label="Ask to join the stream"
-                className="flex size-11 items-center justify-center rounded-full bg-black/65 text-white disabled:opacity-50"
-              >
-                <UsersThree size={22} />
-              </button>
+                icon={<UsersThree size={22} weight="fill" />}
+              />
             ) : stageState === "requested" ? (
-              <button
+              <RailButton
+                title="Waiting for the host — tap to cancel"
+                label="Asked"
+                tone="ember"
+                pulse
                 onClick={cancelStageRequest}
                 disabled={stageBusy}
-                aria-label="Cancel stage request"
-                className="flex size-11 animate-pulse items-center justify-center rounded-full bg-amber-500/80 text-white"
-              >
-                <Clock size={22} />
-              </button>
+                icon={<Clock size={22} weight="bold" />}
+              />
             ) : (
               <>
-                <button
+                <RailButton
+                  title={stageMicOn ? "Mute your mic" : "Unmute your mic"}
+                  label={stageMicOn ? "Mic" : "Muted"}
+                  tone={stageMicOn ? "obj" : "chili"}
                   onClick={toggleStageMic}
-                  aria-label="Toggle mic"
-                  className={cn(
-                    "flex size-11 items-center justify-center rounded-full",
-                    stageMicOn
-                      ? "bg-black/65 text-white"
-                      : "bg-red-600/90 text-white"
-                  )}
-                >
-                  {stageMicOn ? (
-                    <Microphone size={22} />
-                  ) : (
-                    <MicrophoneSlash size={22} />
-                  )}
-                </button>
-                <button
+                  icon={stageMicOn ? <Microphone size={22} weight="fill" /> : <MicrophoneSlash size={22} weight="fill" />}
+                />
+                <RailButton
+                  title="Leave the stage"
+                  label="Leave"
+                  tone="chili"
                   onClick={leaveStage}
                   disabled={stageBusy}
-                  aria-label="Leave stage"
-                  className="flex size-11 items-center justify-center rounded-full bg-red-600/90 text-white disabled:opacity-50"
-                >
-                  <SignOut size={22} />
-                </button>
+                  icon={<SignOut size={22} weight="bold" />}
+                />
               </>
             )
           )}
           {isOwner && stream.isLive && (
-            <button
+            <RailButton
+              title="Stage requests"
+              label="Stage"
+              badge={hostRequests.length}
               onClick={() => setShowStageSheet(true)}
-              aria-label="Stage requests"
-              className="relative flex size-11 items-center justify-center rounded-full bg-black/65 text-white"
-            >
-              <HandWaving size={22} />
-              {hostRequests.length > 0 && (
-                <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-primary text-[0.6rem] font-bold text-primary-foreground ring-2 ring-black">
-                  {hostRequests.length}
-                </span>
-              )}
-            </button>
+              icon={<HandWaving size={22} weight="fill" />}
+            />
           )}
         </div>
 
@@ -1894,96 +2080,96 @@ export default function StreamPage({
         {/* Host stage sheet */}
         {showStageSheet && (
           <div
-            className="fixed inset-0 z-[70] flex items-end bg-black/75"
+            className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70"
             onClick={() => setShowStageSheet(false)}
           >
             <div
-              className="max-h-[70dvh] w-full overflow-y-auto rounded-t-2xl bg-[oklch(0.14_0.005_285)] p-4 pb-[max(env(safe-area-inset-bottom),16px)]"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="stage-sheet-title"
+              className="sheet-obj max-h-[70dvh] w-full overflow-y-auto rounded-t-[24px] px-4 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/15" />
-              <h3 className="mb-3 text-sm font-medium text-foreground">
-                Stage
-              </h3>
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h3 id="stage-sheet-title" className="font-wide text-[18px] font-bold tracking-[-0.02em] text-foreground">
+                  Stage
+                </h3>
+                <Badge variant="muted" size="sm">
+                  {hostLiveGuests.length} of 3 on stage
+                </Badge>
+              </div>
 
               {hostLiveGuests.length > 0 && (
-                <div className="mb-4">
-                  <p className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
-                    On stage
-                  </p>
-                  <div className="space-y-1.5">
+                <div className="mb-5">
+                  <p className={cn(EYEBROW, "mb-2")}>On stage</p>
+                  <div className="flex flex-col gap-1.5">
                     {hostLiveGuests.map((g) => (
                       <div
                         key={g.userId}
-                        className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                        className="flex items-center gap-3 rounded-[14px] bg-white/[0.05] py-2 pr-2 pl-2.5"
                       >
-                        <UserAvatar
-                          src={g.avatar}
-                          name={g.username}
-                          size={28}
-                          className="size-7"
-                        />
-                        <p className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        <UserAvatar src={g.avatar} name={g.username} size={32} ring="live" ringGapClassName="bg-surface" />
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                           {g.username}
                         </p>
-                        <button
+                        <Pill
+                          size="sm"
+                          variant="soft"
+                          tone="red"
+                          icon={<X size={13} weight="bold" />}
                           onClick={() => hostRemove(g.userId)}
                           disabled={hostStageBusy !== null}
-                          className="flex h-8 items-center gap-1 rounded-md bg-red-500/10 px-2.5 text-xs font-medium text-red-400 disabled:opacity-50"
                         >
-                          <X size={13} />
                           Remove
-                        </button>
+                        </Pill>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              <p className="mb-2 text-[0.65rem] font-medium tracking-wider text-muted-foreground/60 uppercase">
-                Requests
-              </p>
+              <p className={cn(EYEBROW, "mb-2")}>Asking to join</p>
               {hostRequests.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground/60">
+                <p className="rounded-[14px] bg-white/[0.03] py-5 text-center text-[13px] text-muted-foreground">
                   No one is asking to join right now.
                 </p>
               ) : (
-                <div className="space-y-1.5">
+                <div className="flex flex-col gap-1.5">
                   {hostRequests.map((r) => (
                     <div
                       key={r.userId}
-                      className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] px-2.5 py-2"
+                      className="flex items-center gap-3 rounded-[14px] bg-white/[0.05] py-2 pr-2 pl-2.5"
                     >
-                      <UserAvatar
-                        src={r.avatar}
-                        name={r.username}
-                        size={28}
-                        className="size-7"
-                      />
-                      <p className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                      <UserAvatar src={r.avatar} name={r.username} size={32} />
+                      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                         {r.username}
                       </p>
-                      <button
-                        onClick={() => hostApprove(r.userId)}
-                        disabled={
-                          hostStageBusy !== null || hostLiveGuests.length >= 3
+                      <Pill
+                        size="sm"
+                        variant="primary"
+                        icon={
+                          hostStageBusy === r.userId ? (
+                            <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+                          ) : (
+                            <Check size={13} weight="bold" />
+                          )
                         }
-                        className="flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                        onClick={() => hostApprove(r.userId)}
+                        disabled={hostStageBusy !== null || hostLiveGuests.length >= 3}
                       >
-                        {hostStageBusy === r.userId ? (
-                          <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
-                        ) : (
-                          <Check size={13} />
-                        )}
                         Accept
-                      </button>
-                      <button
+                      </Pill>
+                      <Pill
+                        size="sm"
+                        variant="glass"
+                        iconOnly
+                        icon={<X size={14} weight="bold" />}
+                        aria-label={`Decline ${r.username}`}
+                        title="Decline"
                         onClick={() => hostDeny(r.userId)}
                         disabled={hostStageBusy !== null}
-                        className="flex size-8 items-center justify-center rounded-md bg-white/[0.06] text-muted-foreground disabled:opacity-50"
-                      >
-                        <X size={13} />
-                      </button>
+                      />
                     </div>
                   ))}
                 </div>
@@ -2017,7 +2203,10 @@ export default function StreamPage({
             onMouseMove={showControls}
             onTouchStart={showControls}
           >
-            <div className="relative min-w-0 flex-1">
+            {/* h-full: without it the stage is only as tall as the video's
+                own picture — 150px before the first frame — and the controls
+                pinned to its bottom float halfway up the player. */}
+            <div className="relative h-full min-w-0 flex-1">
             {/* Stage grid — the player splits as people join the live:
                 1 = full frame, 2 = side by side, 3 = host tall + two
                 stacked, 4 = 2×2. The host cell keeps its element across
@@ -2053,10 +2242,9 @@ export default function StreamPage({
                       )}
                     />
                     {stageCount > 1 && (
-                      <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-black/75 px-2 py-1">
-                        <span className="truncate text-xs font-medium text-white">
-                          {stream.streamerId.displayName ||
-                            stream.streamerId.username}
+                      <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
+                        <span className="block truncate text-xs font-semibold text-white">
+                          {hostName}
                         </span>
                       </div>
                     )}
@@ -2069,9 +2257,10 @@ export default function StreamPage({
                         poster={<div className="absolute inset-0 bg-black" />}
                         fallbackSrc={null}
                       />
-                      <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-black/75 px-2 py-1">
-                        <span className="truncate text-xs font-medium text-white">
-                          {(sideOf(battle, id) === "host" ? battle.challenger : battle.host).displayName} · muted
+                      <div className="obj absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full px-2.5 py-1">
+                        <span className="block truncate text-xs font-semibold text-white">
+                          {(sideOf(battle, id) === "host" ? battle.challenger : battle.host).displayName}
+                          <span className="font-medium text-white/60"> · muted</span>
                         </span>
                       </div>
                     </div>
@@ -2109,10 +2298,10 @@ export default function StreamPage({
             {muted && stream.isLive && hasVideo && !playbackError && (
               <button
                 onClick={toggleMute}
-                className="absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-black/90"
+                className="obj-on press absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
               >
                 <SpeakerSlash size={16} weight="fill" />
-                Tap to unmute
+                Turn sound on
               </button>
             )}
 
@@ -2120,10 +2309,10 @@ export default function StreamPage({
             {!stream.isLive && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="text-center">
-                  <p className="text-lg font-semibold text-white/60">
-                    Stream Ended
+                  <p className="font-wide text-[19px] font-bold tracking-[-0.02em] text-white/75">
+                    Stream ended
                   </p>
-                  <p className="mt-1 text-sm text-white/40">
+                  <p className="mt-1 text-sm text-white/45">
                     This stream is no longer live
                   </p>
                 </div>
@@ -2136,11 +2325,11 @@ export default function StreamPage({
             {stream.isLive && connected && !hasVideo && !playbackError && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-6 text-center">
-                  <div className="mx-auto mb-3 size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-                  <p className="text-base font-semibold text-white/70">
+                  <Spinner className="mx-auto size-7 text-white/70" />
+                  <p className="mt-4 font-wide text-[19px] font-bold tracking-[-0.02em] text-white/85">
                     {feedReconnecting ? "Reconnecting…" : "Waiting for the broadcaster"}
                   </p>
-                  <p className="mt-1 text-sm text-white/40">
+                  <p className="mt-1 text-sm text-white/50">
                     {feedReconnecting
                       ? "Their connection dropped for a moment. Stay put — the picture comes back on its own."
                       : "The video appears here the moment they start sending."}
@@ -2153,15 +2342,12 @@ export default function StreamPage({
             {stream.isLive && playbackError && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-6 text-center">
-                  <p className="text-lg font-semibold text-white/60">
+                  <p className="font-wide text-[19px] font-bold tracking-[-0.02em] text-white/80">
                     {playbackError}
                   </p>
-                  <button
-                    onClick={() => router.push("/explore")}
-                    className="mt-4 h-9 rounded-sm border border-white/15 px-4 text-sm font-medium text-white/70 transition-colors hover:border-white/30 hover:text-white"
-                  >
+                  <PillLink href="/explore" variant="glass" size="md" className="mt-5">
                     Browse live streams
-                  </button>
+                  </PillLink>
                 </div>
               </div>
             )}
@@ -2169,21 +2355,12 @@ export default function StreamPage({
             {/* Stream overlay info */}
             <div
               className={cn(
-                "absolute top-4 left-4 flex items-center gap-2 transition-opacity duration-300",
+                "absolute top-4 left-4 flex items-center gap-1.5 transition-opacity duration-300",
                 !controlsVisible && stream.isLive && "opacity-0"
               )}
             >
-              {stream.isLive && (
-                <div className="flex items-center gap-1.5 rounded-sm bg-red-600 px-2 py-1 text-xs font-semibold text-white">
-                  <span className="relative flex size-1.5">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
-                    <span className="relative inline-flex size-1.5 rounded-full bg-white" />
-                  </span>
-                  LIVE
-                </div>
-              )}
-              <div className="flex items-center gap-1 rounded-sm bg-black/75 px-2 py-1 text-xs text-white/80">
-                <Eye size={14} />
+              {stream.isLive && <LiveBadge size="md" />}
+              <Badge variant="glass" size="md" icon={<Eye size={14} />}>
                 {stream.isLive
                   ? // Prefer the room roster once we're actually in the room;
                     // until then (or if the join failed) the server's last
@@ -2192,35 +2369,34 @@ export default function StreamPage({
                   : // `viewers` is the live concurrent count and is 0 for an
                     // ended stream; peak is what actually describes it.
                     `${formatNumber(stream.peakViewers ?? 0)} peak`}
-              </div>
+              </Badge>
               {stream.isLive && (
-                <div className="flex items-center gap-1 rounded-sm bg-black/75 px-2 py-1 text-xs font-mono text-white/80">
-                  <Clock size={14} />
+                <Badge variant="glass" size="md" icon={<Clock size={14} />} className="font-mono">
                   {elapsed}
-                </div>
+                </Badge>
               )}
               {stream.isLive &&
                 (connQuality === "poor" || connQuality === "lost") && (
-                  <div className="flex items-center gap-1 rounded-sm bg-amber-500/20 px-2 py-1 text-xs text-amber-300">
-                    <CellSignalLow size={14} weight="fill" />
+                  <Badge variant="glass" size="md" icon={<CellSignalLow size={14} weight="fill" />} className="text-ember-hi">
                     Weak connection
-                  </div>
+                  </Badge>
                 )}
             </div>
 
             {/* Volume controls */}
             <div
               className={cn(
-                "absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-sm bg-black/75 px-2 py-1.5 transition-all duration-300",
+                "obj absolute bottom-4 left-4 z-20 flex h-10 items-center gap-1.5 rounded-full pr-4 pl-1 transition-all duration-300",
                 !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
               )}
             >
               <button
                 onClick={toggleMute}
                 title={muted ? "Unmute (m)" : "Mute (m)"}
-                className="flex size-6 items-center justify-center text-white/80 transition-colors hover:text-white"
+                aria-label={muted ? "Unmute" : "Mute"}
+                className="press flex size-8 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white"
               >
-                {muted ? <SpeakerSlash size={17} /> : <SpeakerHigh size={17} />}
+                {muted ? <SpeakerSlash size={18} /> : <SpeakerHigh size={18} />}
               </button>
               <input
                 type="range"
@@ -2230,7 +2406,7 @@ export default function StreamPage({
                 value={muted ? 0 : volume}
                 onChange={(e) => changeVolume(Number(e.target.value))}
                 aria-label="Volume"
-                className="h-1 w-20 cursor-pointer accent-primary"
+                className="h-1 w-20 cursor-pointer accent-white"
               />
             </div>
 
@@ -2243,27 +2419,27 @@ export default function StreamPage({
             >
               <button
                 onClick={() => void togglePiP()}
-                className="flex size-8 items-center justify-center rounded-sm bg-black/75 text-white/80 transition-colors hover:bg-black/80 hover:text-white"
+                className={playerButton()}
                 title="Picture in picture (p)"
+                aria-label="Picture in picture"
               >
                 <PictureInPicture size={18} />
               </button>
               <button
                 onClick={toggleTheater}
-                className={cn(
-                  "hidden size-8 items-center justify-center rounded-sm transition-colors lg:flex",
-                  theaterMode
-                    ? "bg-primary/30 text-white"
-                    : "bg-black/75 text-white/80 hover:bg-black/80 hover:text-white"
-                )}
+                aria-pressed={theaterMode}
+                className={cn(playerButton(theaterMode), "hidden lg:flex")}
                 title={theaterMode ? "Exit theater mode (t)" : "Theater mode (t)"}
+                aria-label="Theater mode"
               >
                 <Sidebar size={18} />
               </button>
               <button
                 onClick={toggleFullscreen}
-                className="flex size-8 items-center justify-center rounded-sm bg-black/75 text-white/80 transition-colors hover:bg-black/80 hover:text-white"
+                aria-pressed={isFullscreen}
+                className={playerButton(isFullscreen)}
                 title={isFullscreen ? "Exit fullscreen (f)" : "Fullscreen (f)"}
+                aria-label="Fullscreen"
               >
                 <CornersOut size={18} />
               </button>
@@ -2271,13 +2447,9 @@ export default function StreamPage({
                 <button
                   onClick={() => setFsChat((v) => !v)}
                   aria-pressed={fsChat}
-                  className={cn(
-                    "flex size-8 items-center justify-center rounded-sm transition-colors",
-                    fsChat
-                      ? "bg-primary/30 text-white"
-                      : "bg-black/75 text-white/80 hover:bg-black/80 hover:text-white"
-                  )}
+                  className={playerButton(fsChat)}
                   title={fsChat ? "Hide chat (c)" : "Show chat (c)"}
+                  aria-label="Chat"
                 >
                   <ChatCircleDots size={18} weight={fsChat ? "fill" : "regular"} />
                 </button>
@@ -2300,7 +2472,7 @@ export default function StreamPage({
 
           {/* Chat beneath the player, when the viewer has put it there */}
           {chatPlacement === "below" && !theaterMode && !isFullscreen && (
-            <div className="hidden h-[440px] border-b border-white/[0.06] lg:block">
+            <div className="mx-4 mt-4 hidden h-[440px] overflow-hidden rounded-panel bg-surface md:mx-6 lg:block">
               <LiveChat
                 streamId={id}
                 room={roomRef.current}
@@ -2310,41 +2482,64 @@ export default function StreamPage({
             </div>
           )}
 
-          {/* Stream info below player */}
-          <div className="p-4 md:p-6">
-            {/* Title & actions */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg font-bold text-foreground sm:text-xl">
-                  {stream.title}
-                </h1>
-                <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="mt-2.5 inline-flex">
-                  <Badge variant="muted" size="md" className="transition-colors hover:bg-white/[0.1] hover:text-foreground">
-                    {stream.category}
-                  </Badge>
-                </Link>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <Pill
-                  size="sm"
-                  variant="glass"
-                  icon={<Sidebar size={14} />}
-                  onClick={() => setChatPlacement((p) => (p === "side" ? "below" : "side"))}
-                  aria-pressed={chatPlacement === "below"}
-                  title={chatPlacement === "below" ? "Move chat beside the player" : "Move chat below the player"}
-                  className="hidden lg:inline-flex"
+          {/* Stream info below player. A container: the column is ~380px
+              beside a wide rail at 1024 and ~730px at 1440, so the rows
+              below size to it, not to the window. */}
+          <div className="@container px-4 pt-5 pb-10 md:px-6">
+            <h1 className="font-wide text-[21px] leading-tight font-bold tracking-[-0.025em] text-balance text-foreground sm:text-[24px]">
+              {stream.title}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-1">
+              <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press mr-1">
+                <Badge variant="muted" size="md" className="transition-colors hover:bg-white/[0.1] hover:text-foreground">
+                  {stream.category}
+                </Badge>
+              </Link>
+              {stream.tags.map((tag) => (
+                <Link
+                  key={tag}
+                  href={`/browse?tab=live&tag=${encodeURIComponent(tag)}`}
+                  className="press rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
                 >
-                  {chatPlacement === "below" ? "Chat beside" : "Chat below"}
-                </Pill>
+                  #{tag}
+                </Link>
+              ))}
+            </div>
+
+            {/* The host and everything you can do here, on one row. The host
+                links to the channel: it's the one place on the page that
+                names them, so it has to reach everything else they've
+                streamed. */}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+              <div className="flex min-w-0 items-center gap-4">
+                <Link href={`/c/${streamer.username}`} className="group flex min-w-0 items-center gap-3">
+                  <UserAvatar
+                    src={streamer.avatar}
+                    name={hostName}
+                    size={46}
+                    ring={stream.isLive ? "live" : "seen"}
+                    className="transition-transform duration-300 group-hover:scale-[1.04]"
+                  />
+                  <span className="min-w-0 leading-tight">
+                    <span className="block truncate font-wide text-[16px] font-bold tracking-[-0.02em] text-foreground">
+                      {hostName}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12.5px] text-muted-foreground tabular-nums">
+                      {formatNumber(streamer.followers)} allies
+                    </span>
+                  </span>
+                </Link>
+                {allyButton("md")}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 {user &&
-                  streamer._id !== user.id &&
+                  !isOwner &&
                   stream.isLive &&
                   connected &&
                   (stageState === "idle" ? (
                     <Pill
-                      size="sm"
-                      variant="primary"
-                      icon={<UsersThree size={14} weight="fill" />}
+                      variant="ember"
+                      icon={<UsersThree size={16} weight="fill" />}
                       onClick={requestStage}
                       disabled={stageBusy}
                       title="Ask to join this stream with your camera"
@@ -2353,38 +2548,35 @@ export default function StreamPage({
                     </Pill>
                   ) : stageState === "requested" ? (
                     <Pill
-                      size="sm"
                       variant="soft"
-                      tone="amber"
-                      icon={<Clock size={14} />}
+                      tone="ember"
+                      icon={<Clock size={16} />}
                       onClick={cancelStageRequest}
                       disabled={stageBusy}
-                      title="Waiting for the host — tap to cancel"
+                      title="Waiting for the host — click to cancel"
                     >
-                      Requested…
+                      Asked to join…
                     </Pill>
                   ) : (
                     <>
                       <Pill
-                        size="sm"
                         variant="soft"
                         tone={stageMicOn ? "green" : "red"}
-                        icon={stageMicOn ? <Microphone size={14} /> : <MicrophoneSlash size={14} />}
+                        icon={stageMicOn ? <Microphone size={16} /> : <MicrophoneSlash size={16} />}
                         onClick={toggleStageMic}
                         title={stageMicOn ? "Mute your mic" : "Unmute your mic"}
                       >
-                        Mic
+                        {stageMicOn ? "Mic on" : "Muted"}
                       </Pill>
-                      <Pill size="sm" variant="soft" tone="red" icon={<SignOut size={14} />} onClick={leaveStage} disabled={stageBusy}>
+                      <Pill variant="soft" tone="red" icon={<SignOut size={16} />} onClick={leaveStage} disabled={stageBusy}>
                         Leave stage
                       </Pill>
                     </>
                   ))}
                 <Pill
-                  size="sm"
                   variant={liked ? "soft" : "glass"}
                   tone="red"
-                  icon={<Heart size={14} weight={liked ? "fill" : "regular"} />}
+                  icon={<Heart size={16} weight={liked ? "fill" : "regular"} />}
                   onClick={toggleLike}
                   disabled={!user || likeBusy}
                   aria-pressed={liked}
@@ -2393,26 +2585,29 @@ export default function StreamPage({
                   {likeCount > 0 ? formatNumber(likeCount) : "Like"}
                 </Pill>
                 <Pill
-                  size="sm"
                   variant="glass"
-                  icon={<ShareNetwork size={14} />}
-                  onClick={() => {
-                    const url = window.location.href;
-                    const text = `Watch ${stream.title} live on Xtream!`;
-                    if (navigator.share) {
-                      navigator.share({ title: stream.title, text, url }).catch(() => {});
-                    } else {
-                      navigator.clipboard?.writeText(url);
-                    }
-                  }}
+                  icon={copied ? <Check size={16} weight="bold" /> : <ShareNetwork size={16} />}
+                  onClick={shareStream}
                 >
-                  Share
+                  {copied ? "Link copied" : "Share"}
                 </Pill>
-                {user && streamer._id !== user.id && (
+                <Pill
+                  variant="glass"
+                  icon={<Sidebar size={16} />}
+                  onClick={() => setChatPlacement((p) => (p === "side" ? "below" : "side"))}
+                  aria-pressed={chatPlacement === "below"}
+                  title={chatPlacement === "below" ? "Move chat beside the player" : "Move chat below the player"}
+                  className="hidden lg:inline-flex"
+                >
+                  {chatPlacement === "below" ? "Chat beside" : "Chat below"}
+                </Pill>
+                {user && !isOwner && (
                   <Pill
-                    size="sm"
                     variant="ghost"
-                    icon={<Flag size={14} />}
+                    iconOnly
+                    icon={<Flag size={16} />}
+                    aria-label="Report stream"
+                    title="Report stream"
                     onClick={() => {
                       setReportReason("");
                       setReportDetails("");
@@ -2420,121 +2615,52 @@ export default function StreamPage({
                       setReportError(null);
                       setShowReport(true);
                     }}
-                  >
-                    Report
-                  </Pill>
+                  />
                 )}
               </div>
             </div>
 
-            {stageError && (
-              <p className="mt-2 text-xs text-amber-400">{stageError}</p>
-            )}
+            {followError && <p className="mt-3 text-xs text-chili-hi">{followError}</p>}
+            {stageError && <p className="mt-3 text-xs text-ember-hi">{stageError}</p>}
 
-            {/* Streamer info */}
-            <div className="mt-5 flex items-center justify-between rounded-sm border border-white/5 bg-white/2 p-4">
-              {/* Links to the channel: this block is the only place on the
-                  page identifying the host, so it has to be the way to reach
-                  everything else they've streamed. */}
-              <Link
-                href={`/c/${streamer.username}`}
-                className="group flex items-center gap-3"
-              >
-                <UserAvatar
-                  src={streamer.avatar}
-                  name={streamer.displayName || streamer.username}
-                  size={44}
-                  className="size-11 transition-opacity group-hover:opacity-85"
-                />
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
-                    {streamer.displayName}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {formatNumber(streamer.followers)} allies
-                  </p>
-                </div>
-              </Link>
-              {user && String(streamer._id) !== String(user.id) && (
-                <div className="flex flex-col items-end gap-1">
-                <button
-                  onClick={toggleFollow}
-                  disabled={followLoading}
-                  className={cn(
-                    "flex h-9 items-center gap-1.5 rounded-sm px-4 text-sm font-semibold transition-colors disabled:opacity-50",
-                    isFollowing
-                      ? "border border-white/10 bg-white/5 text-muted-foreground hover:border-red-500/30 hover:text-red-400"
-                      : "bg-primary text-primary-foreground hover:bg-primary/80"
-                  )}
-                >
-                  {isFollowing ? (
-                    <>
-                      <Check size={16} />
-                      Allied
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus size={16} />
-                      Ally
-                    </>
-                  )}
-                </button>
-                {followError && (
-                  <p className="max-w-[14rem] text-right text-[0.65rem] text-red-400">
-                    {followError}
-                  </p>
-                )}
-                </div>
-              )}
-            </div>
-
-            {/* About: tags and the disclaimer, right under the creator — no
-                tab to open, nothing to hunt for. */}
-            {stream.tags.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {stream.tags.map((tag) => (
-                  <Link
-                    key={tag}
-                    href={`/browse?tab=live&tag=${encodeURIComponent(tag)}`}
-                    className="rounded-full bg-[#26262D] px-3 py-1 text-xs font-medium text-foreground/90 transition-colors hover:bg-[#31313A]"
-                  >
-                    #{tag}
-                  </Link>
-                ))}
-              </div>
-            )}
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground/60">
-              Content is creator opinion, not financial advice. Crypto assets
-              are volatile — always do your own research. Tips are voluntary
-              gifts to the creator, not investments.
+            <p className="mt-6 flex max-w-[72ch] gap-2 text-[12px] leading-relaxed text-muted-foreground/65">
+              <Info size={14} className="mt-[3px] shrink-0" />
+              <span>
+                Content is creator opinion, not financial advice. Crypto assets
+                are volatile — always do your own research. Tips are voluntary
+                gifts to the creator, not investments.
+              </span>
             </p>
 
             {/* One row, two columns: the supporters strip on the left, fading
                 at its edge when it overflows; the schedule on the right with
                 live countdowns. */}
             {(topGifters.length > 0 || hostUpcoming.length > 0) && (
-              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <div className="mt-10 grid grid-cols-1 gap-8 @2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                 {topGifters.length > 0 && (
-                  <section aria-label="Top supporters" className="min-w-0">
-                    <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-foreground">
-                      <Crown size={15} weight="fill" className="text-yellow-400" />
+                  <section aria-labelledby="watch-supporters" className="min-w-0">
+                    <h2 id="watch-supporters" className={SECTION_TITLE}>
+                      <Crown size={17} weight="fill" className="shrink-0 text-ember" />
                       Top supporters
                     </h2>
                     <SupportersStrip gifters={topGifters} />
                   </section>
                 )}
-                <section aria-label="Schedule" className={cn("min-w-0", topGifters.length === 0 && "lg:col-span-2")}>
-                  <h2 className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-foreground">
-                    <CalendarBlank size={15} weight="bold" className="text-muted-foreground" />
-                    Coming up from {streamer.displayName}
+                <section
+                  aria-labelledby="watch-schedule"
+                  className={cn("min-w-0", topGifters.length === 0 && "@2xl:col-span-2")}
+                >
+                  <h2 id="watch-schedule" className={SECTION_TITLE}>
+                    <CalendarBlank size={17} weight="bold" className="shrink-0 text-muted-foreground" />
+                    <span className="truncate">Coming up</span>
                   </h2>
                   {hostUpcoming.length > 0 ? (
                     <ScheduleList items={hostUpcoming} />
                   ) : (
-                    <p className="rounded-sm bg-white/[0.03] px-4 py-5 text-sm text-muted-foreground/70">
+                    <p className="rounded-[14px] bg-surface px-4 py-5 text-sm text-muted-foreground">
                       Nothing scheduled yet —{" "}
-                      <Link href={`/c/${streamer.username}`} className="text-foreground underline-offset-2 hover:underline">
-                        see when {streamer.displayName} usually streams
+                      <Link href={`/c/${streamer.username}`} className="font-semibold text-foreground underline-offset-2 hover:underline">
+                        see when {hostName} usually streams
                       </Link>
                       .
                     </p>
@@ -2544,7 +2670,7 @@ export default function StreamPage({
             )}
 
             {/* Then what this audience also watches — always there, no tab. */}
-            <div className="mt-8">
+            <div className="mt-10">
               {alsoLive.length > 0 ? (
                 <Shelf
                   id="watch-also"
@@ -2561,7 +2687,7 @@ export default function StreamPage({
                   ))}
                 </Shelf>
               ) : (
-                <p className="rounded-sm bg-white/[0.03] px-6 py-8 text-center text-sm text-muted-foreground/70">
+                <p className="rounded-[16px] bg-surface px-6 py-8 text-center text-sm text-muted-foreground">
                   Nothing else this audience watches is live right now.
                 </p>
               )}
@@ -2575,20 +2701,27 @@ export default function StreamPage({
         {topGifters.length > 0 && !theaterMode && chatPlacement === "side" && (
           <aside
             aria-label="Top supporters"
-            className="hidden w-14 shrink-0 flex-col items-center gap-3 border-l border-white/[0.06] py-4 lg:flex"
+            className="hidden w-16 shrink-0 flex-col items-center gap-3 py-4 lg:flex"
           >
-            <Crown size={14} weight="fill" className="text-yellow-400" />
+            <span className="mb-1 flex size-8 items-center justify-center rounded-full bg-ember text-on-ember shadow-glow-ember">
+              <Crown size={15} weight="fill" />
+            </span>
             {topGifters.slice(0, 8).map((g, i) => (
-              <span
+              <Link
                 key={g.userId ?? g.username}
-                title={`${g.username} · $${(g.totalUsdMinor / 100).toFixed(2)}`}
+                href={`/c/${g.username}`}
+                title={`${g.displayName || g.username} · $${(g.totalUsdMinor / 100).toFixed(2)}`}
+                // Rank rings as on the top gifters board: #1 Ember, #2
+                // white, #3 Chili, then quiet.
                 className={cn(
-                  "rounded-full p-[2px]",
-                  i === 0 ? "bg-yellow-400" : i === 1 ? "bg-white/40" : "bg-white/15"
+                  "press rounded-full p-[2px]",
+                  i === 0 ? "bg-ember" : i === 1 ? "bg-white/70" : i === 2 ? "bg-chili" : "bg-white/[0.12]"
                 )}
               >
-                <UserAvatar name={g.username} size={30} className="size-[30px]" />
-              </span>
+                <span className="block rounded-full bg-background p-[2px]">
+                  <UserAvatar src={g.avatar} name={g.displayName || g.username} size={32} className="size-8" />
+                </span>
+              </Link>
             ))}
           </aside>
         )}
@@ -2620,89 +2753,110 @@ export default function StreamPage({
 
       {/* Report modal */}
       {showReport && (
-        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="mx-4 w-full max-w-md rounded-2xl border border-white/10 bg-background p-6 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-foreground">
-                Report Stream
-              </h2>
-              <button
-                onClick={() => setShowReport(false)}
-                className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
+        <div
+          className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/70 sm:items-start sm:p-6"
+          onClick={() => setShowReport(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="report-title"
+            className="w-full rounded-t-[26px] bg-surface-raised p-6 pb-[max(env(safe-area-inset-bottom),24px)] shadow-overlay sm:my-auto sm:max-w-[480px] sm:rounded-[26px] sm:p-7"
+            onClick={(e) => e.stopPropagation()}
+          >
             {reportDone ? (
-              <div className="mt-4 text-center">
-                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-green-500/10">
-                  <Flag size={22} className="text-green-400" />
-                </div>
-                <p className="text-sm font-semibold text-foreground">
-                  Report submitted
+              <div className="py-2 text-center">
+                <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-[#173428] text-[#86EFAC]">
+                  <Check size={26} weight="bold" />
+                </span>
+                <h2 id="report-title" className="mt-4 font-wide text-[21px] font-bold tracking-[-0.025em] text-foreground">
+                  Report sent
+                </h2>
+                <p className="mx-auto mt-1.5 max-w-[34ch] text-sm leading-relaxed text-muted-foreground">
+                  Thanks for helping keep Xtream safe. A moderator will review
+                  this stream.
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Thanks for helping keep Xtream safe. Our moderation team
-                  will review this stream.
-                </p>
-                <button
-                  onClick={() => setShowReport(false)}
-                  className="mt-5 h-10 w-full rounded-sm bg-primary font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
-                >
+                <Pill variant="primary" size="lg" className="mt-6 w-full" onClick={() => setShowReport(false)}>
                   Done
-                </button>
+                </Pill>
               </div>
             ) : (
               <>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Why are you reporting this stream?
-                </p>
-
-                <div className="mt-4 space-y-1.5">
-                  {REPORT_REASONS.map((r) => (
-                    <button
-                      key={r.value}
-                      onClick={() => setReportReason(r.value)}
-                      className={cn(
-                        "w-full rounded-sm border px-3 py-2.5 text-left text-sm transition-colors",
-                        reportReason === r.value
-                          ? "border-primary/40 bg-primary/10 text-foreground"
-                          : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className={EYEBROW}>{hostName}</p>
+                    <h2 id="report-title" className="mt-1 font-wide text-[21px] font-bold tracking-[-0.025em] text-foreground">
+                      Report this stream
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Pick the reason that fits best.
+                    </p>
+                  </div>
+                  <IconButton icon={X} label="Close" onClick={() => setShowReport(false)} className="-mt-1 -mr-2 shrink-0" />
                 </div>
 
-                <textarea
-                  value={reportDetails}
-                  onChange={(e) => setReportDetails(e.target.value)}
-                  maxLength={500}
-                  rows={3}
-                  placeholder="Additional details (optional)"
-                  className="mt-4 w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none"
-                />
+                <div role="radiogroup" aria-labelledby="report-title" className="mt-5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {REPORT_REASONS.map((r) => {
+                    const on = reportReason === r.value;
+                    return (
+                      <button
+                        key={r.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setReportReason(r.value)}
+                        className={cn(
+                          "press flex items-center justify-between gap-3 rounded-[12px] px-3.5 py-3 text-left text-[13.5px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ember",
+                          on ? "bg-white text-[#0b0708]" : "bg-white/[0.05] text-foreground/85 hover:bg-white/[0.08] hover:text-foreground"
+                        )}
+                      >
+                        {r.label}
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex size-4 shrink-0 items-center justify-center rounded-full",
+                            on ? "bg-chili" : "shadow-[inset_0_0_0_1.5px_rgba(255,255,255,0.25)]"
+                          )}
+                        >
+                          {on && <span className="size-1.5 rounded-full bg-white" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4">
+                  <Textarea
+                    id="report-details"
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    maxLength={500}
+                    rows={3}
+                    placeholder="Anything else we should know? (optional)"
+                    aria-label="Details"
+                  />
+                  <p className="mt-1.5 text-right font-mono text-[11px] text-muted-foreground/60 tabular-nums">
+                    {reportDetails.length}/500
+                  </p>
+                </div>
 
                 {reportError && (
-                  <p className="mt-2 text-xs text-red-400">{reportError}</p>
+                  <p className="mt-1 text-xs text-chili-hi">{reportError}</p>
                 )}
 
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setShowReport(false)}
-                    className="h-10 flex-1 rounded-sm border border-white/10 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
-                  >
+                <div className="mt-5 flex gap-2">
+                  <Pill variant="glass" size="lg" className="flex-1" onClick={() => setShowReport(false)}>
                     Cancel
-                  </button>
-                  <button
+                  </Pill>
+                  <Pill
+                    variant="live"
+                    size="lg"
+                    className="flex-1"
                     onClick={submitReport}
                     disabled={!reportReason || reportBusy}
-                    className="h-10 flex-1 rounded-sm bg-red-600 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {reportBusy ? "Submitting..." : "Submit Report"}
-                  </button>
+                    {reportBusy ? "Sending…" : "Send report"}
+                  </Pill>
                 </div>
               </>
             )}

@@ -1,15 +1,15 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { List, MagnifyingGlass, X } from "@phosphor-icons/react";
+import { List, MagnifyingGlass, X } from "@/components/icons";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/user-avatar";
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 const navLinks = [
   { label: "Home", href: "/" },

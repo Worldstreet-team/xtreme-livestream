@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGNED_OUT_URL } from "@/lib/auth-urls";
 import {
   createContext,
   useContext,
@@ -127,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     setUser(null);
-    await signOut({ redirectUrl: "https://www.worldstreetgold.com/login" });
+    await signOut({ redirectUrl: SIGNED_OUT_URL });
   }, [signOut]);
 
   // Fetch local DB profile once Clerk confirms sign-in

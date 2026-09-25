@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Broadcast, Fire, UserPlus, Eye, SealCheck, Sparkle, Play, Gift, Trophy, ClockCounterClockwise, Sword, Ticket, Question, Coins } from "@phosphor-icons/react";
+import { Broadcast, Eye, SealCheck, Sparkle, Play, Trophy, ClockCounterClockwise, Sword, Ticket, Question, Coins } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatClock, hostShare, secondsLeft, type BattleView } from "@/lib/battles";
+import type { BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
-import { categoryArt } from "@/lib/category-art";
-import { formatStartsIn, type CategorySummary, type RowItem } from "@/lib/discovery";
+import type { RowItem } from "@/lib/discovery";
 import { GAME_LABEL, formatPoints, type LiveGameItem } from "@/lib/games";
-import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Badge, LiveBadge } from "@/components/ui/badge";
 import { PillLink } from "@/components/ui/pill";
 import { StreamArt } from "@/components/app/stream-art";
 import { FollowButton } from "@/components/app/follow-button";
+import { TopGiftersBoard } from "@/components/app/top-gifters";
 import { WolfIcon } from "@/components/ui/wolf-icon";
 import { MarketSquareLockup } from "@/components/ui/market-mark";
 import { WorldSpaceLockup } from "@/components/ui/worldspace-mark";
@@ -30,8 +29,9 @@ import { WorldSpaceLockup } from "@/components/ui/worldspace-mark";
  *     out, the biggest live rooms stand in.
  *  2. Spotlight: the house — live games, Market Square, Wolf of WorldStreet,
  *     WorldSpace, and Go live. No streams; the stories and rows do that.
- *  3. Battles, then Continue watching, Happening now, Top gifters, Top
- *     players, Highlight of the week, Who to follow.
+ *  3. Continue watching, Top gifters (the podium), Top players, Highlight
+ *     of the week, Who to follow. Battles show once, as merged rings in the
+ *     stories; categories are the home's chips — neither repeats here.
  *
  * Flat eyebrows, no boxes: one column of content, not a stack of cards.
  */
@@ -57,15 +57,6 @@ interface TopStreamer {
   isLive: boolean;
   verified?: boolean;
 }
-interface Gifter {
-  userId: string;
-  username: string;
-  displayName: string;
-  avatar: string;
-  verified: boolean;
-  totalUsdMinor: number;
-  count: number;
-}
 interface ContinueItem {
   item: RowItem;
   watchedAt: string;
@@ -81,17 +72,17 @@ interface Player {
   games: number;
 }
 
-function Eyebrow({ icon, label, live, trailing }: { icon?: ReactNode; label: string; live?: boolean; trailing?: ReactNode }) {
+/** A section's title, set like the feed's shelf headers. `icon` is kept for callers but not drawn. */
+function Eyebrow({ label, live, trailing }: { icon?: ReactNode; label: string; live?: boolean; trailing?: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 px-1 pb-2.5">
-      {icon && <span className="flex shrink-0 items-center text-muted-foreground/70">{icon}</span>}
+    <div className="flex items-center gap-2 px-1 pb-3">
       {live && (
-        <span className="relative flex size-2">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-60" />
-          <span className="relative inline-flex size-2 rounded-full bg-red-500" />
+        <span className="relative flex size-1.5 shrink-0">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-60" />
+          <span className="relative inline-flex size-1.5 rounded-full bg-chili" />
         </span>
       )}
-      <h3 className="flex-1 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase">{label}</h3>
+      <h3 className="flex-1 font-wide text-[15px] font-bold tracking-[-0.02em] text-foreground">{label}</h3>
       {trailing}
     </div>
   );
@@ -99,9 +90,18 @@ function Eyebrow({ icon, label, live, trailing }: { icon?: ReactNode; label: str
 
 function SeeAll({ href }: { href: string }) {
   return (
-    <Link href={href} className="text-[11px] font-semibold text-primary hover:underline">
+    <Link href={href} className="text-[12px] font-semibold text-muted-foreground transition-colors hover:text-foreground">
       See all
     </Link>
+  );
+}
+
+/** The small LIVE tag that sits under a live face, TikTok-style. */
+function LiveTag({ className }: { className?: string }) {
+  return (
+    <span className={cn("absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-[4px] bg-chili px-1 py-px text-[8px] leading-none font-bold tracking-[0.06em] text-white uppercase ring-2 ring-background", className)}>
+      Live
+    </span>
   );
 }
 
@@ -112,14 +112,10 @@ function ago(iso: string, now: number) {
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
 
-function usd(minor: number) {
-  return minor >= 100_000 ? `$${(minor / 100_000).toFixed(1)}K` : `$${(minor / 100).toFixed(minor % 100 ? 2 : 0)}`;
-}
-
 /** A live ring around one face. */
 function Ring({ avatar, name, live, badge }: { avatar: string; name: string; live: boolean; badge?: ReactNode }) {
   return (
-    <span className={cn("relative rounded-full p-[2.5px]", live ? "bg-gradient-to-br from-red-500 via-red-600 to-amber-500" : "bg-white/[0.12]")}>
+    <span className={cn("relative rounded-full p-[2.5px]", live ? "bg-heat" : "bg-white/[0.12]")}>
       <span className="block rounded-full bg-background p-[2px]">
         <UserAvatar src={avatar} name={name} size={52} className="size-[52px]" />
       </span>
@@ -135,7 +131,7 @@ function Ring({ avatar, name, live, badge }: { avatar: string; name: string; liv
  */
 function MergedRing({ a, b }: { a: { avatar: string; name: string }; b: { avatar: string; name: string } }) {
   return (
-    <span className="relative rounded-full bg-gradient-to-r from-red-500 via-amber-400 to-sky-400 p-[2.5px]">
+    <span className="relative rounded-full bg-heat p-[2.5px]">
       <span className="flex rounded-full bg-background p-[2px]">
         <span className="relative z-10 rounded-full ring-2 ring-background">
           <UserAvatar src={a.avatar} name={a.name} size={52} className="size-[52px]" />
@@ -144,7 +140,7 @@ function MergedRing({ a, b }: { a: { avatar: string; name: string }; b: { avatar
           <UserAvatar src={b.avatar} name={b.name} size={52} className="size-[52px]" />
         </span>
       </span>
-      <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[4px] bg-red-600 px-1 py-px text-[8px] font-bold tracking-wide text-white uppercase ring-2 ring-background">
+      <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[4px] bg-chili px-1 py-px text-[8px] font-bold tracking-wide text-white uppercase ring-2 ring-background">
         <Sword size={8} weight="fill" />
         Battle
       </span>
@@ -156,26 +152,21 @@ export function RightRail() {
   const { isAuthenticated, user } = useAuth();
   const [followed, setFollowed] = useState<FollowedRow[]>([]);
   const [live, setLive] = useState<RowItem[]>([]);
-  const [categories, setCategories] = useState<CategorySummary[]>([]);
   const [top, setTop] = useState<TopStreamer[]>([]);
-  const [gifters, setGifters] = useState<Gifter[]>([]);
   const [ended, setEnded] = useState<RowItem[]>([]);
   const [resume, setResume] = useState<ContinueItem[]>([]);
   const [battles, setBattles] = useState<BattleView[]>([]);
   const [games, setGames] = useState<LiveGameItem[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loadedAt, setLoadedAt] = useState(0);
-  const tick = useNow(battles.some((b) => b.status === "live" || b.status === "overtime"));
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       const get = <T,>(path: string) => apiFetch<{ success: boolean; data: T }>(path).then((r) => r.data).catch(() => null);
-      const [l, c, s, g, e, bl, bu, gl, lb] = await Promise.all([
+      const [l, s, e, bl, bu, gl, lb] = await Promise.all([
         get<{ streams: RowItem[] }>(`/api/streams?live=true&sort=viewers&limit=12`),
-        get<{ categories: CategorySummary[] }>(`/api/streams/categories`),
         get<{ streamers: TopStreamer[] }>(`/api/users/top?limit=8`),
-        get<{ top: Gifter[] }>(`/api/gifts/leaderboard`),
         get<{ streams: RowItem[] }>(`/api/streams?status=ended&sort=recent&limit=48`),
         get<{ battles: BattleView[] }>(`/api/battles/live`),
         get<{ battles: BattleView[] }>(`/api/battles/upcoming`),
@@ -184,9 +175,7 @@ export function RightRail() {
       ]);
       if (cancelled) return;
       if (l) setLive(l.streams);
-      if (c) setCategories(c.categories);
       if (s) setTop(s.streamers);
-      if (g) setGifters(g.top);
       if (e) setEnded(e.streams);
       setBattles([...(bl?.battles ?? []), ...(bu?.battles ?? [])].slice(0, 3));
       if (gl) setGames(gl.items.slice(0, 4));
@@ -227,17 +216,16 @@ export function RightRail() {
       return [...followed]
         .sort((a, b) => Number(b.isLive) - Number(a.isLive) || (b.stream?.viewers ?? 0) - (a.stream?.viewers ?? 0))
         .slice(0, 12)
-        .map((c) => ({ key: c.id, href: c.isLive && c.stream ? `/stream/${c.stream.id}` : `/c/${c.username}`, name: c.displayName || c.username, avatar: c.avatar, live: c.isLive }));
+        .map((c) => ({ key: c.id, href: c.isLive && c.stream ? `/stream/${c.stream.id}` : `/c/${c.username}`, name: c.displayName || c.username, handle: c.username, avatar: c.avatar, live: c.isLive }));
     }
     const seen = new Set<string>();
     return live
       .filter((s) => (seen.has(s.streamerId.username) ? false : (seen.add(s.streamerId.username), true)))
       .slice(0, 12)
-      .map((s) => ({ key: s._id, href: `/stream/${s._id}`, name: s.streamerId.displayName || s.streamerId.username, avatar: s.streamerId.avatar, live: true }));
+      .map((s) => ({ key: s._id, href: `/stream/${s._id}`, name: s.streamerId.displayName || s.streamerId.username, handle: s.streamerId.username, avatar: s.streamerId.avatar, live: true }));
   }, [isAuthenticated, followed, live]);
 
   const liveBattles = useMemo(() => battles.filter((b) => b.status === "live" || b.status === "overtime"), [battles]);
-  const busiest = useMemo(() => [...categories].sort((a, b) => b.viewers - a.viewers).slice(0, 6), [categories]);
   const followingIds = useMemo(() => new Set(followed.map((c) => c.id)), [followed]);
   const suggestions = useMemo(
     () => top.filter((s) => !followingIds.has(s.id) && s.username !== user?.username).slice(0, 4),
@@ -277,13 +265,13 @@ export function RightRail() {
                   name={stream.streamer.displayName}
                   live
                   badge={
-                    <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[4px] bg-amber-400 px-1 py-px text-[8px] font-bold tracking-wide text-neutral-950 uppercase ring-2 ring-background">
+                    <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[4px] bg-ember px-1 py-px text-[8px] font-bold tracking-wide text-on-ember uppercase ring-2 ring-background">
                       {game.type === "raffle" ? <Ticket size={8} weight="fill" /> : game.type === "quiz" ? <Question size={8} weight="bold" /> : <Sparkle size={8} weight="fill" />}
                       {game.type === "raffle" ? "Raffle" : game.type === "quiz" ? "Quiz" : "Predict"}
                     </span>
                   }
                 />
-                <span className="w-full truncate text-center text-[11px] text-muted-foreground">{stream.streamer.displayName}</span>
+                <span className="w-full truncate text-center text-[11px] font-medium text-foreground/80">{stream.streamer.username}</span>
               </Link>
             ))}
             {stories.map((s) => (
@@ -293,12 +281,10 @@ export function RightRail() {
                   name={s.name}
                   live={s.live}
                   badge={
-                    s.live ? (
-                      <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-[4px] bg-red-600 px-1 py-px text-[8px] font-bold tracking-wide text-white uppercase ring-2 ring-background">Live</span>
-                    ) : undefined
+                    s.live ? <LiveTag /> : undefined
                   }
                 />
-                <span className="w-full truncate text-center text-[11px] text-muted-foreground">{s.name}</span>
+                <span className="w-full truncate text-center text-[11px] font-medium text-foreground/80">{s.handle}</span>
               </Link>
             ))}
           </div>
@@ -310,41 +296,6 @@ export function RightRail() {
         <Eyebrow icon={<Sparkle size={13} weight="fill" />} label="Spotlight" />
         <Spotlight games={games} />
       </section>
-
-      {/* 3 · Battles: running first, then booked */}
-      {battles.length > 0 && (
-        <section className="animate-rise" style={{ animationDelay: "135ms" }}>
-          <Eyebrow icon={<Sword size={13} weight="fill" />} label="Battles" live={liveBattles.length > 0} />
-          <div className="flex flex-col gap-1.5">
-            {battles.map((b) => {
-              const isLive = b.status === "live" || b.status === "overtime";
-              const share = hostShare(b);
-              return (
-                <Link key={b.id} href={isLive ? `/stream/${b.host.streamId}` : `/c/${b.host.username}`} className="group rounded-sm bg-white/[0.04] px-3 py-2.5 transition-colors hover:bg-white/[0.07]">
-                  <div className="flex items-center gap-2">
-                    <UserAvatar src={b.host.avatar} name={b.host.displayName} size={28} className="size-7 ring-2 ring-red-500" />
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">{b.host.displayName}</span>
-                    <span className="text-[10px] font-bold tracking-widest text-muted-foreground/60 uppercase">vs</span>
-                    <span className="min-w-0 flex-1 truncate text-right text-[12.5px] font-medium text-foreground">{b.challenger.displayName}</span>
-                    <UserAvatar src={b.challenger.avatar} name={b.challenger.displayName} size={28} className="size-7 ring-2 ring-sky-400" />
-                  </div>
-                  {isLive ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.12]">
-                        <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-500 to-amber-400" style={{ width: `${share * 100}%` }} />
-                        <div className="absolute inset-y-0 right-0 bg-gradient-to-l from-violet-500 to-sky-400" style={{ width: `${(1 - share) * 100}%` }} />
-                      </div>
-                      <span className="rounded-full bg-white px-1.5 py-px text-[10.5px] font-bold text-neutral-950 tabular-nums">{formatClock(secondsLeft(b, tick))}</span>
-                    </div>
-                  ) : (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">{b.scheduledAt ? formatStartsIn(b.scheduledAt, loadedAt) : "Booked"} · starts when both are live</p>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* 4 · Continue watching */}
       {resume.length > 0 && (
@@ -372,52 +323,8 @@ export function RightRail() {
         </section>
       )}
 
-      {/* 5 · Happening now */}
-      {busiest.length > 0 && (
-        <section className="animate-rise" style={{ animationDelay: "180ms" }}>
-          <Eyebrow icon={<Fire size={13} weight="fill" />} label="Happening now" trailing={<SeeAll href="/browse" />} />
-          <div className="flex flex-col">
-            {busiest.map((c, i) => (
-              <Link key={c.category} href={`/browse?category=${encodeURIComponent(c.category)}`} className="group flex items-center gap-3 rounded-sm px-1 py-1.5 transition-colors hover:bg-white/[0.04]">
-                <span className="w-4 shrink-0 text-center text-[11px] font-semibold text-muted-foreground/50 tabular-nums">{i + 1}</span>
-                <span className="relative h-[52px] w-[39px] shrink-0 overflow-hidden rounded-[6px]">
-                  <StreamArt src={categoryArt(c.category, { w: 156, h: 208 })} category={c.category} alt="" seed={c.category} size={{ w: 156, h: 208 }} />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <span className="truncate text-[13.5px] font-medium text-foreground/90 group-hover:text-foreground">{c.category}</span>
-                  <span className="flex items-center gap-2 text-[11.5px] text-muted-foreground tabular-nums">
-                    <span className="flex items-center gap-1"><Eye size={11} />{formatNumber(c.viewers)}</span>
-                    <span className="flex items-center gap-1 text-red-400"><span className="size-1.5 rounded-full bg-red-500" />{c.live} live</span>
-                  </span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 6 · Top gifters */}
-      {gifters.length > 0 && (
-        <section className="animate-rise" style={{ animationDelay: "240ms" }}>
-          <Eyebrow icon={<Gift size={13} weight="fill" />} label="Top gifters this week" />
-          <div className="flex flex-col">
-            {gifters.map((g, i) => (
-              <div key={g.userId} className="flex items-center gap-3 rounded-sm px-1 py-1.5">
-                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", i === 0 ? "bg-amber-400 text-neutral-950" : i === 1 ? "bg-neutral-300 text-neutral-950" : i === 2 ? "bg-amber-700 text-white" : "bg-white/[0.08] text-muted-foreground")}>{i + 1}</span>
-                <UserAvatar src={g.avatar} name={g.displayName} size={34} className="size-[34px]" />
-                <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <span className="flex items-center gap-1 truncate text-[13.5px] font-medium text-foreground/90">
-                    <span className="truncate">{g.displayName}</span>
-                    {g.verified && <SealCheck size={12} weight="fill" className="shrink-0 text-sky-400" />}
-                  </span>
-                  <span className="truncate text-[11.5px] text-muted-foreground tabular-nums">{g.count} gift{g.count === 1 ? "" : "s"}</span>
-                </span>
-                <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{usd(g.totalUsdMinor)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* 6 · Top gifters this week — the podium */}
+      <TopGiftersBoard className="animate-rise" heading={<Eyebrow label="Top gifters this week" />} />
 
       {/* 7 · Top players */}
       {players.length > 0 && (
@@ -426,13 +333,13 @@ export function RightRail() {
           <div className="flex flex-col">
             {players.map((p, i) => (
               <div key={p.userId} className="flex items-center gap-3 rounded-sm px-1 py-1.5">
-                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", i === 0 ? "bg-amber-400 text-neutral-950" : "bg-white/[0.08] text-muted-foreground")}>{i + 1}</span>
+                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", i === 0 ? "bg-ember text-on-ember" : "bg-white/[0.08] text-muted-foreground")}>{i + 1}</span>
                 <UserAvatar src={p.avatar} name={p.displayName} size={34} className="size-[34px]" />
                 <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <span className="truncate text-[13.5px] font-medium text-foreground/90">{p.displayName}</span>
+                  <span className="truncate text-[13.5px] font-bold text-foreground">{p.username}</span>
                   <span className="truncate text-[11.5px] text-muted-foreground tabular-nums">{p.games} win{p.games === 1 ? "" : "s"}</span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1 text-[13px] font-semibold text-foreground tabular-nums"><Coins size={12} weight="fill" className="text-amber-300" />{formatPoints(p.won)}</span>
+                <span className="flex shrink-0 items-center gap-1 text-[13px] font-semibold text-foreground tabular-nums"><Coins size={12} weight="fill" className="text-ember-hi" />{formatPoints(p.won)}</span>
               </div>
             ))}
           </div>
@@ -460,23 +367,26 @@ export function RightRail() {
         </section>
       )}
 
-      {/* 9 · Who to follow */}
+      {/* 9 · Who to follow — TikTok's flow: the handle leads, the nickname
+          and followers under it, the face in a heat ring when they're on. */}
       {suggestions.length > 0 && (
         <section className="animate-rise" style={{ animationDelay: "300ms" }}>
-          <Eyebrow icon={<UserPlus size={13} weight="bold" />} label="Who to follow" />
-          <div className="flex flex-col gap-1">
+          <Eyebrow label="Who to follow" trailing={<SeeAll href="/browse?tab=live" />} />
+          <div className="flex flex-col gap-0.5 rounded-panel bg-surface p-1.5">
             {suggestions.map((s) => (
-              <div key={s.id} className="flex items-center gap-3 rounded-sm px-1 py-1.5">
+              <div key={s.id} className="flex items-center gap-3 rounded-control px-2 py-2 transition-colors hover:bg-white/[0.03]">
                 <Link href={`/c/${s.username}`} className="relative shrink-0">
-                  <UserAvatar src={s.avatar} name={s.displayName || s.username} size={38} className="size-[38px]" />
-                  {s.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-red-500 ring-2 ring-background" />}
+                  <UserAvatar src={s.avatar} name={s.displayName || s.username} size={40} ring={s.isLive ? "live" : "none"} ringGapClassName="bg-surface" className={s.isLive ? undefined : "size-10"} />
+                  {s.isLive && <LiveTag className="ring-surface" />}
                 </Link>
                 <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <Link href={`/c/${s.username}`} className="flex items-center gap-1 truncate text-[13.5px] font-medium text-foreground/90 hover:text-foreground">
-                    <span className="truncate">{s.displayName || s.username}</span>
-                    {s.verified && <SealCheck size={12} weight="fill" className="shrink-0 text-sky-400" />}
+                  <Link href={`/c/${s.username}`} className="flex items-center gap-1 truncate text-[14px] font-bold text-foreground hover:text-foreground/80">
+                    <span className="truncate">{s.username}</span>
+                    {s.verified && <SealCheck size={13} weight="fill" className="shrink-0 text-sky-400" />}
                   </Link>
-                  <span className="truncate text-[11.5px] text-muted-foreground tabular-nums">{formatNumber(s.followers)} followers{s.isLive ? " · Live" : ""}</span>
+                  <span className="mt-0.5 truncate text-[12px] text-muted-foreground tabular-nums">
+                    {s.displayName} · {formatNumber(s.followers)}
+                  </span>
                 </span>
                 <FollowButton username={s.username} initialFollowing={false} size="sm" />
               </div>
@@ -540,7 +450,7 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
       <div className="overflow-hidden">
         <div className="flex gap-2.5 transition-transform duration-500 ease-[cubic-bezier(0.2,0,0,1)]" style={{ transform: `translateX(calc(${-index} * (68% + 0.625rem)))` }}>
           {games.map(({ game, stream }) => (
-            <Link key={game.id} href={`/stream/${stream.id}`} className={cn(card, "justify-end bg-[#0e0e14]")}>
+            <Link key={game.id} href={`/stream/${stream.id}`} className={cn(card, "justify-end bg-card")}>
               <StreamArt src={stream.thumbnailUrl} category={stream.category} alt="" seed={game.id} size={{ w: 480, h: 640 }} />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
               <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
@@ -578,7 +488,7 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
           />
 
           {/* Go live. */}
-          <div className={cn(card, "justify-end bg-gradient-to-br from-red-600 via-red-700 to-[#3a0d0a]")}>
+          <div className={cn(card, "justify-end bg-chili-lo")}>
             <Broadcast size={40} weight="fill" className="absolute top-5 right-4 text-white/25" />
             <span className="text-[9.5px] font-bold tracking-[0.14em] text-white/60 uppercase">Your turn</span>
             <span className="mt-1 text-[15px] font-semibold leading-tight">Go live in under a minute</span>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Eye, Lightning, SealCheck, VideoCamera } from "@phosphor-icons/react";
+import { Eye, Lightning, SealCheck, VideoCamera } from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 import { RemoteImage } from "@/components/ui/remote-image";

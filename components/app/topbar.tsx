@@ -1,30 +1,34 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MagnifyingGlass, Broadcast, List, SignIn, X, ArrowLeft } from "@phosphor-icons/react";
+import { MagnifyingGlass, MenuHalf, SignIn, X, ArrowLeft } from "@/components/icons";
+import { VividLauncher } from "@/components/vivid/vivid-voice-control";
+import { PointsChip } from "@/components/app/points-chip";
 import { BrandLockup } from "@/components/ui/brand-mark";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CATEGORY_GROUPS } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { PointsChip } from "@/components/app/points-chip";
 import { NotificationsBell } from "@/components/app/notifications-bell";
 
 /**
  * The bar across the top of every page.
  *
- * Desktop: the page's name on the left, search dead centre, Go live on the
- * right — the way Kick and Twitch put it. It is always in view (sticky) and
- * it is the one place search lives; pages don't carry their own box.
+ * Desktop: only controls (owner, 2026-09-24: "no isolated text, no live
+ * now — just professional"): search dead centre with its ⌘K hint, then your
+ * points, Ask Vivid, the bell and you. Go live lives in the rail (and the
+ * phone drawer), not here (owner, 2026-09-24). It is always in
+ * view (sticky glass) and it is the one place search lives.
  *
- * Phones: the menu button and the brand on the left, then search, the
- * bell and the one red pill — Go live — on the right. The menu opens the
- * account drawer; the four places to go are on the tab bar below. Search
- * opens as a full-width row over the bar rather than squeezing a box
- * between the icons.
+ * Phones: your face (or the menu, signed out) and the brand on the left,
+ * then Vivid's orb, the bell and Go live on the right — Vivid took search's
+ * seat (owner's pick 3B, 2026-09-23), and search opens from Browse as a
+ * full-width row over this bar. Your face opens the account drawer; the
+ * four places to go are on the tab bar below.
  *
  * Tablets (768–1024px) are the phone bar's cousins: the desktop grid needs
  * the page title, a 600px search and three actions, which is more than the
@@ -35,7 +39,6 @@ import { NotificationsBell } from "@/components/app/notifications-bell";
  * (local taxonomy); Enter hands the term to the Explore page.
  */
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 interface ChannelHit {
   id: string;
@@ -45,68 +48,14 @@ interface ChannelHit {
   isLive: boolean;
 }
 
-/** What the bar calls the page you're on. */
-function pageTitle(pathname: string, search: string) {
-  if (pathname.startsWith("/explore")) return search ? "Explore" : "Home";
-  if (pathname.startsWith("/browse")) return "Browse";
-  if (pathname.startsWith("/following")) return "Following";
-  if (pathname.startsWith("/feed")) return "Live feed";
-  if (pathname.startsWith("/stream/")) return "Watching";
-  if (pathname.startsWith("/c/")) return "Channel";
-  if (pathname.startsWith("/dashboard")) return "Dashboard";
-  if (pathname.startsWith("/studio")) return "Studio";
-  if (pathname.startsWith("/settings")) return "Settings";
-  if (pathname.startsWith("/wallet")) return "Wallet";
-  if (pathname.startsWith("/rewards")) return "Rewards";
-  if (pathname.startsWith("/notifications")) return "Notifications";
-  return "Xtream";
-}
-
 /** A round icon button, the phone bar's unit. */
 const ICON_BTN =
-  "press flex size-9 shrink-0 items-center justify-center rounded-full bg-[#26262D] text-foreground transition-colors hover:bg-[#31313A]";
+  "press flex size-9 shrink-0 items-center justify-center rounded-full bg-control text-foreground transition-colors hover:bg-control-hover md:size-10";
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
-  const [liveTotal, setLiveTotal] = useState<number | null>(null);
-  const [battleCount, setBattleCount] = useState(0);
-  const [gameCount, setGameCount] = useState(0);
-  const [term, setTerm] = useState("");
-
-  // The page's name lives here, not in an h1 on every page, with how much
-  // is live right now under it — the one number that matters everywhere.
-  useEffect(() => {
-    const read = () => setTerm(new URLSearchParams(window.location.search).get("search") ?? "");
-    read();
-    const onSearch = (e: Event) => setTerm((e as CustomEvent<string>).detail ?? "");
-    window.addEventListener("xtreme:search", onSearch);
-    return () => window.removeEventListener("xtreme:search", onSearch);
-  }, [pathname]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      Promise.all([
-        apiFetch<{ success: boolean; data: { pagination: { total: number } } }>(`/api/streams?live=true&limit=1`).then((r) => r.data.pagination.total).catch(() => null),
-        apiFetch<{ success: boolean; data: { battles: unknown[] } }>(`/api/battles/live`).then((r) => r.data.battles.length).catch(() => 0),
-        apiFetch<{ success: boolean; data: { items: unknown[] } }>(`/api/games/live`).then((r) => r.data.items.length).catch(() => 0),
-      ]).then(([total, battles, games]) => {
-        if (cancelled) return;
-        if (total !== null) setLiveTotal(total);
-        setBattleCount(battles);
-        setGameCount(games);
-      });
-    void load();
-    const t = setInterval(load, 45_000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
-
-  const title = pageTitle(pathname, term);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   // Phones: the search row over the bar.
@@ -118,6 +67,25 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
+
+  // Browse's search pill opens the row here on phones; ⌘K / Ctrl+K jumps
+  // to the box anywhere.
+  useEffect(() => {
+    const openRow = () => setSearchOpen(true);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("xtreme:open-search", openRow);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("xtreme:open-search", openRow);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   // A route change closes the phone search row — adjusted during render
   // against the last path seen, so there's no effect-driven second pass.
@@ -174,29 +142,23 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const showList = open && q.trim().length >= 2 && (hits.length > 0 || categories.length > 0);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] bg-background px-4 md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[1fr_minmax(0,600px)_1fr] lg:gap-6">
-      {/* Left: menu and the brand on phones; the page text from lg. */}
+    <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_rgba(255,236,230,0.06)] backdrop-blur-xl backdrop-saturate-150 md:grid md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
+      {/* Left: you (or the menu) and the brand on phones; the page text from lg. */}
       <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
-        <button type="button" onClick={onMenu} aria-label="Open menu" className={cn(ICON_BTN, "md:hidden")}>
-          <List size={19} weight="bold" />
-        </button>
+        {user ? (
+          <button type="button" onClick={onMenu} aria-label="Open your menu" className="press relative shrink-0 rounded-full md:hidden">
+            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
+            {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
+          </button>
+        ) : (
+          // The WorldSpace menu mark, bare — no chip behind it (owner, 2026-09-24).
+          <button type="button" onClick={onMenu} aria-label="Open menu" className="press -ml-1 flex size-9 shrink-0 items-center justify-center text-foreground md:hidden">
+            <MenuHalf size={22} />
+          </button>
+        )}
         <Link href="/explore" className="flex shrink-0 items-center md:hidden" aria-label="Xtream home">
           <BrandLockup size={26} wordSize={19} />
         </Link>
-        <div className="hidden min-w-0 flex-col leading-tight lg:flex">
-          <span className="truncate text-[17px] font-semibold tracking-tight text-foreground">{title}</span>
-          {liveTotal !== null && (
-            <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
-              <span className="relative flex size-1.5">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-red-500" />
-              </span>
-              {liveTotal} live now
-              {battleCount > 0 && <span className="text-muted-foreground/60"> · {battleCount} battle{battleCount === 1 ? "" : "s"}</span>}
-              {gameCount > 0 && <span className="text-muted-foreground/60"> · {gameCount} game{gameCount === 1 ? "" : "s"}</span>}
-            </span>
-          )}
-        </div>
       </div>
 
       {/* Search: dead centre on desktop; a row over the whole bar on phones. */}
@@ -223,7 +185,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           <ArrowLeft size={20} />
         </button>
         <div className="relative min-w-0 flex-1">
-          <MagnifyingGlass size={17} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground/70" />
+          <MagnifyingGlass size={17} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted-foreground/70" />
           <input
             ref={inputRef}
             type="search"
@@ -233,13 +195,18 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
               setOpen(true);
             }}
             onFocus={() => setOpen(true)}
-            placeholder="Search"
+            placeholder="Search streams, people, categories"
             aria-label="Search streams, channels and categories"
             role="combobox"
             aria-expanded={showList}
             aria-controls="topbar-typeahead"
-            className="h-10 w-full rounded-full bg-white/[0.06] pr-9 pl-10 text-[15px] text-foreground transition-colors outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09] md:rounded-sm [&::-webkit-search-cancel-button]:hidden"
+            className="peer h-10 w-full rounded-full bg-white/[0.06] pr-14 pl-11 text-[14.5px] text-foreground transition-[background-color] outline-none placeholder:text-muted-foreground/60 hover:bg-white/[0.08] focus:bg-white/[0.1] md:h-11 [&::-webkit-search-cancel-button]:hidden"
           />
+          {!q && (
+            <kbd className="pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded-[8px] bg-white/[0.07] px-2 py-1 font-mono text-[11px] font-semibold text-muted-foreground peer-focus:opacity-0 lg:block">
+              ⌘K
+            </kbd>
+          )}
           {q && (
             <button
               type="button"
@@ -257,7 +224,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             <div
               id="topbar-typeahead"
               role="listbox"
-              className="animate-rise absolute top-full right-0 left-0 z-40 mt-1.5 overflow-hidden rounded-sm border border-white/[0.08] bg-[oklch(0.14_0.005_285)] py-1 shadow-2xl"
+              className="animate-rise absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-panel bg-popover py-1.5 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08),0_24px_60px_-20px_rgba(0,0,0,0.9)]"
             >
               {hits.map((c) => (
                 <Link
@@ -270,7 +237,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
                 >
                   <span className="relative shrink-0">
                     <UserAvatar src={c.avatar} name={c.displayName || c.username} size={28} className="size-7" />
-                    {c.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.14_0.005_285)]" />}
+                    {c.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-popover" />}
                   </span>
                   <span className="flex min-w-0 flex-col leading-tight">
                     <span className="truncate text-sm font-medium text-foreground">{c.displayName || c.username}</span>
@@ -297,54 +264,35 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         </div>
       </form>
 
-      {/* Right: search (phones), points, bell, the one primary action, you. */}
-      <div className="flex shrink-0 items-center gap-2 md:col-start-3 md:justify-self-end md:gap-3">
-        <button type="button" onClick={() => setSearchOpen(true)} aria-label="Search" className={cn(ICON_BTN, "md:hidden")}>
-          <MagnifyingGlass size={18} weight="bold" />
-        </button>
+      {/* Right: Vivid, the bell, the one primary action, you. */}
+      <div className="flex shrink-0 items-center gap-2 md:col-start-3 md:justify-self-end md:gap-2.5">
+        {/* Your points (earned by watching, games and drops) — opens Rewards. */}
         {user && (
           <div className="hidden lg:block">
             <PointsChip />
           </div>
         )}
+        {/* The orb alone until there's room for its word (xl). */}
+        <VividLauncher variant="orb" className="xl:hidden" />
+        <VividLauncher variant="pill" className="hidden xl:flex" />
         {user && (
           <div className={cn(ICON_BTN, "[&>button]:size-9 [&>button]:justify-center [&>button]:rounded-full [&>button]:px-0 [&>button]:py-0")}>
             <NotificationsBell collapsed />
           </div>
         )}
-        {/* The one red thing on the bar. A pill with its word on phones and
-            wide screens; a round icon on tablets, where the room is short. */}
-        <Link
-          href="/studio"
-          aria-label={user?.isLive ? "On air — open the studio" : "Go live"}
-          className={cn(
-            "shine press flex h-9 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-white transition-colors md:w-9 md:px-0 lg:w-auto lg:rounded-sm lg:px-4 lg:text-sm",
-            user?.isLive ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-chili-deep"
-          )}
-        >
-          {user?.isLive ? (
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-white" />
-            </span>
-          ) : (
-            <Broadcast size={16} weight="fill" />
-          )}
-          <span className="md:hidden lg:inline">{user?.isLive ? "On air" : "Go live"}</span>
-        </Link>
         {user ? (
           <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
-            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
+            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={36} className="size-9 ring-1 ring-white/[0.1]" />
           </Link>
         ) : isLoading ? (
           <div className="hidden size-[34px] animate-pulse rounded-full bg-white/10 md:block" />
         ) : (
           <a
             href={SIGN_IN_URL}
-            className="hidden h-9 items-center gap-1.5 rounded-sm bg-white/[0.06] px-3 text-sm font-semibold text-foreground transition-colors hover:bg-white/[0.1] md:flex"
+            className="press hidden h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-control px-3.5 text-sm font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-colors hover:bg-control-hover md:flex md:size-10 md:px-0 xl:w-auto xl:px-4"
           >
             <SignIn size={15} />
-            <span className="hidden lg:inline">Sign in</span>
+            <span className="hidden xl:inline">Sign in</span>
           </a>
         )}
       </div>

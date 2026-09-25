@@ -62,7 +62,7 @@ export function StreamPreviewThumb({
   }
 
   return (
-    <div className={cn("relative size-full overflow-hidden bg-[#0b0d10]", className)}>
+    <div className={cn("relative size-full overflow-hidden bg-ground", className)}>
       <svg
         viewBox="0 0 800 450"
         preserveAspectRatio="xMidYMid slice"

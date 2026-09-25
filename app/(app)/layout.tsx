@@ -1,12 +1,12 @@
 "use client";
 
+import { signInHref } from "@/lib/auth-urls";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell } from "@/components/app/sidebar";
 import { VividVoiceProvider } from "@/components/vivid-provider";
 import { useAuth } from "@/lib/auth-context";
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 /** Routes browsable without an account (interactions still require sign-in). */
 function isPublicPath(pathname: string) {
@@ -33,7 +33,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // (the fallback UI below only shows while the navigation happens)
   useEffect(() => {
     if (!publicPath && !isLoading && !isAuthenticated && !error) {
-      window.location.href = SIGN_IN_URL;
+      // Locally that's our own /sign-in, which brings you back here after.
+      window.location.href = signInHref(window.location.href);
     }
   }, [publicPath, isLoading, isAuthenticated, error]);
 

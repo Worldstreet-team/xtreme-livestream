@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, SealCheck, Play } from "@phosphor-icons/react";
+import { SealCheck, Play, User } from "@/components/icons";
 import { type Stream, formatNumber } from "@/lib/categories";
-import { formatUptime } from "@/lib/discovery";
 import { useImpression, type ImpressionMeta } from "@/lib/impressions";
-import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamArt } from "@/components/app/stream-art";
@@ -13,10 +11,11 @@ import { FollowButton } from "@/components/app/follow-button";
 import { Badge, LiveBadge } from "@/components/ui/badge";
 
 /**
- * A stream in a grid or shelf. Borderless on purpose — the thumbnail is the
- * card, and the info sits under it as quiet text. All signal lives in small
- * overlays: LIVE, viewers, uptime. Category renders as muted text, not a
- * coloured chip — six rainbow chips per row read as noise at grid scale.
+ * A stream in a grid or shelf, at its simplest (owner, 2026-09-23: "just
+ * the name of the stream and the streamer — high-tier simplicity"). The
+ * thumbnail is the card: LIVE and the viewer count on the picture, nothing
+ * else. Under it, the face, the title and who's streaming. No tags, no
+ * category, no uptime — the shelf's header already says what kind it is.
  *
  * Two targets, not one: the thumbnail and title open the broadcast, while
  * the avatar, name and category open the channel and the category. Nesting
@@ -24,10 +23,9 @@ import { Badge, LiveBadge } from "@/components/ui/badge";
  * strand every channel page behind a stream nobody wanted to watch.
  *
  * Variants:
- *  - standard   thumbnail, avatar, three text lines
- *  - badges     adds uptime and a category chip on the image
- *  - large      same anatomy, bigger type — for the followed-live shelf
- *  - compact    horizontal: thumbnail left, text right — lists and rails
+ *  - standard / badges   thumbnail, avatar, title, streamer
+ *  - large               same anatomy, bigger type — for the followed-live shelf
+ *  - compact             horizontal: thumbnail left, text right — lists and rails
  */
 
 export type StreamCardVariant = "standard" | "badges" | "large" | "compact";
@@ -48,11 +46,6 @@ export function StreamCard({
   className?: string;
 }) {
   const ref = useImpression<HTMLDivElement>(impression);
-  const badges = variant === "badges" || variant === "large";
-  // Only badge variants tick; a plain grid of forty cards has no reason to
-  // re-render every second.
-  const now = useNow(badges && stream.isLive);
-  const uptime = badges && stream.isLive ? formatUptime(stream.startedAt, now) : "";
 
   const name = stream.streamer.displayName || stream.streamer.username;
   // A shared stage reads as overlapping faces and "Host with Guest".
@@ -86,31 +79,21 @@ export function StreamCard({
         </span>
       )}
 
-      <span className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+      {/* LIVE and who's watching, together in the corner; a finished
+          stream shows its length and the peak it reached instead. */}
+      <span className="absolute top-2 left-2 flex items-center gap-1">
         {stream.isLive ? <LiveBadge /> : <Badge variant="dark">{stream.duration}</Badge>}
-        {uptime && <Badge variant="glass">{uptime}</Badge>}
-      </span>
-
-      {badges && (
-        <Badge variant="dark" className="absolute bottom-2.5 left-2.5 max-w-[55%]">
-          <span className="truncate">{stream.category}</span>
+        <Badge variant="glass" icon={<User size={11} weight="fill" />}>
+          {stream.isLive ? formatNumber(stream.viewers) : `${formatNumber(stream.peakViewers ?? 0)} peak`}
         </Badge>
-      )}
-
-      {/* Live streams show who's watching; finished ones show the peak they
-          reached, since their live count is always 0. */}
-      <Badge variant="glass" icon={<Eye size={12} weight="bold" />} className="absolute right-2.5 bottom-2.5">
-        {stream.isLive
-          ? formatNumber(stream.viewers)
-          : `${formatNumber(stream.peakViewers ?? 0)} peak`}
-      </Badge>
+      </span>
     </Link>
   );
 
   const nameLine = (
     <Link
       href={channelHref}
-      className="mt-0.5 flex w-fit max-w-full items-center gap-1 truncate text-xs text-muted-foreground transition-colors hover:text-foreground"
+      className="mt-0.5 flex w-fit max-w-full items-center gap-1 truncate text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
     >
       <span className="truncate">
         {name}
@@ -143,12 +126,6 @@ export function StreamCard({
             </h3>
           </Link>
           {nameLine}
-          <Link
-            href={`/browse?category=${encodeURIComponent(stream.category)}`}
-            className="mt-0.5 block w-fit truncate text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-          >
-            {stream.category}
-          </Link>
         </div>
       </div>
     );
@@ -157,7 +134,7 @@ export function StreamCard({
   return (
     <div ref={ref} className={cn("group", className)}>
       {thumb}
-      <div className={cn("mt-2.5 flex gap-2.5", variant === "large" && "mt-3")}>
+      <div className={cn("mt-2 flex items-center gap-2.5", variant === "large" && "mt-2.5")}>
         <Link
           href={channelHref}
           className={cn("flex shrink-0", coHosts.length > 0 && "-space-x-3")}
@@ -166,11 +143,11 @@ export function StreamCard({
           <UserAvatar
             src={stream.streamer.avatar}
             name={name}
-            size={variant === "large" ? 36 : 32}
+            size={variant === "large" ? 34 : 30}
             className={cn(
               "shrink-0 transition-opacity hover:opacity-80",
               coHosts.length > 0 && "relative z-10 ring-2 ring-background",
-              variant === "large" ? "size-9" : "size-8"
+              variant === "large" ? "size-[34px]" : "size-[30px]"
             )}
           />
           {coHosts.slice(0, 2).map((g) => (
@@ -178,10 +155,10 @@ export function StreamCard({
               key={g.username}
               src={g.avatar}
               name={g.username}
-              size={variant === "large" ? 36 : 32}
+              size={variant === "large" ? 34 : 30}
               className={cn(
                 "shrink-0 ring-2 ring-background",
-                variant === "large" ? "size-9" : "size-8"
+                variant === "large" ? "size-[34px]" : "size-[30px]"
               )}
             />
           ))}
@@ -190,37 +167,14 @@ export function StreamCard({
           <Link href={streamHref}>
             <h3
               className={cn(
-                "truncate font-medium text-foreground transition-colors group-hover:text-primary",
-                variant === "large" ? "text-[15px]" : "text-sm"
+                "truncate font-semibold text-foreground transition-colors group-hover:text-foreground/80",
+                variant === "large" ? "text-[15px]" : "text-[14px]"
               )}
             >
               {stream.title}
             </h3>
           </Link>
           {nameLine}
-          {!badges && (
-            <Link
-              href={`/browse?category=${encodeURIComponent(stream.category)}`}
-              className="mt-0.5 block w-fit truncate text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-            >
-              {stream.category}
-            </Link>
-          )}
-          {/* Tags the way Twitch's feed wears them: small solid chips under
-              the text, three at most, so a row scans as a row. */}
-          {stream.tags.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {stream.tags.slice(0, 3).map((tag) => (
-                <Link
-                  key={tag}
-                  href={`/explore?search=${encodeURIComponent(tag)}`}
-                  className="rounded-[4px] bg-white/[0.08] px-1.5 py-0.5 text-[10.5px] font-medium text-foreground/80 transition-colors hover:bg-white/[0.14] hover:text-foreground"
-                >
-                  {tag}
-                </Link>
-              ))}
-            </div>
-          )}
         </div>
         {showFollow && (
           <FollowButton

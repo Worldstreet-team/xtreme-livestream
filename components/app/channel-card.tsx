@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SealCheck, Users } from "@phosphor-icons/react";
+import { SealCheck, Users } from "@/components/icons";
 import { formatNumber } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";

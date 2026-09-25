@@ -1,0 +1,276 @@
+/* ==========================================================================
+   Xtream foundations · 2.0 "Afterglow"
+   --------------------------------------------------------------------------
+   Owner's pick (2026-09-23): direction B from the lookbook. Warm light after
+   dark: the chili is a light source, things glow when they're on and spring
+   when you touch them. Borrowed from the other two directions: A's broadcast
+   flow (tally, lower third, scoreboard) and C's money flow (thin numerals,
+   receipts, the pelt board).
+
+   Three layers, and feature code only ever touches the last two:
+     pigment   the mark's own colours, sampled from xtream-logo.png
+     role      what a colour means (live, energy, value, surface…)
+     component the primitives in components/ui + components/xtream
+
+   The palette is TWO colours, used everywhere, plus one special effect:
+     Chili   live and action   — Go live, LIVE, on air, counts, record
+     Ember   energy and choice — focus, selection, progress, links, streaks
+     Heat    the chili→ember→gold gradient. Allowed on rings (live/story
+             avatars, the allied burst), the Go live button, and gift
+             moments. Nowhere else — a gradient on everything is a gradient
+             on nothing (owner: "just the ring and some things").
+   Gold ("value") is reserved for money: amounts, the wallet, the pelt.
+   ========================================================================== */
+
+@theme inline {
+  /* pigments */
+  --color-brand-red: var(--brand-red);
+  --color-brand-red-orange: var(--brand-red-orange);
+  --color-brand-crimson: var(--brand-crimson);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-green: var(--brand-green);
+
+  /* the two colours */
+  --color-chili: var(--chili);
+  --color-chili-hi: var(--chili-hi);
+  --color-chili-lo: var(--chili-lo);
+  --color-ember: var(--ember);
+  --color-ember-hi: var(--ember-hi);
+  --color-ember-lo: var(--ember-lo);
+  --color-on-ember: var(--on-ember);
+  --color-value: var(--value);
+
+  /* surfaces */
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-control: var(--control);
+  --color-control-hover: var(--control-hover);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-hairline: var(--hairline-color);
+
+  /* semantic */
+  --color-primary-hover: var(--primary-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-live: var(--live);
+  --color-border-control: var(--border-control);
+
+  /* shape */
+  --radius-control: var(--shape-control);
+  --radius-panel: var(--shape-panel);
+  --radius-overlay: var(--shape-overlay);
+
+  /* light */
+  --shadow-floating: var(--elevation-floating);
+  --shadow-overlay: var(--elevation-overlay);
+  --shadow-lift: var(--lift);
+  --shadow-glow-chili: var(--glow-chili);
+  --shadow-glow-ember: var(--glow-ember);
+  --shadow-glow-white: var(--glow-white);
+  --shadow-glow-heat: var(--glow-heat);
+
+  /* rhythm */
+  --spacing-control: var(--control-height);
+  --spacing-control-sm: var(--control-height-sm);
+  --spacing-control-lg: var(--control-height-lg);
+  --spacing-page: var(--page-gutter);
+  --spacing-section: var(--section-gap);
+
+  /* type scale (fluid display, fixed interface) */
+  --text-display: clamp(2.5rem, 6vw, 4.5rem);
+  --text-display--line-height: 0.98;
+  --text-display--letter-spacing: -0.045em;
+  --text-title: clamp(1.625rem, 3.2vw, 2.25rem);
+  --text-title--line-height: 1.1;
+  --text-title--letter-spacing: -0.03em;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.35;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.4;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.5;
+}
+
+:root {
+  /* ---- pigments: the mark (public/images/xtream-logo.png) ------------- */
+  --brand-red: #f20e21;        /* the chili's body */
+  --brand-deep: #c00f16;       /* its shadow side */
+  --brand-crimson: #981b17;
+  --brand-red-orange: #f12f1e;
+  --brand-orange: #f85810;     /* the highlight — ember */
+  --brand-gold: #f8a008;       /* the highlight's tail */
+  --brand-green: #65a347;      /* the stem */
+
+  /* ---- the two colours ------------------------------------------------ */
+  /* Chili: fills carry white text at 4.8:1; -hi is for text and icons on
+     dark (6.6:1 on ground), -lo is pressed. */
+  --chili: #e3122a;
+  --chili-hi: #ff5a66;
+  --chili-lo: #b30e1f;
+  /* Ember: fills carry dark ink (5.9:1), never white; -hi is for text and
+     icons on dark (8.6:1). */
+  --ember: #f85810;
+  --ember-hi: #ff8a4c;
+  --ember-lo: #d2460a;
+  --on-ember: #1c0a03;
+
+  /* ---- the special effects --------------------------------------------- */
+  --heat: linear-gradient(135deg, #ff2b45 0%, #f85810 52%, #f8a008 100%);
+  --heat-soft: linear-gradient(135deg, rgb(255 43 69 / 0.28), rgb(248 88 16 / 0.18) 55%, rgb(248 160 8 / 0.12));
+  --value: #f5c76e;            /* money text, 12.6:1 on ground */
+  --foil: linear-gradient(115deg, #fbe3a6 0%, #d29a45 30%, #f7d58c 52%, #a56f2a 78%, #e9c06f 100%);
+
+  /* ---- warm neutrals ---------------------------------------------------- */
+  --ground: #0b0708;
+  --surface: #141011;
+  --surface-raised: #1c1617;
+  --surface-hover: #261e1f;
+  --control: #261e1f;          /* quiet buttons, icon buttons, chips */
+  --control-hover: #30272a;
+  --hairline-color: rgb(255 236 230 / 0.1);
+
+  /* ---- semantic ---------------------------------------------------------- */
+  --primary-hover: var(--chili-lo);
+  --success: #95d477;
+  --warning: #ffc16e;
+  --info: #a3baff;
+  --live: var(--chili-hi);
+  --border-control: rgb(255 236 230 / 0.16);
+
+  /* ---- shape: tight and quiet, never sharp ------------------------------ */
+  --shape-control: 0.625rem;   /* fields: 10px */
+  --shape-panel: 0.75rem;      /* cards and panels: 12px */
+  --shape-overlay: 1.25rem;    /* sheets and dialogs: 20px */
+
+  /* ---- rhythm ------------------------------------------------------------ */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --control-height: 2.75rem;
+  --control-height-sm: 2.25rem;
+  --control-height-lg: 3.25rem;
+  --page-gutter: var(--space-4);
+  --section-gap: var(--space-8);
+  --content-max: 80rem;
+  --reading-max: 65ch;
+
+  /* ---- light ------------------------------------------------------------- */
+  --hairline: inset 0 0 0 1px var(--hairline-color);
+  --lit: inset 0 1px 0 rgb(255 255 255 / 0.1);
+  --lift: 0 12px 32px -14px rgb(0 0 0 / 0.75);
+  --elevation-floating: 0 14px 36px -16px rgb(0 0 0 / 0.8);
+  --elevation-overlay: 0 -24px 64px rgb(0 0 0 / 0.65);
+  --glow-chili: 0 10px 26px -8px rgb(227 18 42 / 0.75);
+  --glow-ember: 0 10px 26px -8px rgb(248 88 16 / 0.7);
+  --glow-white: 0 8px 22px -10px rgb(255 255 255 / 0.5);
+  --glow-heat: 0 14px 36px -10px rgb(248 88 16 / 0.75);
+
+  /* ---- motion: springs for social, sheens for value, wipes for broadcast */
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-enter: 280ms;
+  --motion-exit: 180ms;
+  --motion-social: 240ms;
+  --motion-spring: 420ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- layers ------------------------------------------------------------ */
+  --layer-sticky: 20;
+  --layer-dropdown: 30;
+  --layer-overlay: 40;
+  --layer-dialog: 50;
+  --layer-nested: 55;
+  --layer-toast: 60;
+  --layer-tooltip: 70;
+}
+
+@media (min-width: 768px) {
+  :root { --page-gutter: var(--space-8); --section-gap: var(--space-12); }
+}
+
+/* Base focus is deliberately visible on links and bespoke controls too —
+   an ember ring, the energy colour doing its job. */
+@layer base {
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+  ::selection { background: var(--chili-lo); color: #fff; }
+}
+
+/* ---- utilities ----------------------------------------------------------- */
+/* The heat gradient, for the allowlist only: rings and gift moments. Go live is solid Chili. */
+@utility bg-heat { background-image: var(--heat); }
+@utility bg-heat-soft { background-image: var(--heat-soft); }
+@utility text-heat { background-image: var(--heat); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Foil, for the pelt and the top of a leaderboard — value at its peak. */
+@utility bg-foil { background-image: var(--foil); }
+@utility text-foil { background-image: var(--foil); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Type roles. Archivo's width axis carries the voice: wide for display,
+   widest and thin for money (C's watch-dial numerals). */
+@utility font-wide { font-family: var(--font-display), sans-serif; font-stretch: 118%; }
+@utility font-money { font-family: var(--font-display), sans-serif; font-stretch: 125%; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+@utility caps { text-transform: uppercase; letter-spacing: 0.16em; }
+
+.ds-display { font-family: var(--font-display), sans-serif; font-stretch: 118%; font-weight: 700; letter-spacing: -0.04em; }
+.ds-page { width: 100%; max-width: var(--content-max); margin-inline: auto; padding: var(--page-gutter); }
+.ds-section { scroll-margin-top: 6rem; }
+.ds-control-motion { transition: background-color var(--motion-standard) var(--ease-standard), color var(--motion-standard) var(--ease-standard), border-color var(--motion-standard) var(--ease-standard), box-shadow var(--motion-standard) var(--ease-standard); }
+
+/* Loaders: a ring for a pending action, the orbit — chili and ember
+   circling — for connecting to a room. */
+.ds-spinner { display: inline-block; flex: none; position: relative; width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ds-spin 750ms linear infinite; }
+.ds-spinner-orbit { width: 1.5rem; height: 1.5rem; border: 0; }
+.ds-spinner-orbit::before, .ds-spinner-orbit::after { content: ""; position: absolute; top: .5rem; left: 0; width: .5rem; height: .5rem; border-radius: 50%; background: var(--chili); }
+.ds-spinner-orbit::after { left: 1rem; background: var(--ember); }
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+.ds-scrim[data-state="open"] { animation: fade-in var(--motion-standard) ease-out; }
+.ds-scrim[data-state="closed"] { animation: fade-out var(--motion-exit) ease-in; }
+.ds-dialog[data-state="open"] { animation: ds-dialog-in var(--motion-spring) var(--ease-spring); }
+.ds-dialog[data-state="closed"] { animation: fade-out var(--motion-exit) ease-in; }
+.ds-sheet[data-state="open"] { animation: sheet-up var(--motion-spring) var(--ease-spring); }
+.ds-sheet[data-state="closed"] { animation: sheet-down var(--motion-exit) ease-in; }
+@keyframes ds-dialog-in { from { opacity: 0; scale: .94; } to { opacity: 1; scale: 1; } }
+.ds-reaction[data-selected="true"] { animation: ds-reaction var(--motion-spring) var(--ease-spring); }
+@keyframes ds-reaction { 0% { scale: .86; } 60% { scale: 1.14; } 100% { scale: 1; } }
+.ds-press { transition: transform var(--motion-fast) var(--ease-standard); }
+.ds-press:active { transform: scale(.94); }
+.ds-catalog a, .ds-catalog button { touch-action: manipulation; }
+.ds-catalog pre { max-width: 100%; }
+.ds-catalog [id] { scroll-margin-top: 6rem; }
+.ds-motion-muted *, .ds-motion-muted *::before, .ds-motion-muted *::after { animation: none !important; transition: none !important; }
+
+/* ---- moments -------------------------------------------------------------
+   The keyframes B's states are made of. Components name them; nothing
+   hand-rolls a burst. */
+@keyframes xt-ring-burst { from { transform: scale(0.82); opacity: 1; } to { transform: scale(1.42); opacity: 0; } }
+@keyframes xt-spring-in { from { transform: translateY(16px) scale(0.72); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes xt-pop { from { transform: scale(0.3); } to { transform: none; } }
+@keyframes xt-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes xt-sparks { 0% { transform: scale(0.2); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1.25); opacity: 0; } }
+@keyframes xt-sparks-stay { from { transform: scale(0.2); opacity: 0; } to { transform: none; opacity: 0.95; } }
+@keyframes xt-breathe { 0%, 100% { box-shadow: var(--lit), var(--glow-heat), 0 0 0 0 rgb(248 88 16 / 0); } 50% { box-shadow: var(--lit), 0 16px 50px -6px rgb(248 88 16 / 0.95), 0 0 0 7px rgb(248 88 16 / 0.16); } }
+@keyframes xt-sheen { from { background-position: 130% 0; } to { background-position: -40% 0; } }
+@keyframes xt-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes xt-rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-fast: 0ms; --motion-standard: 0ms; --motion-enter: 0ms; --motion-spring: 0ms; }
+  .animate-rise, .animate-ping, .animate-pulse { animation: none; }
+  .ds-spinner, .ds-reaction, .ds-dialog, .ds-sheet, .ds-scrim { animation: none !important; }
+  .ds-press:active { transform: none; }
+}

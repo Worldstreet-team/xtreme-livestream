@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Sword, Lightning, CalendarBlank, Eye } from "@phosphor-icons/react";
+import { Lightning, CalendarBlank } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { formatClock, hostShare, inMultiplierWindow, secondsLeft, type BattleView } from "@/lib/battles";
 import { formatStartsIn } from "@/lib/discovery";
@@ -12,13 +12,9 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { LiveBadge, Badge } from "@/components/ui/badge";
 import { Shelf } from "@/components/app/shelf";
 
-function usd(minor: number) {
-  return minor >= 100_000 ? `$${(minor / 100_000).toFixed(1)}K` : `$${Math.round(minor / 100)}`;
-}
-
 /**
  * Battles on the home page: the ones running now first, then the ones
- * booked. A card is two faces, the score bar between them, and the clock.
+ * booked, as a sliding row of battle cards (below).
  */
 export function BattlesRow() {
   const [live, setLive] = useState<BattleView[]>([]);
@@ -48,71 +44,117 @@ export function BattlesRow() {
   if (items.length === 0) return null;
 
   return (
-    <Shelf
-      id="battles"
-      title={live.length > 0 ? "Battles live now" : "Battles coming up"}
-      reason="Two creators, one clock — the audience decides with gifts"
-      accent={<Sword size={14} weight="fill" className="text-primary" />}
-      size="standard"
-      className="mb-8"
-    >
-      {items.map((b) => {
-        const isLive = b.status === "live" || b.status === "overtime";
-        const hot = isLive && inMultiplierWindow(b, now);
-        const share = hostShare(b);
-        return (
-          <Link
-            key={b.id}
-            href={isLive ? `/stream/${b.host.streamId}` : `/c/${b.host.username}`}
-            className={cn("group relative block overflow-hidden rounded-sm bg-[#141418] p-4 transition-colors hover:bg-[#1b1b21]", hot && "ring-1 ring-amber-400/60")}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              {isLive ? <LiveBadge size="xs">{" · Battle"}</LiveBadge> : <Badge variant="muted" size="xs" icon={<CalendarBlank size={10} weight="bold" />}>Booked</Badge>}
-              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", hot ? "bg-amber-400 text-neutral-950" : isLive ? "bg-white text-neutral-950" : "bg-white/[0.08] text-muted-foreground")}>
-                {isLive ? (
-                  <>
-                    {hot && <Lightning size={10} weight="fill" className="mr-0.5 inline" />}
-                    {b.status === "overtime" ? "OT " : ""}
-                    {formatClock(secondsLeft(b, now))}
-                  </>
-                ) : b.scheduledAt ? (
-                  formatStartsIn(b.scheduledAt, now)
-                ) : (
-                  "Soon"
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="flex min-w-0 flex-1 flex-col items-center gap-1.5 text-center">
-                <UserAvatar src={b.host.avatar} name={b.host.displayName} size={56} className="size-14 ring-[3px] ring-red-500" />
-                <span className="w-full truncate text-[13px] font-semibold text-foreground">{b.host.displayName}</span>
-                {isLive && <span className="text-[11.5px] text-muted-foreground tabular-nums">{usd(b.host.usdMinor)}</span>}
-              </span>
-              <span className="flex shrink-0 flex-col items-center gap-1">
-                <Sword size={18} weight="fill" className="text-muted-foreground/60" />
-                <span className="text-[10px] font-bold tracking-widest text-muted-foreground/60 uppercase">vs</span>
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col items-center gap-1.5 text-center">
-                <UserAvatar src={b.challenger.avatar} name={b.challenger.displayName} size={56} className="size-14 ring-[3px] ring-sky-400" />
-                <span className="w-full truncate text-[13px] font-semibold text-foreground">{b.challenger.displayName}</span>
-                {isLive && <span className="text-[11.5px] text-muted-foreground tabular-nums">{usd(b.challenger.usdMinor)}</span>}
-              </span>
-            </div>
-            {isLive && (
-              <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-white/[0.12]">
-                <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-red-500 to-amber-400 transition-[width]" style={{ width: `${share * 100}%` }} />
-                <div className="absolute inset-y-0 right-0 rounded-full bg-gradient-to-l from-violet-500 to-sky-400 transition-[width]" style={{ width: `${(1 - share) * 100}%` }} />
-              </div>
-            )}
-            {!isLive && <p className="mt-3 text-center text-[11.5px] text-muted-foreground">Starts by itself when both are live</p>}
-            {isLive && (
-              <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12px] font-semibold text-neutral-950"><Eye size={12} weight="bold" />Watch</span>
-              </span>
-            )}
-          </Link>
-        );
-      })}
+    <Shelf id="battles" title="Battles" size="standard" peek>
+      {items.map((b) => (
+        <BattleCard key={b.id} battle={b} now={now} />
+      ))}
     </Shelf>
+  );
+}
+
+/** The seam: from 55% across the top to 45% across the bottom. */
+const LEFT = "[clip-path:polygon(0_0,55%_0,45%_100%,0_100%)]";
+const RIGHT = "[clip-path:polygon(55%_0,100%_0,100%_100%,45%_100%)]";
+
+/** Faint rings around a face — depth without a picture. */
+function Rings({ x }: { x: string }) {
+  return (
+    <span aria-hidden className="pointer-events-none absolute top-[44%] -translate-x-1/2 -translate-y-1/2" style={{ left: x }}>
+      {[92, 132, 176].map((d, i) => (
+        <span
+          key={d}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+          style={{ width: d, height: d, opacity: [0.09, 0.055, 0.03][i] }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * A battle, drawn rather than photographed (owner, 2026-09-23: no stream
+ * pictures — the faces, with a faint pattern for depth). The card splits
+ * on a slant: a whisper of Chili behind the host, of Ember behind the
+ * challenger, a seam that burns white, a fine dot grid over both, and
+ * rings spreading out from each face. The clock sits in the corner and
+ * the score is a lit bar near the foot, Chili against Ember. Under it,
+ * just who's fighting. A booked battle is the same card, quieter, with
+ * when instead of the clock.
+ */
+function BattleCard({ battle: b, now }: { battle: BattleView; now: number }) {
+  const isLive = b.status === "live" || b.status === "overtime";
+  const hot = isLive && inMultiplierWindow(b, now);
+  const share = hostShare(b);
+  const face = (side: BattleView["host"], ring: string) => (
+    <UserAvatar
+      src={side.avatar}
+      name={side.displayName}
+      size={64}
+      className={cn("size-16 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.9)] ring-[3px] ring-offset-[3px] ring-offset-surface", ring, !isLive && "opacity-80")}
+    />
+  );
+
+  return (
+    <Link href={isLive ? `/stream/${b.host.streamId}` : `/c/${b.host.username}`} className="group block">
+      <div className="relative isolate aspect-video overflow-hidden rounded-sm bg-surface transition-colors group-hover:bg-surface-raised">
+        {/* Two solid tints, split on the slant. */}
+        <div className={cn("absolute inset-0 -z-20", LEFT, isLive ? "bg-chili/[0.13]" : "bg-chili/[0.06]")} />
+        <div className={cn("absolute inset-0 -z-20", RIGHT, isLive ? "bg-ember/[0.12]" : "bg-ember/[0.05]")} />
+        {/* A fine dot grid, fading toward the edges. */}
+        <div
+          aria-hidden
+          className="absolute inset-0 -z-10 opacity-[0.16] [background-image:radial-gradient(rgba(255,255,255,0.9)_1px,transparent_1.2px)] [background-size:14px_14px] [mask-image:radial-gradient(ellipse_70%_75%_at_50%_45%,#000_30%,transparent_85%)]"
+        />
+        <Rings x="27%" />
+        <Rings x="73%" />
+        <svg aria-hidden className="absolute inset-0 -z-10 size-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line x1="55" y1="-2" x2="45" y2="102" stroke="white" strokeOpacity={isLive ? 0.7 : 0.3} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        </svg>
+
+        <span className="absolute top-[44%] left-[27%] -translate-x-1/2 -translate-y-1/2">{face(b.host, "ring-chili")}</span>
+        <span className="absolute top-[44%] left-[73%] -translate-x-1/2 -translate-y-1/2">{face(b.challenger, "ring-ember")}</span>
+        <span className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 font-wide text-[18px] font-black tracking-[-0.04em] text-white/90 italic">
+          VS
+        </span>
+
+        <span className="absolute top-2 left-2">
+          {isLive ? <LiveBadge>{" · Battle"}</LiveBadge> : <Badge variant="glass" icon={<CalendarBlank size={11} weight="bold" />}>Booked</Badge>}
+        </span>
+        <span
+          className={cn(
+            "absolute top-2 right-2 flex h-[22px] items-center gap-1 rounded-full px-2 font-mono text-[11px] font-bold tabular-nums",
+            hot ? "bg-ember text-on-ember" : isLive ? "bg-white text-[#0b0708]" : "bg-control text-foreground/80",
+          )}
+        >
+          {isLive ? (
+            <>
+              {hot && <Lightning size={10} weight="fill" />}
+              {b.status === "overtime" ? "OT " : ""}
+              {formatClock(secondsLeft(b, now))}
+            </>
+          ) : b.scheduledAt ? (
+            <span suppressHydrationWarning>{formatStartsIn(b.scheduledAt, now)}</span>
+          ) : (
+            "Soon"
+          )}
+        </span>
+
+        {/* The score, as a lit bar of its own — inset from the edges, glowing
+            on both sides of the white seam — and no amounts (owner). */}
+        {isLive && (
+          <span className="absolute inset-x-5 bottom-3.5 flex h-2 overflow-hidden rounded-full bg-black/40 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+            <span className="h-full rounded-l-full bg-chili shadow-[0_0_14px_rgba(227,18,42,0.9)] transition-[width] duration-700" style={{ width: `${share * 100}%` }} />
+            <span className="h-full w-[2px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
+            <span className="h-full flex-1 rounded-r-full bg-ember shadow-[0_0_14px_rgba(248,88,16,0.9)]" />
+          </span>
+        )}
+      </div>
+      <p className="mt-2 truncate text-[14px] font-semibold text-foreground">
+        {b.host.displayName} <span className="font-medium text-muted-foreground">vs</span> {b.challenger.displayName}
+      </p>
+      <p className="mt-0.5 truncate text-[12.5px] text-muted-foreground">
+        {isLive ? "Live battle · gifts decide it" : "Starts by itself when both are live"}
+      </p>
+    </Link>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, SealCheck, Play } from "@phosphor-icons/react";
+import { Eye, SealCheck, Play } from "@/components/icons";
 import { RemoteImage } from "@/components/ui/remote-image";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";

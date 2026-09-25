@@ -1,37 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import {
-  FunnelSimple,
-  Broadcast,
-  TrendUp,
-  Sparkle,
-  Clock,
-  SquaresFour,
-  ListBullets,
-} from "@phosphor-icons/react";
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { FunnelSimple, SquaresFour, ListBullets } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { SelectField } from "@/components/ui/select-field";
 import { StreamCard } from "@/components/app/stream-card";
-import { UpcomingCard } from "@/components/app/upcoming-card";
+import { EventCard } from "@/components/app/event-card";
 import { CategoryCard } from "@/components/app/category-card";
 import { ChannelCard } from "@/components/app/channel-card";
 import { Shelf, LiveDot } from "@/components/app/shelf";
-import { Leads } from "@/components/app/leads";
+import { HomeStage } from "@/components/app/home-stage";
 import { PillTabs } from "@/components/ui/tabs";
-import { HomeBanners } from "@/components/app/promo-banner";
 import { BattlesRow } from "@/components/app/battles-row";
 import { AvatarRingsRow, type RingItem } from "@/components/app/avatar-rings-row";
 import {
   POPULAR_CATEGORIES,
   CATEGORIES,
+  CATEGORY_GROUPS,
   type Category,
 } from "@/lib/categories";
 import {
   toCard,
   type CategorySummary,
   type HomePage,
-  type HomeRow,
+  type RowItem,
 } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
 import { apiFetch, apiUrl } from "@/lib/api-client";
@@ -131,20 +123,6 @@ function toStreamCard(s: APIStream) {
       verified: s.streamerId.verified ?? false,
     },
   };
-}
-
-/** Which shelf treatment a row gets. The followed row earns the large cards. */
-function shelfSize(row: HomeRow) {
-  if (row.id === "followed-live") return "large" as const;
-  return "standard" as const;
-}
-
-function shelfAccent(row: HomeRow) {
-  if (row.id === "followed-live") return <LiveDot />;
-  if (row.id === "trending") return <TrendUp size={14} weight="bold" className="text-primary" />;
-  if (row.id === "rising") return <Sparkle size={14} weight="fill" className="text-primary" />;
-  if (row.kind === "upcoming") return <Clock size={14} weight="bold" className="text-muted-foreground" />;
-  return null;
 }
 
 /** Categories whose name contains the term — live ones first, then the taxonomy. */
@@ -356,7 +334,6 @@ export default function ExplorePage() {
     };
   }, []);
 
-  const liveByName = new Map(liveCategories.map((c) => [c.category, c.live]));
   const chipNames =
     liveCategories.length > 0 ? liveCategories.map((c) => c.category) : POPULAR_CATEGORIES;
   const chips =
@@ -385,29 +362,21 @@ export default function ExplorePage() {
   // which has to stay on screen so they can get back out of it.
   const chipRow =
     liveCategories.length === 0 && selectedCategory === "All" ? null : (
-    <div className="-mx-4 mb-8 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:mx-0 md:px-0">
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:mx-0 md:px-0">
+      {/* Just the names (owner, 2026-09-24): no live counts, no edge. */}
       {(["All" as const, ...chips]).map((cat) => {
         const isActive = selectedCategory === cat;
-        const live = cat === "All" ? undefined : liveByName.get(cat);
         return (
           <button
             key={cat}
             onClick={() => setSelectedCategory(cat)}
             aria-pressed={isActive}
             className={cn(
-              "flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm transition-colors",
-              isActive
-                ? "bg-white font-semibold text-neutral-950"
-                : "bg-[#26262D] font-medium text-foreground/90 hover:bg-[#31313A]"
+              "press flex h-9 shrink-0 items-center rounded-[10px] px-4 text-[13.5px] font-semibold transition-colors",
+              isActive ? "bg-white text-[#0b0708]" : "bg-control text-foreground/86 hover:bg-control-hover"
             )}
           >
             {cat === "All" ? "For you" : cat}
-            {live !== undefined && live > 0 && (
-              <span className={cn("flex items-center gap-1 text-xs tabular-nums", isActive ? "text-background/70" : "text-muted-foreground")}>
-                <LiveDot />
-                {live}
-              </span>
-            )}
           </button>
         );
       })}
@@ -418,7 +387,7 @@ export default function ExplorePage() {
     <div className="min-h-screen p-4 md:p-6">
       <div className="w-full">
         {/* Header + toolbar on one line; stacks on small screens */}
-        <div className={cn("mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between", !filtered && "hidden md:flex")}>
+        <div className={cn("mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between", !filtered && "hidden")}>
           {/* The page's name and live count live in the top bar; only a
               search's own result count is worth a line here. */}
           {filtered ? (
@@ -449,12 +418,15 @@ export default function ExplorePage() {
           </div>
         </div>
 
-        {/* Filtered mode has no hero, so the chips lead the results. On Home
-            they sit under the hero instead — the title and the hero come first. */}
-        {filtered && chipRow}
+        {/* Filtered mode: the chips lead the results, so you can switch or
+            get back out. The home itself has no chips — its categories are
+            the box-art row under the stage (owner, 2026-09-23). */}
+        {/* The chips lead the page in both modes (owner, 2026-09-24:
+            "I wanted them above"): on Home they sit over the stage. */}
+        {chipRow && <div className={filtered ? "mb-8" : "mb-5"}>{chipRow}</div>}
 
         {!filtered ? (
-          <RowsHome home={home} loading={homeLoading} rings={rings} categories={liveCategories} chips={chipRow} />
+          <RowsHome home={home} loading={homeLoading} rings={rings} />
         ) : (
           <FilteredResults
             search={search}
@@ -476,28 +448,17 @@ export default function ExplorePage() {
 
 /* ------------------------------------------------------------------ */
 
-function RowsHome({
-  home,
-  loading,
-  rings,
-  categories,
-  chips,
-}: {
-  home: HomePage | null;
-  loading: boolean;
-  rings: RingItem[];
-  categories: CategorySummary[];
-  /** The category chip row — rendered under the hero, not above it. */
-  chips: ReactNode;
-}) {
-  if (loading || !home) {
+function RowsHome({ home, loading, rings }: { home: HomePage | null; loading: boolean; rings: RingItem[] }) {
+  const feed = useMemo(() => (home ? buildFeed(home) : null), [home]);
+
+  if (loading || !home || !feed) {
     return (
       <div className="space-y-8">
-        <div className="aspect-[16/6] animate-pulse rounded-sm bg-white/[0.04]" />
+        <div className="aspect-[16/6] animate-pulse rounded-xl bg-white/[0.04]" />
         {[0, 1].map((i) => (
           <div key={i}>
             <div className="mb-3 h-4 w-40 animate-pulse rounded bg-white/[0.04]" />
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
               {Array.from({ length: 4 }).map((_, j) => (
                 <div key={j} className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
               ))}
@@ -508,35 +469,39 @@ function RowsHome({
     );
   }
 
-  const popular = home.rows.find((r) => r.id === "popular");
-  const shelves = home.rows.filter((r) => r.id !== "popular");
-
-  // A quiet hour is not an empty page: the hero still carries the house
-  // promos and the chips still lead somewhere, so only the rows go missing.
+  // A quiet hour is not an empty page: the stage still carries what's
+  // booked and the house promos, so only the feed goes missing.
   const nothingLive = home.rows.length === 0;
 
-  const categoryRail =
-    categories.length >= 4 ? (
-      <Shelf id="categories" title="Categories" href="/browse" size="compact" fullBleed>
-        {categories.slice(0, 12).map((c) => (
-          <CategoryCard key={c.category} category={c} />
+  const eventsShelf =
+    feed.events.length > 0 ? (
+      <Shelf id="events" title="Events" size="large" peek>
+        {feed.events.map((item, slot) => (
+          <EventCard key={item._id} item={item} impression={{ streamId: item._id, surface: "home", row: "events", slot }} />
         ))}
       </Shelf>
     ) : null;
 
+  const ringsRow =
+    rings.length > 0 ? (
+      <section aria-label="Your channels, live now">
+        <h2 className="mb-3 flex items-center gap-2 font-wide text-[16px] font-bold tracking-[-0.02em] text-foreground">
+          Following
+          <span className="font-sans text-[12.5px] font-semibold tracking-normal text-muted-foreground">{rings.length} live</span>
+        </h2>
+        <AvatarRingsRow items={rings} />
+      </section>
+    ) : null;
+
   return (
-    <div className="space-y-6 md:space-y-8">
-      {/* Phones open on the chips and the feed, the way Twitch's app does;
-          the hero deck, the banner and the battles strip are desktop-only. */}
-      <div className="hidden md:block">
-        <Leads leads={home.leads} rows={home.rows} />
-      </div>
+    <div className="space-y-7 md:space-y-10">
+      {/* Phones open on the faces you follow, then the feed — no hero
+          under 768 (owner, 2026-09-07). The stage and battles are
+          desktop-only; the Wolf race lives on the rail. */}
+      {ringsRow && <div className="md:hidden">{ringsRow}</div>}
 
-      {chips}
-
-      {/* The banner strip: a battle in progress, the Wolf race, the biggest room. */}
       <div className="hidden md:block">
-        <HomeBanners />
+        <HomeStage leads={home.leads} rows={home.rows} />
       </div>
 
       {/* Battles, live and booked. Renders nothing when there are none. */}
@@ -544,71 +509,99 @@ function RowsHome({
         <BattlesRow />
       </div>
 
-      {rings.length > 0 && (
-        <section aria-label="Your channels, live now">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
-            <LiveDot />
-            Your channels
-          </h2>
-          <AvatarRingsRow items={rings} />
-        </section>
-      )}
-
+      {/* Desktop's stage already carries a quiet night; phones get the
+          empty state, without a second Go live — that's in the top bar. */}
       {nothingLive && (
         <Empty
-          icon={<Broadcast size={36} />}
+          className="md:hidden"
+          goLive={false}
+          artwork={{ src: "/images/empty-states/quiet-orbit.png" }}
           title="Nobody's live right now"
           body="The whole platform is quiet — which makes this a good minute to be the one on air."
           action={{ label: "Browse categories", href: "/browse" }}
         />
       )}
 
-      {shelves.map((row, i) => (
-        <RowShelfWithRail key={row.id} row={row} rail={i === 1 ? categoryRail : null} />
-      ))}
-      {shelves.length < 2 && categoryRail}
-
-      {popular && popular.items.length > 0 && (
-        <section aria-labelledby="popular-grid">
-          <h2 id="popular-grid" className="mb-4 text-sm font-semibold tracking-tight text-foreground">Live channels</h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
-            {popular.items.map((item, slot) => (
-              <StreamCard key={item._id} stream={toCard(item)} impression={{ streamId: item._id, surface: "home", row: "popular", slot }} />
-            ))}
-          </div>
-        </section>
+      {feed.following.length > 0 && (
+        <Shelf id="followed-live" title="Following" size="large">
+          {feed.following.map((item, slot) => (
+            <StreamCard key={item._id} stream={toCard(item)} variant="large" impression={{ streamId: item._id, surface: "home", row: "followed-live", slot }} />
+          ))}
+        </Shelf>
       )}
+
+      {/* The feed, under category headers — two rows deep on desktop —
+          with the events slotted in after the second section (owner:
+          "events should appear in between feeds"), or at the end when
+          there's less than that. */}
+      {feed.sections.map((sec, i) => (
+        <Fragment key={sec.label}>
+          <Shelf id={`cat-${sec.label}`} title={sec.label} rows={2}>
+            {sec.items.map((item, slot) => (
+              <StreamCard key={item._id} stream={toCard(item)} impression={{ streamId: item._id, surface: "home", row: `cat-${sec.label}`, slot }} />
+            ))}
+          </Shelf>
+          {i === Math.min(1, feed.sections.length - 1) && eventsShelf}
+        </Fragment>
+      ))}
+      {feed.sections.length === 0 && eventsShelf}
     </div>
   );
 }
 
-function RowShelfWithRail({ row, rail }: { row: HomeRow; rail: React.ReactNode }) {
-  return (
-    <>
-      <Shelf
-        id={row.id}
-        title={row.title}
-        reason={row.reason}
-        size={shelfSize(row)}
-        accent={shelfAccent(row)}
-        href={row.kind === "upcoming" ? "/browse?tab=upcoming" : undefined}
-      >
-        {row.items.map((item, slot) =>
-          row.kind === "upcoming" ? (
-            <UpcomingCard key={item._id} item={item} impression={{ streamId: item._id, surface: "home", row: row.id, slot }} />
-          ) : (
-            <StreamCard
-              key={item._id}
-              stream={toCard(item)}
-              variant={row.id === "followed-live" ? "large" : "badges"}
-              impression={{ streamId: item._id, surface: "home", row: row.id, slot, explore: row.explore ?? false }}
-            />
-          )
-        )}
-      </Shelf>
-      {rail}
-    </>
-  );
+/**
+ * The home feed, regrouped from the rows engine's output: the channels you
+ * follow first, then every other live room under its category's vertical
+ * ("Gaming", "Sports", "Music & Audio"…) busiest first, and the booked
+ * streams as events. Each room appears once.
+ */
+function buildFeed(home: HomePage) {
+  const verticalOf = new Map<string, string>();
+  CATEGORY_GROUPS.forEach((g) => g.topics.forEach((t) => verticalOf.set(t, g.label)));
+
+  const seen = new Set<string>();
+  const once = (it: RowItem) => (seen.has(it._id) ? false : (seen.add(it._id), true));
+
+  const following = (home.rows.find((r) => r.id === "followed-live")?.items ?? []).filter((it) => it.isLive && once(it));
+
+  const byVertical = new Map<string, RowItem[]>();
+  home.rows
+    .filter((r) => r.kind === "streams" && r.id !== "followed-live")
+    .flatMap((r) => r.items)
+    .filter((it) => it.isLive && once(it))
+    .forEach((it) => {
+      const label = verticalOf.get(it.category) ?? "More live";
+      byVertical.set(label, [...(byVertical.get(label) ?? []), it]);
+    });
+  // A vertical with a single room doesn't earn a header of its own; those
+  // rooms gather in "More live" at the end, so every section reads as a feed.
+  const MORE = "More live";
+  const loose = byVertical.get(MORE) ?? [];
+  byVertical.delete(MORE);
+  for (const [label, items] of [...byVertical.entries()]) {
+    if (items.length < 2) {
+      loose.push(...items);
+      byVertical.delete(label);
+    }
+  }
+  const sections = [...byVertical.entries()]
+    .map(([label, items]) => ({
+      label,
+      items: items.sort((a, b) => b.viewers - a.viewers),
+      viewers: items.reduce((n, it) => n + it.viewers, 0),
+    }))
+    .sort((a, b) => b.viewers - a.viewers);
+  if (loose.length > 0) {
+    sections.push({ label: MORE, items: loose.sort((a, b) => b.viewers - a.viewers), viewers: loose.reduce((n, it) => n + it.viewers, 0) });
+  }
+
+  const events = home.rows
+    .filter((r) => r.kind === "upcoming")
+    .flatMap((r) => r.items)
+    .filter((it) => it.scheduledStartAt && once(it))
+    .sort((a, b) => Date.parse(a.scheduledStartAt!) - Date.parse(b.scheduledStartAt!));
+
+  return { following, sections, events };
 }
 
 /* ------------------------------------------------------------------ */
@@ -811,4 +804,3 @@ function FilteredResults({
     </>
   );
 }
-

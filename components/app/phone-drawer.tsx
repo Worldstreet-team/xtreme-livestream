@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -8,21 +9,18 @@ import {
   Wallet,
   Diamond,
   Faders,
-  Users,
-  Bell,
+  HeartStraight,
   SignOut,
   SignIn,
   X,
-  ArrowUpRight,
-  Coins,
   SealCheck,
-} from "@phosphor-icons/react";
-import { ECOSYSTEM } from "@/lib/ecosystem";
-import { apiFetch } from "@/lib/api-client";
+} from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
+import { BalancePills } from "@/components/app/balance-pills";
+import { LauncherGrid } from "@/components/app/launcher-grid";
 
 /**
  * The phone drawer: everything about *you*, sliding in from the left.
@@ -31,7 +29,7 @@ import { BrandMark } from "@/components/ui/brand-mark";
  * the four places to go, so this is the account: your face and handle,
  * points and wallet as two pills you can tap, the pages that are yours
  * (channel, dashboard, wallet, rewards, notifications, settings), the rest
- * of WorldStreet, and Sign out pinned at the foot. Signed out it is a
+ * of WorldStreet as a launcher grid, and Sign out pinned at the foot. Signed out it is a
  * single invitation.
  *
  * 82% of the screen, rounded on its open edge, the studio sheet's surface
@@ -39,10 +37,9 @@ import { BrandMark } from "@/components/ui/brand-mark";
  * use and goes away on a backdrop tap, Escape, a swipe left, or any link.
  */
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 const SPRING = "cubic-bezier(0.22, 1.15, 0.36, 1)";
 
-type Row = { label: string; href: string; icon: typeof Wallet; external?: boolean };
+type Row = { label: string; href: string; icon: typeof Wallet };
 
 export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const pathname = usePathname();
@@ -106,11 +103,11 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
 
   const mine: Row[] = user
     ? [
-        { label: "Your channel", href: `/c/${user.username}`, icon: Users },
-        { label: "Dashboard", href: "/dashboard", icon: ChartDonut },
+        // Channel and dashboard are one place now (owner, 2026-09-24).
+        { label: "Your channel", href: "/dashboard", icon: ChartDonut },
+        { label: "Following", href: "/following", icon: HeartStraight },
         { label: "Wallet", href: "/wallet", icon: Wallet },
         { label: "Rewards", href: "/rewards", icon: Diamond },
-        { label: "Notifications", href: "/notifications", icon: Bell },
         { label: "Settings", href: "/settings", icon: Faders },
       ]
     : [];
@@ -128,7 +125,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onPointerCancel={() => (drag.current = null)}
-        className="drawer-obj absolute inset-y-0 left-0 flex w-[82vw] max-w-[340px] flex-col rounded-r-[22px] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] motion-reduce:transition-none"
+        className="drawer-obj absolute inset-y-0 left-0 flex w-[82vw] max-w-[340px] flex-col rounded-r-overlay pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] motion-reduce:transition-none"
         style={{
           transform: shown ? "translateX(0)" : "translateX(-104%)",
           transition: `transform ${shown ? 380 : 260}ms ${shown ? SPRING : "cubic-bezier(0.4, 0, 1, 1)"}`,
@@ -139,7 +136,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
           <div className="flex items-center gap-3.5 px-5 pt-5 pb-4">
             <span className="relative shrink-0">
               <UserAvatar src={user.avatar} name={user.displayName || user.username} size={52} className="size-[52px] ring-1 ring-white/[0.1]" />
-              {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full bg-chili ring-2 ring-[#141417]" />}
+              {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full bg-chili ring-2 ring-card" />}
             </span>
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
               <span className="flex items-center gap-1 text-[17px] font-semibold tracking-[-0.01em] text-foreground">
@@ -179,7 +176,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
           </div>
         )}
 
-        {user && <BalancePills />}
+        {user && <BalancePills className="px-4 pb-3" />}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 scrollbar-none">
           {mine.length > 0 && (
@@ -193,11 +190,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
           <p className="px-3.5 pt-5 pb-1.5 text-[10.5px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase select-none">
             WorldStreet
           </p>
-          <nav className="flex flex-col gap-0.5" aria-label="More from WorldStreet">
-            {ECOSYSTEM.map((app) => (
-              <DrawerRow key={app.href + app.title} row={{ label: app.title, href: app.href, icon: app.icon, external: true }} active={false} hint={app.description} />
-            ))}
-          </nav>
+          <LauncherGrid className="px-1" />
         </div>
 
         {user && (
@@ -205,7 +198,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
             <button
               type="button"
               onClick={() => logout()}
-              className="press flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#26262D] text-[15px] font-semibold text-foreground"
+              className="press flex h-11 w-full items-center justify-center gap-2 rounded-full bg-control text-[15px] font-semibold text-foreground"
             >
               <SignOut size={17} />
               Sign out
@@ -217,64 +210,20 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
   );
 }
 
-function DrawerRow({ row, active, hint }: { row: Row; active: boolean; hint?: string }) {
-  const cls = cn(
-    "press flex items-center gap-3.5 rounded-[12px] px-3.5 py-3 text-[15px] font-medium",
-    active ? "bg-white/[0.07] text-foreground" : "text-foreground/90",
-  );
-  const body = (
-    <>
+/** One of your pages. The one you're on is the lit row, as on the rail. */
+function DrawerRow({ row, active }: { row: Row; active: boolean }) {
+  return (
+    <Link
+      href={row.href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "press relative flex items-center gap-3.5 rounded-control px-3.5 py-3 text-[15px] font-medium",
+        active ? "bg-white/[0.07] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]" : "text-foreground/90",
+      )}
+    >
       <row.icon size={22} weight={active ? "fill" : "regular"} className={cn("shrink-0", active ? "text-foreground" : "text-foreground/75")} aria-hidden />
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span className="truncate">{row.label}</span>
-        {hint && <span className="truncate text-[11.5px] font-normal text-muted-foreground/70">{hint}</span>}
-      </span>
-      {row.external && <ArrowUpRight size={14} className="shrink-0 text-muted-foreground/50" aria-hidden />}
-    </>
-  );
-  if (row.external) {
-    return (
-      <a href={row.href} target="_blank" rel="noopener noreferrer" className={cls}>
-        {body}
-      </a>
-    );
-  }
-  return (
-    <Link href={row.href} aria-current={active ? "page" : undefined} className={cls}>
-      {body}
+      <span className="min-w-0 flex-1 truncate">{row.label}</span>
+      {active && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-ember shadow-glow-ember" />}
     </Link>
-  );
-}
-
-/** Points and wallet as two pills — the numbers you'd otherwise dig for. */
-function BalancePills() {
-  const [points, setPoints] = useState<number | null>(null);
-  const [usd, setUsd] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch<{ success: boolean; data: { balance: number } }>(`/api/user/me/points`)
-      .then((r) => !cancelled && setPoints(r.data.balance))
-      .catch(() => {});
-    apiFetch<{ success: boolean; data: { availableUsdMinor: number } }>(`/api/wallet/balance`)
-      .then((r) => !cancelled && setUsd(r.data.availableUsdMinor / 100))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const pill = "press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#26262D] font-mono text-[13.5px] font-semibold text-foreground tabular-nums";
-  return (
-    <div className="flex gap-2 px-4 pb-3">
-      <Link href="/rewards" className={pill}>
-        <Coins size={15} weight="fill" className="text-ember" />
-        {points === null ? "—" : `${points.toLocaleString()} pts`}
-      </Link>
-      <Link href="/wallet" className={pill}>
-        <Wallet size={15} weight="fill" className="text-stem" />
-        {usd === null ? "Wallet" : usd.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-      </Link>
-    </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Crown, TrendUp, Eye, SealCheck } from "@phosphor-icons/react/dist/ssr";
+import { Crown, TrendUp, Eye, SealCheck } from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";

@@ -16,7 +16,8 @@ export interface RingItem {
 }
 
 /**
- * A strip of channel avatars; a red ring means live now. The cheapest dense
+ * A strip of channel avatars; a heat ring means live now (rings are one of
+ * the gradient's three homes in Afterglow). The cheapest dense
  * live surface there is — twelve channels in one row — and the shape every
  * platform converged on for "your people, right now". Live channels sort
  * first because that's the question the row answers.
@@ -45,7 +46,7 @@ export function AvatarRingsRow({
               className={cn(
                 "relative rounded-full p-[2.5px] transition-transform group-hover:scale-105",
                 c.isLive
-                  ? "bg-red-600"
+                  ? "bg-heat shadow-[0_0_18px_-4px_rgba(248,88,16,0.7)]"
                   : "bg-white/[0.08]"
               )}
             >
@@ -53,7 +54,7 @@ export function AvatarRingsRow({
                 <UserAvatar src={c.avatar} name={name} size={size - 9} />
               </span>
               {c.isLive && (
-                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded bg-red-600 px-1 text-[0.55rem] font-bold tracking-wide text-white">
+                <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-chili px-1.5 py-px text-[0.55rem] font-bold tracking-wide text-white shadow-[0_0_0_2px_var(--background)]">
                   LIVE
                 </span>
               )}

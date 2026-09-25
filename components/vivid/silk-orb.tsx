@@ -1,17 +1,16 @@
 "use client"
 
 /**
- * SilkOrb — the page's silk field, cut into a circle. Vivid's presence.
+ * SilkOrb — Vivid's presence: a small glass sphere of liquid fire.
  *
- * Same caustic interference maths as components/system/silk-backdrop.tsx, so
- * the orb is visibly made of the same material as the background it floats on —
- * the same dark ember, lifted just enough to read as an object. No ring, no
- * glow, no icon: only the field, dissolving at the rim exactly the way the
- * backdrop dissolves into the page.
+ * Domain-warped noise flows across it in the heat colours (chili into
+ * ember, amber at the hottest), bent round the sphere so it reads as
+ * something turning in your hand, then lit like glass — a soft key light,
+ * a sharp highlight up and to the left, an ember rim. (Owner, 2026-09-24:
+ * a new, more creative shader; it replaced the old caustic "silk" field.)
  *
- * It moves. The backdrop turns once every 70s so it reads as still; the orb
- * turns fast enough to see, hurries while a session is live, and the whole
- * disc breathes on the voice level.
+ * It moves. At rest it drifts; a live session hurries it, and the voice
+ * level stirs the flow and brightens the core.
  */
 
 import React, { useRef, useEffect, useCallback, useState } from "react"
@@ -20,7 +19,8 @@ import type { VividAgentState } from "@/lib/vivid/types"
 interface SilkOrbProps {
   state: VividAgentState
   onClick?: () => void
-  size?: "xs" | "sm" | "md" | "lg"
+  /** A named size, or a diameter in px (the top bar's 28 and 36). */
+  size?: keyof typeof SIZE_PX | number
   getAudioLevels: () => Uint8Array
   className?: string
   label?: string
@@ -40,62 +40,80 @@ out vec4 fragColor;
 uniform vec2  uResolution;
 uniform float uPhase;   // loop phase, 0..1
 uniform float uLevel;   // smoothed voice level, 0..1
-uniform vec3  uTint;    // hot core of a vein
-uniform vec3  uDeep;    // the ember the field mostly sits in
-uniform vec3  uBase;    // the black it all floats on
+uniform vec3  uTint;    // the hottest light: amber
+uniform vec3  uDeep;    // the body of the flow: chili into ember
+uniform vec3  uBase;    // the dark it swims in
 
-const float PI2 = 6.28318530718;
+const float TAU = 6.28318530718;
+
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
+  for (int i = 0; i < 5; i++) {
+    v += a * noise(p);
+    p = m * p;
+    a *= 0.5;
+  }
+  return v;
+}
 
 void main() {
-  vec2 st = gl_FragCoord.xy / uResolution;
+  // -1..1 across the disc; z is the height of a unit sphere at this pixel.
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y * 2.0;
+  float r = length(uv);
+  float z = sqrt(max(0.0, 1.0 - r * r));
+  vec3 n = vec3(uv, z);
 
-  // radial coordinate: 0 at the centre, 1 at the rim
-  float r = length(st - 0.5) * 2.0;
+  // Liquid fire: domain-warped noise, projected onto the sphere so the
+  // flow bends round its edge. The phase is a loop, so it never jumps.
+  float t = uPhase * TAU;
+  vec2 sp = uv / (1.0 + z * 0.65) * 2.2;
+  vec2 drift = vec2(cos(t), sin(t));
+  float warp = 1.5 + uLevel * 2.5;
+  vec2 q = vec2(fbm(sp + drift * 0.6), fbm(sp + vec2(5.2, 1.3) - drift.yx * 0.6));
+  vec2 w = vec2(fbm(sp + warp * q + vec2(1.7, 9.2) + 0.35 * drift),
+                fbm(sp + warp * q + vec2(8.3, 2.8) - 0.35 * drift.yx));
+  float f = fbm(sp + 2.0 * w);
 
-  // ── identical field to the backdrop ──
-  float spectrum = -15.0;
-  float pi = PI2 * 1.6;
-  vec2  p  = mod(st * pi, pi) - 96.0;
-  vec2  i  = p;
-  float c  = 0.5;
-  float inten = 0.01;
+  vec3 col = mix(uBase, uDeep, smoothstep(0.18, 0.58, f));
+  col = mix(col, uTint, smoothstep(0.42, 0.85, f * f * 1.8 + length(w) * 0.26));
+  col += uDeep * 0.18 * f;
+  col += uTint * 0.2 * pow(z, 3.0) * (0.7 + uLevel * 1.4);
 
-  for (int n = 0; n < 4; n++) {
-    float tt = PI2 * uPhase * float(n + 3);
-    i = p + vec2(cos(tt - i.x) + sin(tt + i.y),
-                 sin(tt - i.y) + cos(tt + i.x));
-    c += 1.0 / length(vec2(p.x / (sin(i.x + tt) / inten + spectrum),
-                           p.y / (cos(i.y + tt) / inten)));
-  }
+  // Lit like glass: a soft key light, a sharp highlight up and to the
+  // left, and an ember rim where the sphere turns away.
+  vec3 L = normalize(vec3(-0.45, 0.55, 0.7));
+  col *= 0.74 + 0.42 * clamp(dot(n, L), 0.0, 1.0);
+  float spec = pow(clamp(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0, 1.0), 28.0);
+  col += vec3(1.0, 0.92, 0.84) * spec * 0.6;
+  col += mix(uDeep, uTint, 0.5) * pow(1.0 - z, 2.2) * 0.6;
 
-  c /= 4.0;
-  c = 0.05 - pow(c, 0.9);
-
-  // Same percentile stretch as the backdrop.
-  float v    = abs(c);
-  float glow = pow(smoothstep(0.319, 0.790, v), 1.7);
-  float hot  = pow(smoothstep(0.611, 0.790, v), 1.4);
-
-  vec3 col = uBase + uDeep * glow;
-  col = mix(col, uTint, hot);
-
-  // A live session lifts the whole disc; the veins carry the movement.
-  col *= 1.0 + uLevel * 0.9;
-
-  // Gentle centre bias — a body, not a ring. No rim brightening anywhere.
-  col *= mix(1.12, 0.82, smoothstep(0.0, 1.0, r));
-
-  // Alpha IS the circle: a wide feather with no hard edge and no border.
-  float a = 1.0 - smoothstep(0.68, 0.995, r);
-
+  // A crisp, antialiased edge — it's an object now, not a haze.
+  float a = 1.0 - smoothstep(1.0 - 3.0 / uResolution.y, 1.0, r);
   fragColor = vec4(col, a);
 }
 `
 
-/** The backdrop's own family, one stop up: ember veins on near-black. */
-const TINT: [number, number, number] = [0.566, 0.62, 0.084]
-const DEEP: [number, number, number] = [0.156, 0.17, 0.028]
-const BASE: [number, number, number] = [0.043, 0.045, 0.03]
+/** Afterglow's heat: amber-hot veins in a chili-ember body on warm black —
+ *  the gradient's own three stops, so Vivid reads as part of Xtream. */
+const TINT: [number, number, number] = [1.0, 0.72, 0.26]
+const DEEP: [number, number, number] = [0.97, 0.15, 0.1]
+const BASE: [number, number, number] = [0.22, 0.02, 0.04]
 
 /** Milliseconds per revolution. Idle drifts; a live session hurries. */
 const SPEED_IDLE = 22000
@@ -130,7 +148,7 @@ export default function SilkOrb({
   label,
 }: SilkOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const dimension = SIZE_PX[size]
+  const dimension = typeof size === "number" ? size : SIZE_PX[size]
 
   const isActive = ACTIVE_STATES.has(state)
 
@@ -292,7 +310,7 @@ export default function SilkOrb({
           className="absolute inset-0 rounded-full"
           style={{
             background:
-              "radial-gradient(circle at 46% 40%, rgba(158,97,23,0.9) 0%, rgba(66,42,10,0.85) 46%, rgba(12,10,8,0.9) 72%, transparent 96%)",
+              "radial-gradient(circle at 46% 40%, rgba(248,160,8,0.95) 0%, rgba(227,40,26,0.85) 46%, rgba(20,7,6,0.9) 72%, transparent 96%)",
           }}
         />
       )}

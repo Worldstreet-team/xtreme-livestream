@@ -4,19 +4,19 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Eye,
-  Fire,
-  TrendUp,
-  Sparkle,
   SquaresFour,
   Rows,
   Tag,
   Broadcast,
   Clock,
   X,
-} from "@phosphor-icons/react";
+  MagnifyingGlass,
+  CaretDown,
+} from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
 import { CategoryCard } from "@/components/app/category-card";
-import { UpcomingCard } from "@/components/app/upcoming-card";
+import { Shelf } from "@/components/app/shelf";
+import { EventCard } from "@/components/app/event-card";
 import { StreamArt } from "@/components/app/stream-art";
 import { SelectField } from "@/components/ui/select-field";
 import { Empty } from "@/components/app/empty";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/categories";
 import { toCard, type CategorySummary, type RowItem } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
+import { cn } from "@/lib/utils";
 
 /**
  * Browse — the directory.
@@ -167,9 +168,18 @@ function Browse() {
         {category ? (
           <CategoryHeader category={category} summary={summary} onClear={() => setParams({ category: null, tag: null })} />
         ) : (
-          <p className="mb-6 hidden text-sm text-muted-foreground md:block">
-            Every category ranked by who&apos;s watching, and every live channel with a sort that lets you find the small rooms.
-          </p>
+          <>
+            {/* Phones: search lives here — Vivid has its seat in the top bar.
+                The pill opens the bar's own search row, typeahead and all. */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("xtreme:open-search"))}
+              className="press mb-5 flex h-11 w-full items-center gap-2.5 rounded-full bg-white/[0.06] px-4 text-left text-[15px] text-muted-foreground/80 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] md:hidden"
+            >
+              <MagnifyingGlass size={17} aria-hidden />
+              Search streams, people, categories
+            </button>
+          </>
         )}
 
         {!category && (
@@ -179,14 +189,21 @@ function Browse() {
             items={[
               { id: "categories" as const, label: "Categories", icon: SquaresFour },
               { id: "live" as const, label: "Live channels", icon: Broadcast },
-              { id: "upcoming" as const, label: "Upcoming", icon: Clock },
+              { id: "upcoming" as const, label: "Events", icon: Clock },
             ]}
             value={tab}
             onChange={(id) => setParams({ tab: id === "categories" ? null : id })}
           />
         )}
 
-        {tab === "categories" && <CategoriesTab categories={categories} />}
+        {tab === "categories" && (
+          <CategoriesTab
+            key={sp.get("vertical") ?? "all"}
+            categories={categories}
+            vertical={sp.get("vertical") ?? ""}
+            setParams={setParams}
+          />
+        )}
         {tab === "live" && (
           <LiveTab
             category={category}
@@ -253,93 +270,129 @@ function CategoryHeader({
 
 /* ------------------------------------------------------------------ */
 
-function CategoriesTab({ categories }: { categories: CategorySummary[] }) {
-  const [order, setOrder] = useState<"viewers" | "live" | "name">("viewers");
+/** How many columns an auto-fill grid of `min`-wide cells lays out — for "two rows, then Show more". */
+function useGridColumns(min: number, gap: number) {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [columns, setColumns] = useState(6);
+  useEffect(() => {
+    if (!el) return;
+    const measure = () => setColumns(Math.max(1, Math.floor((el.clientWidth + gap) / (min + gap))));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el, min, gap]);
+  return { ref: setEl, columns };
+}
 
-  const grouped = useMemo(() => {
-    const byName = new Map(categories.map((c) => [c.category, c]));
-    const used = new Set<string>();
-    const sortFn = (a: CategorySummary, b: CategorySummary) =>
-      order === "viewers" ? b.viewers - a.viewers : order === "live" ? b.live - a.live : a.category.localeCompare(b.category);
+const ALL_PAGE = 36;
 
-    const groups = CATEGORY_GROUPS.map((g) => {
-      const items = g.topics
-        .map((t) => byName.get(t))
-        .filter((c): c is CategorySummary => Boolean(c));
-      items.forEach((c) => used.add(c.category));
-      return { label: g.label, items: items.sort(sortFn), viewers: items.reduce((n, c) => n + c.viewers, 0) };
-    }).filter((g) => g.items.length > 0);
+/**
+ * Categories, TikTok LIVE's way (owner, 2026-09-24): verticals as chips
+ * along the top, then an even grid of box art — the name and how many are
+ * watching under each, the busiest first and the quiet ones after, so it
+ * reads as a directory rather than a leaderboard. Pick a vertical and the
+ * grid shows two rows with "Show more", and that vertical's live streams
+ * follow underneath.
+ */
+function CategoriesTab({
+  categories,
+  vertical,
+  setParams,
+}: {
+  categories: CategorySummary[];
+  vertical: string;
+  setParams: (patch: Record<string, string | null>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [pages, setPages] = useState(1);
+  const { ref, columns } = useGridColumns(150, 16);
 
-    const rest = categories.filter((c) => !used.has(c.category)).sort(sortFn);
-    if (rest.length) groups.push({ label: "More", items: rest, viewers: rest.reduce((n, c) => n + c.viewers, 0) });
-    // Verticals in audience order too.
-    return groups.sort((a, b) => b.viewers - a.viewers);
-  }, [categories, order]);
+  const group = CATEGORY_GROUPS.find((g) => g.label === vertical) ?? null;
 
-  // Everything else the platform files streams under — every topic nobody
-  // is live in right now, still browsable and still with its own art. A
-  // directory that only lists what's busy this minute isn't a directory.
-  const quiet = useMemo(() => {
-    const live = new Set(categories.map((c) => c.category));
+  // Verticals with something live, busiest first — the chips.
+  const verticals = useMemo(() => {
+    const byName = new Map(categories.map((c) => [c.category, c.viewers]));
     return CATEGORY_GROUPS.map((g) => ({
       label: g.label,
-      items: g.topics
-        .filter((t) => !live.has(t))
-        .map((t): CategorySummary => ({ category: t, live: 0, viewers: 0, cover: null })),
-    })).filter((g) => g.items.length > 0);
+      viewers: g.topics.reduce((n, t) => n + (byName.get(t) ?? 0), 0),
+      live: g.topics.some((t) => byName.has(t)),
+    }))
+      .filter((v) => v.live)
+      .sort((a, b) => b.viewers - a.viewers);
   }, [categories]);
 
+  // The cards: live categories by audience, then everything else in the taxonomy.
+  const cards = useMemo(() => {
+    const live = categories
+      .filter((c) => !group || group.topics.includes(c.category))
+      .sort((a, b) => b.viewers - a.viewers);
+    const liveNames = new Set(live.map((c) => c.category));
+    const topics = group ? group.topics : CATEGORY_GROUPS.flatMap((g) => g.topics);
+    const quiet = topics
+      .filter((t) => !liveNames.has(t) && !categories.some((c) => c.category === t))
+      .map((t): CategorySummary => ({ category: t, live: 0, viewers: 0, cover: null }));
+    return [...live, ...quiet];
+  }, [categories, group]);
+
+  const limit = group ? (expanded ? cards.length : columns * 2) : pages * ALL_PAGE;
+  const visible = cards.slice(0, limit);
+  const more = cards.length > visible.length;
+
+  const { items: streams, loading } = useStreams({ live: "true", sort: "viewers", limit: "50" }, Boolean(group));
+  const groupStreams = group ? streams.filter((s) => group.topics.includes(s.category)) : [];
+
+  const chip = (active: boolean) =>
+    cn(
+      "press flex h-9 shrink-0 items-center rounded-[10px] px-4 text-[13.5px] font-semibold transition-colors",
+      active ? "bg-white text-[#0b0708]" : "bg-control text-foreground/86 hover:bg-control-hover",
+    );
+
   return (
-    <div className="space-y-9">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground/90 tabular-nums">{categories.length}</span> categories live, grouped by vertical
-        </p>
-        <SortSelect
-          value={order}
-          onChange={(v) => setOrder(v as typeof order)}
-          options={[
-            ["viewers", "By viewers"],
-            ["live", "By live channels"],
-            ["name", "A to Z"],
-          ]}
-        />
+    <div>
+      <div className="-mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:mx-0 md:px-0">
+        <button type="button" aria-pressed={!group} onClick={() => setParams({ vertical: null })} className={chip(!group)}>
+          All categories
+        </button>
+        {verticals.map((v) => (
+          <button key={v.label} type="button" aria-pressed={group?.label === v.label} onClick={() => setParams({ vertical: v.label })} className={chip(group?.label === v.label)}>
+            {v.label}
+          </button>
+        ))}
       </div>
 
-      {grouped.map((g) => (
-        <section key={g.label} aria-labelledby={`vertical-${g.label}`}>
-          <div className="mb-4 flex items-baseline justify-between">
-            <h2 id={`vertical-${g.label}`} className="text-sm font-semibold tracking-tight text-foreground">
-              {g.label}
-            </h2>
-            <span className="text-xs text-muted-foreground/70 tabular-nums">{formatNumber(g.viewers)} watching</span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-5 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] md:gap-x-4 md:gap-y-6">
-            {g.items.map((c) => (
-              <CategoryCard key={c.category} category={c} />
-            ))}
-          </div>
-        </section>
-      ))}
+      <div ref={ref} className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-7">
+        {visible.map((c) => (
+          <CategoryCard key={c.category} category={c} />
+        ))}
+      </div>
 
-      {quiet.length > 0 && (
-        <div className="space-y-9 border-t border-white/[0.06] pt-9">
-          <div>
-            <h2 className="text-[19px] font-semibold tracking-tight text-foreground">All categories</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Everything you can go live in, whether or not someone is on right now.</p>
-          </div>
-          {quiet.map((g) => (
-            <section key={`all-${g.label}`} aria-labelledby={`all-${g.label}`}>
-              <h3 id={`all-${g.label}`} className="mb-4 text-sm font-semibold tracking-tight text-foreground">
-                {g.label}
-              </h3>
-              <div className="grid grid-cols-3 gap-x-3 gap-y-5 md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] md:gap-x-4 md:gap-y-6">
-                {g.items.map((c) => (
-                  <CategoryCard key={c.category} category={c} />
-                ))}
-              </div>
-            </section>
-          ))}
+      {(more || (group && expanded && cards.length > columns * 2)) && (
+        <div className="mt-8 flex justify-center">
+          <button
+            type="button"
+            onClick={() => (group ? setExpanded((e) => !e) : setPages((n) => n + 1))}
+            className="press flex items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-semibold text-foreground/80 transition-colors hover:bg-white/[0.05] hover:text-foreground"
+          >
+            {group && expanded ? "Show less" : "Show more"}
+            <CaretDown size={14} weight="bold" className={cn("transition-transform", group && expanded && "rotate-180")} />
+          </button>
+        </div>
+      )}
+
+      {group && (
+        <div className="mt-12">
+          {loading ? (
+            <RowSkeleton />
+          ) : groupStreams.length > 0 ? (
+            <Shelf id="vertical-live" title="LIVE streams">
+              {groupStreams.map((item, slot) => (
+                <StreamCard key={item._id} stream={toCard(item)} impression={{ streamId: item._id, surface: "browse", row: `vertical-${group.label}`, slot }} />
+              ))}
+            </Shelf>
+          ) : (
+            <p className="text-[14px] text-muted-foreground">Nobody in {group.label} is live right now.</p>
+          )}
         </div>
       )}
     </div>
@@ -439,20 +492,21 @@ function LiveTab({
         {view === "lanes" ? (
           <Lanes category={category} tag={tag} />
         ) : loading ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div key={i} className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
-            ))}
-          </div>
+          <RowSkeleton />
         ) : items.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
-            {items.map((item, slot) => (
-              <StreamCard
-                key={item._id}
-                stream={toCard(item)}
-                variant="badges"
-                impression={{ streamId: item._id, surface: "browse", row: category ? `category:${category}` : sort, slot }}
-              />
+          // Rows, never a stacked wall (owner, 2026-09-24): one sliding row
+          // per vertical, or a single row inside a category.
+          <div className="space-y-9">
+            {(category ? [{ label: "LIVE streams", items }] : byVertical(items)).map((row) => (
+              <Shelf key={row.label} id={`live-${row.label}`} title={row.label}>
+                {row.items.map((item, slot) => (
+                  <StreamCard
+                    key={item._id}
+                    stream={toCard(item)}
+                    impression={{ streamId: item._id, surface: "browse", row: category ? `category:${category}` : `${sort}:${row.label}`, slot }}
+                  />
+                ))}
+              </Shelf>
             ))}
           </div>
         ) : (
@@ -470,38 +524,51 @@ function Lanes({ category, tag }: { category: string; tag: string }) {
   const fresh = useStreams({ ...base, sort: "recent" });
 
   const lanes = [
-    { id: "hot", title: "Hot", reason: "Most watched right now", Icon: Fire, data: hot },
-    { id: "rising", title: "Rising", reason: "Growing fastest, whatever the size", Icon: TrendUp, data: rising },
-    { id: "new", title: "New", reason: "Just went live", Icon: Sparkle, data: fresh },
+    { id: "hot", title: "Hot", reason: "Most watched right now", data: hot },
+    { id: "rising", title: "Rising", reason: "Growing fastest, whatever the size", data: rising },
+    { id: "new", title: "New", reason: "Just went live", data: fresh },
   ];
 
   return (
-    <div className="grid gap-6 md:grid-cols-3">
-      {lanes.map((lane) => (
-        <section key={lane.id} aria-labelledby={`lane-${lane.id}`} className="min-w-0">
-          <div className="mb-3">
-            <h3 id={`lane-${lane.id}`} className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
-              <lane.Icon size={14} weight="fill" className={lane.id === "rising" ? "text-primary" : "text-muted-foreground"} />
-              {lane.title}
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground/70">{lane.reason}</p>
-          </div>
-          <div className="space-y-4">
-            {lane.data.loading
-              ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-sm bg-white/[0.04]" />)
-              : lane.data.items.map((item, slot) => (
-                  <StreamCard
-                    key={item._id}
-                    stream={toCard(item)}
-                    variant="compact"
-                    impression={{ streamId: item._id, surface: "browse", row: `lane:${lane.id}`, slot }}
-                  />
-                ))}
-          </div>
-        </section>
+    <div className="space-y-9">
+      {lanes.map((lane) =>
+        lane.data.loading ? (
+          <RowSkeleton key={lane.id} />
+        ) : lane.data.items.length > 0 ? (
+          <Shelf key={lane.id} id={`lane-${lane.id}`} title={lane.title} reason={lane.reason}>
+            {lane.data.items.map((item, slot) => (
+              <StreamCard key={item._id} stream={toCard(item)} impression={{ streamId: item._id, surface: "browse", row: `lane:${lane.id}`, slot }} />
+            ))}
+          </Shelf>
+        ) : null,
+      )}
+    </div>
+  );
+}
+
+/** A row's worth of placeholders while streams load. */
+function RowSkeleton() {
+  return (
+    <div className="flex gap-3 overflow-hidden">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="aspect-video w-[300px] shrink-0 animate-pulse rounded-sm bg-white/[0.04]" />
       ))}
     </div>
   );
+}
+
+/** Live streams gathered under their vertical, busiest vertical first. */
+function byVertical(items: RowItem[]) {
+  const verticalOf = new Map<string, string>();
+  CATEGORY_GROUPS.forEach((g) => g.topics.forEach((t) => verticalOf.set(t, g.label)));
+  const rows = new Map<string, RowItem[]>();
+  items.forEach((it) => {
+    const label = verticalOf.get(it.category) ?? "More live";
+    rows.set(label, [...(rows.get(label) ?? []), it]);
+  });
+  return [...rows.entries()]
+    .map(([label, list]) => ({ label, items: list, viewers: list.reduce((n, it) => n + it.viewers, 0) }))
+    .sort((a, b) => b.viewers - a.viewers);
 }
 
 function EmptyCategory({
@@ -593,9 +660,9 @@ function UpcomingTab() {
           <h2 id={`day-${day}`} className="mb-4 text-sm font-semibold tracking-tight text-foreground">
             {day}
           </h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
             {list.map((item, slot) => (
-              <UpcomingCard key={item._id} item={item} impression={{ streamId: item._id, surface: "browse", row: "upcoming", slot }} />
+              <EventCard key={item._id} item={item} impression={{ streamId: item._id, surface: "browse", row: "upcoming", slot }} />
             ))}
           </div>
         </section>

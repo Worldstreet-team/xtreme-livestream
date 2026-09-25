@@ -276,6 +276,51 @@ const ROWS: Row[] = [
   ["The Mortuary Assistant", "the-mortuary-assistant", "1945673289_IGDB", 29, "Puzzle|Simulation"],
   ["EA Sports UFC 6", "ea-sports-ufc-6", "245266135_IGDB", 19, "Fighting|Simulation"],
   ["Sports!", "sports", "1035435242", 3, "Educational Game"],
+  // TikTok LIVE's gaming titles that weren't in the capture (2026-09-24),
+  // looked up on Twitch by name; the row's name is OUR label (TikTok's
+  // spelling), so the lookup below finds it. Not found on Twitch: Blood
+  // Strike (only "Block Strike" matched), 8 Ball Pool, Word Cookies.
+  ["Garena Free Fire", "garena-free-fire", "502732_IGDB", 0, ""],
+  ["Marathon", "marathon", "407314011_IGDB", 0, ""],
+  ["Elden Ring: Nightreign", "elden-ring-nightreign", "982348888_IGDB", 0, ""],
+  ["Call of Duty: Mobile", "call-of-duty-mobile", "512818_IGDB", 0, ""],
+  ["Arena of Valor", "arena-of-valor", "498302_IGDB", 0, ""],
+  ["Resident Evil", "resident-evil", "5360_IGDB", 0, ""],
+  ["Honor of Kings", "honor-of-kings", "497301_IGDB", 0, ""],
+  ["Aniimo", "animo", "1267582829_IGDB", 0, ""],
+  ["Lineage 2", "lineage-ii", "515349_IGDB", 0, ""],
+  ["Car Parking Multiplayer", "car-parking-multiplayer", "1488786104_IGDB", 0, ""],
+  ["Geometry Dash", "geometry-dash", "460951_IGDB", 0, ""],
+  ["Ludo", "ludo", "1476794348", 0, ""],
+  ["Marvel's Wolverine", "marvels-wolverine", "75101830_IGDB", 0, ""],
+  ["Battlefield 2042", "battlefield-2042", "514974_IGDB", 0, ""],
+  ["Clash of Clans", "clash-of-clans", "73914_IGDB", 0, ""],
+  ["Subway Surfers", "subway-surfers", "368954_IGDB", 0, ""],
+  ["Knives Out", "knives-out", "500409_IGDB", 0, ""],
+  ["Dream League Soccer", "dream-league-soccer", "642350248_IGDB", 0, ""],
+  ["Arena Breakout", "arena-breakout", "678842894_IGDB", 0, ""],
+  ["The Legend of Zelda: Breath of the Wild", "the-legend-of-zelda-breath-of-the-wild", "110758_IGDB", 0, ""],
+  ["Hollow Knight", "hollow-knight", "490147_IGDB", 0, ""],
+  ["God of War", "god-of-war", "6369_IGDB", 0, ""],
+  ["The Last of Us", "the-last-of-us", "33180_IGDB", 0, ""],
+  ["Point Blank", "point-blank", "8510_IGDB", 0, ""],
+  ["Forza Horizon 5", "forza-horizon-5", "1757732267_IGDB", 0, ""],
+  ["Only Up!", "only-up", "245018539_IGDB", 0, ""],
+  ["Retro Gaming", "retro", "27284", 0, ""],
+  ["Assetto Corsa", "assetto-corsa", "313197_IGDB", 0, ""],
+  ["MU Online", "mu-online", "24438_IGDB", 0, ""],
+  ["CrossFire", "crossfire-2007", "27101_IGDB", 0, ""],
+  ["Dragon Ball Legends", "dragon-ball-legends", "504921_IGDB", 0, ""],
+  ["Mortal Kombat 11", "mortal-kombat-11", "510578_IGDB", 0, ""],
+  ["Final Fantasy", "final-fantasy", "7689_IGDB", 0, ""],
+  ["Growtopia", "growtopia", "489648_IGDB", 0, ""],
+  ["Halo Infinite", "halo-infinite", "506416", 0, ""],
+  ["Slither.io", "slither-io", "492303_IGDB", 0, ""],
+  ["Black Myth: Wukong", "black-myth-wukong", "519291_IGDB", 0, ""],
+  ["Plants vs. Zombies", "plants-vs-zombies-2013", "1076293803_IGDB", 0, ""],
+  ["Tetris", "tetris-1989", "1162602094_IGDB", 0, ""],
+  ["The King of Fighters XV", "the-king-of-fighters-xv", "513753_IGDB", 0, ""],
+  ["Brawlhalla", "brawlhalla", "460316_IGDB", 0, ""],
 ];
 
 export interface TwitchCategory {
@@ -309,10 +354,11 @@ const BY_SLUG = new Map(TWITCH_CATEGORIES.map((c) => [c.slug, c]));
  * Xtreme taxonomy label → the Twitch category whose art stands in for it.
  * Only for labels that have no Twitch category of the same name.
  */
+// Generic labels only borrow art that *is* generic (Sports, Poker, Art…);
+// never one game's box art, or "Boxing & MMA" reads as "UFC 6" (owner,
+// 2026-09-24). Game titles carry their own names and art in the Games group.
 const ALIAS: Record<string, string> = {
   "Video Games": "games-demos",
-  "Mobile Gaming": "pubg-mobile",
-  "Esports": "counter-strike",
   "Chess & Tabletop": "chess-1",
   "Podcasts & Talk": "talk-shows-and-podcasts",
   "Production & DJ": "djs",
@@ -325,18 +371,11 @@ const ALIAS: Record<string, string> = {
   "Software & Coding": "software-and-game-development",
   "Politics & Policy": "politics",
   "Crypto Markets": "crypto",
-  "Football (Soccer)": "ea-sports-fc-26",
-  "Basketball": "nba-2k27",
-  "American Football": "madden-nfl-27",
-  "Baseball": "mlb-the-show-26",
-  "Motorsport & F1": "f1-25",
-  "Boxing & MMA": "ea-sports-ufc-6",
   "Athletics & Olympics": "sports-1",
   "Cricket": "sports-1",
   "Tennis": "sports-1",
   "Golf": "sports-1",
   "Betting & Fantasy": "poker",
-  "Cars & Automotive": "forza-horizon-6",
   "Mindfulness & Recovery": "asmr",
 };
 

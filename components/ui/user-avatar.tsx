@@ -3,11 +3,22 @@
 import { cn } from "@/lib/utils";
 import { RemoteImage } from "@/components/ui/remote-image";
 
+/**
+ * Rings are where Afterglow's heat gradient lives (the allowlist): `live`
+ * and `story` wear it, `seen` is a quiet hairline, `none` is a bare face.
+ * The ring sits outside the avatar — it adds 8px to the footprint — with a
+ * 2px gap painted in `ringGapClassName`, so pass the colour behind it
+ * (the page by default; `bg-black` on a picture).
+ */
+export type AvatarRing = "none" | "live" | "story" | "seen";
+
 interface UserAvatarProps {
   src?: string | null;
   name: string;
   size?: number;
   className?: string;
+  ring?: AvatarRing;
+  ringGapClassName?: string;
 }
 
 /**
@@ -29,27 +40,17 @@ function getInitials(name: string): string {
 }
 
 /**
- * Generate a consistent color based on the name.
+ * A consistent fill for someone without a photo, picked by name — from the
+ * warm neutrals and soft tints of the two brand colours only, never a
+ * rainbow (owner, 2026-09-23: two colours throughout).
  */
 function getColorFromName(name: string): string {
   const colors = [
-    "bg-red-600",
-    "bg-orange-600",
-    "bg-amber-600",
-    "bg-yellow-600",
-    "bg-lime-600",
-    "bg-green-600",
-    "bg-emerald-600",
-    "bg-teal-600",
-    "bg-cyan-600",
-    "bg-sky-600",
-    "bg-blue-600",
-    "bg-indigo-600",
-    "bg-violet-600",
-    "bg-purple-600",
-    "bg-fuchsia-600",
-    "bg-pink-600",
-    "bg-rose-600",
+    "bg-control text-foreground/85",
+    "bg-control-hover text-foreground/85",
+    "bg-[#3a2c2d] text-foreground/85",
+    "bg-chili/25 text-chili-hi",
+    "bg-ember/20 text-ember-hi",
   ];
 
   let hash = 0;
@@ -61,13 +62,30 @@ function getColorFromName(name: string): string {
 }
 
 /**
- * Avatar component that shows an image or falls back to initials.
+ * Avatar component that shows an image or falls back to initials, with an
+ * optional ring (see `AvatarRing`).
  */
-export function UserAvatar({ src, name, size = 32, className }: UserAvatarProps) {
+export function UserAvatar({ ring = "none", ringGapClassName, ...props }: UserAvatarProps) {
+  const face = <Face {...props} />;
+  if (ring === "none") return face;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 rounded-full p-[2px]",
+        ring === "seen" ? "bg-white/[0.14]" : "bg-heat",
+        ring === "live" && "shadow-[0_0_16px_-4px_rgba(248,88,16,0.7)]",
+      )}
+    >
+      <span className={cn("inline-flex rounded-full p-[2px]", ringGapClassName ?? "bg-background")}>{face}</span>
+    </span>
+  );
+}
+
+function Face({ src, name, size = 32, className }: Omit<UserAvatarProps, "ring" | "ringGapClassName">) {
   const initials = (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
+        "flex shrink-0 items-center justify-center rounded-full font-semibold",
         getColorFromName(name),
         className
       )}

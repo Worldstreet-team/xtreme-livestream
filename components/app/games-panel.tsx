@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check } from "@phosphor-icons/react";
+import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { GAME_LABEL, formatPoints, secondsToClose, type GameType, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
@@ -122,7 +122,7 @@ export function GamesPanel({
       )}
       {error && <p className="text-xs text-red-400">{error}</p>}
       {open && (
-        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[380px] border border-white/[0.08] bg-[oklch(0.14_0.005_285)] shadow-2xl")}>
+        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[380px] border border-white/[0.08] bg-popover shadow-2xl")}>
           <PillTabs
             size="sm"
             label="Game type"
@@ -204,7 +204,7 @@ export function GamesPanel({
           <div className="mt-3 flex items-center gap-1.5">
             <span className="text-[11px] text-muted-foreground">Open for</span>
             {[60, 120, 300].map((s) => (
-              <button key={s} type="button" onClick={() => setDuration(s)} aria-pressed={duration === s} className={cn("h-7 rounded-full px-2.5 text-[11.5px] font-semibold", duration === s ? "bg-white text-neutral-950" : "bg-[#26262D] text-foreground/90")}>
+              <button key={s} type="button" onClick={() => setDuration(s)} aria-pressed={duration === s} className={cn("h-7 rounded-full px-2.5 text-[11.5px] font-semibold", duration === s ? "bg-white text-neutral-950" : "bg-control text-foreground/90")}>
                 {s / 60} min
               </button>
             ))}

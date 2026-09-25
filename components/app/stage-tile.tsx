@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { MicrophoneSlash } from "@phosphor-icons/react";
+import { MicrophoneSlash } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 /**

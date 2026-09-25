@@ -12,11 +12,9 @@ import {
   Copy,
   CurrencyDollar,
   Broadcast,
-  HandWaving,
   Lightning,
   Eye,
   EyeSlash,
-  ChatText,
   UsersThree,
   MonitorArrowUp,
   ShareNetwork,
@@ -28,14 +26,25 @@ import {
   CameraRotate,
   VideoCameraSlash,
   Gift,
+  CalendarPlus,
+  Camera,
+  ImageEdit,
+  ImageSquare,
+  ChatText,
+  HandWaving,
   Sword,
   Sparkle,
   DotsThree,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { SelectField } from "@/components/ui/select-field";
+import { SwitchField } from "@/components/ui/selection-controls";
+import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
+import { VividLauncher } from "@/components/vivid/vivid-voice-control";
+import { VanishingPlaceholder } from "@/components/ui/vanishing-placeholder";
+import { categoryArt } from "@/lib/category-art";
 import { StreamArt } from "@/components/app/stream-art";
 import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
@@ -72,6 +81,9 @@ const WORLDSPACE_KEY = "xtreme-studio-worldspace";
 
 /** Mirrors MAX_STAGE_GUESTS in @xtreme/contracts — the API enforces it. */
 const MAX_STAGE_GUESTS = 3;
+/** Cycled in the empty title, WorldSpace-style — same voice as Schedule. */
+const TITLE_PROMPTS = ["Friday night set", "Ranked to Immortal", "Charts & coffee", "Market open, live", "Weekend League grind", "Ask me anything"];
+const SETUP_LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 
 interface StageUser {
   userId: string;
@@ -120,6 +132,8 @@ export default function StudioPage() {
   const [postToWorldSpace, setPostToWorldSpace] = useState(false);
   const [panel, setPanel] = useState<Panel>("chat");
   const [phone, setPhone] = useState(false);
+  /** Tablets: the stage on top, the console under it (owner: "the studio in the tab view looks squashed"). */
+  const [stacked, setStacked] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
   const [camEnabled, setCamEnabled] = useState(true);
   const [isLive, setIsLive] = useState(false);
@@ -285,6 +299,35 @@ export default function StudioPage() {
       // Storage blocked: stays off, which is the safe default.
     }
   }, []);
+  // Going live from a booking (/studio?scheduled=<id>, from Schedule): its
+  // title, category and choices come across, and starting it turns that
+  // booking — its card, its link, everyone's reminder — into this broadcast.
+  const [booking, setBooking] = useState<{ id: string; title: string; at: string; notifyFollowers: boolean } | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("scheduled");
+    if (!id) return;
+    let alive = true;
+    apiFetch<{
+      success: boolean;
+      data: { stream: { _id: string; title: string; category: Category; tags?: string[]; status: string; startedAt?: string; scheduledStartAt?: string; notifyFollowers?: boolean; postToWorldSpace?: boolean } };
+    }>(`/api/streams/${id}`)
+      .then((r) => {
+        const s = r.data.stream;
+        if (!alive || s.status !== "upcoming") return;
+        setBooking({ id: String(s._id), title: s.title, at: s.scheduledStartAt ?? s.startedAt ?? "", notifyFollowers: s.notifyFollowers !== false });
+        setTitle(s.title);
+        setCategory(s.category);
+        if (s.tags?.length) setTags(s.tags.join(", "));
+        // The booking's choice, not the remembered one — and not remembered.
+        setPostToWorldSpace(Boolean(s.postToWorldSpace));
+      })
+      .catch(() => {
+        // Gone or not ours: the studio just starts a fresh stream.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const toggleWorldSpace = (on: boolean) => {
     setPostToWorldSpace(on);
     try {
@@ -294,12 +337,31 @@ export default function StudioPage() {
     }
   };
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const apply = () => setPhone(mq.matches);
+    // A phone on its side is still a phone: too short for a console.
+    const mq = window.matchMedia("(max-width: 767px), (max-height: 500px)");
+    const tab = window.matchMedia("(min-width: 768px) and (max-width: 1023px) and (min-height: 501px)");
+    const apply = () => {
+      setPhone(mq.matches);
+      setStacked(tab.matches);
+    };
     apply();
     mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    tab.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      tab.removeEventListener("change", apply);
+    };
   }, []);
+
+  // Live on a tablet or desktop, the console owns the screen: the app's rail
+  // and top bar step aside (the rule is in globals.css, keyed on this).
+  useEffect(() => {
+    if (!isLive) return;
+    document.documentElement.dataset.studioLive = "1";
+    return () => {
+      delete document.documentElement.dataset.studioLive;
+    };
+  }, [isLive]);
 
   // Elapsed timer
   useEffect(() => {
@@ -717,6 +779,7 @@ export default function StudioPage() {
             thumbnail,
             source: src,
             postToWorldSpace,
+            ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
           }),
         });
 
@@ -1406,9 +1469,9 @@ export default function StudioPage() {
   const keyRows = isLive && ingressInfo ? ingressInfo : streamKey;
 
   const encoderBlock = (
-    <div className="rounded-sm bg-white/[0.04] p-3.5">
+    <div className="rounded-[12px] bg-white/[0.04] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase">
+        <p className={SETUP_LABEL}>
           {isLive ? "Encoder connection" : "Your encoder key"}
         </p>
         {isLive ? (
@@ -1427,14 +1490,14 @@ export default function StudioPage() {
         <div className="mt-3 space-y-2">
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-xs text-muted-foreground">Server</span>
-            <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyRows.url}</code>
+            <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyRows.url}</code>
             <button onClick={() => copyIngressField("url", keyRows.url)} title="Copy server URL" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
               {copiedField === "url" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
             </button>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-xs text-muted-foreground">Key</span>
-            <code className="min-w-0 flex-1 truncate rounded-sm bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? keyRows.streamKey : "••••••••••••••••••••••••"}</code>
+            <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? keyRows.streamKey : "••••••••••••••••••••••••"}</code>
             <button onClick={() => setKeyVisible((v) => !v)} title={keyVisible ? "Hide key" : "Reveal key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
               {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
             </button>
@@ -1444,7 +1507,7 @@ export default function StudioPage() {
           </div>
         </div>
       ) : (
-        <div className="mt-3 h-[76px] animate-pulse rounded-sm bg-white/[0.04]" />
+        <div className="mt-3 h-[76px] animate-pulse rounded-[8px] bg-white/[0.04]" />
       )}
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">
         Set it once in OBS or vMix — it never changes. If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
@@ -1453,104 +1516,145 @@ export default function StudioPage() {
   );
 
   /* ---- Pre-live: the fields, and the action that can be pinned apart ---- */
+  /** How close you are to the button — three bars, filled in ember as they land. */
+  const readiness = (
+    <div>
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className={SETUP_LABEL}>Studio</p>
+          <h2 className="mt-1 font-wide text-[20px] leading-tight font-bold tracking-[-0.025em]">{readyCount === 3 ? "Ready when you are." : "Almost there."}</h2>
+        </div>
+        <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{readyCount}/3 ready</span>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden>
+        {(["source", "title", "category"] as const).map((k) => (
+          <span key={k} className={cn("h-1 rounded-full transition-colors duration-500", ready[k] ? "bg-ember" : "bg-white/[0.08]")} />
+        ))}
+      </div>
+      <p className="mt-2 text-[12.5px] text-muted-foreground">
+        {!ready.source
+          ? "Waiting on your camera — allow it when the browser asks."
+          : !ready.title
+            ? "Give it a title — three letters or more."
+            : "Everything's set. Say the word."}
+      </p>
+    </div>
+  );
+
+  // One column in the side panel; two once the console is wide enough (tablets).
   const setupFields = (
-    <div className="flex flex-col gap-4">
+    <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
       {orphan && (
-        <div className={cn("rounded-sm px-3.5 py-3", orphan.source === "obs" ? "bg-emerald-500/10" : "bg-amber-500/10")}>
-          <div className="flex items-start gap-2.5">
-            {orphan.source === "obs" ? <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-emerald-300" /> : <Warning size={18} className="mt-0.5 shrink-0 text-amber-400" />}
+        <div className={cn("rounded-[12px] px-4 py-3.5 @[620px]:col-span-2", orphan.source === "obs" ? "bg-ember/[0.1]" : "bg-chili/[0.12]")}>
+          <div className="flex items-start gap-3">
+            {orphan.source === "obs" ? <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-ember-hi" /> : <Warning size={18} className="mt-0.5 shrink-0 text-chili-hi" />}
             <div className="min-w-0">
-              <p className={cn("text-sm font-medium", orphan.source === "obs" ? "text-emerald-200" : "text-amber-300")}>
+              <p className="text-[14px] font-semibold">
                 &ldquo;{orphan.title}&rdquo; is still {orphan.source === "obs" ? "live" : "marked live"}
               </p>
-              <p className={cn("mt-0.5 text-xs", orphan.source === "obs" ? "text-emerald-200/70" : "text-amber-400/70")}>
+              <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
                 {orphan.source === "obs"
-                  ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and tips back."
+                  ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and gifts back."
                   : "The broadcast stopped when this tab closed, but the stream was never ended. Close it out before going live again."}
               </p>
             </div>
           </div>
-          <div className="mt-2.5 flex gap-2">
+          <div className="mt-3 flex gap-2">
             {orphan.source === "obs" && (
-              <button onClick={resumeStream} disabled={resuming || endingOrphan} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-white text-sm font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50">
+              <button onClick={resumeStream} disabled={resuming || endingOrphan} className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-white text-[13.5px] font-semibold text-[#0b0708] disabled:opacity-50">
                 {resuming ? <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={14} weight="fill" />}
                 Reopen studio
               </button>
             )}
-            <button onClick={endOrphan} disabled={endingOrphan || resuming} className={cn("h-9 flex-1 rounded-full text-sm font-medium transition-colors disabled:opacity-50", orphan.source === "obs" ? "bg-white/[0.08] text-foreground hover:bg-white/[0.12]" : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30")}>
+            <button onClick={endOrphan} disabled={endingOrphan || resuming} className="press h-10 flex-1 rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover disabled:opacity-50">
               {endingOrphan ? "Ending…" : "End it"}
             </button>
           </div>
         </div>
       )}
 
-      {/* The shape of the stream — only a camera has one to choose. */}
-      {source === "camera" && (
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">Shape</span>
-          <div className="flex rounded-full bg-white/[0.05] p-0.5">
-            {(["portrait", "landscape"] as const).map((o) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => setOrientation(o)}
-                aria-pressed={orientation === o}
-                className={cn(
-                  "flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors",
-                  orientation === o ? "bg-white text-neutral-950" : "text-foreground/60 hover:text-foreground"
-                )}
-              >
-                <span className={cn("block rounded-[2px] border-[1.5px] border-current", o === "portrait" ? "h-3.5 w-2.5" : "h-2.5 w-3.5")} />
-                {o === "portrait" ? "Portrait" : "Landscape"}
-              </button>
-            ))}
+      {booking && (
+        <div className="flex items-start gap-3 rounded-[12px] bg-ember/[0.1] px-4 py-3.5 @[620px]:col-span-2">
+          <CalendarPlus size={18} className="mt-0.5 shrink-0 text-ember-hi" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-semibold">Going live from your booking</p>
+            <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
+              Everyone who set a reminder for &ldquo;{booking.title}&rdquo; hears the moment you start. Its link and card become this stream.
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setBooking(null);
+              window.history.replaceState(null, "", "/studio");
+            }}
+            className="shrink-0 text-[12px] font-semibold text-muted-foreground hover:text-foreground"
+          >
+            Start fresh
+          </button>
         </div>
       )}
 
-      <div>
-        <label htmlFor="studio-title" className="mb-1.5 flex items-center justify-between text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">
-          Title
-          <span className="font-mono text-[11px] font-normal tracking-normal text-muted-foreground/50 tabular-nums normal-case">{title.length}/100</span>
-        </label>
-        <input
-          id="studio-title"
-          type="text"
-          placeholder="What's happening today?"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          maxLength={100}
-          className="h-12 w-full rounded-[12px] bg-white/[0.05] px-4 text-[15px] text-foreground transition-shadow outline-none placeholder:text-muted-foreground/45 focus:ring-1 focus:ring-white/20"
-        />
+      {/* The title, set the way it'll read — with WorldSpace's vanishing prompts while it's empty. */}
+      <div className="@[620px]:col-span-2">
+        <div className="flex items-baseline justify-between">
+          <label htmlFor="studio-title" className={SETUP_LABEL}>
+            What&apos;s the stream?
+          </label>
+          <span className="font-mono text-[11px] text-muted-foreground/60 tabular-nums">{title.length}/100</span>
+        </div>
+        <div className="relative mt-2.5">
+          {!title && <VanishingPlaceholder texts={TITLE_PROMPTS} className="font-wide text-[20px] font-bold tracking-[-0.02em] text-foreground/25" />}
+          <input
+            id="studio-title"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={100}
+            autoComplete="off"
+            className="relative block w-full border-0 bg-transparent p-0 font-wide text-[20px] leading-[1.4] font-bold tracking-[-0.02em] text-foreground outline-none"
+          />
+        </div>
+        <div className="mt-2 h-px bg-white/[0.08]" />
       </div>
 
       <div>
-        <label htmlFor="studio-category" className="mb-1.5 block text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">Category</label>
-        <SelectField
-          id="studio-category"
-          full
-          value={category}
-          onChange={(v) => setCategory(v as Category)}
-          groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.map((cat) => ({ value: cat, label: cat })) }))}
-        />
+        <label htmlFor="studio-category" className={SETUP_LABEL}>
+          Where it lives
+        </label>
+        <div className="mt-2.5">
+          <SelectField
+            id="studio-category"
+            full
+            value={category}
+            onChange={(v) => setCategory(v as Category)}
+            searchPlaceholder="Search 170 categories"
+            art={(v) => categoryArt(v, { w: 72, h: 96 })}
+            groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.map((cat) => ({ value: cat, label: cat })) }))}
+          />
+        </div>
       </div>
 
       <div>
-        <label htmlFor="studio-tags" className="mb-1.5 flex items-center justify-between text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">
-          Tags
-          <span className="font-mono text-[11px] font-normal tracking-normal text-muted-foreground/50 tabular-nums normal-case">{tagList.length}/6</span>
-        </label>
-        <div className="flex min-h-12 flex-wrap items-center gap-1.5 rounded-[12px] bg-white/[0.05] px-3 py-2 transition-shadow focus-within:ring-1 focus-within:ring-white/20">
+        <div className="flex items-baseline justify-between">
+          <label htmlFor="studio-tags" className={SETUP_LABEL}>
+            Tags
+          </label>
+          <span className="font-mono text-[11px] text-muted-foreground/60 tabular-nums">{tagList.length}/6</span>
+        </div>
+        <div className="mt-2.5 flex min-h-12 flex-wrap items-center gap-1.5 rounded-control bg-white/[0.06] px-3 py-2 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] transition-shadow focus-within:shadow-[inset_0_0_0_1.5px_var(--color-ember)]">
           {tagList.map((t) => (
-            <span key={t} className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-neutral-950">
+            <span key={t} className="flex items-center gap-1 rounded-[8px] bg-white/[0.1] py-1 pr-1.5 pl-2.5 text-[12.5px] font-semibold text-foreground">
               {t}
-              <button type="button" onClick={() => removeTag(t)} aria-label={`Remove ${t}`} className="text-neutral-950/60 hover:text-neutral-950"><X size={11} weight="bold" /></button>
+              <button type="button" onClick={() => removeTag(t)} aria-label={`Remove ${t}`} className="flex size-4 items-center justify-center text-foreground/55 hover:text-foreground">
+                <X size={11} weight="bold" />
+              </button>
             </span>
           ))}
           <input
             id="studio-tags"
             type="text"
-            placeholder={tagList.length === 0 ? "Add a tag" : ""}
+            placeholder={tagList.length === 0 ? "amapiano, ranked, q&a…" : ""}
             value={tagInput}
             onChange={(e) => (e.target.value.endsWith(",") ? (setTagInput(e.target.value), commitTag()) : setTagInput(e.target.value))}
             onKeyDown={(e) => {
@@ -1562,135 +1666,157 @@ export default function StudioPage() {
               }
             }}
             onBlur={commitTag}
-            className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/45"
+            className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground/45"
           />
           <Tag size={14} className="ml-auto shrink-0 text-muted-foreground/50" />
         </div>
+        <p className="mt-2 text-[12px] text-muted-foreground/70">Enter or a comma adds one. They help people searching find you.</p>
       </div>
 
-      {/* Thumbnail: the frame at card size, the actions beside it. */}
+      {/* The thumbnail at the shape it's shown: grab a frame, upload one, or let go-live take it. */}
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">Thumbnail</p>
+        <div className="flex items-baseline justify-between gap-3">
+          <p className={SETUP_LABEL}>Thumbnail</p>
+          <p className="text-[11.5px] text-muted-foreground/70">{customThumbnail ? "This is what viewers see" : "Taken at go-live if you skip it"}</p>
+        </div>
         <input ref={thumbInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { handleThumbnailFile(e.target.files?.[0]); e.target.value = ""; }} />
-        <div className="flex items-center gap-3 rounded-[12px] bg-white/[0.05] p-2">
-          <div className="relative aspect-video w-[124px] shrink-0 overflow-hidden rounded-[8px] bg-black/50">
-            {customThumbnail ? (
-              // eslint-disable-next-line @next/next/no-img-element -- data URI preview
-              <img src={customThumbnail} alt="Your stream thumbnail" className="size-full object-cover" />
-            ) : (
+        <div className="group relative mt-2.5 aspect-video overflow-hidden rounded-[12px] bg-white/[0.04]">
+          {customThumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element -- data URI preview
+            <img src={customThumbnail} alt="Your stream thumbnail" className="absolute inset-0 size-full object-cover" />
+          ) : (
+            <div className="absolute inset-0 opacity-40 grayscale-[35%]">
               <StreamArt src={undefined} category={category} alt="" seed={category} />
-            )}
-          </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="text-[14px] font-medium text-foreground/90">{customThumbnail ? "Your frame" : "Auto at go-live"}</p>
-            <p className="mt-0.5 text-[12px] text-muted-foreground/60">{customThumbnail ? "This is what viewers see." : "A frame is taken the moment you start."}</p>
-            <div className="mt-2 flex gap-3 text-[12.5px] font-semibold">
-              {customThumbnail ? (
-                <>
-                  <button type="button" onClick={() => thumbInputRef.current?.click()} className="text-foreground/85 hover:text-foreground">Replace</button>
-                  <button type="button" onClick={() => setCustomThumbnail(null)} className="text-muted-foreground/70 hover:text-foreground">Remove</button>
-                </>
-              ) : (
-                <>
-                  <button type="button" onClick={captureFrame} disabled={!(source === "camera" && previewTrack)} className="text-foreground/85 hover:text-foreground disabled:opacity-40">Capture frame</button>
-                  <button type="button" onClick={() => thumbInputRef.current?.click()} className="text-muted-foreground/70 hover:text-foreground">Upload</button>
-                </>
-              )}
             </div>
+          )}
+          {customThumbnail ? (
+            <div className="absolute right-2.5 bottom-2.5 flex gap-2">
+              <button type="button" onClick={() => thumbInputRef.current?.click()} className="press flex h-9 items-center gap-1.5 rounded-full bg-black/60 px-3.5 text-[13px] font-semibold text-white hover:bg-black/70">
+                <ImageEdit size={15} />
+                Replace
+              </button>
+              <button type="button" onClick={() => setCustomThumbnail(null)} aria-label="Remove thumbnail" className="press flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/70">
+                <X size={14} weight="bold" />
+              </button>
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-4 text-center">
+              <div className="flex flex-wrap justify-center gap-2">
+                {source === "camera" && (
+                  <button type="button" onClick={captureFrame} disabled={!previewTrack} className="press flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-semibold text-[#0b0708] disabled:opacity-40">
+                    <Camera size={15} />
+                    Capture frame
+                  </button>
+                )}
+                <button type="button" onClick={() => thumbInputRef.current?.click()} className="press flex h-9 items-center gap-1.5 rounded-full bg-black/55 px-3.5 text-[13px] font-semibold text-white hover:bg-black/65">
+                  <ImageSquare size={15} />
+                  Upload
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        {thumbError && <p className="mt-2 text-[12.5px] text-chili-hi">{thumbError}</p>}
+      </div>
+
+      <div className="flex flex-col gap-6">
+      {/* The shape of the stream — only a camera has one to choose. */}
+      {source === "camera" && (
+        <div className="flex items-center justify-between gap-3">
+          <span className={SETUP_LABEL}>Shape</span>
+          <div className="flex rounded-full bg-control p-0.5">
+            {(["portrait", "landscape"] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => setOrientation(o)}
+                aria-pressed={orientation === o}
+                className={cn(
+                  "press flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
+                  orientation === o ? "bg-white text-[#0b0708]" : "text-foreground/60 hover:text-foreground"
+                )}
+              >
+                <span className={cn("block rounded-[2px] border-[1.5px] border-current", o === "portrait" ? "h-3.5 w-2.5" : "h-2.5 w-3.5")} />
+                {o === "portrait" ? "Portrait" : "Landscape"}
+              </button>
+            ))}
           </div>
         </div>
-        {thumbError && <p className="mt-1.5 text-xs text-red-400">{thumbError}</p>}
+      )}
+
+      {/* Where it goes — the same switch as Settings and Schedule. */}
+      <div className="border-t border-white/[0.06] pt-3">
+        <SwitchField
+          label="Post to WorldSpace"
+          description={postToWorldSpace ? "Shows up in the WorldSpace feed — needs an account there on this same login." : "Stays on Xtream. Your followers here are still told."}
+          checked={postToWorldSpace}
+          onCheckedChange={toggleWorldSpace}
+        />
+      </div>
       </div>
 
-      {/* Where it goes. The switch is the one from Settings, so a toggle
-          looks the same wherever it turns up. */}
-      <div className="flex items-center justify-between gap-4 rounded-[12px] bg-white/[0.05] px-3.5 py-3">
-        <div className="min-w-0">
-          <p className="text-[14px] font-medium text-foreground">Post to WorldSpace</p>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground/70">
-            {postToWorldSpace
-              ? "Shows up in the WorldSpace feed — needs an account there on this same login."
-              : "Stays on Xtream. Your followers here are still told."}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => toggleWorldSpace(!postToWorldSpace)}
-          role="switch"
-          aria-checked={postToWorldSpace}
-          aria-label="Post to WorldSpace"
-          className={cn(
-            "press relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
-            postToWorldSpace ? "bg-primary" : "bg-white/10"
-          )}
-        >
-          <span
-            className={cn(
-              "pointer-events-none inline-block size-4 transform rounded-full bg-white shadow-lg ring-0 transition-transform",
-              postToWorldSpace ? "translate-x-5" : "translate-x-0.5"
-            )}
-          />
-        </button>
-      </div>
-
-      {source === "obs" && encoderBlock}
-
+      {source === "obs" && <div className="@[620px]:col-span-2">{encoderBlock}</div>}
     </div>
   );
 
   const goLiveAction = (
     <div className="p-4 pt-3">
       <Button
+        variant="live"
         onClick={() => setConfirmDialog("golive")}
         disabled={!ready.title || isConnecting}
-        className="shine h-13 w-full gap-2 rounded-full bg-red-600 text-[16px] font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-13 w-full gap-2 text-[16px]"
       >
         {isConnecting ? (<><div className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Connecting…</>) : (<><Lightning size={18} weight="fill" />Go live</>)}
       </Button>
-      <p className="mt-2.5 text-center text-[12px] text-muted-foreground/55">
-        {!ready.title ? "Give the stream a title to go live." : "Your followers hear about it the second you start."}
+      <p className="mt-2.5 text-center text-[12px] text-muted-foreground/60">
+        {!ready.title ? "Give the stream a title to go live." : booking ? "Everyone with a reminder hears it the second you start." : "Your followers hear about it the second you start."}
       </p>
     </div>
   );
 
-  /* ---- Live: the panel contents, one block used by sheet and column ---- */
-  const panelTabs = (
-    <div className="scrollbar-none flex gap-1.5 overflow-x-auto px-3 pt-1 pb-2">
-      {(
-        [
-          { key: "chat" as Panel, label: "Chat", icon: ChatText },
-          { key: "stage" as Panel, label: "Stage", icon: HandWaving },
-          { key: "viewers" as Panel, label: String(viewerCount), icon: UsersThree },
-          { key: "stats" as Panel, label: tipsLabel, icon: CurrencyDollar },
-          { key: "battle" as Panel, label: "Battle", icon: Sword },
-          { key: "games" as Panel, label: "Games", icon: Sparkle },
-          { key: "more" as Panel, label: "More", icon: DotsThree },
-        ]
-      ).map((t) => (
-        <button
-          key={t.key}
-          type="button"
-          onClick={() => setPanel(t.key)}
-          className={cn(
-            "press relative flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold",
-            panel === t.key ? "obj-on" : "bg-white/[0.07] text-foreground/80 hover:text-foreground"
-          )}
-        >
-          <t.icon size={14} weight={panel === t.key ? "fill" : "regular"} />
-          {t.label}
-          {t.key === "stage" && stageRequests.length > 0 && (
-            <span className={cn("ml-0.5 rounded-full px-1.5 text-[10px] font-bold tabular-nums", panel === t.key ? "bg-neutral-950 text-white" : "bg-red-600 text-white")}>{stageRequests.length}</span>
-          )}
-        </button>
-      ))}
+  /* ---- Live: the room's header — two numbers you can open, then the capsule ---- */
+  const roomTabs: CapsuleTab<Panel>[] = [
+    { id: "chat", label: "Chat", icon: ChatText },
+    { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length },
+    { id: "battle", label: "Battle", icon: Sword },
+    { id: "games", label: "Games", icon: Sparkle },
+    { id: "more", label: "More", icon: DotsThree },
+  ];
+  const statChip = (key: Panel, icon: React.ReactNode, value: React.ReactNode, word: string) => {
+    const on = panel === key;
+    return (
+      <button
+        type="button"
+        onClick={() => setPanel(on ? "chat" : key)}
+        aria-pressed={on}
+        className={cn(
+          "press flex h-9 min-w-0 items-center gap-2 rounded-full px-3.5 text-[13px] font-semibold transition-colors",
+          on ? "bg-white text-[#0b0708] shadow-[0_6px_18px_-8px_rgba(255,255,255,0.55)]" : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]",
+        )}
+      >
+        {icon}
+        {value}
+        <span className={on ? "text-[#0b0708]/55" : "text-muted-foreground"}>{word}</span>
+      </button>
+    );
+  };
+  const roomHeader = (
+    <div className="shrink-0 px-4 pt-3 pb-2">
+      <div className="flex items-center gap-2">
+        {statChip("viewers", <Eye size={15} weight="bold" />, <span className="font-mono tabular-nums">{viewerCount}</span>, "watching")}
+        {statChip("stats", <Gift size={15} weight="fill" className={panel === "stats" ? undefined : "text-value"} />, <span className={cn("font-money text-[15px] leading-none", panel !== "stats" && "text-value")}>{tipsLabel}</span>, "gifts")}
+      </div>
+      {/* The capsule: icons at rest, the open one a white pill that says its name. */}
+      <CapsuleTabs className="mt-3" label="Your room" items={roomTabs} value={roomTabs.some((t) => t.id === panel) ? panel : null} onChange={setPanel} />
     </div>
   );
 
   const stagePanel = (
-    <div className="space-y-5 px-4 pb-4">
-      {stageError && <p className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400">{stageError}</p>}
+    <div className="space-y-6 px-4 pt-4 pb-4">
+      {stageError && <p className="rounded-[10px] bg-chili/[0.12] px-3 py-2 text-xs text-chili-hi">{stageError}</p>}
       {coLiveInvite && (
-        <div className="rounded-sm bg-primary/[0.1] p-3">
+        <div className="rounded-[12px] bg-ember/[0.1] p-3.5">
           <div className="flex items-center gap-2.5">
             <UserAvatar src={coLiveInvite.fromAvatar ?? ""} name={coLiveInvite.fromDisplayName ?? coLiveInvite.fromUsername} size={30} className="size-[30px]" />
             <div className="min-w-0 flex-1">
@@ -1707,7 +1833,7 @@ export default function StudioPage() {
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">Requests</h3>
+          <h3 className={SETUP_LABEL}>Requests</h3>
           <span className="text-[11px] text-muted-foreground/60">{liveGuests.length}/{MAX_STAGE_GUESTS} slots used</span>
         </div>
         {stageRequests.length === 0 ? (
@@ -1715,7 +1841,7 @@ export default function StudioPage() {
         ) : (
           <div className="space-y-1.5">
             {stageRequests.map((r) => (
-              <div key={r.userId} className="flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2">
+              <div key={r.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                 <UserAvatar src={r.avatar} name={r.username} size={32} className="size-8" />
                 <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{r.username}</p>
                 <button onClick={() => approveGuest(r.userId)} disabled={stageBusyId !== null || liveGuests.length >= MAX_STAGE_GUESTS} title={liveGuests.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Bring them on"} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[12.5px] font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50">
@@ -1730,13 +1856,13 @@ export default function StudioPage() {
       </div>
 
       <div>
-        <h3 className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">On stage now</h3>
+        <h3 className={cn(SETUP_LABEL, "mb-2")}>On stage now</h3>
         {liveGuests.length === 0 ? (
           <p className="text-[13px] text-muted-foreground/60">No guests yet. Approve a request and they join with their camera.</p>
         ) : (
           <div className="space-y-1.5">
             {liveGuests.map((g) => (
-              <div key={g.userId} className="flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2">
+              <div key={g.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                 <UserAvatar src={g.avatar} name={g.username} size={32} className="size-8" />
                 <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{g.username}</p>
                 <button onClick={() => removeGuest(g.userId)} disabled={stageBusyId !== null} className="h-8 rounded-full bg-white/[0.07] px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:bg-white/[0.12] disabled:opacity-50">Remove</button>
@@ -1748,16 +1874,16 @@ export default function StudioPage() {
 
       {otherLive.length > 0 && (
         <div>
-          <h3 className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">Live now — invite to co-live</h3>
+          <h3 className={cn(SETUP_LABEL, "mb-2")}>Live now — invite to co-live</h3>
           <div className="space-y-1.5">
             {otherLive.map((s) => {
               const name = s.streamerId?.displayName || s.streamerId?.username || "Streamer";
               const invited = coLiveInvited.has(s._id);
               return (
-                <div key={s._id} className="flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2">
+                <div key={s._id} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                   <span className="relative shrink-0">
                     <UserAvatar src={s.streamerId?.avatar ?? ""} name={name} size={32} className="size-8" />
-                    <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.13_0.005_285)]" />
+                    <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-chili ring-2 ring-card" />
                   </span>
                   <div className="min-w-0 flex-1 leading-tight">
                     <p className="truncate text-sm text-foreground/90">{name}</p>
@@ -1777,17 +1903,20 @@ export default function StudioPage() {
   );
 
   const viewersPanel = (
-    <div className="px-4 pb-4">
+    <div className="px-4 pt-3 pb-4">
       {connectedViewers.length === 0 ? (
-        <div className="flex flex-col items-center py-10 text-center">
-          <UsersThree size={28} className="text-muted-foreground/25" />
-          <p className="mt-2 text-[13px] text-muted-foreground/60">No viewers yet</p>
+        <div className="flex flex-col items-center px-6 py-12 text-center">
+          <span className="flex size-12 items-center justify-center rounded-full bg-white/[0.06]">
+            <UsersThree size={22} className="text-muted-foreground" />
+          </span>
+          <p className="mt-3 font-wide text-[16px] font-bold tracking-[-0.02em]">The room&apos;s warming up</p>
+          <p className="mt-1 max-w-[30ch] text-[13px] leading-relaxed text-muted-foreground">Share the link — everyone who drops in shows up here.</p>
         </div>
       ) : (
         <div className="space-y-1">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">{connectedViewers.length} viewer{connectedViewers.length !== 1 ? "s" : ""} connected</p>
+          <p className={cn(SETUP_LABEL, "mb-2")}>{connectedViewers.length} in the room</p>
           {connectedViewers.map((v) => (
-            <div key={v.identity} className="flex items-center gap-3 rounded-sm px-2 py-2">
+            <div key={v.identity} className="flex items-center gap-3 rounded-[10px] px-2 py-2 hover:bg-white/[0.04]">
               <div className="flex size-8 items-center justify-center rounded-full bg-white/[0.06] text-xs font-medium text-foreground/80">{v.name.charAt(0).toUpperCase()}</div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-foreground/85">{v.name}</p>
@@ -1802,37 +1931,43 @@ export default function StudioPage() {
 
   const statsPanel = (
     <div className="px-4 pb-4">
-      <div className="grid grid-cols-2 gap-2">
-        {[
-          { label: "Watching", value: String(viewerCount) },
-          { label: "Peak", value: String(peakViewers) },
-          { label: "On air", value: elapsed },
-          { label: "Gifts", value: tipsLabel },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-sm bg-white/[0.04] px-3.5 py-3">
-            <p className="text-[10.5px] font-semibold tracking-[0.12em] text-muted-foreground/60 uppercase">{stat.label}</p>
-            <p className="mt-1 text-xl font-semibold text-foreground tabular-nums">{stat.value}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-2 pt-4">
+        <div className="col-span-2 rounded-[12px] bg-white/[0.04] p-4">
+          <p className={SETUP_LABEL}>Watching now</p>
+          <p className="mt-2.5 font-money text-[44px] leading-none tabular-nums">{viewerCount}</p>
+        </div>
+        <div className="rounded-[12px] bg-white/[0.04] p-4">
+          <p className={SETUP_LABEL}>Peak</p>
+          <p className="mt-2.5 font-money text-[26px] leading-none tabular-nums">{peakViewers}</p>
+        </div>
+        <div className="rounded-[12px] bg-white/[0.04] p-4">
+          <p className={SETUP_LABEL}>On air</p>
+          <p className="mt-2.5 font-money text-[26px] leading-none tabular-nums">{elapsed}</p>
+        </div>
+        <div className="col-span-2 rounded-[12px] bg-white/[0.04] p-4">
+          <p className={SETUP_LABEL}>Gifts this stream</p>
+          <p className="mt-2.5 font-money text-[32px] leading-none text-value tabular-nums">{tipsLabel}</p>
+        </div>
       </div>
-      <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/60">Gifts land in your wallet as they arrive and show on the stage for everyone.</p>
+      <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">Gifts land in your wallet as they arrive and play on the stage for everyone.</p>
     </div>
   );
 
   const morePanel = (
-    <div className="flex flex-col gap-3 px-4 pb-4">
-      <button onClick={shareStream} className="flex h-11 items-center justify-center gap-2 rounded-full bg-white/[0.07] text-[14px] font-medium text-foreground transition-colors hover:bg-white/[0.11]">
-        <ShareNetwork size={16} />
-        {shareCopied ? "Link copied" : "Share stream"}
+    <div className="flex flex-col gap-2.5 px-4 pt-4 pb-4">
+      <button onClick={shareStream} className="press flex h-11 items-center justify-center gap-2 rounded-full bg-white/[0.07] text-[14px] font-semibold text-foreground transition-colors hover:bg-white/[0.11]">
+        {shareCopied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />}
+        {shareCopied ? "Link copied" : "Share the stream"}
       </button>
       {source !== "obs" && (
-        <button onClick={toggleScreenShare} className={cn("flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-medium transition-colors", screenShareActive ? "bg-white text-neutral-950" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]")}>
+        <button onClick={toggleScreenShare} className={cn("press flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold transition-colors", screenShareActive ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]")}>
           <MonitorArrowUp size={16} />
-          {screenShareActive ? "Stop sharing screen" : "Share your screen"}
+          {screenShareActive ? "Stop sharing your screen" : "Share your screen"}
         </button>
       )}
-      {source === "obs" && encoderBlock}
-      <button onClick={() => setConfirmDialog("end")} className="flex h-11 items-center justify-center gap-2 rounded-full border border-red-500/60 text-[14px] font-semibold text-red-300 transition-colors hover:bg-red-500/10">
+      {source === "obs" && <div className="mt-1">{encoderBlock}</div>}
+      <button onClick={() => setConfirmDialog("end")} className="press mt-2 flex h-11 items-center justify-center gap-2 rounded-full bg-chili/15 text-[14px] font-semibold text-chili-hi transition-colors hover:bg-chili/25">
+        <Stop size={14} weight="fill" />
         End stream
       </button>
     </div>
@@ -1855,7 +1990,7 @@ export default function StudioPage() {
     </>
   );
 
-  /** A round control that reads as one: the live column, the top row. */
+  /** A round control on the picture — the phone's camera column. */
   const roundButton = (props: { onClick?: () => void; label: string; active?: boolean; danger?: boolean; badge?: number; children: React.ReactNode }) => (
     <button
       type="button"
@@ -1864,224 +1999,318 @@ export default function StudioPage() {
       title={props.label}
       className={cn(
         "press relative flex size-11 items-center justify-center rounded-full text-white",
-        props.danger ? "bg-red-500/25 text-red-300 ring-1 ring-red-400/30 hover:bg-red-500/35" : props.active ? "obj-on" : "obj hover:text-white"
+        props.danger ? "bg-chili/30 text-chili-hi ring-1 ring-chili/40 hover:bg-chili/40" : props.active ? "obj-on" : "obj hover:text-white"
       )}
     >
       {props.children}
       {props.badge ? (
-        <span className="absolute -top-0.5 -right-0.5 rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white tabular-nums">{props.badge}</span>
+        <span className="absolute -top-0.5 -right-0.5 rounded-full bg-chili px-1.5 text-[10px] font-bold text-white tabular-nums">{props.badge}</span>
       ) : null}
     </button>
   );
 
+  /** A key in the live dock: white when it's on, chili when something you'd expect on is off. */
+  const dockButton = (props: { onClick?: () => void; label: string; on?: boolean; off?: boolean; children: React.ReactNode }) => (
+    <button
+      type="button"
+      onClick={props.onClick}
+      aria-label={props.label}
+      title={props.label}
+      className={cn(
+        "press flex size-11 items-center justify-center rounded-full transition-colors",
+        props.off ? "bg-chili text-white" : props.on ? "bg-white text-[#0b0708]" : "text-white hover:bg-white/[0.12]",
+      )}
+    >
+      {props.children}
+    </button>
+  );
+
+  /**
+   * Three rooms for one studio. Phones: the picture is the screen and the
+   * room is a drawer. Tablets: the stage on top, the console under it — a
+   * 380px column beside a 700px screen left the picture a sliver (owner,
+   * 2026-09-24: "the studio in the tab view looks squashed"). Desktop: the
+   * picture framed beside the console, never under it, so a broadcaster sees
+   * every edge of their own shot.
+   */
+  const mode: "phone" | "stacked" | "side" = phone ? "phone" : stacked ? "stacked" : "side";
+  /** Only a mouse gets the three-second hide; touch screens keep their controls. */
+  const dockHidden = mode === "side" && !controlsVisible;
+
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white md:h-[calc(100dvh-3.5rem)]">
-      {/* ---- The stage: the whole screen ---- */}
+    <div className={cn("relative w-full overflow-hidden text-white", mode === "phone" ? "h-[100dvh] bg-black" : cn("bg-background", isLive ? "h-[100dvh]" : "h-[calc(100dvh-4rem)]"))}>
+      {/* ---- The stage ---- */}
       <div
-        className="absolute inset-0 flex items-center justify-center"
+        className={cn(
+          "absolute overflow-hidden bg-black [container-type:size]",
+          mode === "phone" && "inset-0",
+          // Setting up, the fields get the room; on air, the picture takes it back.
+          mode === "stacked" && cn("inset-x-3 top-3 rounded-[20px] transition-[height] duration-500 ease-out", isLive ? "h-[56%]" : "h-[46%]"),
+          mode === "side" && "top-4 right-[calc(340px+2rem)] bottom-4 left-4 rounded-[20px] xl:right-[calc(380px+2rem)]",
+        )}
         onMouseMove={isLive ? showControls : undefined}
         onTouchStart={isLive ? showControls : undefined}
       >
-        <div
-          className={cn(
-            "relative overflow-hidden",
-            // A portrait broadcast fills a portrait screen, and is
-            // pillarboxed on a wide one — never stretched across it.
-            orientation === "portrait" ? (phone ? "size-full" : "aspect-[9/16] h-full") : "aspect-video max-h-full w-full",
-          )}
-        >
-          <div className={cn("grid size-full gap-px", layout.container)}>
-            <div className={cn("relative overflow-hidden", layout.hostCell)}>
-              <video
-                ref={videoElRef}
-                autoPlay
-                muted
-                playsInline
-                className={cn("size-full object-cover", source === "camera" && facing === "user" && "-scale-x-100")}
-              />
-              {stageCount > 1 && (
-                <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">You</span>
-              )}
-            </div>
-            {opponentStreamId && battle && streamId && (
-              <div className="relative overflow-hidden bg-black">
-                <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-                <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">
-                  {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
-                </span>
-              </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className={cn(
+              "relative overflow-hidden",
+              // Contained, never cropped: a portrait broadcast fills a phone and
+              // is pillarboxed elsewhere; a landscape one letterboxes to fit.
+              orientation === "portrait"
+                ? mode === "phone"
+                  ? "size-full"
+                  : "aspect-[9/16] h-[min(100cqh,calc(100cqw*16/9))]"
+                : "aspect-video w-[min(100cqw,calc(100cqh*16/9))]",
             )}
-            {guestTiles.map((t) => (
-              <StageTile key={t.identity} fill track={guestTracksRef.current.get(t.identity)} label={t.name} />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Pre-live idle stage: a lit set, not a black box. */}
-      {idle && (
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(255,255,255,0.06),transparent_55%),linear-gradient(180deg,#141416,#0b0b0d)]" />
-          <BrandMark size={360} className="absolute -right-16 -bottom-20 opacity-[0.06]" />
-          <div className="absolute inset-0 flex items-center justify-center px-8 pb-40 text-center md:pb-0">
-            <div className="max-w-sm">
-              <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-white/[0.08]">
-                {source === "camera" ? <VideoCamera size={28} weight="fill" /> : source === "screen" ? <Monitor size={28} weight="fill" /> : <Broadcast size={28} weight="fill" />}
-              </span>
-              <p className="mt-4 text-[17px] font-semibold">
-                {source === "camera" ? "Setting up your camera" : source === "screen" ? "Your screen is the stage" : "Stream from OBS or any encoder"}
-              </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
-                {source === "camera"
-                  ? "Allow camera and microphone access when the browser asks. Your preview appears here."
-                  : source === "screen"
-                    ? "The share picker opens the moment you go live, so nothing is captured before you say so."
-                    : "Your server URL and stream key are in the setup below. Set them once in OBS or vMix — they never change."}
-              </p>
-              {source === "camera" && (
-                <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[12px] font-medium text-white/80">
-                  <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
-                  Waiting for permission
-                </span>
+          >
+            <div className={cn("grid size-full gap-px", layout.container)}>
+              <div className={cn("relative overflow-hidden", layout.hostCell)}>
+                <video
+                  ref={videoElRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={cn("size-full object-cover", source === "camera" && facing === "user" && "-scale-x-100")}
+                />
+                {stageCount > 1 && (
+                  <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">You</span>
+                )}
+              </div>
+              {opponentStreamId && battle && streamId && (
+                <div className="relative overflow-hidden bg-black">
+                  <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+                  <span className="absolute bottom-2 left-2 rounded-sm bg-black/60 px-2 py-1 text-xs font-medium">
+                    {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
+                  </span>
+                </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Live but the encoder hasn't connected yet */}
-      {encoderWaiting && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-          <div className="px-6 text-center">
-            <div className={cn("mx-auto mb-3 size-7 animate-spin rounded-full border-2", feedDropped ? "border-amber-400/20 border-t-amber-300" : "border-white/15 border-t-white/60")} />
-            <p className={cn("text-sm font-medium", feedDropped ? "text-amber-200" : "text-white/60")}>{feedDropped ? "Encoder disconnected — reconnecting" : "Waiting for your encoder"}</p>
-            <p className="mt-1 max-w-xs text-xs text-white/35">
-              {feedDropped ? `Your stream stays live for ${Math.round(graceMs / 60_000)} minutes while OBS reconnects on the same key. Viewers have been told.` : "Start streaming in OBS or vMix with your key — the picture lands here."}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Scrims: the copy and controls sit on black, never on the picture. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
-      {isLive && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/75 to-transparent md:hidden" />}
-
-      {/* Tip alerts — the on-air moment */}
-      {tipAlerts.length > 0 && (
-        <div className="pointer-events-none absolute top-[4.5rem] left-4 z-30 flex flex-col items-start gap-2 md:top-16">
-          {tipAlerts.map((t) => (
-            <div key={t.id} className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1 pr-3.5 pl-1.5 slide-in-from-left-4">
-              <GiftArt emoji={t.emoji} size={30} />
-              <span className="max-w-[9rem] truncate text-xs font-semibold">{t.username}</span>
-              <span className="flex items-center gap-0.5 text-xs font-bold text-yellow-300"><CurrencyDollar size={12} />{t.amountLabel.replace("$", "")}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div className="absolute top-[4.5rem] right-4 left-4 z-30 rounded-sm bg-red-500/90 px-4 py-2.5 text-sm font-medium text-white md:right-auto md:max-w-md">{error}</div>
-      )}
-
-      {/* ---- Top row ---- */}
-      <div className="absolute top-0 right-0 left-0 z-20 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] md:right-[calc(380px+2rem)] md:px-4 md:pt-4">
-        {!isLive ? (
-          <>
-            <Link href="/explore" aria-label="Back" className="obj press flex size-11 items-center justify-center rounded-full text-white md:hidden"><CaretLeft size={20} weight="bold" /></Link>
-            <div className="obj mx-auto flex rounded-full p-1">
-              {(
-                [
-                  { id: "camera" as SourceType, label: "Camera", icon: VideoCamera },
-                  { id: "screen" as SourceType, label: "Screen", icon: Monitor },
-                  { id: "obs" as SourceType, label: "OBS", icon: Broadcast },
-                ]
-              ).map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSource(s.id)}
-                  aria-pressed={source === s.id}
-                  className={cn("press flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold", source === s.id ? "obj-on" : "text-white/70 hover:text-white")}
-                >
-                  <s.icon size={16} />
-                  {s.label}
-                </button>
+              {guestTiles.map((t) => (
+                <StageTile key={t.identity} fill track={guestTracksRef.current.get(t.identity)} label={t.name} />
               ))}
             </div>
-            {source === "camera" ? (
-              roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
-            ) : (
-              <span className="size-11 md:hidden" />
-            )}
-          </>
-        ) : (
-          <>
-            {/* LIVE, the clock and the room in one capsule — the three numbers a host glances at. */}
-            <span className="obj flex h-8 items-center overflow-hidden rounded-full">
-              <span className="flex h-full items-center gap-1.5 bg-gradient-to-b from-red-500 to-red-600 px-2.5 text-[12px] font-bold tracking-[0.06em]">
-                <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
-                LIVE
-              </span>
-              <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>
-              <button type="button" onClick={() => openPanel("viewers")} className="flex h-full items-center gap-1.5 pr-3 font-mono text-[12px] font-semibold tabular-nums transition-colors hover:text-white/80">
-                <Eye size={14} weight="bold" />
-                {viewerCount}
-              </button>
-            </span>
-            <BrandMark size={24} className="ml-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]" />
-            <button type="button" onClick={() => setConfirmDialog("end")} className="obj press flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-[13px] font-semibold text-red-300 hover:text-red-200">
-              <Stop size={14} weight="fill" />
-              End
-            </button>
-          </>
+          </div>
+        </div>
+
+        {/* Pre-live idle stage: a lit set, not a black box. */}
+        {idle && (
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute inset-0 bg-surface" />
+            <BrandMark size={360} className="absolute -right-16 -bottom-20 opacity-[0.06]" />
+            <div className={cn("absolute inset-0 flex items-center justify-center px-8 text-center", mode === "phone" && "pb-40")}>
+              <div className="max-w-md">
+                <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-white/[0.08]">
+                  {source === "camera" ? <VideoCamera size={28} weight="fill" /> : source === "screen" ? <Monitor size={28} weight="fill" /> : <Broadcast size={28} weight="fill" />}
+                </span>
+                <p className="mt-5 font-wide text-[clamp(1.5rem,2.8vw,2.25rem)] leading-[1.05] font-bold tracking-[-0.035em] text-balance">
+                  {source === "camera" ? "Setting up your camera" : source === "screen" ? "Your screen is the stage" : "Stream from OBS or any encoder"}
+                </p>
+                <p className="mx-auto mt-3 max-w-[40ch] text-[14px] leading-relaxed text-white/60">
+                  {source === "camera"
+                    ? "Allow camera and microphone access when the browser asks. Your preview appears here."
+                    : source === "screen"
+                      ? "The share picker opens the moment you go live, so nothing is captured before you say so."
+                      : "Your server URL and stream key are in the setup below. Set them once in OBS or vMix — they never change."}
+                </p>
+                {source === "camera" && (
+                  <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[12px] font-medium text-white/80">
+                    <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+                    Waiting for permission
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         )}
+
+        {/* Live but the encoder hasn't connected yet */}
+        {encoderWaiting && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+            <div className="px-6 text-center">
+              <div className={cn("mx-auto mb-3 size-7 animate-spin rounded-full border-2", feedDropped ? "border-amber-400/20 border-t-amber-300" : "border-white/15 border-t-white/60")} />
+              <p className={cn("text-sm font-medium", feedDropped ? "text-amber-200" : "text-white/60")}>{feedDropped ? "Encoder disconnected — reconnecting" : "Waiting for your encoder"}</p>
+              <p className="mt-1 max-w-xs text-xs text-white/35">
+                {feedDropped ? `Your stream stays live for ${Math.round(graceMs / 60_000)} minutes while OBS reconnects on the same key. Viewers have been told.` : "Start streaming in OBS or vMix with your key — the picture lands here."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Scrims: the copy and controls sit on black, never on the picture. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
+        {isLive && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent", mode === "phone" ? "h-64" : "h-36")} />}
+
+        {/* Tip alerts — the on-air moment */}
+        {tipAlerts.length > 0 && (
+          <div className="pointer-events-none absolute top-[4.5rem] left-4 z-30 flex flex-col items-start gap-2 md:top-16">
+            {tipAlerts.map((t) => (
+              <div key={t.id} className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1 pr-3.5 pl-1.5 slide-in-from-left-4">
+                <GiftArt emoji={t.emoji} size={30} />
+                <span className="max-w-[9rem] truncate text-xs font-semibold">{t.username}</span>
+                <span className="flex items-center gap-0.5 text-xs font-bold text-yellow-300"><CurrencyDollar size={12} />{t.amountLabel.replace("$", "")}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div role="alert" className="absolute top-[4.5rem] right-4 left-4 z-30 flex items-start gap-2 rounded-[12px] bg-chili px-4 py-3 text-[13.5px] font-semibold text-white shadow-[0_18px_40px_-18px_rgba(0,0,0,0.8)] md:right-auto md:max-w-md"><Warning size={16} className="mt-0.5 shrink-0" />{error}</div>
+        )}
+
+        {/* ---- Top row ---- */}
+        <div className="absolute top-0 right-0 left-0 z-20 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] md:px-4 md:pt-4">
+          {!isLive ? (
+            <>
+              <Link href="/explore" aria-label="Back" className="obj press flex size-11 items-center justify-center rounded-full text-white md:hidden"><CaretLeft size={20} weight="bold" /></Link>
+              <div className="obj mx-auto flex rounded-full p-1">
+                {(
+                  [
+                    { id: "camera" as SourceType, label: "Camera", icon: VideoCamera },
+                    { id: "screen" as SourceType, label: "Screen", icon: Monitor },
+                    { id: "obs" as SourceType, label: "OBS", icon: Broadcast },
+                  ]
+                ).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSource(s.id)}
+                    aria-pressed={source === s.id}
+                    className={cn("press flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold", source === s.id ? "obj-on" : "text-white/70 hover:text-white")}
+                  >
+                    <s.icon size={16} />
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              {source === "camera" ? (
+                roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
+              ) : (
+                <span className="size-11 md:hidden" />
+              )}
+            </>
+          ) : (
+            <>
+              {/* LIVE, the clock and the room in one capsule — the three numbers a host glances at. */}
+              <span className="obj flex h-8 items-center overflow-hidden rounded-full">
+                <span className="flex h-full items-center gap-1.5 bg-chili px-2.5 text-[12px] font-bold tracking-[0.06em]">
+                  <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
+                  LIVE
+                </span>
+                <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>
+                <button type="button" onClick={() => openPanel("viewers")} className="flex h-full items-center gap-1.5 pr-3 font-mono text-[12px] font-semibold tabular-nums transition-colors hover:text-white/80">
+                  <Eye size={14} weight="bold" />
+                  {viewerCount}
+                </button>
+              </span>
+              {source === "obs" && (
+                <span className="obj flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-white/85">
+                  <span className={cn("size-1.5 rounded-full", obsFeedActive ? "bg-emerald-400" : "animate-pulse bg-ember")} />
+                  {obsFeedActive ? "Encoder connected" : feedDropped ? "Reconnecting" : "Waiting for encoder"}
+                </span>
+              )}
+              {mode === "phone" ? (
+                <>
+                  <BrandMark size={24} className="ml-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]" />
+                  <button type="button" onClick={() => setConfirmDialog("end")} className="obj press flex h-8 items-center gap-1.5 rounded-full pr-3.5 pl-2.5 text-[13px] font-semibold text-chili-hi hover:text-white">
+                    <Stop size={14} weight="fill" />
+                    End
+                  </button>
+                </>
+              ) : (
+                // The top bar steps aside while live, so the title and Vivid ride the stage instead.
+                <div className="ml-auto flex min-w-0 items-center gap-2">
+                  <span className="obj hidden h-8 max-w-[36ch] min-w-0 items-center rounded-full px-3.5 text-[12.5px] font-semibold text-white/85 lg:flex">
+                    <span className="truncate">{title}</span>
+                  </span>
+                  <VividLauncher variant="orb" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Pre-live: camera status, under the source picker. */}
+        {!isLive && source === "camera" && previewTrack && (
+          <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 z-20 flex gap-1.5 md:top-[4.5rem] md:left-4">
+            <span className="obj flex h-7 items-center gap-2 rounded-full px-3 text-[11.5px] font-medium text-white/85">
+              <span className="size-1.5 rounded-full bg-emerald-400" />
+              Camera ready · {micEnabled ? "mic on" : "mic off"}
+            </span>
+          </div>
+        )}
+
+        {/* ---- Tablet & desktop live: the dock — the camera's keys, the link, End ---- */}
+        {isLive && mode !== "phone" && (
+          <div className={cn("absolute inset-x-0 bottom-5 z-20 flex justify-center px-4 transition-[opacity,transform] duration-300", dockHidden && "pointer-events-none translate-y-2 opacity-0")}>
+            <div className="obj flex items-center gap-1 rounded-full p-1.5">
+              {source !== "obs" && dockButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", off: !micEnabled, children: micEnabled ? <Microphone size={21} /> : <MicrophoneSlash size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
+              {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
+              {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
+              {dockButton({ onClick: shareStream, label: shareCopied ? "Link copied" : "Share the stream", on: shareCopied, children: shareCopied ? <Check size={19} weight="bold" /> : <ShareNetwork size={20} /> })}
+              <button
+                type="button"
+                onClick={() => setConfirmDialog("end")}
+                className="press ml-1 flex h-11 items-center gap-2 rounded-full bg-chili pr-5 pl-4 text-[14px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),var(--glow-chili)] hover:brightness-110"
+              >
+                <Stop size={14} weight="fill" />
+                End
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ---- Phone live: the camera's own controls ride the picture ---- */}
+        {isLive && mode === "phone" && source !== "obs" && (
+          <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] right-3 z-20 flex flex-col items-center gap-2.5">
+            {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
+            {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
+            {source === "camera"
+              ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
+              : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
+          </div>
+        )}
+
       </div>
 
-      {/* Pre-live: camera status, under the source picker. */}
-      {!isLive && source === "camera" && previewTrack && (
-        <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 z-20 flex gap-1.5 md:top-[4.5rem] md:left-4">
-          <span className="obj flex h-7 items-center gap-2 rounded-full px-3 text-[11.5px] font-medium text-white/85">
-            <span className="size-1.5 rounded-full bg-emerald-400" />
-            Camera ready · {micEnabled ? "mic on" : "mic off"}
-          </span>
-        </div>
-      )}
-
-      {/* ---- Desktop live: the action column beside the stage ---- */}
-      {isLive && !phone && (
-        <div
+      {/* ---- Tablet & desktop: the console — setup before, the room during ---- */}
+      {mode !== "phone" && (
+        <aside
+          aria-label={isLive ? "Your room" : "Stream setup"}
           className={cn(
-            "absolute top-1/2 right-[calc(380px+1.5rem)] z-20 flex -translate-y-1/2 flex-col items-center gap-2.5 transition-opacity duration-300",
-            !controlsVisible && "pointer-events-none opacity-0"
+            "absolute z-20 flex flex-col overflow-hidden rounded-[20px] bg-surface shadow-[inset_0_1px_0_rgba(255,236,230,0.06)]",
+            mode === "side"
+              ? "top-4 right-4 bottom-4 w-[340px] xl:w-[380px]"
+              : cn("inset-x-3 bottom-3 transition-[top] duration-500 ease-out", isLive ? "top-[calc(56%+1.5rem)]" : "top-[calc(46%+1.5rem)]"),
           )}
         >
-          {source !== "obs" && roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
-          {source !== "obs" && roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
-          {source === "camera" && roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })}
-          {roundButton({ onClick: () => openPanel("stage"), label: "Stage and requests", active: panel === "stage", badge: stageRequests.length, children: <HandWaving size={22} /> })}
-          {roundButton({ onClick: () => openPanel("stats"), label: "Gifts and stats", active: panel === "stats", children: <Gift size={22} /> })}
-          {roundButton({ onClick: () => openPanel("battle"), label: "Battle", active: panel === "battle", children: <Sword size={22} /> })}
-          {roundButton({ onClick: () => openPanel("games"), label: "Games", active: panel === "games", children: <Sparkle size={22} /> })}
-          {roundButton({ onClick: () => openPanel("more"), label: "More", active: panel === "more", children: <DotsThree size={24} weight="bold" /> })}
-        </div>
-      )}
-
-      {/* ---- Phone live: the camera's own controls ride the picture ---- */}
-      {isLive && phone && source !== "obs" && (
-        <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] right-3 z-20 flex flex-col items-center gap-2.5">
-          {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
-          {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
-          {source === "camera"
-            ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
-            : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
-        </div>
+          {!isLive ? (
+            <>
+              <div className="@container min-h-0 flex-1 overflow-y-auto p-5 pb-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                <div className="mb-6">{readiness}</div>
+                {setupFields}
+              </div>
+              {/* Pinned: the button never scrolls away from the fields it depends on. */}
+              <div className="shrink-0 shadow-[inset_0_1px_0_rgba(255,236,230,0.06)]">{goLiveAction}</div>
+            </>
+          ) : (
+            <>
+              {roomHeader}
+              <div className={cn("min-h-0 flex-1", panel !== "chat" && "hidden")}>
+                {streamId && <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost />}
+              </div>
+              {panelBody}
+            </>
+          )}
+        </aside>
       )}
 
       {/* ---- Phone live: the room, in a drawer. Chat, stage, gifts, battle,
           games and more are its tabs; fold it to the thumb for a clean
           picture, pull it up when the room needs you. ---- */}
-      {isLive && streamId && phone && (
-        <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} header={<div className="pb-1">{panelTabs}</div>}>
+      {isLive && streamId && mode === "phone" && (
+        <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} header={<div className="pb-1">{roomHeader}</div>}>
           <div className={cn("h-full", panel !== "chat" && "hidden")}>
             <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost variant="sheet" />
           </div>
@@ -2089,43 +2318,14 @@ export default function StudioPage() {
         </DragSheet>
       )}
 
-      {/* ---- Desktop: the column beside the stage ---- */}
-      {!phone && (
-        <div className="absolute top-4 right-4 bottom-4 z-20 flex w-[380px] flex-col overflow-hidden rounded-[14px] bg-[#0f0f11]/95 ring-1 ring-white/[0.07]">
-          {!isLive ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
-              <div className="mb-5 flex items-center justify-between">
-                <h2 className="text-[17px] font-semibold tracking-tight">Stream setup</h2>
-                <span className="rounded-full bg-white/[0.06] px-2.5 py-1 font-mono text-[11px] text-muted-foreground tabular-nums">{readyCount}/3 ready</span>
-              </div>
-              {setupFields}
-              {goLiveAction}
-            </div>
-          ) : (
-            <>
-              <div className="pt-2">{panelTabs}</div>
-              <div className={cn("min-h-0 flex-1", panel !== "chat" && "hidden")}>
-                {streamId && <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost />}
-              </div>
-              {panelBody}
-            </>
-          )}
-        </div>
-      )}
-
       {/* ---- Phones: the setup sheet, pre-live ---- */}
-      {phone && !isLive && (
+      {mode === "phone" && !isLive && (
         <DragSheet
           label="Stream setup"
           collapsible
           detents={[0.56, 0.86]}
           defaultDetent={0}
-          header={
-            <div className="flex items-center justify-between px-4 pt-1 pb-3">
-              <h2 className="text-[17px] font-semibold tracking-tight">Stream setup</h2>
-              <span className="rounded-full bg-white/[0.06] px-2.5 py-1 font-mono text-[11px] text-muted-foreground tabular-nums">{readyCount}/3 ready</span>
-            </div>
-          }
+          header={<div className="px-4 pt-1 pb-3">{readiness}</div>}
           footer={goLiveAction}
         >
           <div className="px-4 pb-2">{setupFields}</div>
@@ -2135,12 +2335,13 @@ export default function StudioPage() {
       {/* Go live / end confirmation */}
       {confirmDialog && (
         <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center">
-          <div className="animate-sheet-up w-full rounded-t-[18px] bg-[#131316] p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center md:animate-pop-in md:mx-4 md:max-w-sm md:rounded-sm md:pb-6">
-            <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-red-500/15" : "bg-red-500/10")}>
-              {confirmDialog === "golive" ? <Lightning size={22} weight="fill" className="text-red-400" /> : <Warning size={22} className="text-red-400" />}
+          <div className="animate-sheet-up w-full rounded-t-[20px] bg-popover p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center shadow-[inset_0_1px_0_rgba(255,236,230,0.06)] md:animate-pop-in md:mx-4 md:max-w-sm md:rounded-[20px] md:pb-6">
+            {/* Go live is solid Chili; ending is a quieter chili. */}
+            <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-chili shadow-[var(--glow-chili)]" : "bg-chili/15")}>
+              {confirmDialog === "golive" ? <Lightning size={22} weight="fill" className="text-white" /> : <Warning size={22} className="text-chili-hi" />}
             </div>
-            <h2 className="text-lg font-semibold">{confirmDialog === "golive" ? "Ready to go live?" : "End stream?"}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{confirmDialog === "golive" ? "Ready to go live?" : "End the stream?"}</h2>
+            <p className="mt-2 text-[14px] leading-relaxed text-muted-foreground">
               {confirmDialog === "golive"
                 ? source === "obs"
                   ? `This creates "${title}" and hands you the RTMP details for your encoder.`
@@ -2148,7 +2349,7 @@ export default function StudioPage() {
                 : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
             </p>
             <div className="mt-6 flex gap-2">
-              <button onClick={() => setConfirmDialog(null)} className="h-11 flex-1 rounded-full bg-white/[0.07] text-sm font-medium text-foreground transition-colors hover:bg-white/[0.11]">Cancel</button>
+              <button onClick={() => setConfirmDialog(null)} className="press h-11 flex-1 rounded-full bg-control text-sm font-semibold text-foreground transition-colors hover:bg-control-hover">{confirmDialog === "golive" ? "Not yet" : "Keep going"}</button>
               <button
                 onClick={() => {
                   const action = confirmDialog;
@@ -2156,7 +2357,7 @@ export default function StudioPage() {
                   if (action === "golive") goLive();
                   else endStream();
                 }}
-                className={cn("h-11 flex-1 rounded-full text-sm font-semibold transition-colors", confirmDialog === "golive" ? "bg-red-600 text-white hover:bg-red-700" : "bg-white text-neutral-950 hover:bg-neutral-100")}
+                className={cn("press h-11 flex-1 rounded-full text-sm font-semibold transition-[filter,background-color]", confirmDialog === "golive" ? "bg-chili shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)] text-white hover:brightness-110" : "bg-white text-[#0b0708] hover:bg-white/90")}
               >
                 {confirmDialog === "golive" ? "Go live" : "End stream"}
               </button>

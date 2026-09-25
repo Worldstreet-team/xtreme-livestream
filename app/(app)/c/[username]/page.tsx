@@ -13,7 +13,7 @@ import {
   ChartBar,
   House,
   Info,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
 import { UpcomingCard, RemindButton } from "@/components/app/upcoming-card";
 import { FollowButton } from "@/components/app/follow-button";

@@ -1,11 +1,12 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   HouseLine,
   Compass,
-  Pulse,
+  PlayCircle,
   HeartStraight,
   ChartDonut,
   Diamond,
@@ -13,29 +14,31 @@ import {
   SignOut,
   Users,
   SignIn,
-  ArrowUpRight,
   DotsThree,
-  SquaresFour,
   Wallet,
-  Eye,
-  CaretDown,
-  CaretDoubleLeft,
-  CaretDoubleRight,
+  SidebarSimple,
   SealCheck,
   House,
-} from "@phosphor-icons/react";
+  Broadcast,
+  SquaresFour,
+  CaretRight,
+  CaretDown,
+  ArrowClockwise,
+  ChatCircleDots,
+  ArrowUpRight,
+} from "@/components/icons";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
-import { formatUptime } from "@/lib/discovery";
-import { useNow } from "@/lib/use-now";
 import { useEffect, useRef, useState } from "react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
+import { WolfIcon } from "@/components/ui/wolf-icon";
 import { MobileTabBar } from "@/components/app/mobile-tabbar";
 import { PhoneDrawer } from "@/components/app/phone-drawer";
+import { BalancePills } from "@/components/app/balance-pills";
 import { TopBar } from "@/components/app/topbar";
 import { RightRail } from "@/components/app/right-rail";
 import {
@@ -46,13 +49,15 @@ import {
 /**
  * App shell and the rail.
  *
- * The rail follows the grammar the socials rework settled on: a 264px
+ * The rail follows the grammar the socials rework settled on — a 264px
  * column, big 16px labels with 22px glyphs that go solid when active,
- * uppercase eyebrow labels between sections, the ecosystem as an inline
- * accordion rather than a hidden popover, one tall primary action with a
- * highlight that sweeps every few seconds, and the account as a proper
- * block at the foot — avatar, name, handle. Corners stay square-ish
- * throughout; the modern feel is the type scale and the rhythm, not radius.
+ * uppercase eyebrow labels between sections — in Afterglow's finish (the
+ * owner's calls, 2026-09-23): three groups — Discover, Create, You — so
+ * every key page is one click away; the page you're on is set bold with an
+ * Ember dot while the rest sit faint; only the channels *you* follow show
+ * here when they're live (the home already shows what's live, so the rail
+ * doesn't repeat it); the rest of WorldStreet waits behind one row; and
+ * the account at the foot is a card with your points and wallet on it.
  *
  * It collapses to a 72px icon rail — by choice on wide screens, always
  * between 768 and 1024px where a 264px column would leave the page too
@@ -74,22 +79,25 @@ const PHONE_CHROMELESS = ["/studio"];
 const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet"];
 
 /** True from the `lg` breakpoint up; false for the server paint. */
-function useWide() {
+function useMinWidth(px: number) {
   const [wide, setWide] = useState(true);
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
+    const mq = window.matchMedia(`(min-width: ${px}px)`);
     const update = () => setWide(mq.matches);
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
-  }, []);
+  }, [px]);
   return wide;
 }
+
+const useWide = () => useMinWidth(1024);
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const wide = useWide();
+  const roomy = useMinWidth(1280);
   // The phone drawer: opened from the top bar, closed by any link inside it.
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -119,20 +127,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
   const phoneChromeless = PHONE_CHROMELESS.some((p) => pathname.startsWith(p));
-  // Tablets get the icon rail whether or not you asked for it.
-  const narrow = collapsed || !wide;
+  // Tablets get the icon rail whether or not you asked for it — and so does
+  // the studio below 1280px, where every pixel belongs to the stage.
+  const narrow = collapsed || !wide || (pathname.startsWith("/studio") && !roomy);
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar collapsed={narrow} onToggle={wide ? toggle : undefined} />
       <main
+        data-app-main
         className={cn(
           "flex min-h-screen flex-col transition-[margin] duration-300 md:ml-[var(--rail-w)] md:pb-0",
           phoneChromeless ? "pb-0" : "pb-[calc(3.75rem+env(safe-area-inset-bottom))]",
         )}
         style={{ "--rail-w": narrow ? RAIL_COLLAPSED : RAIL_OPEN } as React.CSSProperties}
       >
-        <div className={cn(phoneChromeless && "hidden md:block")}>
+        {/* The wrapper carries the stickiness: a sticky child can't outlive a
+            parent exactly its own height, so the bar scrolled away. */}
+        <div data-app-chrome className={cn("sticky top-0 z-30", phoneChromeless && "hidden md:block")}>
           <TopBar onMenu={() => setMobileOpen(true)} />
         </div>
         <div className="flex min-h-0 flex-1 items-start">
@@ -166,22 +178,35 @@ type NavItem = {
 const MAIN_NAV: NavItem[] = [
   { label: "Home", href: "/explore", icon: HouseLine, public: true },
   { label: "Browse", href: "/browse", icon: Compass, public: true },
-  { label: "Live feed", href: "/feed", icon: Pulse, public: true },
+  { label: "Live feed", href: "/feed", icon: PlayCircle, public: true },
   { label: "Following", href: "/following", icon: HeartStraight, public: false },
+  { label: "Messages", href: "/messages", icon: ChatCircleDots, public: true },
 ];
 
-const YOU_NAV: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: ChartDonut, public: false },
-  { label: "Wallet", href: "/wallet", icon: Wallet, public: false },
-  { label: "Rewards", href: "/rewards", icon: Diamond, public: false },
-  { label: "Settings", href: "/settings", icon: Faders, public: false },
+/**
+ * Making things — open to everyone, so a visitor sees they could. "Your
+ * channel" is the channel and the dashboard in one place (owner,
+ * 2026-09-24); the public page is a button inside it.
+ */
+const CREATE_NAV: NavItem[] = [
+  { label: "Studio", href: "/studio", icon: Broadcast, public: true },
+  { label: "Your channel", href: "/dashboard", icon: ChartDonut, public: false },
 ];
+
+/** Yours — signed in only. Notifications live on the top bar's bell. */
+function youNav(): NavItem[] {
+  return [
+    { label: "Wallet", href: "/wallet", icon: Wallet, public: false },
+    { label: "Rewards", href: "/rewards", icon: Diamond, public: false },
+    { label: "Settings", href: "/settings", icon: Faders, public: false },
+  ];
+}
 
 /** Section eyebrow — the small uppercase label between groups. */
 function Eyebrow({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
   if (collapsed) return <div className="mx-auto my-3 h-px w-6 bg-white/[0.08]" />;
   return (
-    <p className="px-3.5 pt-5 pb-1.5 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase select-none">
+    <p className="px-3.5 pt-5 pb-1.5 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase select-none">
       {children}
     </p>
   );
@@ -197,12 +222,29 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
-  const [productsOpen, setProductsOpen] = useState(false);
   const [liveCount, setLiveCount] = useState(0);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const userRef = useRef<HTMLDivElement>(null);
+  const [appsAnchor, setAppsAnchor] = useState<DOMRect | null>(null);
+  const appsRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!appsAnchor) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (insideGlassPopover(t) || appsRef.current?.contains(t)) return;
+      setAppsAnchor(null);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setAppsAnchor(null);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [appsAnchor]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -217,8 +259,9 @@ export function Sidebar({
 
   const narrow = collapsed;
 
+  // Schedule lives inside Your channel now, so it lights that row.
   const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+    pathname === href || pathname.startsWith(href + "/") || (href === "/dashboard" && pathname.startsWith("/schedule"));
 
   const renderItem = (item: NavItem, index: number, offset: number) => {
     const active = isActive(item.href);
@@ -231,26 +274,31 @@ export function Sidebar({
         aria-current={active ? "page" : undefined}
         style={{ animationDelay: `${offset + index * 30}ms` }}
         className={cn(
-          "animate-rise group relative flex items-center gap-3 rounded-sm py-2.5 transition-colors",
-          narrow ? "justify-center px-0" : "px-3.5",
-          // Inactive rows stay fully legible — the active one is marked by
-          // its fill, not by dimming everything else.
-          active
-            ? "bg-white/[0.07] font-semibold text-foreground"
-            : "text-foreground/85 hover:bg-white/[0.04] hover:text-foreground"
+          "animate-rise group relative flex items-center gap-3 rounded-control py-2 transition-colors",
+          narrow ? "justify-center px-0 py-2.5" : "px-3.5",
+          // The page you're on is set bold and bright with its Ember dot;
+          // everything else sits faint until you reach for it.
+          active ? "font-bold text-foreground" : "font-medium text-foreground/60 hover:text-foreground/90"
         )}
       >
-        <item.icon size={22} weight={active ? "fill" : "duotone"} className="shrink-0" aria-hidden />
-        {!narrow && <span className="text-[16px]">{item.label}</span>}
-        {showLiveDot && (
+        <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />
+        {!narrow && <span className="text-[16px] tracking-[-0.005em]">{item.label}</span>}
+        {active && !narrow && (
+          <span aria-hidden className="ml-auto size-1.5 shrink-0 rounded-full bg-ember shadow-glow-ember" />
+        )}
+        {active && narrow && (
+          // On the icon rail the dot sits under the glyph, as on the phone's tab bar.
+          <span aria-hidden className="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-ember shadow-glow-ember" />
+        )}
+        {showLiveDot && !active && (
           // A broadcast dot, not a count: streams are happening now, they
           // aren't a backlog.
           <span
             className={cn("relative flex size-2 shrink-0", narrow ? "absolute top-2 right-2.5" : "ml-auto")}
             title={`${liveCount} live now`}
           >
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-red-500" />
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-chili" />
           </span>
         )}
       </Link>
@@ -258,15 +306,18 @@ export function Sidebar({
   };
 
   const mainItems = user ? MAIN_NAV : MAIN_NAV.filter((l) => l.public);
+  const createItems = user ? CREATE_NAV : CREATE_NAV.filter((l) => l.public);
 
   return (
     <>
       <aside
+        data-app-chrome
         style={{ width: narrow ? RAIL_COLLAPSED : RAIL_OPEN }}
-        className="fixed inset-y-0 left-0 z-50 hidden flex-col border-r border-white/[0.06] bg-[oklch(0.12_0.005_285)] transition-[width] duration-300 md:flex"
+        className="fixed inset-y-0 left-0 z-50 hidden flex-col bg-background transition-[width] duration-300 md:flex"
       >
-        {/* Brand */}
-        <div className={cn("animate-rise flex h-[76px] shrink-0 items-center", narrow ? "justify-center" : "justify-between px-5")}>
+        {/* Brand, with the collapse control beside it — up top, where the
+            rail's own controls belong (owner, 2026-09-23). */}
+        <div className={cn("animate-rise flex h-16 shrink-0 items-center shadow-[inset_0_-1px_0_rgba(255,236,230,0.06)]", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
           <Link href="/" className="group flex items-center gap-2.5" title="Xtream">
             <span className="flex size-[38px] items-center justify-center">
               <BrandMark size={30} />
@@ -275,97 +326,133 @@ export function Sidebar({
               <span className="text-[22px] font-bold tracking-tight text-foreground">Xtream</span>
             )}
           </Link>
-        </div>
-
-        <div className={cn("flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10", narrow ? "px-2" : "px-3")}>
-          <nav className="flex flex-col gap-0.5">
-            {mainItems.map((item, i) => renderItem(item, i, 60))}
-
-            {user && (
-              <>
-                <Eyebrow collapsed={narrow}>You</Eyebrow>
-                {YOU_NAV.map((item, i) => renderItem(item, i, 220))}
-              </>
-            )}
-
-            {/* Products expands inline so the ecosystem is one glance away. */}
-            <div className="animate-rise" style={{ animationDelay: "300ms" }}>
-              <button
-                type="button"
-                onClick={() => setProductsOpen((v) => !v)}
-                aria-expanded={productsOpen}
-                title={narrow ? "More from WorldStreet" : undefined}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-sm py-2.5 text-left transition-colors",
-                  narrow ? "justify-center px-0" : "px-3.5",
-                  productsOpen ? "text-foreground" : "text-foreground/85 hover:bg-white/[0.04] hover:text-foreground"
-                )}
-              >
-                <SquaresFour size={22} weight={productsOpen ? "fill" : "duotone"} className="shrink-0" />
-                {!narrow && (
-                  <>
-                    <span className="flex-1 text-[16px]">Products</span>
-                    <CaretDown size={14} className={cn("text-muted-foreground/60 transition-transform", productsOpen && "rotate-180")} />
-                  </>
-                )}
-              </button>
-              {!narrow && (
-                <div className={cn("grid transition-[grid-template-rows] duration-200", productsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-                  <div className="overflow-hidden">
-                    <div className="flex flex-col py-0.5 pl-3">
-                      {ECOSYSTEM.map((app) => (
-                        <a
-                          key={app.title}
-                          href={app.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group/app relative flex items-center gap-2.5 rounded-sm py-2 pr-7 pl-3 text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
-                        >
-                          <app.icon size={16} className="shrink-0 opacity-70 transition-opacity group-hover/app:opacity-100" />
-                          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                            <span className="truncate text-[13.5px]">{app.title}</span>
-                            <span className="truncate text-[11px] text-muted-foreground/60">{app.description}</span>
-                          </span>
-                          <ArrowUpRight size={12} className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground/50 opacity-0 transition-opacity group-hover/app:opacity-100" />
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-          </nav>
-
-          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={noop} onLiveCount={setLiveCount} />
-
-          <div className="flex-1" />
-
           {onToggle && (
             <button
               type="button"
               onClick={onToggle}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-pressed={collapsed}
-              className={cn(
-                "mt-3 hidden items-center gap-3 rounded-sm py-2 text-[13px] text-muted-foreground/60 transition-colors hover:text-foreground md:flex",
-                narrow ? "justify-center px-0" : "px-3.5"
-              )}
+              title={collapsed ? "Expand" : "Collapse"}
+              className="press flex size-9 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-white/[0.05] hover:text-foreground"
             >
-              {collapsed ? <CaretDoubleRight size={16} /> : (<><CaretDoubleLeft size={16} /> Collapse</>)}
+              {/* Rail on the left, like ours — Solar draws it on the right. */}
+              <SidebarSimple size={20} mirrored />
             </button>
           )}
         </div>
 
-        {/* Account */}
-        <div className={cn("shrink-0 border-t border-white/[0.06]", narrow ? "p-2" : "p-3")} ref={userRef}>
+        <div className={cn("flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10", narrow ? "px-2" : "px-3")}>
+          <nav className="flex flex-col gap-px" aria-label="Main">
+            {mainItems.map((item, i) => renderItem(item, i, 60))}
+
+            <Eyebrow collapsed={narrow}>Create</Eyebrow>
+            {createItems.map((item, i) => renderItem(item, i, 180))}
+
+            {user && (
+              <>
+                <Eyebrow collapsed={narrow}>You</Eyebrow>
+                {youNav().map((item, i) => renderItem(item, i, 260))}
+              </>
+            )}
+          </nav>
+
+          <LiveRail collapsed={narrow} pathname={pathname} onNavigate={noop} onLiveCount={setLiveCount} />
+
+          <div className="flex-1" />
+
+          {/* The rest of WorldStreet, behind one row — a panel of apps opens
+              beside the rail rather than a wall of tiles inside it. */}
+          <button
+            ref={appsRef}
+            type="button"
+            onClick={(e) => {
+              // Read the rect now: React clears currentTarget once the handler returns.
+              const rect = e.currentTarget.getBoundingClientRect();
+              setAppsAnchor((open) => (open ? null : rect));
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={Boolean(appsAnchor)}
+            title={narrow ? "WorldStreet apps" : undefined}
+            className={cn(
+              "group mt-3 flex items-center gap-3 rounded-control py-2 transition-colors",
+              narrow ? "justify-center px-0 py-2.5" : "px-3.5",
+              appsAnchor ? "font-bold text-foreground" : "font-medium text-foreground/60 hover:text-foreground/90",
+            )}
+          >
+            <SquaresFour size={21} weight={appsAnchor ? "fill" : "regular"} className="shrink-0" aria-hidden />
+            {!narrow && (
+              <>
+                <span className="text-[16px]">WorldStreet apps</span>
+                <CaretRight size={13} weight="bold" className="ml-auto opacity-60" aria-hidden />
+              </>
+            )}
+          </button>
+          {appsAnchor && (
+            <GlassPopover anchor={appsAnchor} width={320} className="p-2">
+              <p className="px-2.5 pt-1.5 pb-2 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase">More from WorldStreet</p>
+              <div className="grid gap-px">
+                {ECOSYSTEM.filter((app) => app.title !== "Vivid AI").map((app) => (
+                  <a
+                    key={app.title}
+                    href={app.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setAppsAnchor(null)}
+                    className="group/app flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-white/[0.05]"
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]">
+                      <app.icon size={18} weight="duotone" aria-hidden />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                      <span className="truncate text-[14px] font-semibold text-foreground">{app.title}</span>
+                      <span className="truncate text-[12px] text-muted-foreground">{app.description}</span>
+                    </span>
+                    <ArrowUpRight size={13} className="shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/app:opacity-100" aria-hidden />
+                  </a>
+                ))}
+              </div>
+            </GlassPopover>
+          )}
+
+        </div>
+
+        {/* The foot: the Wolf race, then the account — pinned, never scrolled
+            out of view under the list. */}
+        <div className={cn("shrink-0", narrow ? "border-t border-white/[0.06] px-2 pt-1" : "px-3 pt-1")}>
+          {/* The Wolf of WorldStreet race, at the foot of the rail (owner,
+              2026-09-24) — the one place foil is allowed: the pelt. */}
+          <a
+            href="https://social.worldstreetgold.com/votes"
+            target="_blank"
+            rel="noopener noreferrer"
+            title={narrow ? "Wolf of WorldStreet — the most-backed creator wears the pelt" : undefined}
+            className={cn(
+              "group/wolf flex items-center gap-3 rounded-panel transition-colors",
+              narrow ? "justify-center py-2" : "bg-white/[0.035] p-2.5 hover:bg-white/[0.06]",
+            )}
+          >
+            <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-foil text-[#1a1206] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", narrow ? "size-8" : "size-9")}>
+              <WolfIcon size={narrow ? 16 : 18} />
+            </span>
+            {!narrow && (
+              <>
+                <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                  <span className="truncate text-[14.5px] font-semibold text-foreground">Wolf of WorldStreet</span>
+                  <span className="truncate text-[12.5px] text-muted-foreground">Who wears the pelt?</span>
+                </span>
+                <ArrowUpRight size={13} className="shrink-0 text-muted-foreground/50 transition-colors group-hover/wolf:text-foreground" aria-hidden />
+              </>
+            )}
+          </a>
+        </div>
+        <div className={cn("shrink-0", narrow ? "p-2" : "p-3")} ref={userRef}>
           {user ? (
             <>
               {menuOpen && menuAnchor && (
                 <GlassPopover anchor={menuAnchor} width={236} className="py-1">
                   <Link href={`/c/${user.username}`} data-vivid-own-channel onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
                     <Users size={15} />
-                    Your channel
+                    View public page
                   </Link>
                   <a href="https://dashboard.worldstreetgold.com" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
                     <Wallet size={15} />
@@ -378,6 +465,7 @@ export function Sidebar({
                   </button>
                 </GlassPopover>
               )}
+              <div className={cn(!narrow && "rounded-panel bg-white/[0.035] p-1.5")}>
               <button
                 onClick={(e) => {
                   setMenuAnchor(e.currentTarget.getBoundingClientRect());
@@ -386,11 +474,11 @@ export function Sidebar({
                 aria-haspopup="dialog"
                 aria-expanded={menuOpen}
                 title={narrow ? user.displayName : undefined}
-                className={cn("group flex w-full items-center gap-3 rounded-sm p-2.5 text-left transition-colors hover:bg-white/[0.04]", narrow && "justify-center")}
+                className={cn("group flex w-full items-center gap-3 rounded-control p-2 text-left transition-colors hover:bg-white/[0.04]", narrow && "justify-center")}
               >
                 <span className="relative shrink-0">
                   <UserAvatar src={user.avatar} name={user.displayName || user.username} size={40} className="size-10 ring-1 ring-white/[0.08]" />
-                  {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />}
+                  {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
                 </span>
                 {!narrow && (
                   <>
@@ -407,6 +495,8 @@ export function Sidebar({
                   </>
                 )}
               </button>
+              {!narrow && <BalancePills size="sm" className="px-1 pt-0.5 pb-1" />}
+              </div>
             </>
           ) : isLoading ? (
             <div className={cn("flex items-center gap-3 p-2.5", narrow && "justify-center")}>
@@ -414,14 +504,27 @@ export function Sidebar({
               {!narrow && <div className="h-3 w-24 animate-pulse rounded-full bg-white/10" />}
             </div>
           ) : (
-            <a
-              href="https://www.worldstreetgold.com/login"
-              title={narrow ? "Sign in" : undefined}
-              className="flex h-11 items-center justify-center gap-2 rounded-sm bg-white/[0.06] text-[15px] font-semibold text-foreground transition-colors hover:bg-white/[0.09]"
-            >
-              <SignIn size={16} />
-              {!narrow && "Sign in"}
-            </a>
+            <div className={cn(!narrow && "px-1.5 pb-1")}>
+              {!narrow && (
+                <p className="mb-3 text-[14.5px] leading-snug text-foreground/85">
+                  Follow creators, send gifts and earn points on every stream.
+                </p>
+              )}
+              <a
+                href={SIGN_IN_URL}
+                title={narrow ? "Sign in" : undefined}
+                aria-label={narrow ? "Sign in" : undefined}
+                className={cn(
+                  "press flex items-center justify-center gap-2 rounded-full transition-[filter,background-color]",
+                  narrow
+                    ? "mx-auto size-10 bg-control text-foreground hover:bg-control-hover"
+                    : "h-11 bg-white text-[15px] font-semibold text-[#0b0708] shadow-glow-white hover:brightness-95",
+                )}
+              >
+                <SignIn size={16} weight="bold" />
+                {!narrow && "Sign in"}
+              </a>
+            </div>
           )}
         </div>
       </aside>
@@ -453,101 +556,121 @@ interface FollowedRow {
 interface RailEntry {
   key: string;
   href: string;
+  /** The handle — what the row leads with, TikTok-style ("spyda767"). */
+  handle: string;
+  /** The nickname under it ("SPYDA 🇺🇸"). */
   name: string;
   avatar: string;
+  /** The stream's title, for the tooltip. */
   subtitle: string;
   viewers: number;
-  startedAt?: string;
   /** Whoever else is on the stage right now — the rail shows the first. */
   coHosts?: Array<{ username: string; avatar: string }>;
 }
 
-function ChannelRow({ entry, now, collapsed, onNavigate }: { entry: RailEntry; now: number; collapsed: boolean; onNavigate: () => void }) {
-  const uptime = entry.startedAt ? formatUptime(entry.startedAt, now) : "";
+/**
+ * A live creator on the rail, the way TikTok LIVE lists them: the face in
+ * its heat ring with a small LIVE tag under it, the handle in bold, the
+ * nickname beneath, and how many are watching on the right.
+ */
+function ChannelRow({ entry, collapsed, onNavigate }: { entry: RailEntry; collapsed: boolean; onNavigate: () => void }) {
   const withThem = entry.coHosts ?? [];
+  const face = (size: number) => (
+    <span className="relative flex shrink-0 flex-col items-center">
+      <UserAvatar src={entry.avatar} name={entry.name} size={size} ring="live" ringGapClassName="bg-background" />
+      <span className="absolute -bottom-1 rounded-[4px] bg-chili px-1 py-px text-[7.5px] leading-none font-bold tracking-[0.06em] text-white uppercase ring-2 ring-background">
+        Live
+      </span>
+    </span>
+  );
   if (collapsed) {
     return (
-      <Link href={entry.href} onClick={onNavigate} title={`${entry.name} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-sm py-1.5 transition-colors hover:bg-white/[0.04]">
-        <span className="relative shrink-0">
-          <UserAvatar src={entry.avatar} name={entry.name} size={30} className="size-[30px]" />
-          <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
-        </span>
+      <Link href={entry.href} onClick={onNavigate} title={`@${entry.handle} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-control py-2 transition-colors hover:bg-white/[0.04]">
+        {face(28)}
       </Link>
     );
   }
   return (
-    <Link href={entry.href} onClick={onNavigate} className="flex items-center gap-2.5 rounded-sm px-3.5 py-2 transition-colors hover:bg-white/[0.04]">
-      {/* Two faces when the stage is shared — the co-host sits behind. */}
-      <span className="relative flex shrink-0 -space-x-2">
-        <UserAvatar src={entry.avatar} name={entry.name} size={30} className="relative z-10 size-[30px]" />
-        {withThem[0] && (
-          <UserAvatar src={withThem[0].avatar} name={withThem[0].username} size={30} className="size-[30px]" />
-        )}
-        <span className="absolute -right-0.5 -bottom-0.5 z-20 size-2 rounded-full bg-red-500 ring-2 ring-[oklch(0.12_0.005_285)]" />
-      </span>
+    <Link href={entry.href} onClick={onNavigate} title={entry.subtitle} className="group flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-white/[0.04]">
+      {face(32)}
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span className="truncate text-[13.5px] font-medium text-foreground/90">
+        <span className="truncate text-[15px] font-bold text-foreground">{entry.handle}</span>
+        <span className="truncate text-[13px] text-muted-foreground">
           {entry.name}
-          {withThem[0] && (
-            <span className="text-muted-foreground/70">
-              {" "}with {withThem[0].username}
-              {withThem.length > 1 && ` +${withThem.length - 1}`}
-            </span>
-          )}
+          {withThem[0] && <span className="text-muted-foreground/70"> · with {withThem[0].username}</span>}
         </span>
-        <span className="truncate text-[11.5px] text-muted-foreground/70">{entry.subtitle}</span>
       </span>
-      <span className="flex shrink-0 flex-col items-end leading-tight text-[11px] text-muted-foreground tabular-nums">
-        <span className="flex items-center gap-1"><Eye size={11} />{formatNumber(entry.viewers)}</span>
-        {uptime && <span className="text-muted-foreground/50">{uptime}</span>}
-      </span>
+      <span className="shrink-0 text-[13px] font-semibold text-foreground/75 tabular-nums">{formatNumber(entry.viewers)}</span>
     </Link>
   );
 }
 
-function RailSection({ title, live, entries, now, collapsed, onNavigate }: { title: string; live?: boolean; entries: RailEntry[]; now: number; collapsed: boolean; onNavigate: () => void }) {
+function RailSection({
+  title,
+  live,
+  entries,
+  collapsed,
+  onNavigate,
+  trailing,
+  footer,
+}: {
+  title: string;
+  live?: boolean;
+  entries: RailEntry[];
+  collapsed: boolean;
+  onNavigate: () => void;
+  trailing?: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   if (entries.length === 0) return null;
   return (
     <div>
       {collapsed ? (
         <div className="mx-auto my-3 h-px w-6 bg-white/[0.08]" title={title} />
       ) : (
-        <p className="flex items-center gap-1.5 px-3.5 pt-5 pb-1.5 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase select-none">
+        <div className="flex items-center gap-1.5 px-3.5 pt-5 pb-1.5">
           {live && (
             <span className="relative flex size-1.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
-              <span className="relative inline-flex size-1.5 rounded-full bg-red-500" />
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-chili" />
             </span>
           )}
-          {title}
-        </p>
+          <p className="flex-1 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase select-none">{title}</p>
+          {trailing}
+        </div>
       )}
       <div className="space-y-0.5">
-        {entries.map((e) => <ChannelRow key={e.key} entry={e} now={now} collapsed={collapsed} onNavigate={onNavigate} />)}
+        {entries.map((e) => <ChannelRow key={e.key} entry={e} collapsed={collapsed} onNavigate={onNavigate} />)}
       </div>
+      {!collapsed && footer}
     </div>
   );
 }
 
 /**
  * The rail's live sections: channels you follow, then — on a watch page —
- * what this stream's audience also watches, then what else is live. Never
- * empty, even signed out.
+ * what this stream's audience also watches. Nothing else: what's live for
+ * everyone is the home's job, and the rail doesn't repeat it.
  */
 function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed: boolean; pathname: string; onNavigate: () => void; onLiveCount: (n: number) => void }) {
   const { isAuthenticated } = useAuth();
-  const [top, setTop] = useState<LiveRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [top, setTop] = useState<LiveRow[]>([]);
   const [followed, setFollowed] = useState<FollowedRow[]>([]);
   const [also, setAlso] = useState<LiveRow[]>([]);
-  const now = useNow(true);
+  // Suggestions: how far into the pool the refresh button has turned, and
+  // whether "See all" opened the longer list.
+  const [turn, setTurn] = useState(0);
+  const [more, setMore] = useState(false);
   const watchingId = pathname.startsWith("/stream/") ? pathname.split("/")[2] ?? null : null;
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await apiFetch<{ success: boolean; data: { streams: LiveRow[]; pagination: { total: number } } }>(`/api/streams?live=true&limit=8&sort=viewers`);
+        // The biggest rooms feed the suggestions; the total lights the Live
+        // feed row's dot.
+        const res = await apiFetch<{ success: boolean; data: { streams: LiveRow[]; pagination: { total: number } } }>(`/api/streams?live=true&sort=viewers&limit=30`);
         if (cancelled) return;
         setTop(res.data.streams);
         setTotal(res.data.pagination.total);
@@ -597,11 +720,11 @@ function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed:
   const toEntry = (s: LiveRow): RailEntry => ({
     key: s._id,
     href: `/stream/${s._id}`,
+    handle: s.streamerId?.username || "streamer",
     name: s.streamerId?.displayName || s.streamerId?.username || "Streamer",
     avatar: s.streamerId?.avatar ?? "",
     subtitle: s.title,
     viewers: s.viewers,
-    ...(s.startedAt ? { startedAt: s.startedAt } : {}),
     coHosts: (s.guests ?? [])
       .filter((g) => g.status === "live")
       .map((g) => ({ username: g.username, avatar: g.avatar })),
@@ -613,37 +736,65 @@ function LiveRail({ collapsed, pathname, onNavigate, onLiveCount }: { collapsed:
     .map((c) => ({
       key: c.id,
       href: `/stream/${c.stream!.id}`,
+      handle: c.username,
       name: c.displayName || c.username,
       avatar: c.avatar,
       subtitle: c.stream!.title,
       viewers: c.stream!.viewers,
-      ...(c.stream!.startedAt ? { startedAt: c.stream!.startedAt } : {}),
     }));
 
   const shown = new Set<string>(followedLive.map((e) => e.key));
   if (watchingId) shown.add(watchingId);
   const alsoWatch = (watchingId ? also : []).filter((s) => !shown.has(s._id)).slice(0, 4).map(toEntry);
   alsoWatch.forEach((e) => shown.add(e.key));
+  // Suggested live creators, TikTok's list: the biggest rooms you don't
+  // follow, eight at a time; refresh turns to the next eight, See all
+  // opens the longer list. The icon rail keeps only the channels you follow.
   const followedStreamers = new Set(followed.filter((c) => c.isLive).map((c) => c.id));
-  const recommended = top
-    .filter((s) => !shown.has(s._id) && !followedStreamers.has(String(s.streamerId?._id ?? "")))
-    .slice(0, followedLive.length + alsoWatch.length > 0 ? 3 : 6)
-    .map(toEntry);
+  const pool = top.filter((s) => !shown.has(s._id) && !followedStreamers.has(String(s.streamerId?._id ?? "")));
+  const per = more ? 16 : 8;
+  const start = pool.length > per ? (turn * 8) % pool.length : 0;
+  const suggested = [...pool.slice(start), ...pool.slice(0, start)].slice(0, per).map(toEntry);
 
-  if (followedLive.length + alsoWatch.length + recommended.length === 0) return null;
+  if (followedLive.length + alsoWatch.length + suggested.length === 0) return null;
 
   return (
     <div className="animate-rise mt-1" style={{ animationDelay: "380ms" }}>
-      <RailSection title="Followed channels" live entries={followedLive} now={now} collapsed={collapsed} onNavigate={onNavigate} />
-      <RailSection title="Viewers also watch" entries={alsoWatch} now={now} collapsed={collapsed} onNavigate={onNavigate} />
-      <RailSection
-        title={followedLive.length > 0 || alsoWatch.length > 0 ? "Recommended" : "Live now"}
-        live={followedLive.length === 0 && alsoWatch.length === 0}
-        entries={recommended}
-        now={now}
-        collapsed={collapsed}
-        onNavigate={onNavigate}
-      />
+      <RailSection title="Followed channels" live entries={followedLive} collapsed={collapsed} onNavigate={onNavigate} />
+      <RailSection title="Viewers also watch" entries={alsoWatch} collapsed={collapsed} onNavigate={onNavigate} />
+      {!collapsed && (
+        <RailSection
+          title="Suggested live"
+          entries={suggested}
+          collapsed={false}
+          onNavigate={onNavigate}
+          trailing={
+            pool.length > 8 ? (
+              <button
+                type="button"
+                onClick={() => setTurn((t) => t + 1)}
+                aria-label="Show other creators"
+                title="Show other creators"
+                className="press -my-1 flex size-6 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <ArrowClockwise size={13} weight="bold" />
+              </button>
+            ) : null
+          }
+          footer={
+            pool.length > 8 ? (
+              <button
+                type="button"
+                onClick={() => setMore((m) => !m)}
+                className="mt-1 flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold text-ember-hi transition-colors hover:text-foreground"
+              >
+                <CaretDown size={12} weight="bold" className={cn("transition-transform", more && "rotate-180")} />
+                {more ? "Show less" : "See all"}
+              </button>
+            ) : null
+          }
+        />
+      )}
     </div>
   );
 }

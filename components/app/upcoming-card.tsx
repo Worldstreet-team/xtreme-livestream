@@ -1,8 +1,9 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { useState } from "react";
-import { Clock, BellRinging, Bell, SealCheck } from "@phosphor-icons/react";
+import { Clock, BellRinging, Bell, SealCheck } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatStartsIn, type RowItem } from "@/lib/discovery";
@@ -12,7 +13,6 @@ import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { StreamArt } from "@/components/app/stream-art";
 
-const SIGN_IN_URL = "https://www.worldstreetgold.com/login";
 
 /**
  * A scheduled stream. Nothing here should look watchable now: the art is
@@ -94,11 +94,14 @@ export function RemindButton({
   streamId,
   initial,
   size = "sm",
+  onPicture = false,
   className,
 }: {
   streamId: string;
   initial: boolean;
-  size?: "sm" | "default";
+  size?: "sm" | "default" | "lg";
+  /** Over a picture: the white primary until set, then the object pill. */
+  onPicture?: boolean;
   className?: string;
 }) {
   const { isAuthenticated } = useAuth();
@@ -133,15 +136,19 @@ export function RemindButton({
       aria-pressed={on}
       title={on ? "Reminder set" : "Remind me when this starts"}
       className={cn(
-        "flex shrink-0 items-center justify-center gap-1.5 rounded-sm font-medium transition-colors disabled:opacity-60",
-        size === "sm" ? "h-8 px-2.5 text-xs" : "h-9 px-4 text-sm",
+        "press flex shrink-0 items-center justify-center gap-1.5 rounded-full font-semibold whitespace-nowrap transition-colors disabled:opacity-60",
+        size === "sm" ? "h-8 px-3 text-xs" : size === "lg" ? "h-11 px-5 text-[15px]" : "h-9 px-4 text-sm",
         on
-          ? "bg-primary/15 text-primary"
-          : "bg-white/[0.06] text-foreground hover:bg-white/[0.09]",
+          ? onPicture
+            ? "obj text-white [&>svg]:text-ember-hi"
+            : "bg-ember/15 text-ember-hi"
+          : onPicture
+            ? "bg-white text-[#0b0708] shadow-glow-white hover:bg-white/90"
+            : "bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] hover:bg-control-hover",
         className
       )}
     >
-      {on ? <BellRinging size={13} weight="fill" /> : <Bell size={13} />}
+      {on ? <BellRinging size={size === "lg" ? 16 : 13} weight="fill" /> : <Bell size={size === "lg" ? 16 : 13} weight={onPicture ? "bold" : "regular"} />}
       {on ? "Reminding" : "Remind me"}
     </button>
   );

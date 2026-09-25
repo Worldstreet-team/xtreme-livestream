@@ -5,49 +5,55 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /**
- * The button. One shape (a pill), a few tones, three sizes.
+ * The button. One shape (a pill), a few tones, four sizes — Afterglow
+ * (owner's pick, 2026-09-23).
  *
- *  - primary  the one action on a surface: a lit gradient with a soft glow
- *  - live     red, for going on air and things that are on air now
- *  - glass    everything secondary: frosted, hairline ring, lifts on hover
- *  - soft     tinted glass in a tone (red / amber / green) for states
+ *  - primary  white: the one neutral action on a surface (Ally, Watch)
+ *  - live     Chili, solid: things that are on air, or put you on air
+ *  - heat     the gradient — Go live and gift moments only (the allowlist)
+ *  - ember    Ember, solid, dark ink: energy — claim, join, start a game
+ *  - glass    the quiet control: warm charcoal with a lit top edge
+ *  - soft     a tinted control in a tone, for states
  *  - ghost    text only, for the least important thing in a row
  *
- * Icons go in `icon`; they get the right size for the pill automatically.
+ * Presses spring (scale .94 on the overshoot curve); focus is an ember ring.
+ * Icons go in `icon`; `PILL_ICON` gives the matching glyph size.
  */
 
-export type PillVariant = "primary" | "live" | "glass" | "soft" | "ghost";
-export type PillTone = "neutral" | "red" | "amber" | "green" | "sky";
-export type PillSize = "sm" | "md" | "lg";
+export type PillVariant = "primary" | "live" | "heat" | "ember" | "glass" | "soft" | "ghost";
+export type PillTone = "neutral" | "red" | "ember" | "amber" | "green" | "sky";
+export type PillSize = "sm" | "md" | "lg" | "xl";
 
 const BASE =
-  "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-full font-semibold tracking-[-0.005em] transition-[background-color,box-shadow,transform,color,filter] duration-200 outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-full font-semibold tracking-[-0.005em] transition-[background-color,box-shadow,transform,color,filter] duration-200 [transition-timing-function:var(--ease-spring)] outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.94] disabled:pointer-events-none disabled:opacity-50";
 
 const SIZE: Record<PillSize, string> = {
   sm: "h-8 gap-1.5 px-3 text-xs",
   md: "h-9 gap-2 px-4 text-sm",
   lg: "h-11 gap-2 px-5 text-[15px]",
+  xl: "h-[52px] gap-2 px-6 text-[15.5px]",
 };
-const ICON_ONLY: Record<PillSize, string> = { sm: "size-8 px-0", md: "size-9 px-0", lg: "size-11 px-0" };
-export const PILL_ICON: Record<PillSize, number> = { sm: 14, md: 16, lg: 18 };
+const ICON_ONLY: Record<PillSize, string> = { sm: "size-8 px-0", md: "size-9 px-0", lg: "size-11 px-0", xl: "size-[52px] px-0" };
+export const PILL_ICON: Record<PillSize, number> = { sm: 14, md: 16, lg: 18, xl: 19 };
 
-/**
- * Direction: "Solid mono" (owner's pick, 2026-09-06). Flat fills, no blur:
- * a white primary, charcoal secondaries, opaque tinted states. Only `live`
- * carries the accent, because on air is the one thing that should be red.
- */
+/** A lit top edge — the object language, off the picture. */
+const LIT = "shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]";
+
 const VARIANT: Record<PillVariant, string> = {
-  primary: "bg-white text-neutral-950 shadow-[0_8px_24px_-12px_rgba(255,255,255,0.45)] hover:bg-neutral-100",
-  live: "bg-red-600 text-white shadow-[0_8px_24px_-10px_rgba(239,68,68,0.8)] hover:bg-red-500",
-  glass: "bg-[#26262D] text-foreground/90 hover:bg-[#31313A] hover:text-foreground",
+  primary: "bg-white text-[#0b0708] shadow-glow-white hover:bg-white/90",
+  live: "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)] hover:brightness-110",
+  heat: "bg-heat text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.42),inset_0_-8px_16px_-8px_rgba(120,10,0,0.5),var(--glow-heat)] hover:brightness-110",
+  ember: "bg-ember text-on-ember shadow-glow-ember hover:brightness-105",
+  glass: `bg-control text-foreground/90 ${LIT} hover:bg-control-hover hover:text-foreground`,
   soft: "",
   ghost: "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
 };
 
 const SOFT_TONE: Record<PillTone, string> = {
-  neutral: "bg-[#26262D] text-foreground/90 hover:bg-[#31313A]",
-  red: "bg-[#3A1F1C] text-[#FFB4A8] hover:bg-[#4A2622]",
-  amber: "bg-[#3A2E14] text-[#FFD36B] hover:bg-[#4A3A19]",
+  neutral: `bg-control text-foreground/90 ${LIT} hover:bg-control-hover`,
+  red: "bg-[#3A1719] text-chili-hi hover:bg-[#481C1F]",
+  ember: "bg-[#3A1D10] text-ember-hi hover:bg-[#482414]",
+  amber: "bg-[#3A2C14] text-value hover:bg-[#483719]",
   green: "bg-[#173428] text-[#86EFAC] hover:bg-[#1D4232]",
   sky: "bg-[#14303A] text-[#7DD3FC] hover:bg-[#1A3E4A]",
 };

@@ -8,8 +8,9 @@ import { useSiraVivid } from "./sira-provider"
 /**
  * Vivid's presence on the page, in two forms.
  *
- * Idle: the silk orb alone in the bottom-right corner — no chrome, no icon,
- * just the field. Tap to start.
+ * Idle: the orb lives in the top bar (`VividLauncher`) — an "Ask Vivid"
+ * pill on desktop, the bare orb on phones — so it never floats over the
+ * picture (owner's pick, 2026-09-23: option 3B, in heat). Tap to start.
  *
  * Live: the orb docks into a slim capsule centred at the bottom of the screen —
  * the Codex grammar: one quiet bar that says who is listening and always shows
@@ -48,8 +49,6 @@ const NO_LEVELS = () => new Uint8Array(0)
 export default function VividVoiceControl() {
   const vivid = useSiraVivid()
   const state = vivid?.state ?? "idle"
-  const isConnected = vivid?.isConnected ?? false
-  const startSession = vivid?.startSession
   const endSession = vivid?.endSession ?? NOOP
   const getAudioLevels = vivid?.getAudioLevels ?? NO_LEVELS
 
@@ -63,23 +62,11 @@ export default function VividVoiceControl() {
     return () => clearTimeout(timer)
   }, [state, endSession])
 
-  const start = useCallback(async () => {
-    if (state === "connecting") return
-    if (!isConnected) await startSession?.()
-  }, [state, isConnected, startSession])
-
   return (
     <>
-      {/* Idle: the orb alone, bottom-right. Tap to start. */}
-      {!isLive && (
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2 max-md:bottom-24">
-          <SilkOrb state={state} onClick={start} size="md" getAudioLevels={getAudioLevels} label="Talk to Vivid" />
-        </div>
-      )}
-
       {/* Live: the capsule, centred at the bottom — Vivid is in control. */}
       {isLive && (
-        <div className="fixed inset-x-0 bottom-5 z-50 flex justify-center px-4 max-md:bottom-24">
+        <div className="fixed inset-x-0 bottom-5 z-[45] flex justify-center px-4 max-md:bottom-24">
           <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-card/90 py-1.5 pl-1.5 pr-2 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <SilkOrb state={state} size="xs" getAudioLevels={getAudioLevels} label="Vivid" />
 
@@ -99,6 +86,58 @@ export default function VividVoiceControl() {
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * The way in, docked in the top bar. `pill` is desktop's "Ask Vivid" with a
+ * small orb; `orb` is the phone's bare orb in a 36px slot. While a session
+ * runs it says what Vivid is doing, and a tap ends it.
+ */
+export function VividLauncher({ variant, className = "" }: { variant: "pill" | "orb"; className?: string }) {
+  const vivid = useSiraVivid()
+  const state = vivid?.state ?? "idle"
+  const isConnected = vivid?.isConnected ?? false
+  const startSession = vivid?.startSession
+  const endSession = vivid?.endSession ?? NOOP
+  const getAudioLevels = vivid?.getAudioLevels ?? NO_LEVELS
+  const isLive = state !== "idle" && state !== "error"
+
+  const onClick = useCallback(async () => {
+    // Connecting counts as live, so a second tap while it dials ends it.
+    if (isLive) return endSession()
+    if (!isConnected) await startSession?.()
+  }, [isLive, endSession, isConnected, startSession])
+
+  if (!vivid) return null
+  const label = isLive ? "End Vivid session" : "Talk to Vivid"
+
+  if (variant === "orb") {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        title={label}
+        className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full shadow-[0_0_20px_-6px_rgba(248,88,16,0.8)] ${className}`}
+      >
+        <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />
+      </button>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`press flex h-10 shrink-0 items-center gap-2 rounded-full bg-control pr-4 pl-1 text-[13.5px] font-semibold whitespace-nowrap text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-colors hover:bg-control-hover ${className}`}
+    >
+      <span className="relative flex size-8 items-center justify-center">
+        <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />
+      </span>
+      <span aria-live="polite">{isLive ? STATE_LABELS[state] || "Vivid" : "Ask Vivid"}</span>
+    </button>
   )
 }
 

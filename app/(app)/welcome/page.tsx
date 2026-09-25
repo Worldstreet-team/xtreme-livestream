@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, ArrowRight, SealCheck, Eye } from "@phosphor-icons/react";
+import { Check, ArrowRight, SealCheck, Eye } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CATEGORY_GROUPS, POPULAR_CATEGORIES, formatNumber, type Category } from "@/lib/categories";
@@ -362,7 +362,7 @@ export default function WelcomePage() {
       </div>
 
       {/* Action bar, pinned. */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-[oklch(0.12_0.005_285)]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-sidebar">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-6 py-3.5 md:px-10">
           <div className="flex items-center gap-4">
             {step === 2 && (

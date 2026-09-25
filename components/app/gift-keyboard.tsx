@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { X, PaperPlaneRight, Wallet } from "@phosphor-icons/react";
+import { X, PaperPlaneRight, Wallet } from "@/components/icons";
 import { GIFT_CATALOG, GIFT_MAX_MINOR, GIFT_MIN_MINOR, centsToDollars, type GiftDef } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
 import { GiftArt } from "@/components/app/gift-art";
+import { GiftToken } from "@/components/xtream/gift-token";
 import { usePhone } from "@/components/app/shelf";
 
 /**
@@ -73,8 +74,8 @@ export function GiftKeyboard({
     <div
       onAnimationEnd={finish}
       className={cn(
-        "flex flex-col bg-[#141416] text-foreground",
-        phone ? "rounded-t-[18px] pb-[env(safe-area-inset-bottom)]" : "rounded-t-[14px]",
+        "sheet-obj relative flex flex-col text-foreground",
+        phone ? "rounded-t-overlay pb-[env(safe-area-inset-bottom)]" : "rounded-t-overlay",
         closing ? "animate-sheet-down" : "animate-sheet-up"
       )}
       role="dialog"
@@ -84,11 +85,11 @@ export function GiftKeyboard({
       <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         {phone && <span className="absolute top-1.5 left-1/2 h-1 w-9 -translate-x-1/2 rounded-full bg-white/20" />}
         <span className="text-[13px] font-semibold">Send a gift</span>
-        <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
+        <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-value tabular-nums">
           <Wallet size={12} weight="fill" />
           {balanceLoading && balanceMinor === null ? "Checking…" : balanceMinor !== null ? `${centsToDollars(balanceMinor)} available` : "Dollar wallet"}
         </span>
-        <button type="button" onClick={close} aria-label="Close" className="flex size-7 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={close} aria-label="Close" className="press flex size-8 items-center justify-center rounded-full bg-control text-muted-foreground hover:text-foreground">
           <X size={13} weight="bold" />
         </button>
       </div>
@@ -96,39 +97,28 @@ export function GiftKeyboard({
       {/* The stickers */}
       {/* Seventeen faces now — the grid scrolls under a cap so the Send
           row stays on screen on a short phone. */}
-      <div className={cn("grid grid-cols-4 gap-1.5 overflow-y-auto px-3 pb-2 scrollbar-none", phone ? "max-h-[50dvh]" : "max-h-[46vh]")}>
+      <div className={cn("grid grid-cols-4 gap-2 overflow-y-auto px-3 pt-2 pb-3 scrollbar-none", phone ? "max-h-[50dvh]" : "max-h-[46vh]")}>
         {GIFT_CATALOG.map((g) => {
           const active = picked === g.id;
-          const tooRich = balanceMinor !== null && g.usdMinor > balanceMinor;
           return (
-            <button
+            <GiftToken
               key={g.id}
-              type="button"
+              gift={g}
+              size={phone ? "md" : "sm"}
+              state={active ? (busy ? "sending" : "picked") : "rest"}
+              dimmed={balanceMinor !== null && g.usdMinor > balanceMinor}
+              title={`${g.name} · ${centsToDollars(g.usdMinor)}`}
               onClick={() => {
                 setPicked(active ? null : g.id);
                 setCustom("");
               }}
-              className={cn(
-                "group relative flex flex-col items-center gap-1 rounded-[12px] px-1 pt-2.5 pb-2 transition-[background-color,transform] duration-150 active:scale-95",
-                active ? "bg-amber-400/[0.16] ring-2 ring-amber-300/70" : "hover:bg-white/[0.06]",
-                tooRich && !active && "opacity-55"
-              )}
-              aria-pressed={active}
-              title={`${g.name} · ${centsToDollars(g.usdMinor)}`}
-            >
-              <GiftArt art={g.art} emoji={g.emoji} size={phone ? 48 : 44} className={cn("transition-transform duration-200", active ? "scale-110" : "group-hover:scale-105")} />
-              <span className="text-[11px] font-medium text-foreground/85">{g.name}</span>
-              {/* The price tag — a small solid pill hanging under the face. */}
-              <span className={cn("rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums", active ? "bg-amber-300 text-neutral-950" : "bg-white/[0.1] text-foreground/80")}>
-                {centsToDollars(g.usdMinor)}
-              </span>
-            </button>
+            />
           );
         })}
       </div>
 
       {/* Custom amount + send */}
-      <div className="flex items-center gap-2 border-t border-white/[0.06] px-3 py-2.5">
+      <div className="flex items-center gap-2 border-t border-hairline px-3 py-3">
         <label className="relative w-[7.5rem] shrink-0">
           <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-xs text-muted-foreground">$</span>
           <input
@@ -144,7 +134,7 @@ export function GiftKeyboard({
               setPicked(null);
             }}
             aria-label="Custom amount in dollars"
-            className="h-10 w-full rounded-full bg-white/[0.06] pr-3 pl-6 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+            className="h-11 w-full rounded-full bg-white/[0.06] pr-3 pl-6 text-sm text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09] focus:shadow-[inset_0_0_0_1.5px_var(--ember)]"
           />
         </label>
         <button
@@ -152,8 +142,8 @@ export function GiftKeyboard({
           onClick={() => valid && !exceeds && onSend({ gift, usdMinor: amount! })}
           disabled={busy || !valid || exceeds}
           className={cn(
-            "flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-            "bg-amber-300 text-neutral-950 hover:bg-amber-200"
+            "press flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white transition-[filter,opacity] disabled:cursor-not-allowed disabled:opacity-50",
+            "bg-heat shadow-[inset_0_1px_0_rgba(255,255,255,0.42),var(--glow-heat)] hover:brightness-110"
           )}
         >
           {busy ? (
@@ -170,7 +160,7 @@ export function GiftKeyboard({
         </button>
       </div>
       {(exceeds || error || (custom.trim() && !valid)) && (
-        <p className={cn("px-4 pb-3 text-[11.5px]", error ? "text-red-400" : "text-amber-300/90")}>
+        <p className={cn("px-4 pb-3 text-[11.5px]", error ? "text-chili-hi" : "text-value")}>
           {error ?? (exceeds ? `That's more than your ${centsToDollars(balanceMinor!)} balance — top up your dollar wallet to send it.` : `Gifts run from ${centsToDollars(GIFT_MIN_MINOR)} to ${centsToDollars(GIFT_MAX_MINOR)}.`)}
         </p>
       )}

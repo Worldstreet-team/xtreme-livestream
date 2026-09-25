@@ -11,7 +11,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import { CaretDownIcon, XIcon, CheckIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, XIcon, CheckIcon } from "@/components/icons"
 
 const Combobox = ComboboxPrimitive.Root
 

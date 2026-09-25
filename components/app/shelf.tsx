@@ -1,50 +1,52 @@
 "use client";
 
-import Link from "next/link";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, CaretDown, CaretUp } from "@phosphor-icons/react";
+import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { CaretLeft, CaretRight } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 /**
- * A shelf: one row, one rule, one title.
+ * A shelf: one row, one rule, one title — and it slides.
  *
- * Desktop lays a row out the way Kick and Twitch do: a grid that fills the
- * full width with as many cards as fit — five across on a big display, four
- * on a laptop — and then stops. Nothing peeks off the right edge; "Show
- * more" opens the next row in place. Columns are computed from the measured
- * width rather than breakpoints, so a row inside a narrower panel still
- * fills exactly.
+ * Every width is a carousel now (owner, 2026-09-23: "carousels instead of
+ * view all — people will want to slide and swipe through"). Desktop shows
+ * as many whole cards as fit, measured rather than set by breakpoint, and
+ * two round arrows in the header page through the rest a screenful at a
+ * time; a trackpad swipe works too. Phones swipe, the way Twitch's app
+ * does: stream cards show one and a sliver of the next, category art shows
+ * two and a half. Snap points keep a card whole after every flick.
  *
- * Phones do the opposite, the way Twitch's app does: the row slides. Stream
- * cards show one and a sliver of the next, category art shows two and a
- * half, and the edge of the next card is the invitation to swipe. Snap
- * points keep a card whole after every flick.
+ * `rows={2}` makes the desktop row a two-deep grid that pages as a block —
+ * eight cards to a screen on a laptop, in reading order — while phones
+ * still get the single sliding row. Cards sit close (12px) so a screen
+ * reads as one feed, not a set of separate tiles.
  */
 
 export type ShelfSize = "large" | "standard" | "compact";
 
-/** Narrowest a card may be before the row drops a column. */
+/** Narrowest a card may be before the row fits one fewer. */
 const MIN_CARD: Record<ShelfSize, number> = {
-  large: 340,
-  standard: 288,
-  compact: 236,
+  large: 360,
+  standard: 300,
+  compact: 132,
 };
 
 /** How many cards show at once in the phone's sliding row. */
 const PHONE_VISIBLE: Record<ShelfSize, number> = {
   large: 1.2,
   standard: 1.2,
-  compact: 2.5,
+  compact: 2.6,
 };
 
-const GAP = 16;
+const GAP = 12;
+/** Space between the two rows of a two-row shelf — room for the text under a card. */
+const ROW_GAP = 20;
 const PHONE_GAP = 12;
 const PHONE = "(max-width: 767px)";
 
 function useColumns(size: ShelfSize) {
   const ref = useRef<HTMLDivElement>(null);
   // Four is the right guess for the first server paint on a laptop.
-  const [columns, setColumns] = useState(4);
+  const [columns, setColumns] = useState(size === "compact" ? 7 : 4);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -81,12 +83,11 @@ export function Shelf({
   id,
   title,
   reason,
-  href,
   size = "standard",
   fullBleed = false,
   accent,
-  /** Rows shown before "Show more". */
   rows = 1,
+  peek = false,
   children,
   className,
 }: {
@@ -94,28 +95,69 @@ export function Shelf({
   title: string;
   /** The evidence line — why this row exists for this viewer. */
   reason?: string;
-  /** "See all" destination. */
+  /** Kept for callers; the row slides now rather than linking out. */
   href?: string;
   size?: ShelfSize;
   /** Break out of the content column to the viewport edge. */
   fullBleed?: boolean;
   /** A small mark beside the title (a live dot, a rising arrow). */
   accent?: ReactNode;
-  rows?: number;
+  /** Desktop rows per page. Phones always slide one row. */
+  rows?: 1 | 2;
+  /**
+   * Show a half card past the last whole one on desktop, cut by the edge,
+   * so the row reads as something to slide (owner, 2026-09-24, Battles:
+   * "3 and 1/2 so it looks a bit cutout"). Arrows still page whole cards.
+   */
+  peek?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   const { ref, columns } = useColumns(size);
   const phone = usePhone();
-  const [openRows, setOpenRows] = useState(rows);
   const items = Children.toArray(children);
-  const visible = phone ? items : items.slice(0, columns * openRows);
-  const hasMore = !phone && items.length > visible.length;
-  const expanded = !phone && openRows > rows;
+  const [edge, setEdge] = useState({ start: true, end: items.length <= columns });
+
+  // Which arrows make sense: none at the start, none at the end.
+  const readEdges = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.scrollLeft <= 4;
+    const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4;
+    setEdge((e) => (e.start === start && e.end === end ? e : { start, end }));
+  }, [ref]);
+  useEffect(() => {
+    readEdges();
+  }, [readEdges, columns, items.length]);
+
+  const page = (dir: 1 | -1) => {
+    const el = ref.current;
+    if (!el) return;
+    const from = el.scrollLeft;
+    // A peeking row pages by its whole cards, so the half one comes round to the front.
+    const card = (el.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
+    const step = peek && card ? columns * (card + GAP) : el.clientWidth + GAP;
+    const to = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, from + dir * step));
+    el.scrollTo({ left: to, behavior: "smooth" });
+    // Smooth scrolling rides animation frames; where none run (a background
+    // tab, some embedded views) it never starts, so jump instead.
+    setTimeout(() => {
+      if (Math.abs(el.scrollLeft - from) < 2) el.scrollTo({ left: to, behavior: "instant" });
+    }, 350);
+  };
 
   // On phones every shelf bleeds to the screen edge so the sliding row can
   // run under the page padding and the next card peeks in from the bezel.
   const bleed = fullBleed || phone;
+  const gap = phone ? PHONE_GAP : GAP;
+  const across = phone ? PHONE_VISIBLE[size] : peek ? columns + 0.5 : columns;
+  const whole = Math.ceil(across) - 1;
+  const width = `calc((100% - ${gap * whole}px) / ${across})`;
+  const arrows = !phone && !(edge.start && edge.end);
+  // Two rows only when there's more than one row's worth to show.
+  const deep = !phone && rows === 2 && items.length > columns;
+  const perPage = columns * 2;
+  const pages = deep ? Array.from({ length: Math.ceil(items.length / perPage) }, (_, p) => items.slice(p * perPage, (p + 1) * perPage)) : [];
 
   return (
     <section
@@ -127,65 +169,55 @@ export function Shelf({
         <div className="min-w-0">
           <h2
             id={`shelf-${id}`}
-            className="flex items-center gap-2.5 text-[17px] font-semibold tracking-tight text-foreground md:text-[19px]"
+            className="flex items-center gap-2.5 font-wide text-[17px] font-bold tracking-[-0.02em] text-foreground md:text-[19px]"
           >
             {accent}
             <span className="truncate">{title}</span>
           </h2>
-          {reason && (
-            <p className="mt-0.5 truncate text-[13px] text-muted-foreground/70">{reason}</p>
-          )}
+          {reason && <p className="mt-0.5 truncate text-[13px] text-muted-foreground/70">{reason}</p>}
         </div>
-        {href && (
-          <Link
-            href={href}
-            className="flex shrink-0 items-center gap-1 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            View all
-            <ArrowRight size={13} />
-          </Link>
+        {arrows && (
+          <div className="flex shrink-0 gap-1.5">
+            {([-1, 1] as const).map((dir) => (
+              <button
+                key={dir}
+                type="button"
+                onClick={() => page(dir)}
+                disabled={dir === -1 ? edge.start : edge.end}
+                aria-label={dir === -1 ? `Back through ${title}` : `More ${title}`}
+                aria-controls={`shelf-row-${id}`}
+                className="press flex size-9 items-center justify-center rounded-full bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-[background-color,opacity] hover:bg-control-hover disabled:pointer-events-none disabled:opacity-30"
+              >
+                {dir === -1 ? <CaretLeft size={16} weight="bold" /> : <CaretRight size={16} weight="bold" />}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      {phone ? (
-        <div
-          ref={ref}
-          className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 scrollbar-none"
-          style={{ scrollPaddingLeft: 16 }}
-        >
-          {visible.map((child, i) => (
-            <div
-              key={i}
-              className="shrink-0 snap-start"
-              style={{ width: `calc((100% - ${PHONE_GAP * Math.ceil(PHONE_VISIBLE[size] - 1)}px) / ${PHONE_VISIBLE[size]})` }}
-            >
-              {child}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          ref={ref}
-          className={cn("grid gap-x-4 gap-y-6", bleed && "px-4 md:px-8")}
-          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-        >
-          {visible}
-        </div>
-      )}
-
-      {(hasMore || expanded) && (
-        <div className="relative mt-5 flex items-center justify-center">
-          <div className="absolute inset-x-0 top-1/2 h-px bg-white/[0.06]" />
-          <button
-            type="button"
-            onClick={() => setOpenRows((r) => (hasMore ? r + 1 : rows))}
-            className="relative flex items-center gap-1.5 bg-background px-4 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {hasMore ? "Show more" : "Show less"}
-            {hasMore ? <CaretDown size={13} weight="bold" /> : <CaretUp size={13} weight="bold" />}
-          </button>
-        </div>
-      )}
+      <div
+        ref={ref}
+        id={`shelf-row-${id}`}
+        onScroll={readEdges}
+        className={cn("flex snap-x snap-mandatory overflow-x-auto pb-1 scrollbar-none", bleed && "px-4 md:px-8")}
+        style={{ gap, scrollPaddingLeft: bleed ? 16 : 0 }}
+      >
+        {deep
+          ? pages.map((page, p) => (
+              <div
+                key={p}
+                className="grid w-full shrink-0 snap-start"
+                style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, columnGap: GAP, rowGap: ROW_GAP }}
+              >
+                {page}
+              </div>
+            ))
+          : items.map((child, i) => (
+              <div key={i} className="shrink-0 snap-start" style={{ width }}>
+                {child}
+              </div>
+            ))}
+      </div>
     </section>
   );
 }
@@ -194,8 +226,8 @@ export function Shelf({
 export function LiveDot({ className }: { className?: string }) {
   return (
     <span className={cn("relative flex size-1.5 shrink-0", className)}>
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-red-500" />
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-75" />
+      <span className="relative inline-flex size-1.5 rounded-full bg-chili" />
     </span>
   );
 }

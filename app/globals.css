@@ -1,29 +1,23 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./design-system.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* ---- The chili's colours -------------------------------------------
-     The mark sets the palette (owner, 2026-09-22: "the logo should set the
-     color design feel"). Sampled from public/images/xtream-logo.png: the
-     body is a hot crimson (#F0081F) shading to #B8101C, the highlights run
-     orange (#F85810 → #F8A008), the stem is #4E9A47. Tailwind's red ramp
-     is repainted onto that crimson so every existing `bg-red-600` and
-     `text-red-400` lands on the chili, and the named tokens below are for
-     new work that means the brand rather than "a red". */
+  /* ---- Reds are the chili (owner, 2026-09-22: "the logo should set the
+     color design feel"). Tailwind's red ramp is repainted onto the chili
+     roles in design-system.css, so every existing `bg-red-600` and
+     `text-red-400` lands on Afterglow's Chili without touching the file.
+     Chili, Ember, Value and the surfaces are defined there, once. */
   --color-red-200: oklch(0.86 0.08 24);
   --color-red-300: oklch(0.77 0.15 26);
-  --color-red-400: oklch(0.68 0.22 28);
-  --color-red-500: oklch(0.61 0.24 26);
-  --color-red-600: oklch(0.55 0.23 26);
-  --color-red-700: oklch(0.48 0.2 26);
-  --color-chili: oklch(0.61 0.24 26);
-  --color-chili-deep: oklch(0.48 0.2 26);
-  --color-chili-hot: oklch(0.68 0.22 28);
-  --color-ember: oklch(0.7 0.19 48);
-  --color-stem: oklch(0.62 0.14 142);
+  --color-red-400: var(--chili-hi);
+  --color-red-500: var(--brand-red);
+  --color-red-600: var(--chili);
+  --color-red-700: var(--chili-lo);
+  --color-stem: var(--brand-green);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
@@ -58,85 +52,86 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  /* Owner's pick (2026-09-06): "Soft 10px" corners on cards, panels and
-     thumbnails. `rounded-sm` is the app's card radius, so it takes the base
-     radius (10px) rather than base minus 4. Pills stay fully round. */
+  /* Tighter corners (owner, 2026-09-23: "reduce the radius"): the base is
+     10px again. `rounded-sm` is the app's card and thumbnail radius, so it
+     takes the base; xl/2xl/3xl step up in small increments for panels,
+     media heroes and sheets. Buttons, chips and badges stay fully round. */
   --radius-sm: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 4px);
+  --radius-3xl: calc(var(--radius) + 6px);
+  --radius-4xl: calc(var(--radius) + 8px);
 }
 
 :root {
-  --background: oklch(0.1 0.005 285);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.15 0.005 285);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.15 0.005 285);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.6 0.24 26);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.2 0.005 285);
-  --secondary-foreground: oklch(0.95 0 0);
-  --muted: oklch(0.2 0.005 285);
-  --muted-foreground: oklch(0.65 0.01 285);
-  --accent: oklch(0.48 0.2 26);
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6 0.24 26);
-  --chart-1: oklch(0.6 0.24 26);
-  --chart-2: oklch(0.7 0.19 48);
-  --chart-3: oklch(0.48 0.2 26);
-  --chart-4: oklch(0.62 0.14 142);
-  --chart-5: oklch(0.77 0.15 26);
+  --background: var(--ground);
+  --foreground: #f6f1ee;
+  --card: var(--surface);
+  --card-foreground: #f6f1ee;
+  --popover: var(--surface-raised);
+  --popover-foreground: #f6f1ee;
+  --primary: var(--chili);
+  --primary-foreground: #ffffff;
+  --secondary: var(--control);
+  --secondary-foreground: #f6f1ee;
+  --muted: var(--surface-raised);
+  --muted-foreground: #a89f9a;
+  --accent: var(--surface-hover);
+  --accent-foreground: #f6f1ee;
+  --destructive: #ff939d;
+  --border: var(--hairline-color);
+  --input: rgb(255 255 255 / 0.07);
+  --ring: var(--ember);
+  --chart-1: var(--brand-red);
+  --chart-2: var(--ember);
+  --chart-3: var(--brand-deep);
+  --chart-4: var(--brand-green);
+  --chart-5: var(--live);
   --radius: 0.625rem;
-  --sidebar: oklch(0.12 0.005 285);
-  --sidebar-foreground: oklch(0.95 0 0);
-  --sidebar-primary: oklch(0.6 0.24 26);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.2 0.005 285);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.6 0.24 26);
+  --sidebar: #110c0d;
+  --sidebar-foreground: #f6f1ee;
+  --sidebar-primary: var(--chili);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: #f6f1ee;
+  --sidebar-border: var(--hairline-color);
+  --sidebar-ring: var(--ember);
 }
 
 .dark {
-  --background: oklch(0.1 0.005 285);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.15 0.005 285);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.15 0.005 285);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.6 0.24 26);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.2 0.005 285);
-  --secondary-foreground: oklch(0.95 0 0);
-  --muted: oklch(0.2 0.005 285);
-  --muted-foreground: oklch(0.65 0.01 285);
-  --accent: oklch(0.48 0.2 26);
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6 0.24 26);
-  --chart-1: oklch(0.6 0.24 26);
-  --chart-2: oklch(0.7 0.19 48);
-  --chart-3: oklch(0.48 0.2 26);
-  --chart-4: oklch(0.62 0.14 142);
-  --chart-5: oklch(0.77 0.15 26);
-  --sidebar: oklch(0.12 0.005 285);
-  --sidebar-foreground: oklch(0.95 0 0);
-  --sidebar-primary: oklch(0.6 0.24 26);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.2 0.005 285);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.6 0.24 26);
+  --background: var(--ground);
+  --foreground: #f6f1ee;
+  --card: var(--surface);
+  --card-foreground: #f6f1ee;
+  --popover: var(--surface-raised);
+  --popover-foreground: #f6f1ee;
+  --primary: var(--chili);
+  --primary-foreground: #ffffff;
+  --secondary: var(--control);
+  --secondary-foreground: #f6f1ee;
+  --muted: var(--surface-raised);
+  --muted-foreground: #a89f9a;
+  --accent: var(--surface-hover);
+  --accent-foreground: #f6f1ee;
+  --destructive: #ff939d;
+  --border: var(--hairline-color);
+  --input: rgb(255 255 255 / 0.07);
+  --ring: var(--ember);
+  --chart-1: var(--brand-red);
+  --chart-2: var(--ember);
+  --chart-3: var(--brand-deep);
+  --chart-4: var(--brand-green);
+  --chart-5: var(--live);
+  --sidebar: #110c0d;
+  --sidebar-foreground: #f6f1ee;
+  --sidebar-primary: var(--chili);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: #f6f1ee;
+  --sidebar-border: var(--hairline-color);
+  --sidebar-ring: var(--ember);
 }
 
 @layer base {
@@ -506,9 +501,15 @@
    faint glow so the state is felt, not just seen. */
 .obj-on {
   background: #fff;
-  color: #0b0b0d;
+  color: #0b0708;
   box-shadow: 0 6px 18px -6px rgba(255, 255, 255, 0.45);
 }
+/* Live in the studio, the console owns the screen: the app's rail and top
+   bar step aside, and the page drops the rail's margin. The studio sets the
+   attribute while a broadcast is up (phones are chromeless already). */
+html[data-studio-live] [data-app-chrome] { display: none !important; }
+html[data-studio-live] [data-app-main] { margin-left: 0 !important; }
+
 /* Tactility: everything pressable gives a little under the thumb. */
 .press {
   transition:
@@ -526,7 +527,7 @@
 }
 /* The drawer: a lit top edge, a deep soft shadow, no hairline at the sides. */
 .sheet-obj {
-  background: #141417;
+  background: var(--surface);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 -24px 64px rgba(0, 0, 0, 0.65);
@@ -537,16 +538,15 @@
    the one place the owner asked for blur (2026-09-22): "the same
    background that the search is using in A but with glassmorphism". The
    drawer is the studio sheet turned on its side: lit edge, deep shadow. */
+/* The page's own ground, frosted, with a hairline on top (owner, 2026-09-24). */
 .tabbar-glass {
-  background: rgba(38, 38, 45, 0.72);
+  background: rgb(11 7 8 / 0.78);
   -webkit-backdrop-filter: blur(22px) saturate(1.4);
   backdrop-filter: blur(22px) saturate(1.4);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 -12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 236, 230, 0.1);
 }
 .drawer-obj {
-  background: #141417;
+  background: var(--surface);
   box-shadow:
     inset -1px 0 0 rgba(255, 255, 255, 0.07),
     24px 0 64px rgba(0, 0, 0, 0.6);

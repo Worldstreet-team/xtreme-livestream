@@ -10,7 +10,7 @@ import {
   GameController,
   MonitorPlay,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 
 /**
  * The rest of WorldStreet — every sibling product this app points at.
@@ -26,21 +26,23 @@ export interface EcosystemApp {
   title: string;
   /** One line on what it is — the rail has room for it under the name. */
   description: string;
+  /** The launcher tile's label, one short word. */
+  short: string;
   href: string;
   icon: Icon;
 }
 
 export const ECOSYSTEM: EcosystemApp[] = [
-  { title: "WorldSpace", description: "The social feed", href: "https://social.worldstreetgold.com", icon: Users },
-  { title: "Dashboard", description: "Wallet and portfolio", href: "https://dashboard.worldstreetgold.com", icon: Wallet },
-  { title: "Forex Markets", description: "Trade currency pairs", href: "https://dashboard.worldstreetgold.com/trade", icon: ChartLineUp },
-  { title: "Cryptocurrencies", description: "Buy, sell and hold crypto", href: "https://dashboard.worldstreetgold.com/trade", icon: CurrencyBtc },
-  { title: "Vivid AI", description: "The assistant across the ecosystem", href: "https://worldstreetgold.com/vivid", icon: Sparkle },
-  { title: "Academy", description: "Courses and market education", href: "https://academy.worldstreetgold.com", icon: GraduationCap },
-  { title: "e-Commerce", description: "The WorldStreet marketplace", href: "https://shop.worldstreetgold.com", icon: Storefront },
-  { title: "Prediction", description: "Markets on what happens next", href: "https://prediction.worldstreetgold.com", icon: Target },
-  { title: "Arcade", description: "Play and compete", href: "https://arcade.worldstreetgold.com", icon: GameController },
-  { title: "Vision", description: "Watch and discover", href: "https://vision.worldstreetgold.com", icon: MonitorPlay },
+  { title: "WorldSpace", short: "WorldSpace", description: "The social feed", href: "https://social.worldstreetgold.com", icon: Users },
+  { title: "Dashboard", short: "Dashboard", description: "Wallet and portfolio", href: "https://dashboard.worldstreetgold.com", icon: Wallet },
+  { title: "Forex Markets", short: "Forex", description: "Trade currency pairs", href: "https://dashboard.worldstreetgold.com/trade", icon: ChartLineUp },
+  { title: "Cryptocurrencies", short: "Crypto", description: "Buy, sell and hold crypto", href: "https://dashboard.worldstreetgold.com/trade", icon: CurrencyBtc },
+  { title: "Vivid AI", short: "Vivid", description: "The assistant across the ecosystem", href: "https://worldstreetgold.com/vivid", icon: Sparkle },
+  { title: "Academy", short: "Academy", description: "Courses and market education", href: "https://academy.worldstreetgold.com", icon: GraduationCap },
+  { title: "e-Commerce", short: "Shop", description: "The WorldStreet marketplace", href: "https://shop.worldstreetgold.com", icon: Storefront },
+  { title: "Prediction", short: "Predict", description: "Markets on what happens next", href: "https://prediction.worldstreetgold.com", icon: Target },
+  { title: "Arcade", short: "Arcade", description: "Play and compete", href: "https://arcade.worldstreetgold.com", icon: GameController },
+  { title: "Vision", short: "Vision", description: "Watch and discover", href: "https://vision.worldstreetgold.com", icon: MonitorPlay },
 ];
 
 /**

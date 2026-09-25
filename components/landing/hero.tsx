@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Lightning, Play } from "@phosphor-icons/react/dist/ssr";
+import { Lightning, Play } from "@/components/icons";
 
 /**
  * The landing hero.

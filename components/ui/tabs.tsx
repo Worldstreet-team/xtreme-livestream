@@ -4,9 +4,11 @@ import type { ComponentType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Tabs as a row of pills in a frosted track — the active one lifted, the
- * rest quiet. Counts ride along as tiny pills of their own. One component
- * for every tab strip in the app, so they all move together.
+ * Plain tabs (owner, 2026-09-23): words on a hairline, no pills, no track.
+ * The tab you're on is bright and bold with a short Ember bar under it —
+ * the same "you are here" as the rail's dot; the rest sit faint. Counts
+ * ride along as small numbers. One component for every tab strip in the
+ * app, so they all move together. (The name stays PillTabs for callers.)
  */
 
 export interface PillTab<T extends string> {
@@ -37,9 +39,7 @@ export function PillTabs<T extends string>({
       role="tablist"
       aria-label={label}
       className={cn(
-        // Clean: a background tone for the track, a lighter one for the
-        // active pill, and nothing drawn as an edge.
-        "inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white/[0.05] p-1 scrollbar-none",
+        "inline-flex max-w-full gap-6 overflow-x-auto shadow-[inset_0_-1px_0_rgba(255,236,230,0.08)] scrollbar-none",
         className
       )}
     >
@@ -54,15 +54,15 @@ export function PillTabs<T extends string>({
             aria-selected={active}
             onClick={() => onChange(t.id)}
             className={cn(
-              "flex shrink-0 items-center whitespace-nowrap rounded-full font-medium transition-[background-color,color,box-shadow] duration-200 outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-              // Phones set every strip small and drop the glyphs, so three
-              // tabs fit a 375px screen instead of cropping mid-word.
-              size === "sm" ? "h-8 gap-1.5 px-3.5 text-[13px]" : "h-8 gap-2 px-3.5 text-[13px] md:h-9 md:px-4 md:text-sm",
-              active
-                ? "bg-white/[0.12] text-foreground"
-                : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+              "relative flex shrink-0 items-center whitespace-nowrap transition-colors duration-200 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ember",
+              // Phones drop the glyphs, so three tabs fit a 375px screen.
+              size === "sm" ? "h-9 gap-1.5 text-[13px]" : "h-10 gap-2 text-[14px] md:text-[15px]",
+              active ? "font-bold text-foreground" : "font-medium text-foreground/50 hover:text-foreground/85"
             )}
           >
+            {active && (
+              <span aria-hidden className="absolute inset-x-0 -bottom-px mx-auto h-[2px] w-5 rounded-full bg-ember shadow-glow-ember motion-safe:animate-[xt-pop_.3s_var(--ease-spring)_both]" />
+            )}
             {Icon && (
               <span className="hidden md:inline-flex">
                 <Icon size={size === "sm" ? 14 : 16} weight={active ? "fill" : "regular"} />
@@ -72,8 +72,8 @@ export function PillTabs<T extends string>({
             {t.count ? (
               <span
                 className={cn(
-                  "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 text-[0.65rem] font-semibold tabular-nums",
-                  active ? "bg-white/[0.14] text-foreground" : "bg-white/[0.07] text-muted-foreground"
+                  "text-[0.75rem] font-semibold tabular-nums",
+                  active ? "text-ember-hi" : "text-muted-foreground/70"
                 )}
               >
                 {t.count}

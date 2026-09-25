@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, BellRinging, Broadcast } from "@phosphor-icons/react";
+import { Bell, BellRinging, Broadcast } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -123,7 +123,7 @@ export function NotificationsBell({
         <span className="relative shrink-0">
           <Bell size={22} weight={open ? "fill" : "duotone"} />
           {unread > 0 && (
-            <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[0.55rem] font-bold text-primary-foreground ring-2 ring-[oklch(0.12_0.005_285)] tabular-nums">
+            <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[0.55rem] font-bold text-primary-foreground ring-2 ring-sidebar tabular-nums">
               {unread > 9 ? "9+" : unread}
             </span>
           )}

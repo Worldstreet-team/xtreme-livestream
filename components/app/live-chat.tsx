@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   PaperPlaneRight,
@@ -17,7 +18,7 @@ import {
   Trash,
   UsersThree,
   X,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -60,6 +61,74 @@ interface ChatMsg {
   tipCurrency?: string;
   emoji?: string;
   timestamp: string;
+}
+
+/** A drop: the room sweep paying one viewer points, written into chat. */
+function isDrop(msg: ChatMsg) {
+  return msg.type === "tip" && msg.tipCurrency === "PTS" && msg.content === "caught a drop";
+}
+
+type ChatRow = { kind: "msg"; msg: ChatMsg } | { kind: "drops"; id: string; catches: ChatMsg[] };
+
+/**
+ * Back-to-back drops fold into one line. A quiet room only hears the sweep,
+ * so without this its history is a wall of "+50 pts" rows (owner's
+ * screenshot, 2026-09-24). A run keeps its first row's id as its key, so the
+ * line grows in place instead of remounting.
+ */
+function groupDrops(list: ChatMsg[]): ChatRow[] {
+  const rows: ChatRow[] = [];
+  for (const msg of list) {
+    const last = rows[rows.length - 1];
+    if (isDrop(msg) && last) {
+      if (last.kind === "drops") {
+        last.catches.push(msg);
+        continue;
+      }
+      if (isDrop(last.msg)) {
+        rows[rows.length - 1] = { kind: "drops", id: last.msg.id, catches: [last.msg, msg] };
+        continue;
+      }
+    }
+    rows.push({ kind: "msg", msg });
+  }
+  return rows;
+}
+
+/** A run of drops as one line: the faces, who caught them, the points. */
+function DropRun({ catches, overlay }: { catches: ChatMsg[]; overlay: boolean }) {
+  // Newest first, each person once.
+  const people: ChatMsg[] = [];
+  for (let i = catches.length - 1; i >= 0; i--) {
+    if (!people.some((p) => p.username === catches[i].username)) people.push(catches[i]);
+  }
+  const others = people.length - 1;
+  const points = catches.reduce((n, c) => n + (Number(c.tipAmount) || 0), 0);
+  return (
+    <div
+      className={cn(
+        "relative flex items-center gap-2 overflow-hidden rounded-[10px] py-1.5 pr-1.5 pl-2",
+        overlay ? "bg-ember/[0.2]" : "my-1 bg-ember/[0.12]"
+      )}
+    >
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/[0.07] to-transparent" />
+      <span className="relative flex shrink-0 -space-x-1.5">
+        {people.slice(0, 3).map((p) => (
+          <UserAvatar key={p.username} src={p.avatar} name={p.username} size={20} className="size-5 ring-2 ring-[#241308]" />
+        ))}
+      </span>
+      <span className="relative min-w-0 flex-1 text-xs leading-tight">
+        <span className="block truncate">
+          <span className="font-semibold text-ember-hi">{people[0].username}</span>
+          {others > 0 && <span className="text-foreground/70"> and {others} other{others === 1 ? "" : "s"}</span>}
+        </span>
+        <span className="block truncate text-[11px] text-foreground/55">caught {catches.length} drops</span>
+      </span>
+      <span className="relative flex shrink-0 items-center rounded-full bg-ember px-2 py-0.5 text-[11px] font-bold text-on-ember tabular-nums">
+        +{points.toLocaleString()} pts
+      </span>
+    </div>
+  );
 }
 
 export interface PinnedMessage {
@@ -290,7 +359,7 @@ export function LiveChat({
                       : null;
               if (verb) {
                 const row: ChatMsg = {
-                  id: `stage-${evtUser}-${Date.now()}`,
+                  id: `stage-${evtUser}-${action}-${Date.now()}`,
                   username: evtUser,
                   avatar: "",
                   content: verb,
@@ -300,8 +369,10 @@ export function LiveChat({
                     minute: "2-digit",
                   }),
                 };
-                seenIdsRef.current.add(row.id);
-                setMessages((prev) => [...prev, row]);
+                if (!seenIdsRef.current.has(row.id)) {
+                  seenIdsRef.current.add(row.id);
+                  setMessages((prev) => [...prev, row]);
+                }
               }
               return;
             }
@@ -322,6 +393,9 @@ export function LiveChat({
                   minute: "2-digit",
                 }),
               };
+              // The same arrival can land twice in one millisecond (the
+              // relay and the room both announce it) — one row, one key.
+              if (seenIdsRef.current.has(row.id)) return;
               seenIdsRef.current.add(row.id);
               setMessages((prev) => [...prev, row]);
             }
@@ -840,13 +914,32 @@ export function LiveChat({
             </p>
           </div>
         )}
-        {(overlay ? messages.slice(-40) : messages).map((msg) => (
+        {groupDrops(overlay ? messages.slice(-40) : messages).map((row) => {
+          if (row.kind === "drops") {
+            return (
+              <div
+                key={row.id}
+                className={cn(
+                  "animate-in fade-in slide-in-from-bottom-1 duration-200",
+                  overlay && "obj w-fit max-w-full overflow-hidden rounded-[12px]"
+                )}
+              >
+                <DropRun catches={row.catches} overlay={overlay} />
+              </div>
+            );
+          }
+          const msg = row.msg;
+          return (
           <div
             key={msg.id}
             className={cn(
               "group animate-in fade-in slide-in-from-bottom-1 duration-200",
               overlay &&
-                "obj w-fit max-w-full rounded-[14px] px-2.5 py-1"
+                // A gift is its own object on the picture — its tint sits
+                // straight on the black, not in a capsule of its own.
+                (msg.type === "tip"
+                  ? "obj w-fit max-w-full overflow-hidden rounded-[12px]"
+                  : "obj w-fit max-w-full rounded-[14px] px-2.5 py-1")
             )}
           >
             {msg.type === "join" || msg.type === "like" || msg.type === "stage" ? (
@@ -886,28 +979,29 @@ export function LiveChat({
               </div>
             ) : msg.type === "tip" ? (
               // A gift or a drop: one compact, glossy line — no border, a
-              // soft gradient in the money's colour (amber for dollars,
-              // violet for points) with a highlight across the top, and the
-              // amount as a small solid pill at the end.
+              // solid tint in one of the two brand colours (Chili for
+              // dollars, Ember for points) with a highlight across the top,
+              // and the amount as a small solid pill at the end.
               <div
                 className={cn(
-                  "relative my-1 flex items-center gap-2 overflow-hidden rounded-[10px] py-1.5 pr-1.5 pl-2",
+                  "relative flex items-center gap-2 overflow-hidden rounded-[10px] py-1.5 pr-1.5 pl-2",
+                  !overlay && "my-1",
                   msg.tipCurrency === "PTS"
-                    ? "bg-gradient-to-r from-violet-500/[0.18] to-violet-500/[0.06]"
-                    : "bg-gradient-to-r from-amber-400/[0.2] to-amber-400/[0.06]"
+                    ? overlay ? "bg-ember/[0.2]" : "bg-ember/[0.12]"
+                    : overlay ? "bg-chili/[0.24]" : "bg-chili/[0.14]"
                 )}
               >
                 <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/[0.07] to-transparent" />
                 <UserAvatar src={msg.avatar} name={msg.username} size={18} className="relative size-[18px] shrink-0" />
                 <span className="relative min-w-0 flex-1 truncate text-xs">
-                  <span className={cn("font-semibold", msg.tipCurrency === "PTS" ? "text-violet-200" : "text-amber-200")}>{msg.username}</span>
+                  <span className={cn("font-semibold", msg.tipCurrency === "PTS" ? "text-ember-hi" : "text-chili-hi")}>{msg.username}</span>
                   <span className="text-foreground/70"> {msg.content || "tipped"}</span>
                 </span>
                 {msg.emoji && <GiftArt emoji={msg.emoji} size={22} className="relative" />}
                 <span
                   className={cn(
                     "relative flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
-                    msg.tipCurrency === "PTS" ? "bg-violet-400 text-neutral-950" : "bg-amber-300 text-neutral-950"
+                    msg.tipCurrency === "PTS" ? "bg-ember text-on-ember" : "bg-chili text-white"
                   )}
                 >
                   {msg.tipCurrency === "PTS"
@@ -1038,7 +1132,8 @@ export function LiveChat({
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Reactions popup */}
@@ -1109,11 +1204,11 @@ export function LiveChat({
           </div>
         ) : isLive && !user ? (
           <a
-            href="https://www.worldstreetgold.com/login"
+            href={SIGN_IN_URL}
             className={cn(
               "flex h-10 items-center justify-center gap-2 text-sm font-medium transition-colors",
               overlay
-                ? "rounded-full bg-[#26262D] text-white/85 hover:text-white"
+                ? "rounded-full bg-control text-white/85 hover:text-white"
                 : "rounded-sm border border-white/10 bg-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground"
             )}
           >

@@ -6,13 +6,14 @@ import "./globals.css";
 
 const dmSans = DM_Sans({subsets:['latin'],variable:'--font-sans'});
 
-// Headlines. A grotesque with a narrow footprint and flat, level
-// terminals: it holds a full sentence per line at display size instead of
-// wrapping into rags, and it reads as authority rather than the soft,
-// round friendliness the earlier faces brought.
+// Headlines, numbers, the whole voice. Loaded as the variable font with
+// its width axis, because Afterglow (2026-09-23) speaks through it: wide
+// (118%) for display, widest and thin (125%, 300) for money — the
+// watch-dial numerals borrowed from Gold Floor — and condensed where a
+// broadcast strap needs to fit. `font-wide` and `font-money` set these.
 const archivo = Archivo({
   subsets: ["latin"],
-  weight: ["600", "700", "800"],
+  axes: ["wdth"],
   variable: "--font-display",
 });
 

@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Broadcast } from "@phosphor-icons/react";
+import Image from "next/image";
+import { Broadcast } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 /**
  * The one empty state, and the one thing it always says.
@@ -26,6 +28,7 @@ export type EmptyAction =
 
 export function Empty({
   icon,
+  artwork,
   title,
   body,
   action,
@@ -34,6 +37,8 @@ export function Empty({
   className,
 }: {
   icon?: React.ReactNode;
+  /** A transparent illustration for a primary, unfiltered empty state. */
+  artwork?: { src: string; alt?: string };
   title: string;
   /** One line under the title. Optional — some empties say enough in four words. */
   body?: string;
@@ -53,7 +58,16 @@ export function Empty({
         className,
       )}
     >
-      {icon && (
+      {artwork ? (
+        <Image
+          src={artwork.src}
+          alt={artwork.alt ?? ""}
+          width={1024}
+          height={1024}
+          sizes="(max-width: 640px) 160px, 192px"
+          className="mb-2 size-40 object-contain sm:size-48"
+        />
+      ) : icon && (
         <span className={cn("mb-4", onDark ? "text-white/30" : "text-muted-foreground/25")}>
           {icon}
         </span>
@@ -76,13 +90,11 @@ export function Empty({
           {goLive && <GoLiveButton />}
           {action &&
             (action.href ? (
-              <Link href={action.href} className={quiet(onDark)}>
-                {action.label}
-              </Link>
+              <Button asChild variant="secondary" className={quiet(onDark)}><Link href={action.href}>{action.label}</Link></Button>
             ) : (
-              <button type="button" onClick={action.onClick} className={quiet(onDark)}>
+              <Button variant="secondary" onClick={action.onClick} className={quiet(onDark)}>
                 {action.label}
-              </button>
+              </Button>
             ))}
         </div>
       )}
@@ -93,31 +105,24 @@ export function Empty({
 /** The second button never competes with Go live, on either ground. */
 const quiet = (onDark: boolean) =>
   cn(
-    "flex h-9 items-center rounded-sm px-4 text-sm font-medium transition-colors",
-    onDark ? "bg-white/10 text-white hover:bg-white/20" : "bg-white/[0.06] text-foreground hover:bg-white/[0.09]",
+    "flex items-center px-5 text-sm",
+    // On a picture it wears the object language instead of the charcoal.
+    onDark && "bg-black/55 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.1)] hover:bg-black/70",
   );
 
 /**
- * Go live, in the empty state's own size. Matches the top bar's button:
- * red and pulsing once you are already on air, where it becomes the way
- * back to the studio rather than an invitation.
+ * Go live — Afterglow's signature action, and one of the three places the
+ * heat gradient is allowed (rings, Go live, gift moments). Once you are
+ * already on air it turns solid Chili with a pulsing dot and becomes the
+ * way back to the studio rather than an invitation.
  */
 export function GoLiveButton({ className, onClick }: { className?: string; onClick?: () => void }) {
   const { user } = useAuth();
   const live = user?.isLive ?? false;
 
   return (
-    <Link
-      href="/studio"
-      onClick={onClick}
-      className={cn(
-        "shine flex h-9 items-center gap-2 rounded-sm px-4 text-sm font-semibold transition-colors",
-        live
-          ? "bg-red-600 text-white hover:bg-red-700"
-          : "bg-primary text-primary-foreground hover:bg-primary/85",
-        className,
-      )}
-    >
+    <Button asChild variant={live ? "live" : "heat"} className={cn("gap-2 px-5", className)}>
+    <Link href="/studio" onClick={onClick}>
       {live ? (
         <span className="relative flex size-2">
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
@@ -128,5 +133,6 @@ export function GoLiveButton({ className, onClick }: { className?: string; onCli
       )}
       {live ? "Back to your studio" : "Go live"}
     </Link>
+    </Button>
   );
 }

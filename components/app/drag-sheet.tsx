@@ -21,6 +21,13 @@ import { cn } from "@/lib/utils";
  * Dragging is allowed from the thumb and the header at any time, and from
  * the body only when it is scrolled to the top and you pull down — so a
  * long form still scrolls normally inside a sheet that can also move.
+ *
+ * A press only becomes a drag once the finger has travelled (a few pixels,
+ * mostly up or down). Until then nothing is captured, so a tap lands on
+ * whatever was tapped — a tab, a chip, the composer — and only a tap on the
+ * thumb itself folds or opens the sheet. Capturing on press used to steal
+ * every click in the header and turn it into a fold (owner, 2026-09-24:
+ * "tapping on almost anything closes that drawer").
  */
 
 /** Springy, slightly underdamped: it passes the mark and comes back. */
@@ -30,6 +37,8 @@ const DAMPING = 19;
 const PROJECTION = 0.12;
 /** Past this far below the smallest detent, a dismissible sheet closes. */
 const DISMISS_SLOP = 56;
+/** How far a finger travels before a press is a drag rather than a tap. */
+const DRAG_SLOP = 6;
 
 function springTo(
   from: number,
@@ -101,13 +110,18 @@ export function DragSheet({
   /** Live drag bookkeeping, off React so a move never waits for a render. */
   const drag = useRef<{
     id: number;
+    startX: number;
     startY: number;
     startH: number;
     lastY: number;
     lastT: number;
     v: number;
     fromBody: boolean;
-    moved: number;
+    /** Pressed on the thumb strip — the one place a tap folds or opens. */
+    fromThumb: boolean;
+    /** Became a drag: past the slop, vertical, and the pointer is ours now. */
+    active: boolean;
+    el: HTMLElement;
   } | null>(null);
 
   const stops = [
@@ -162,36 +176,63 @@ export function DragSheet({
 
   useEffect(() => () => stopSpring.current?.(), []);
 
+  /** Is anything between the finger and the body scrolled away from its top? Then pulling down is that list's. */
+  const scrolledAbove = (target: EventTarget | null) => {
+    for (let el = target as HTMLElement | null; el && el !== bodyRef.current; el = el.parentElement) {
+      if (el.scrollTop > 0) return true;
+    }
+    return (bodyRef.current?.scrollTop ?? 0) > 0;
+  };
+
   const begin = (e: React.PointerEvent, fromBody: boolean) => {
     if (drag.current || stage <= 0) return;
-    touched.current = true;
-    stopSpring.current?.();
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Nothing is captured yet: until the finger travels, this is a tap and
+    // belongs to whatever it landed on.
     drag.current = {
       id: e.pointerId,
+      startX: e.clientX,
       startY: e.clientY,
       startH: height,
       lastY: e.clientY,
       lastT: performance.now(),
       v: 0,
       fromBody,
-      moved: 0,
+      fromThumb: !fromBody && Boolean(thumbRef.current?.contains(e.target as Node)),
+      active: false,
+      el: e.currentTarget as HTMLElement,
     };
-    try {
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {
-      // No live pointer to capture (synthetic events): the move and up
-      // handlers on the same element still see it through.
-    }
   };
 
   const move = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     const dy = e.clientY - d.startY;
-    d.moved = Math.max(d.moved, Math.abs(dy));
-    // A drag that starts in the body only counts while it pulls the sheet
-    // shut; pushing up there is the list scrolling, not the sheet growing.
-    if (d.fromBody && dy < 0 && d.startH >= max) return;
+    if (!d.active) {
+      const dx = e.clientX - d.startX;
+      if (Math.abs(dy) < DRAG_SLOP && Math.abs(dx) < DRAG_SLOP) return;
+      // Sideways is somebody else's gesture — a row of tabs, a carousel.
+      if (Math.abs(dx) > Math.abs(dy)) {
+        drag.current = null;
+        return;
+      }
+      // From the body, pulling down only moves the sheet from the top of
+      // the list, and pushing up only while there's room to grow; anything
+      // else is the list scrolling.
+      if (d.fromBody && (dy > 0 ? scrolledAbove(e.target) : d.startH >= max)) {
+        drag.current = null;
+        return;
+      }
+      d.active = true;
+      touched.current = true;
+      stopSpring.current?.();
+      try {
+        d.el.setPointerCapture(e.pointerId);
+      } catch {
+        // No live pointer to capture (synthetic events): the move and up
+        // handlers on the same element still see it through.
+      }
+    }
     let next = d.startH - dy;
     // Past the top detent it gets heavy rather than stopping dead.
     if (next > max) next = max + (next - max) * 0.25;
@@ -210,12 +251,14 @@ export function DragSheet({
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     drag.current = null;
-    const collapsed = collapsible && thumbH > 0 && height <= thumbH + 2;
-    if (!d.fromBody && d.moved < 6) {
-      // A press that never moved is a tap however long it was held: fold
-      // it away, or bring it back.
-      if (collapsed) settle(opening, 0);
-      else if (collapsible && thumbH > 0) settle(thumbH, 0);
+    if (!d.active) {
+      // Never became a drag, so it was a tap, however long it was held.
+      // Only the thumb folds the sheet away or brings it back; a tap on a
+      // tab, a chip or a button is left to that control.
+      if (d.fromThumb && e.type === "pointerup" && collapsible && thumbH > 0) {
+        const collapsed = height <= thumbH + 2;
+        settle(collapsed ? opening : thumbH, 0);
+      }
       return;
     }
     // Where the flick is headed, not where the finger left off.
@@ -254,7 +297,7 @@ export function DragSheet({
     <div
       ref={ref}
       className={cn(
-        "sheet-obj absolute inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden rounded-t-[22px]",
+        "sheet-obj absolute inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden rounded-t-overlay",
         className,
       )}
       style={{ height: height || undefined, paddingBottom: collapsible ? "env(safe-area-inset-bottom)" : undefined }}
@@ -262,13 +305,13 @@ export function DragSheet({
       aria-label={label}
     >
       <div
-        className="shrink-0 touch-none"
+        className="shrink-0"
         onPointerDown={(e) => begin(e, false)}
         onPointerMove={move}
         onPointerUp={end}
         onPointerCancel={end}
       >
-        <div ref={thumbRef} className="py-2.5">
+        <div ref={thumbRef} className="touch-none py-2.5">
           <button
             type="button"
             onKeyDown={onKey}
@@ -279,14 +322,15 @@ export function DragSheet({
             <span className="mx-auto block h-1 w-9 rounded-full bg-white/[0.28] transition-colors hover:bg-white/50" />
           </button>
         </div>
-        {header}
+        {/* The browser keeps sideways pans (a row of tabs); up and down is the sheet's. */}
+        {header && <div className="touch-pan-x">{header}</div>}
       </div>
 
       <div
         ref={bodyRef}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         onPointerDown={(e) => {
-          if ((bodyRef.current?.scrollTop ?? 0) <= 0) begin(e, true);
+          if (!scrolledAbove(e.target)) begin(e, true);
         }}
         onPointerMove={move}
         onPointerUp={end}

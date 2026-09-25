@@ -1,25 +1,22 @@
 import { SignIn } from "@clerk/nextjs";
+import { AuthShell } from "@/components/landing/auth-shell";
 
 /**
  * Local standalone sign-in. In production this app is a Clerk satellite and
  * auth happens on the worldstreetgold.com hub, so this route is never used
  * there — it exists so local dev can authenticate against the same Clerk
- * test instance without reaching for the production domain.
+ * test instance without reaching for the production domain. Every "Sign in"
+ * in the app points here off-satellite (lib/auth-urls.ts); the card takes
+ * its colours from the provider's appearance in app/layout.tsx.
  */
 export default function SignInPage() {
   return (
-    <main className="min-h-dvh flex items-center justify-center p-6 bg-background">
-      <SignIn
-        appearance={{
-          variables: {
-            colorPrimary: "#EAB308",
-            colorBackground: "#1C1917",
-            colorText: "#FAFAF9",
-            colorInputBackground: "#0C0A09",
-            borderRadius: "10px",
-          },
-        }}
-      />
-    </main>
+    <AuthShell
+      eyebrow="Sign in"
+      title="The room's already live."
+      lede="Pick up where you left off — your follows, your points and your channel are waiting."
+    >
+      <SignIn fallbackRedirectUrl="/explore" />
+    </AuthShell>
   );
 }

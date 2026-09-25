@@ -1,5 +1,6 @@
 "use client";
 
+import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -20,7 +21,7 @@ import {
   ArrowDown,
   ArrowUp,
   Sword,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatPoints } from "@/lib/games";
@@ -171,7 +172,7 @@ export default function WalletPage() {
         <Wallet size={34} className="mb-4 text-muted-foreground/25" />
         <p className="text-[15px] font-semibold text-foreground">Your wallet lives behind sign-in</p>
         <p className="mt-1 max-w-[42ch] text-sm text-muted-foreground">Gifts you receive, payouts and points all land here once you sign in.</p>
-        <a href="https://www.worldstreetgold.com/login" className="mt-5 flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-neutral-950">
+        <a href={SIGN_IN_URL} className="mt-5 flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-neutral-950">
           Sign in
         </a>
       </div>
@@ -192,7 +193,7 @@ export default function WalletPage() {
         <div className="flex flex-col gap-2.5 lg:sticky lg:top-20">
         {/* ── The balance card: the money, and the two things you do with it. */}
         <section className="relative overflow-hidden rounded-sm">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(220,38,38,0.32),transparent_55%),linear-gradient(160deg,#1b1b1f,#101012)]" />
+          <div className="absolute inset-0 bg-surface-raised" />
           <BrandMark size={260} className="absolute -right-8 -bottom-14 opacity-[0.06]" />
           <div className="relative p-5 md:p-6">
             <div className="flex items-center gap-2">
@@ -291,7 +292,7 @@ export default function WalletPage() {
                     <div key={t._id} className="flex items-center gap-3 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-white/[0.03]">
                       <span className={cn("relative flex size-11 shrink-0 items-center justify-center rounded-full", received ? "bg-emerald-500/[0.12]" : "bg-white/[0.06]")}>
                         <GiftArt emoji={t.emoji} size={26} />
-                        <span className={cn("absolute -right-0.5 -bottom-0.5 flex size-[18px] items-center justify-center rounded-full ring-2 ring-background", received ? "bg-emerald-500 text-neutral-950" : "bg-[#31313A] text-white")}>
+                        <span className={cn("absolute -right-0.5 -bottom-0.5 flex size-[18px] items-center justify-center rounded-full ring-2 ring-background", received ? "bg-emerald-500 text-neutral-950" : "bg-control-hover text-white")}>
                           {received ? <ArrowDown size={10} weight="bold" /> : <ArrowUp size={10} weight="bold" />}
                         </span>
                       </span>

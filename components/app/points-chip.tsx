@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Coins, Fire } from "@phosphor-icons/react";
+import { Coins, Fire } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { formatPoints } from "@/lib/games";
 import { cn } from "@/lib/utils";
@@ -11,29 +11,35 @@ import { cn } from "@/lib/utils";
  * Your points and your watch streak, in the top bar. Reads once (which also
  * pays the welcome grant the first time), then follows `xtreme:points`
  * events from anywhere on the page — a stake, a win, a drop — with a pop.
- * Both open the Rewards page.
+ * Both open the Rewards page. An ember dot means a quest is finished and
+ * waiting to be claimed there.
  */
 export function PointsChip() {
   const [balance, setBalance] = useState<number | null>(null);
   const [streak, setStreak] = useState(0);
+  const [ready, setReady] = useState(0);
   const [pop, setPop] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      apiFetch<{ success: boolean; data: { balance: number; streakDays: number } }>(`/api/user/me/points`)
+      apiFetch<{ success: boolean; data: { balance: number; streakDays: number; questsReady?: number } }>(`/api/user/me/points`)
         .then((r) => {
           if (cancelled) return;
           setBalance(r.data.balance);
           setStreak(r.data.streakDays);
+          setReady(r.data.questsReady ?? 0);
         })
         .catch(() => {});
     void load();
     const t = setInterval(load, 60_000);
+    let recount: ReturnType<typeof setTimeout> | undefined;
     const onPoints = (e: Event) => {
       const next = (e as CustomEvent<number | undefined>).detail;
       if (typeof next === "number") setBalance(next);
-      else void load();
+      // Quests move with points — a claim, a win — so recount shortly after.
+      clearTimeout(recount);
+      recount = setTimeout(() => void load(), typeof next === "number" ? 1500 : 0);
       setPop(true);
       setTimeout(() => setPop(false), 600);
     };
@@ -41,6 +47,7 @@ export function PointsChip() {
     return () => {
       cancelled = true;
       clearInterval(t);
+      clearTimeout(recount);
       window.removeEventListener("xtreme:points", onPoints);
     };
   }, []);
@@ -49,21 +56,28 @@ export function PointsChip() {
   return (
     <Link
       href="/rewards"
-      title="Your points and watch streak — redeem points on the Rewards page"
+      title={ready > 0 ? `${ready} ${ready === 1 ? "quest" : "quests"} ready to claim on the Rewards page` : "Your points and watch streak — redeem points on the Rewards page"}
       className={cn(
-        "flex h-9 items-center gap-2.5 rounded-full bg-[#26262D] px-3 text-sm font-semibold text-foreground tabular-nums transition-[transform,background-color] hover:bg-[#31313A]",
+        "press relative flex h-10 items-center gap-2.5 rounded-full bg-control px-3.5 text-[13.5px] font-semibold text-foreground tabular-nums transition-[transform,background-color] hover:bg-control-hover",
         pop && "scale-110"
       )}
     >
       <span className="flex items-center gap-1.5">
-        <Coins size={15} weight="fill" className="text-amber-300" />
+        <Coins size={16} weight="fill" className="text-ember-hi" />
         {formatPoints(balance)}
       </span>
       <span className="h-4 w-px bg-white/[0.12]" aria-hidden />
       <span className="flex items-center gap-1 text-[13px]" title={`${streak}-day watch streak`}>
-        <Fire size={14} weight="fill" className={streak > 0 ? "text-orange-400" : "text-muted-foreground/50"} />
+        <Fire size={15} weight="fill" className={streak > 0 ? "text-chili-hi" : "text-muted-foreground/50"} />
         {streak}d
       </span>
+      {ready > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-ember ring-2 ring-background">
+          <span className="sr-only">
+            {ready} {ready === 1 ? "quest" : "quests"} ready to claim
+          </span>
+        </span>
+      )}
     </Link>
   );
 }

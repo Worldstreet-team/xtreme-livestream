@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank } from "@phosphor-icons/react";
+import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, type BattleView } from "@/lib/battles";
@@ -100,20 +100,20 @@ export function BattlePanel({
     const total = active.host.usdMinor + active.challenger.usdMinor;
     const share = total ? active.host.usdMinor / total : 0.5;
     return (
-      <div className={cn("flex items-center gap-3 rounded-sm bg-white/[0.05] px-3 py-2", hot && "ring-1 ring-amber-400/60")}>
-        <UserAvatar src={active.host.avatar} name={active.host.displayName} size={28} className="size-7 ring-2 ring-red-500" />
+      <div className={cn("flex items-center gap-3 rounded-sm bg-white/[0.05] px-3 py-2", hot && "ring-1 ring-ember/60")}>
+        <UserAvatar src={active.host.avatar} name={active.host.displayName} size={28} className="size-7 ring-2 ring-chili" />
         <div className="w-40">
           <div className="relative h-2 overflow-hidden rounded-full bg-white/[0.12]">
-            <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-500 to-amber-400 transition-[width]" style={{ width: `${share * 100}%` }} />
-            <div className="absolute inset-y-0 right-0 bg-gradient-to-l from-violet-500 to-sky-400 transition-[width]" style={{ width: `${(1 - share) * 100}%` }} />
+            <div className="absolute inset-y-0 left-0 bg-chili transition-[width]" style={{ width: `${share * 100}%` }} />
+            <div className="absolute inset-y-0 right-0 bg-ember transition-[width]" style={{ width: `${(1 - share) * 100}%` }} />
           </div>
           <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground tabular-nums">
             <span>${Math.round(active.host.usdMinor / 100)}</span>
             <span>${Math.round(active.challenger.usdMinor / 100)}</span>
           </div>
         </div>
-        <UserAvatar src={active.challenger.avatar} name={active.challenger.displayName} size={28} className="size-7 ring-2 ring-sky-400" />
-        <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", hot ? "bg-amber-400 text-neutral-950" : "bg-white text-neutral-950")}>
+        <UserAvatar src={active.challenger.avatar} name={active.challenger.displayName} size={28} className="size-7 ring-2 ring-ember" />
+        <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", hot ? "bg-ember text-on-ember" : "bg-white text-neutral-950")}>
           {hot && <Lightning size={11} weight="fill" />}
           {active.status === "overtime" ? "OT " : ""}
           {formatClock(left)}
@@ -129,7 +129,7 @@ export function BattlePanel({
     <div className={cn("flex flex-col gap-2", inline ? "items-stretch" : "items-end")}>
       <div className="flex flex-wrap items-center gap-2">
         {incoming.map((b) => (
-          <div key={b.id} className="flex items-center gap-2 rounded-sm bg-amber-400/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-amber-200">
+          <div key={b.id} className="flex items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
             <Sword size={15} weight="fill" />
             <UserAvatar src={b.host.avatar} name={b.host.displayName} size={22} className="size-[22px]" />
             <span className="font-medium">{b.host.displayName} challenges you</span>
@@ -143,7 +143,7 @@ export function BattlePanel({
         ))}
         {outgoing ? (
           <div className="flex items-center gap-2 rounded-sm bg-white/[0.05] py-1.5 pr-1.5 pl-2.5 text-sm text-muted-foreground">
-            <span className="size-2 animate-pulse rounded-full bg-amber-400" />
+            <span className="size-2 animate-pulse rounded-full bg-ember" />
             Waiting for {outgoing.challenger.displayName}…
             <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${outgoing.id}/cancel`)} disabled={busy}>
               Withdraw
@@ -158,7 +158,7 @@ export function BattlePanel({
       {error && <p className="text-xs text-red-400">{error}</p>}
 
       {open && !outgoing && (
-        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-[oklch(0.14_0.005_285)] shadow-2xl")}>
+        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-popover shadow-2xl")}>
           <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">
             <Trophy size={12} weight="fill" />
             Challenge a live creator

@@ -64,6 +64,11 @@ export interface SelectFieldProps {
   search?: boolean;
   /** What the filter box says before you type. */
   searchPlaceholder?: string;
+  /**
+   * A picture per option — category box art — drawn in the list and on the
+   * closed field, so a category is picked by its cover, not just its name.
+   */
+  art?: (value: string) => string | undefined;
 }
 
 export function SelectField(props: SelectFieldProps) {
@@ -79,12 +84,14 @@ export function SelectField(props: SelectFieldProps) {
     className,
     ariaLabel,
     search,
+    art,
   } = props;
   const sm = size === "sm";
 
   // Scrolling 171 categories to find "IRL" is not a menu, it's a haystack.
+  // Pictures only live in the searchable list, so art takes that path too.
   const count = groups ? groups.reduce((n, g) => n + g.options.length, 0) : (options?.length ?? 0);
-  if (search ?? count > 12) return <SearchableSelectField {...props} />;
+  if (search ?? (count > 12 || Boolean(art))) return <SearchableSelectField {...props} />;
 
   return (
     <Select value={value} onValueChange={onChange}>
@@ -96,10 +103,10 @@ export function SelectField(props: SelectFieldProps) {
         // black, so those four are overridden outright — same specificity
         // otherwise, and which wins would come down to stylesheet order.
         className={cn(
-          "cursor-pointer justify-between rounded-sm border-0! text-foreground transition-colors",
+          "cursor-pointer justify-between rounded-control! border-0! text-foreground transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[state=open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
           sm
-            ? "h-9! bg-white/[0.05]! px-3! text-sm hover:bg-white/[0.07]! data-[state=open]:bg-white/[0.07]!"
-            : "h-11! bg-white/[0.06]! px-3.5! text-[15px] hover:bg-white/[0.09]! data-[state=open]:bg-white/[0.09]!",
+            ? "h-9! rounded-full! bg-white/[0.05]! px-3.5! text-sm hover:bg-white/[0.08]! data-[state=open]:bg-white/[0.08]!"
+            : "h-12! bg-white/[0.06]! px-4! text-[15px] hover:bg-white/[0.08]! data-[state=open]:bg-white/[0.09]!",
           full ? "w-full" : "w-fit",
           className,
         )}
@@ -112,7 +119,7 @@ export function SelectField(props: SelectFieldProps) {
         position="popper"
         align="start"
         sideOffset={6}
-        className="max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] bg-neutral-950 ring-white/[0.08]"
+        className="max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] bg-popover ring-white/[0.08]"
       >
         {groups
           ? groups.map((group) => (
@@ -157,6 +164,7 @@ function SearchableSelectField({
   className,
   ariaLabel,
   searchPlaceholder = "Search",
+  art,
 }: SelectFieldProps) {
   const sm = size === "sm";
   const flat = groups ? groups.flatMap((g) => g.options) : (options ?? []);
@@ -185,25 +193,31 @@ function SearchableSelectField({
         id={id}
         aria-label={ariaLabel}
         className={cn(
-          "flex cursor-pointer items-center justify-between rounded-sm border-0! text-foreground transition-colors outline-none",
+          "flex cursor-pointer items-center justify-between rounded-control! border-0! text-foreground outline-none transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[popup-open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
           sm
-            ? "h-9! bg-white/[0.05]! px-3! text-sm hover:bg-white/[0.07]! data-[popup-open]:bg-white/[0.07]!"
-            : "h-11! bg-white/[0.06]! px-3.5! text-[15px] hover:bg-white/[0.09]! data-[popup-open]:bg-white/[0.09]!",
+            ? "h-9! rounded-full! bg-white/[0.05]! px-3.5! text-sm hover:bg-white/[0.08]! data-[popup-open]:bg-white/[0.08]!"
+            : "h-12! bg-white/[0.06]! px-4! text-[15px] hover:bg-white/[0.08]! data-[popup-open]:bg-white/[0.09]!",
           full ? "w-full" : "w-fit",
           className,
         )}
       >
-        <span className={cn("truncate", !selected && "text-muted-foreground")}>
-          {selected?.label ?? placeholder ?? ""}
+        <span className="flex min-w-0 items-center gap-3">
+          {art && selected && art(selected.value) && (
+            // eslint-disable-next-line @next/next/no-img-element -- remote box art, sized by the field
+            <img src={art(selected.value)} alt="" className={cn("shrink-0 rounded-[4px] object-cover", sm ? "h-6 w-[18px]" : "h-9 w-[27px] -ml-1.5")} />
+          )}
+          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+            {selected?.label ?? placeholder ?? ""}
+          </span>
         </span>
       </ComboboxTrigger>
       {/* The kit pads the popup wider than its anchor for an input-shaped
           combobox; ours is anchored to a field, so it matches the field. */}
-      <ComboboxContent className="min-w-[var(--anchor-width)]! bg-neutral-950 ring-white/[0.08]">
+      <ComboboxContent className="min-w-[var(--anchor-width)]! bg-popover ring-white/[0.08]">
         <div className="border-b border-white/[0.06] p-1.5">
           <ComboboxPrimitive.Input
             placeholder={searchPlaceholder}
-            className="h-9 w-full rounded-sm bg-white/[0.05] px-2.5 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.07]"
+            className="h-9 w-full rounded-full bg-white/[0.06] px-3.5 text-[14px] text-foreground outline-none shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] placeholder:text-muted-foreground/60 focus:bg-white/[0.08] focus:shadow-[inset_0_0_0_1.5px_var(--ember)]"
           />
         </div>
         <ComboboxList className="max-h-[min(18rem,calc(var(--available-height)-3.5rem))] p-1">
@@ -214,11 +228,11 @@ function SearchableSelectField({
                     {group.value}
                   </ComboboxLabel>
                   <ComboboxCollection>
-                    {(v: string) => <ComboItem key={v} value={v} label={labelOf(v)} />}
+                    {(v: string) => <ComboItem key={v} value={v} label={labelOf(v)} art={art?.(v)} />}
                   </ComboboxCollection>
                 </ComboboxGroup>
               )
-            : (v: string) => <ComboItem key={v} value={v} label={labelOf(v)} />}
+            : (v: string) => <ComboItem key={v} value={v} label={labelOf(v)} art={art?.(v)} />}
         </ComboboxList>
         <ComboboxEmpty className="py-6 text-[13px]">Nothing matches that</ComboboxEmpty>
       </ComboboxContent>
@@ -226,12 +240,19 @@ function SearchableSelectField({
   );
 }
 
-function ComboItem({ value, label }: SelectOption) {
+function ComboItem({ value, label, art }: SelectOption & { art?: string }) {
   return (
     <ComboboxItem
       value={value}
-      className="h-9 cursor-pointer px-2 text-[14px] text-foreground/90 data-highlighted:bg-white/[0.07] data-highlighted:text-foreground"
+      className={cn(
+        "cursor-pointer px-2 text-[14px] text-foreground/90 data-highlighted:bg-white/[0.07] data-highlighted:text-foreground",
+        art ? "h-12 gap-3" : "h-9",
+      )}
     >
+      {art && (
+        // eslint-disable-next-line @next/next/no-img-element -- remote box art in a long, lazily scrolled list
+        <img src={art} alt="" loading="lazy" className="h-9 w-[27px] shrink-0 rounded-[4px] bg-white/[0.05] object-cover" />
+      )}
       {label}
     </ComboboxItem>
   );

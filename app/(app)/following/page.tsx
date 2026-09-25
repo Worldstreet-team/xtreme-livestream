@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { HeartBreak, Broadcast, Clock, MoonStars } from "@phosphor-icons/react";
+import { HeartBreak, Broadcast, Clock, MoonStars } from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
 import { UpcomingCard } from "@/components/app/upcoming-card";
 import { ChannelCard } from "@/components/app/channel-card";
