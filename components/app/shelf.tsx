@@ -186,7 +186,7 @@ export function Shelf({
                 disabled={dir === -1 ? edge.start : edge.end}
                 aria-label={dir === -1 ? `Back through ${title}` : `More ${title}`}
                 aria-controls={`shelf-row-${id}`}
-                className="press flex size-9 items-center justify-center rounded-full bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-[background-color,opacity] hover:bg-control-hover disabled:pointer-events-none disabled:opacity-30"
+                className="press flex size-9 items-center justify-center rounded-full bg-control text-foreground transition-[background-color,opacity] hover:bg-control-hover disabled:pointer-events-none disabled:opacity-30"
               >
                 {dir === -1 ? <CaretLeft size={16} weight="bold" /> : <CaretRight size={16} weight="bold" />}
               </button>

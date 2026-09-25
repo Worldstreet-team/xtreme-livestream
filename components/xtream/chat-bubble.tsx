@@ -6,14 +6,16 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 
 /**
- * One line of live chat, Afterglow: a lit bubble with the sender's face,
- * their name in their own warm tint, and the message. Kinds:
+ * One line of live chat, as a bubble: the sender's face, their name in
+ * their own tint, and the message. Flat (owner, 2026-09-25) — no lit edge,
+ * no glow. Kinds:
  *   message  the default
  *   host     the streamer — their face wears an Ember ring
- *   gift     a gift in the chat — warm glow, the gift's face, amount in heat
+ *   gift     a gift in the chat — a flat Ember tint, the gift's face, amount in heat
  *   system   the room talking (someone joined, the battle started) — muted
- * On a picture (the default) it wears the object language; on a surface
- * (the studio drawer) it drops to a quiet fill.
+ * On a picture (the default) it's black at 52%; on a surface (the studio
+ * drawer) it drops to a quiet fill. The live chat itself draws its lines
+ * with components/app/chat/chat-lines.tsx.
  */
 export type ChatKind = "message" | "host" | "gift" | "system";
 
@@ -49,8 +51,8 @@ export function ChatBubble({
   className?: string;
 }) {
   const surface = onPicture
-    ? "bg-black/52 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.08)]"
-    : "bg-white/[0.05] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.06)]";
+    ? "bg-black/52"
+    : "bg-white/[0.05]";
 
   if (kind === "system") {
     return (
@@ -67,7 +69,7 @@ export function ChatBubble({
         "flex w-fit max-w-full items-center gap-2 rounded-[17px] py-1 pr-3 pl-1 text-[13px] leading-snug text-foreground",
         onPicture && "text-white",
         gift
-          ? "bg-[linear-gradient(90deg,rgba(248,88,16,0.34),rgba(0,0,0,0.52)_72%)] shadow-[inset_0_0_0_1px_rgba(248,120,16,0.45),0_8px_24px_-10px_rgba(248,88,16,0.85)]"
+          ? "bg-ember/[0.22]"
           : surface,
         className,
       )}

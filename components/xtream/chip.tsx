@@ -36,15 +36,15 @@ export function Chip({
   const cls = cn(
     "press inline-flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-4 text-[13px] font-semibold whitespace-nowrap outline-none transition-[background-color,color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-ember",
     active
-      ? "bg-white text-[#0b0708] shadow-glow-white"
+      ? "bg-white text-[#0b0708]"
       : onPicture
-        ? "bg-black/55 text-white/90 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.1)] hover:bg-black/70"
-        : "bg-control text-foreground/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-control-hover hover:text-foreground",
+        ? "bg-black/55 text-white/90 hover:bg-black/70"
+        : "bg-control text-foreground/85 hover:bg-control-hover hover:text-foreground",
     className,
   );
   const inner = (
     <>
-      {live && <span aria-hidden className="size-1.5 rounded-full bg-chili shadow-[0_0_8px_rgba(227,18,42,0.9)]" />}
+      {live && <span aria-hidden className="size-1.5 rounded-full bg-chili" />}
       {children}
       {count != null && count !== "" && (
         <span

@@ -576,7 +576,7 @@ function RedeemTile({ balance, rules, waiting, onDone }: { balance: number; rule
             type="button"
             onClick={redeem}
             disabled={busy}
-            className="press mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#0b0708] shadow-glow-white disabled:opacity-60 sm:w-auto sm:px-7"
+            className="press mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#0b0708] disabled:opacity-60 sm:w-auto sm:px-7"
           >
             {busy ? "Cashing out…" : `Cash out $${value}.00`}
           </button>

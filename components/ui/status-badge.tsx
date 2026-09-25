@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 const tones = {
-  live: "bg-chili text-white shadow-[0_6px_16px_-6px_rgba(227,18,42,0.8)]",
+  live: "bg-chili text-white",
   success: "bg-success/10 text-success",
   warning: "bg-warning/10 text-warning",
   danger: "bg-destructive/10 text-destructive",

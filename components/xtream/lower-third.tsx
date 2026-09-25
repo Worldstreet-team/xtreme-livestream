@@ -35,7 +35,6 @@ export function LowerThird({
     <div
       className={cn(
         "inline-flex max-w-full min-w-0 items-center gap-2.5 rounded-full bg-black/55 py-1 pr-1.5 pl-1 text-white",
-        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.1),0_12px_32px_-14px_rgba(0,0,0,0.75)]",
         !action && "pr-4",
         className,
       )}

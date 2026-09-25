@@ -51,15 +51,14 @@ export function BattleBar({
       <div
         className={cn(
           "pointer-events-auto flex items-center gap-2.5 rounded-full bg-black/55 px-2.5 py-1.5 text-white md:gap-3 md:px-3",
-          "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_0_rgba(255,255,255,0.1),0_12px_32px_-14px_rgba(0,0,0,0.75)]",
-          hot && "shadow-[inset_0_0_0_1.5px_var(--ember),0_0_30px_-8px_rgba(248,88,16,0.8)]"
+          hot && "shadow-[inset_0_0_0_1.5px_var(--ember)]"
         )}
       >
         <Side side={battle.host} won={ended && battle.winnerId === battle.host.userId} align="left" />
 
         <div className="relative h-2.5 min-w-0 flex-1 rounded-full bg-ember">
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-chili shadow-[0_0_16px_-2px_rgba(227,18,42,0.85)] transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]"
+            className="absolute inset-y-0 left-0 rounded-full bg-chili transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]"
             style={{ width: `${share * 100}%` }}
           />
           {/* The seam: where the two sides meet, burning white. */}

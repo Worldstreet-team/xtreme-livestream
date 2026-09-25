@@ -218,12 +218,12 @@ function DrawerRow({ row, active }: { row: Row; active: boolean }) {
       aria-current={active ? "page" : undefined}
       className={cn(
         "press relative flex items-center gap-3.5 rounded-control px-3.5 py-3 text-[15px] font-medium",
-        active ? "bg-white/[0.07] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]" : "text-foreground/90",
+        active ? "bg-white/[0.07] text-foreground" : "text-foreground/90",
       )}
     >
       <row.icon size={22} weight={active ? "fill" : "regular"} className={cn("shrink-0", active ? "text-foreground" : "text-foreground/75")} aria-hidden />
       <span className="min-w-0 flex-1 truncate">{row.label}</span>
-      {active && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-ember shadow-glow-ember" />}
+      {active && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-ember" />}
     </Link>
   );
 }

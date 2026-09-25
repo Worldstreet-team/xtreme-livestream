@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  *  - live     Chili, solid: things that are on air, or put you on air
  *  - heat     the gradient — Go live and gift moments only (the allowlist)
  *  - ember    Ember, flat, dark ink: energy — claim, join, start a game
- *  - glass    the quiet control: warm charcoal with a lit top edge
+ *  - glass    the quiet control: flat warm charcoal
  *  - soft     a tinted control in a tone, for states
  *  - ghost    text only, for the least important thing in a row
  *
@@ -36,21 +36,18 @@ const SIZE: Record<PillSize, string> = {
 const ICON_ONLY: Record<PillSize, string> = { sm: "size-8 px-0", md: "size-9 px-0", lg: "size-11 px-0", xl: "size-[52px] px-0" };
 export const PILL_ICON: Record<PillSize, number> = { sm: 14, md: 16, lg: 18, xl: 19 };
 
-/** A lit top edge — the object language, off the picture. */
-const LIT = "shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]";
-
 const VARIANT: Record<PillVariant, string> = {
-  primary: "bg-white text-[#0b0708] shadow-glow-white hover:bg-white/90",
-  live: "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)] hover:brightness-110",
-  heat: "bg-heat text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.42),inset_0_-8px_16px_-8px_rgba(120,10,0,0.5),var(--glow-heat)] hover:brightness-110",
+  primary: "bg-white text-[#0b0708] hover:bg-white/90",
+  live: "bg-chili text-white hover:brightness-110",
+  heat: "bg-heat text-white hover:brightness-110",
   ember: "bg-ember text-on-ember hover:brightness-105",
-  glass: `bg-control text-foreground/90 ${LIT} hover:bg-control-hover hover:text-foreground`,
+  glass: "bg-control text-foreground/90 hover:bg-control-hover hover:text-foreground",
   soft: "",
   ghost: "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
 };
 
 const SOFT_TONE: Record<PillTone, string> = {
-  neutral: `bg-control text-foreground/90 ${LIT} hover:bg-control-hover`,
+  neutral: "bg-control text-foreground/90 hover:bg-control-hover",
   red: "bg-[#3A1719] text-chili-hi hover:bg-[#481C1F]",
   ember: "bg-[#3A1D10] text-ember-hi hover:bg-[#482414]",
   amber: "bg-[#3A2C14] text-value hover:bg-[#483719]",

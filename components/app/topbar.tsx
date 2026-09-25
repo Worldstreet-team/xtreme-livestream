@@ -289,7 +289,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         ) : (
           <a
             href={SIGN_IN_URL}
-            className="press hidden h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-control px-3.5 text-sm font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-colors hover:bg-control-hover md:flex md:size-10 md:px-0 xl:w-auto xl:px-4"
+            className="press hidden h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-control px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-control-hover md:flex md:size-10 md:px-0 xl:w-auto xl:px-4"
           >
             <SignIn size={15} />
             <span className="hidden xl:inline">Sign in</span>

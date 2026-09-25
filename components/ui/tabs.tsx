@@ -61,7 +61,7 @@ export function PillTabs<T extends string>({
             )}
           >
             {active && (
-              <span aria-hidden className="absolute inset-x-0 -bottom-px mx-auto h-[2px] w-5 rounded-full bg-ember shadow-glow-ember motion-safe:animate-[xt-pop_.3s_var(--ease-spring)_both]" />
+              <span aria-hidden className="absolute inset-x-0 -bottom-px mx-auto h-[2px] w-5 rounded-full bg-ember motion-safe:animate-[xt-pop_.3s_var(--ease-spring)_both]" />
             )}
             {Icon && (
               <span className="hidden md:inline-flex">

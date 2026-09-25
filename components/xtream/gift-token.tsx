@@ -50,7 +50,7 @@ export function GiftToken({
       <span
         className={cn(
           "block transition-transform duration-300 [transition-timing-function:var(--ease-spring)]",
-          sending ? "-translate-y-1.5 scale-[1.14] drop-shadow-[0_10px_14px_rgba(248,88,16,0.75)]" : "motion-safe:animate-[xt-float_3.2s_ease-in-out_infinite]",
+          sending ? "-translate-y-1.5 scale-[1.14]" : "motion-safe:animate-[xt-float_3.2s_ease-in-out_infinite]",
         )}
       >
         <GiftArt art={gift.art} emoji={gift.emoji} size={art} />
@@ -71,7 +71,7 @@ export function GiftToken({
             className="pointer-events-none absolute top-[34px] left-1/2 size-[5px] -ml-[2px] rounded-full [box-shadow:0_-31px_0_#ffd36b,25px_-19px_0_#ff6a3d,31px_7px_0_#f8a008,4px_30px_0_-1px_#ff2b45,-25px_17px_0_#ffd36b,-29px_-11px_0_#f85810] motion-safe:animate-[xt-sparks-stay_.7s_var(--ease-out)_both]"
           />
           {combo != null && combo > 0 && (
-            <span className="absolute -top-2.5 -right-2.5 rounded-full bg-heat px-2 py-1 font-wide text-[12px] leading-none font-extrabold text-white shadow-glow-heat motion-safe:animate-[xt-pop_.5s_var(--ease-spring)_both]">
+            <span className="absolute -top-2.5 -right-2.5 rounded-full bg-heat px-2 py-1 font-wide text-[12px] leading-none font-extrabold text-white motion-safe:animate-[xt-pop_.5s_var(--ease-spring)_both]">
               ×{combo}
             </span>
           )}
@@ -83,9 +83,9 @@ export function GiftToken({
   const cls = cn(
     "relative flex flex-col items-center gap-1 rounded-[16px] px-1 pt-3 pb-2.5 text-center transition-[transform,background-color,box-shadow,opacity] duration-300 [transition-timing-function:var(--ease-spring)]",
     picked || landed
-      ? "bg-ember/[0.07] shadow-[inset_0_0_0_1.5px_var(--ember),0_10px_30px_-10px_rgba(248,88,16,0.75)]"
+      ? "bg-ember/[0.07] shadow-[inset_0_0_0_1.5px_var(--ember)]"
       : sending
-        ? "-translate-y-2 scale-[1.04] bg-ember/[0.1] shadow-[inset_0_0_0_1.5px_#ffb36b,0_24px_42px_-12px_rgba(248,88,16,0.95)]"
+        ? "-translate-y-2 scale-[1.04] bg-ember/[0.1] shadow-[inset_0_0_0_1.5px_#ffb36b]"
         : "bg-white/[0.035] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
     dimmed && !picked && "opacity-55",
     className,

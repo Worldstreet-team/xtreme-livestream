@@ -107,7 +107,7 @@ const quiet = (onDark: boolean) =>
   cn(
     "flex items-center px-5 text-sm",
     // On a picture it wears the object language instead of the charcoal.
-    onDark && "bg-black/55 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.1)] hover:bg-black/70",
+    onDark && "bg-black/55 text-white hover:bg-black/70",
   );
 
 /**

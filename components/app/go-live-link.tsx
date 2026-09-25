@@ -22,7 +22,7 @@ export function GoLiveLink({ compact = false, className }: { compact?: boolean; 
       className={cn(
         "press flex shrink-0 items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap text-white transition-[filter] hover:brightness-110",
         compact ? "mx-auto size-10" : "h-11 w-full text-[15px]",
-        "bg-chili shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)]",
+        "bg-chili",
         className,
       )}
     >

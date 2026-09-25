@@ -524,7 +524,7 @@ function CoverField({ category, cover, onChange }: { category: string; cover: st
           </div>
         ) : (
           <button type="button" onClick={() => input.current?.click()} className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-6 text-center">
-            <span className="press flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold text-[#0b0708] shadow-glow-white">
+            <span className="press flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold text-[#0b0708]">
               <ImageSquare size={17} />
               {working ? "Adding…" : "Add a cover"}
             </span>

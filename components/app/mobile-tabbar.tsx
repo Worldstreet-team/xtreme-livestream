@@ -56,7 +56,7 @@ export function MobileTabBar() {
               <span
                 className={cn(
                   "flex h-9 w-12 items-center justify-center rounded-[12px] text-white",
-                  "bg-chili shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)]",
+                  "bg-chili",
                 )}
               >
                 <t.icon size={20} weight="fill" aria-hidden />
@@ -81,7 +81,7 @@ export function MobileTabBar() {
             )}
             {t.label}
             {active && (
-              <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-ember shadow-glow-ember motion-safe:animate-[xt-pop_.35s_var(--ease-spring)_both]" />
+              <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-ember motion-safe:animate-[xt-pop_.35s_var(--ease-spring)_both]" />
             )}
           </Link>
         );

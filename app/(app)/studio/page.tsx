@@ -2507,7 +2507,7 @@ export default function StudioPage() {
               <button
                 type="button"
                 onClick={() => setConfirmDialog("end")}
-                className="press ml-1 flex h-11 items-center gap-2 rounded-full bg-chili pr-5 pl-4 text-[14px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),var(--glow-chili)] hover:brightness-110"
+                className="press ml-1 flex h-11 items-center gap-2 rounded-full bg-chili pr-5 pl-4 text-[14px] font-semibold text-white hover:brightness-110"
               >
                 <Stop size={14} weight="fill" />
                 End
@@ -2592,7 +2592,7 @@ export default function StudioPage() {
         <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center">
           <div className="animate-sheet-up w-full rounded-t-[20px] bg-popover p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center shadow-[inset_0_1px_0_rgba(255,236,230,0.06)] md:animate-pop-in md:mx-4 md:max-w-sm md:rounded-[20px] md:pb-6">
             {/* Go live is solid Chili; ending is a quieter chili. */}
-            <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-chili shadow-[var(--glow-chili)]" : "bg-chili/15")}>
+            <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-chili" : "bg-chili/15")}>
               {confirmDialog === "golive" ? <Lightning size={22} weight="fill" className="text-white" /> : <Warning size={22} className="text-chili-hi" />}
             </div>
             <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{confirmDialog === "golive" ? "Ready to go live?" : "End the stream?"}</h2>
@@ -2612,7 +2612,7 @@ export default function StudioPage() {
                   if (action === "golive") goLive();
                   else endStream();
                 }}
-                className={cn("press h-11 flex-1 rounded-full text-sm font-semibold transition-[filter,background-color]", confirmDialog === "golive" ? "bg-chili shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)] text-white hover:brightness-110" : "bg-white text-[#0b0708] hover:bg-white/90")}
+                className={cn("press h-11 flex-1 rounded-full text-sm font-semibold transition-[filter,background-color]", confirmDialog === "golive" ? "bg-chili text-white hover:brightness-110" : "bg-white text-[#0b0708] hover:bg-white/90")}
               >
                 {confirmDialog === "golive" ? "Go live" : "End stream"}
               </button>

@@ -249,7 +249,7 @@ function Frame({ item, active, near }: { item: RowItem; active: boolean; near: b
         </div>
       )}
       <div className="mt-4 flex items-center gap-2">
-        <Link href={room} className="press flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14.5px] font-semibold text-[#0b0708] shadow-glow-white">
+        <Link href={room} className="press flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14.5px] font-semibold text-[#0b0708]">
           <Play size={14} weight="fill" />
           Watch live
         </Link>

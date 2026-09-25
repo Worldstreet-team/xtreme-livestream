@@ -46,7 +46,7 @@ export function AvatarRingsRow({
               className={cn(
                 "relative rounded-full p-[2.5px] transition-transform group-hover:scale-105",
                 c.isLive
-                  ? "bg-heat shadow-[0_0_18px_-4px_rgba(248,88,16,0.7)]"
+                  ? "bg-heat"
                   : "bg-white/[0.08]"
               )}
             >

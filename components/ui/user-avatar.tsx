@@ -73,7 +73,6 @@ export function UserAvatar({ ring = "none", ringGapClassName, ...props }: UserAv
       className={cn(
         "inline-flex shrink-0 rounded-full p-[2px]",
         ring === "seen" ? "bg-white/[0.14]" : "bg-heat",
-        ring === "live" && "shadow-[0_0_16px_-4px_rgba(248,88,16,0.7)]",
       )}
     >
       <span className={cn("inline-flex rounded-full p-[2px]", ringGapClassName ?? "bg-background")}>{face}</span>

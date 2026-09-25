@@ -284,11 +284,11 @@ export function Sidebar({
         <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />
         {!narrow && <span className="text-[16px] tracking-[-0.005em]">{item.label}</span>}
         {active && !narrow && (
-          <span aria-hidden className="ml-auto size-1.5 shrink-0 rounded-full bg-ember shadow-glow-ember" />
+          <span aria-hidden className="ml-auto size-1.5 shrink-0 rounded-full bg-ember" />
         )}
         {active && narrow && (
           // On the icon rail the dot sits under the glyph, as on the phone's tab bar.
-          <span aria-hidden className="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-ember shadow-glow-ember" />
+          <span aria-hidden className="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-ember" />
         )}
         {showLiveDot && !active && (
           // A broadcast dot, not a count: streams are happening now, they
@@ -400,7 +400,7 @@ export function Sidebar({
                     onClick={() => setAppsAnchor(null)}
                     className="group/app flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-white/[0.05]"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-control text-foreground">
                       <app.icon size={18} weight="duotone" aria-hidden />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -431,7 +431,7 @@ export function Sidebar({
               narrow ? "justify-center py-2" : "bg-white/[0.035] p-2.5 hover:bg-white/[0.06]",
             )}
           >
-            <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-foil text-[#1a1206] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", narrow ? "size-8" : "size-9")}>
+            <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-foil text-[#1a1206]", narrow ? "size-8" : "size-9")}>
               <WolfIcon size={narrow ? 16 : 18} />
             </span>
             {!narrow && (
@@ -518,7 +518,7 @@ export function Sidebar({
                   "press flex items-center justify-center gap-2 rounded-full transition-[filter,background-color]",
                   narrow
                     ? "mx-auto size-10 bg-control text-foreground hover:bg-control-hover"
-                    : "h-11 bg-white text-[15px] font-semibold text-[#0b0708] shadow-glow-white hover:brightness-95",
+                    : "h-11 bg-white text-[15px] font-semibold text-[#0b0708] hover:brightness-95",
                 )}
               >
                 <SignIn size={16} weight="bold" />

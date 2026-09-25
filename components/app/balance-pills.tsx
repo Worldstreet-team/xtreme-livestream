@@ -29,7 +29,7 @@ export function BalancePills({ size = "md", className }: { size?: "sm" | "md"; c
   }, []);
 
   const pill = cn(
-    "press flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-control font-mono font-semibold text-foreground tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-colors hover:bg-control-hover",
+    "press flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-control font-mono font-semibold text-foreground tabular-nums transition-colors hover:bg-control-hover",
     size === "sm" ? "h-8 text-[12px]" : "h-10 text-[13.5px]",
   );
   return (

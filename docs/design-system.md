@@ -2,7 +2,7 @@
 
 The live reference is **`/design-system`**: every part on it is the real component, shown with the line that wires it. This file is the long version of its rules.
 
-Afterglow is direction B from the lookbook, locked in by the owner on 2026-09-23: *warm light after dark*. The chili is a light source. Things glow when they're on, burst when something lands, and spring when you touch them. The best of the other two directions is folded in: **On Air**'s broadcast flow (tally, lower third, scoreboard clock, wipes) and **Gold Floor**'s money flow (thin wide numerals, receipts, the lead delta, the pelt board, sheens).
+Afterglow is direction B from the lookbook, locked in by the owner on 2026-09-23: *warm light after dark*. The chili is a light source. Things burst when something lands and spring when you touch them. Since 2026-09-25 everything is **flat**: no lit edges, sheens or glows on surfaces, buttons, badges or anything over video (the owner, three times over — chat, Ember, video controls). The best of the other two directions is folded in: **On Air**'s broadcast flow (tally, lower third, scoreboard clock, wipes) and **Gold Floor**'s money flow (thin wide numerals, receipts, the lead delta, the pelt board, sheens).
 
 ## Where things live
 
@@ -24,8 +24,8 @@ Feature code imports from `@/components/xtream` and uses **roles, never hex**. A
 | --- | --- | --- | --- |
 | **Chili** | `bg-chili` (#E3122A, white text 4.8:1), `text-chili-hi` (#FF5A66, 6.6:1 on ground), `chili-lo` pressed | Live and action: LIVE, Go live once on air, recording, counts that need you now | Selection, decoration |
 | **Ember** | `bg-ember` (#F85810) with `text-on-ember` ink (5.9:1), `text-ember-hi` (#FF8A4C, 8.6:1), `ring-ember` | Energy and choice: the focus ring, selected/switched on, progress, links, streaks, the ×2 window. An Ember surface is **flat**: the fill and dark ink, nothing else (owner, 2026-09-25) | White text on an Ember fill; a sheen, lit edge or glow on an Ember surface |
-| **White** | `bg-white text-[#0b0708]`, `shadow-glow-white` | The one neutral primary on a surface; whatever is *on* in chips and tabs | Two white primaries in one decision |
-| **Heat** | `bg-heat`, `text-heat`, `shadow-glow-heat` | **Two homes only**: rings (live/story avatars, the ally burst) and gift moments (the burst, a picked/sent gift, the combo). Go live is solid Chili (owner, 2026-09-24) | Backgrounds, cards, headings, dividers, ordinary buttons, Go live |
+| **White** | `bg-white text-[#0b0708]` (flat, no glow) | The one neutral primary on a surface; whatever is *on* in chips and tabs | Two white primaries in one decision |
+| **Heat** | `bg-heat`, `text-heat` | **Two homes only**: rings (live/story avatars, the ally burst) and gift moments (the burst, a picked/sent gift, the combo). Go live is solid Chili (owner, 2026-09-24) | Backgrounds, cards, headings, dividers, ordinary buttons, Go live |
 | **Value (gold)** | `text-value` (#F5C76E), `<Money>` | Money: amounts, prices, the wallet | Anything that isn't a currency amount |
 | **Foil** | `bg-foil`, `text-foil` | The Wolf's pelt and rank #1, and nothing else. At most once per screen | Anywhere else |
 
@@ -71,9 +71,9 @@ Nothing has a square corner.
 
 ## Light
 
-- **On a picture**, anything you touch wears the object language: `.obj` (black 55%, hairline, lit top edge, lift). The one control that's on is `.obj-on` (white with a glow). Never blur on a picture; it has to read on any frame.
-- **Off the picture**, quiet controls are `bg-control` with a lit top edge (`shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]`).
-- **Glows** light the colour a thing already is: `shadow-glow-chili`, `-white`, `-heat` — never an Ember surface (flat, dark ink). Chat is flat too: no capsules, sheens or lit edges on its lines (owner, 2026-09-25).
+- **On a picture**, anything you touch wears the object language: `.obj`, flat black at 55% — no hairline, lit edge or lift. The one control that's on is `.obj-on`, flat white. Never blur on a picture; it has to read on any frame.
+- **Off the picture**, quiet controls are flat `bg-control`.
+- **No glows.** The `shadow-glow-*` tokens stay defined for the reference page, but nothing in the product wears them: an Ember surface is the fill and dark ink; chat lines have no capsules, sheens or lit edges; live rings, battle bars and LIVE badges are flat (owner, 2026-09-25). Elevation that separates a menu or dialog from the page (a drop shadow) is not gloss and stays.
 - **Glass is for navigation only**: the tab bar (`.tabbar-glass`) and sticky headers.
 - **Sheets** use `.sheet-obj`: a lit top edge and a deep shadow.
 

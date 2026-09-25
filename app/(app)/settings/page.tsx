@@ -103,7 +103,7 @@ export default function SettingsPage() {
                   on ? "font-bold text-foreground" : "font-medium text-foreground/50 hover:text-foreground/85",
                 )}
               >
-                {on && <span aria-hidden className="absolute inset-x-0 -bottom-px mx-auto h-[2px] w-5 rounded-full bg-ember shadow-glow-ember motion-safe:animate-[xt-pop_.3s_var(--ease-spring)_both]" />}
+                {on && <span aria-hidden className="absolute inset-x-0 -bottom-px mx-auto h-[2px] w-5 rounded-full bg-ember motion-safe:animate-[xt-pop_.3s_var(--ease-spring)_both]" />}
                 {s.label}
               </a>
             );
@@ -326,7 +326,7 @@ function ProfileSection() {
                 <button type="button" onClick={discard} className="press h-11 rounded-full px-4 text-[14px] font-semibold text-muted-foreground hover:text-foreground">
                   Discard
                 </button>
-                <button type="button" onClick={save} disabled={saving} className="press h-11 rounded-full bg-white px-6 text-[14.5px] font-semibold text-[#0b0708] shadow-glow-white disabled:opacity-60">
+                <button type="button" onClick={save} disabled={saving} className="press h-11 rounded-full bg-white px-6 text-[14.5px] font-semibold text-[#0b0708] disabled:opacity-60">
                   {saving ? "Saving…" : "Save changes"}
                 </button>
               </div>
@@ -701,7 +701,7 @@ function FeedSection() {
               type="button"
               onClick={save}
               disabled={!dirty || saving}
-              className="press h-11 rounded-full bg-white text-[14.5px] font-semibold text-[#0b0708] shadow-glow-white transition-opacity disabled:opacity-40 disabled:shadow-none"
+              className="press h-11 rounded-full bg-white text-[14.5px] font-semibold text-[#0b0708] transition-opacity disabled:opacity-40 disabled:shadow-none"
             >
               {saving ? "Updating…" : dirty ? "Update my feed" : "Feed's up to date"}
             </button>

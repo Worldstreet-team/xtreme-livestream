@@ -119,7 +119,7 @@ export function VividLauncher({ variant, className = "" }: { variant: "pill" | "
         onClick={onClick}
         aria-label={label}
         title={label}
-        className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full shadow-[0_0_20px_-6px_rgba(248,88,16,0.8)] ${className}`}
+        className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full ${className}`}
       >
         <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />
       </button>
@@ -131,7 +131,7 @@ export function VividLauncher({ variant, className = "" }: { variant: "pill" | "
       type="button"
       onClick={onClick}
       aria-label={label}
-      className={`press flex h-10 shrink-0 items-center gap-2 rounded-full bg-control pr-4 pl-1 text-[13.5px] font-semibold whitespace-nowrap text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] transition-colors hover:bg-control-hover ${className}`}
+      className={`press flex h-10 shrink-0 items-center gap-2 rounded-full bg-control pr-4 pl-1 text-[13.5px] font-semibold whitespace-nowrap text-foreground transition-colors hover:bg-control-hover ${className}`}
     >
       <span className="relative flex size-8 items-center justify-center">
         <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />

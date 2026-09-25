@@ -139,7 +139,7 @@ function RailButton({
         className={cn(
           "relative flex size-12 items-center justify-center rounded-full transition-colors",
           tone === "obj" && "obj text-white",
-          tone === "chili" && "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)]",
+          tone === "chili" && "bg-chili text-white",
           tone === "ember" && "bg-ember text-on-ember",
           pulse && "animate-pulse"
         )}

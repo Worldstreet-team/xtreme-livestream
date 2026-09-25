@@ -3,9 +3,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * The small label that sits on a picture: LIVE, a viewer count, an uptime,
- * a category. Afterglow's object language — black at 55%, a hairline edge
- * and a lit top — so it reads on any frame without a box behind it. LIVE is
- * solid Chili with a glow (the tally); `value` is money, in gold.
+ * a category. Flat (owner, 2026-09-25: "yes i want them flat too") — black
+ * at 55% so it reads on any frame, no edge, no sheen, no glow. LIVE is solid
+ * Chili; `value` is money, in gold.
  */
 
 export type BadgeVariant =
@@ -28,18 +28,17 @@ const SIZE: Record<BadgeSize, string> = {
   md: "h-7 gap-1.5 px-2.5 text-xs",
 };
 
-const OBJ = "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),inset_0_1px_0_rgba(255,255,255,0.1)]";
 
 const VARIANT: Record<BadgeVariant, string> = {
-  glass: `bg-black/55 text-white ${OBJ}`,
-  dark: `bg-black/70 text-white/95 ${OBJ}`,
-  live: "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_6px_18px_-6px_rgba(227,18,42,0.85)]",
-  muted: "bg-white/[0.06] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
+  glass: "bg-black/55 text-white",
+  dark: "bg-black/70 text-white/95",
+  live: "bg-chili text-white",
+  muted: "bg-white/[0.06] text-muted-foreground",
   ember: "bg-ember text-on-ember",
-  value: "bg-black/60 text-value shadow-[inset_0_0_0_1px_rgba(245,199,110,0.35),inset_0_1px_0_rgba(255,255,255,0.08)]",
+  value: "bg-black/60 text-value",
   default: "bg-primary text-primary-foreground",
-  secondary: "bg-white/[0.06] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
-  destructive: "bg-chili/15 text-chili-hi shadow-[inset_0_0_0_1px_rgba(255,90,102,0.3)]",
+  secondary: "bg-white/[0.06] text-muted-foreground",
+  destructive: "bg-chili/15 text-chili-hi",
   outline: "text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.16)]",
 };
 

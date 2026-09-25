@@ -46,7 +46,7 @@ export function GlassPopover({
       data-glass-popover
       style={style}
       className={cn(
-        "animate-rise z-[70] overflow-hidden rounded-panel bg-popover shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08),inset_0_1px_0_rgba(255,255,255,0.06),0_24px_60px_-20px_rgba(0,0,0,0.9)]",
+        "animate-rise z-[70] overflow-hidden rounded-panel bg-popover shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)]",
         className
       )}
     >

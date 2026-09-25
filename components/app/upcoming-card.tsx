@@ -143,8 +143,8 @@ export function RemindButton({
             ? "obj text-white [&>svg]:text-ember-hi"
             : "bg-ember/15 text-ember-hi"
           : onPicture
-            ? "bg-white text-[#0b0708] shadow-glow-white hover:bg-white/90"
-            : "bg-control text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.09)] hover:bg-control-hover",
+            ? "bg-white text-[#0b0708] hover:bg-white/90"
+            : "bg-control text-foreground hover:bg-control-hover",
         className
       )}
     >

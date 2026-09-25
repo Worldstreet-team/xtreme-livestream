@@ -143,7 +143,7 @@ export function GiftKeyboard({
           disabled={busy || !valid || exceeds}
           className={cn(
             "press flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full text-sm font-semibold text-white transition-[filter,opacity] disabled:cursor-not-allowed disabled:opacity-50",
-            "bg-heat shadow-[inset_0_1px_0_rgba(255,255,255,0.42),var(--glow-heat)] hover:brightness-110"
+            "bg-heat hover:brightness-110"
           )}
         >
           {busy ? (

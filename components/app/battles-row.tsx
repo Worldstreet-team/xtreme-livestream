@@ -143,7 +143,7 @@ function BattleCard({ battle: b, now }: { battle: BattleView; now: number }) {
             on both sides of the white seam — and no amounts (owner). */}
         {isLive && (
           <span className="absolute inset-x-5 bottom-3.5 flex h-2 overflow-hidden rounded-full bg-black/40 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]">
-            <span className="h-full rounded-l-full bg-chili shadow-[0_0_14px_rgba(227,18,42,0.9)] transition-[width] duration-700" style={{ width: `${share * 100}%` }} />
+            <span className="h-full rounded-l-full bg-chili transition-[width] duration-700" style={{ width: `${share * 100}%` }} />
             <span className="h-full w-[2px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
             <span className="h-full flex-1 rounded-r-full bg-ember" />
           </span>
