@@ -2553,7 +2553,7 @@ export default function StudioPage() {
             <>
               {roomHeader}
               <div className={cn("min-h-0 flex-1", panel !== "chat" && "hidden")}>
-                {streamId && <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost />}
+                {streamId && <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost hostUsername={user?.username} />}
               </div>
               {panelBody}
             </>
@@ -2567,7 +2567,7 @@ export default function StudioPage() {
       {isLive && streamId && mode === "phone" && (
         <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} header={<div className="pb-1">{roomHeader}</div>}>
           <div className={cn("h-full", panel !== "chat" && "hidden")}>
-            <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost variant="sheet" />
+            <LiveChat streamId={streamId} room={liveRoom} isLive={isLive} isHost hostUsername={user?.username} variant="sheet" />
           </div>
           {panel !== "chat" && <div className="flex h-full flex-col">{panelBody}</div>}
         </DragSheet>

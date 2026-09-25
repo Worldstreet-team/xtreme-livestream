@@ -57,7 +57,7 @@ export function BattleBar({
       >
         <Side side={battle.host} won={ended && battle.winnerId === battle.host.userId} align="left" />
 
-        <div className="relative h-2.5 min-w-0 flex-1 rounded-full bg-ember shadow-[0_0_16px_-4px_rgba(248,88,16,0.7)]">
+        <div className="relative h-2.5 min-w-0 flex-1 rounded-full bg-ember">
           <div
             className="absolute inset-y-0 left-0 rounded-full bg-chili shadow-[0_0_16px_-2px_rgba(227,18,42,0.85)] transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]"
             style={{ width: `${share * 100}%` }}

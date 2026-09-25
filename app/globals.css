@@ -167,6 +167,34 @@
   }
 }
 
+/* The flat gift banner: in from the left, out the same way. */
+@keyframes gift-slide-in {
+  from {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes gift-slide-out {
+  to {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+}
+/* A combo count landing: big, then settling. */
+@keyframes gift-combo-pop {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
 @keyframes gift-float {
   0% {
     transform: translateY(16px);

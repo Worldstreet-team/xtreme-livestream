@@ -29,6 +29,7 @@ import {
 import { Empty } from "@/components/app/empty";
 import { Pill, PillLink } from "@/components/ui/pill";
 import { Badge, LiveBadge } from "@/components/ui/badge";
+import { centsToDollars } from "@/lib/gifts";
 import { IconButton } from "@/components/ui/icon-button";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
@@ -37,7 +38,7 @@ import { BattleBar } from "@/components/app/battle-bar";
 import { LivePreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
-import { SupportersStrip, ScheduleList } from "@/components/app/supporters-strip";
+import { ScheduleList } from "@/components/app/supporters-strip";
 import { CalendarBlank } from "@/components/icons";
 import type { GameView } from "@/lib/games";
 import Link from "next/link";
@@ -139,7 +140,7 @@ function RailButton({
           "relative flex size-12 items-center justify-center rounded-full transition-colors",
           tone === "obj" && "obj text-white",
           tone === "chili" && "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)]",
-          tone === "ember" && "bg-ember text-on-ember shadow-glow-ember",
+          tone === "ember" && "bg-ember text-on-ember",
           pulse && "animate-pulse"
         )}
       >
@@ -203,6 +204,8 @@ export default function StreamPage({
   const [allyBurst, setAllyBurst] = useState(0);
   /** Share fell back to the clipboard — say so for a moment. */
   const [copied, setCopied] = useState(false);
+  /** Phones: the top gifters list, opened from their faces in the top bar. */
+  const [showGifters, setShowGifters] = useState(false);
   const [elapsed, setElapsed] = useState("0:00");
 
   // LiveKit
@@ -1688,7 +1691,7 @@ export default function StreamPage({
    */
   const allyButton = (size: "sm" | "md") =>
     isOwner ? null : !user ? (
-      <PillLink external href={signInHref(`/stream/${id}`)} size={size} variant="primary" icon={<Heart size={size === "sm" ? 13 : 16} weight="fill" />}>
+      <PillLink external href={signInHref(`/stream/${id}`)} size={size} variant="primary" icon={<Heart size={size === "sm" ? 13 : 16} weight="fill" />} className="shadow-none!">
         Ally
       </PillLink>
     ) : (
@@ -1714,6 +1717,8 @@ export default function StreamPage({
           disabled={followLoading}
           aria-pressed={isFollowing}
           title={isFollowing ? `You're allied with ${hostName} — tap to leave` : `Ally with ${hostName}`}
+          // Flat, no glow (owner, 2026-09-25: "i don't like the glossy looks").
+          className="shadow-none!"
         >
           {isFollowing ? "Allied" : "Ally"}
         </Pill>
@@ -1975,7 +1980,10 @@ export default function StreamPage({
           )}
         </div>
 
-        <GiftOverlay onReady={handleGiftOverlayReady} />
+        {/* Light falls off at the bottom, so the chat lane reads on any picture. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+        {/* Gift banners ride above the chat lane, not over it. */}
+        <GiftOverlay onReady={handleGiftOverlayReady} laneBottom="calc(34dvh + 96px + env(safe-area-inset-bottom))" />
         <FloatingHearts onReady={handleHeartsReady} />
 
         {/* Status overlays */}
@@ -2064,11 +2072,56 @@ export default function StreamPage({
           <div className="mt-2 flex items-center gap-1.5">
             {stream.isLive && <LiveBadge size="md" />}
             <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
-              <Badge variant="glass" size="md" className="max-w-[60vw] truncate">
+              <Badge variant="glass" size="md" className="max-w-[44vw] truncate">
                 {stream.category}
               </Badge>
             </Link>
+            {/* The room's top gifters, TikTok-style: their faces up top,
+                ranked, and the list a tap away. */}
+            {topGifters.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowGifters((v) => !v)}
+                aria-expanded={showGifters}
+                aria-label="Top gifters"
+                className="press ml-auto flex shrink-0 -space-x-2 pb-1"
+              >
+                {topGifters.slice(0, 3).map((g, i) => (
+                  <span key={g.userId ?? g.username} className="relative">
+                    <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7 ring-2 ring-black" />
+                    <span
+                      className={cn(
+                        "absolute -bottom-1 left-1/2 flex h-3.5 min-w-3.5 -translate-x-1/2 items-center justify-center rounded-full px-0.5 font-mono text-[8.5px] font-bold ring-2 ring-black",
+                        i === 0 ? "bg-value text-[#1b1406]" : "bg-white text-[#0b0708]"
+                      )}
+                    >
+                      {i + 1}
+                    </span>
+                  </span>
+                ))}
+              </button>
+            )}
           </div>
+          {showGifters && topGifters.length > 0 && (
+            <div className="mt-2 ml-auto w-[min(270px,calc(100vw-24px))] animate-in rounded-[16px] bg-black/80 p-1.5 duration-200 fade-in slide-in-from-top-1">
+              <p className="flex items-center gap-1.5 px-2 pt-1.5 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase">
+                <Crown size={12} weight="fill" className="text-value" />
+                Top gifters
+              </p>
+              {topGifters.slice(0, 5).map((g, i) => (
+                <Link
+                  key={g.userId ?? g.username}
+                  href={`/c/${g.username}`}
+                  className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
+                >
+                  <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-value" : "text-white/55")}>{i + 1}</span>
+                  <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{g.displayName || g.username}</span>
+                  <span className="font-mono text-[12px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Unmute — the one control that never hides. */}
@@ -2162,6 +2215,8 @@ export default function StreamPage({
               isLive={stream.isLive}
               isHost={isOwner}
               initialPinned={stream.pinnedMessage ?? null}
+                  topGifters={topGifters}
+                  hostUsername={streamer.username}
               variant="overlay"
             />
           </div>
@@ -2564,6 +2619,8 @@ export default function StreamPage({
                   room={roomRef.current}
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
+                  topGifters={topGifters}
+                  hostUsername={streamer.username}
                 />
               </aside>
             )}
@@ -2577,6 +2634,8 @@ export default function StreamPage({
                 room={roomRef.current}
                 isLive={stream.isLive}
                 initialPinned={stream.pinnedMessage ?? null}
+                  topGifters={topGifters}
+                  hostUsername={streamer.username}
               />
             </div>
           )}
@@ -2731,41 +2790,16 @@ export default function StreamPage({
               </span>
             </p>
 
-            {/* One row, two columns: the supporters strip on the left, fading
-                at its edge when it overflows; the schedule on the right with
-                live countdowns. */}
-            {(topGifters.length > 0 || hostUpcoming.length > 0) && (
-              <div className="mt-10 grid grid-cols-1 gap-8 @2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                {topGifters.length > 0 && (
-                  <section aria-labelledby="watch-supporters" className="min-w-0">
-                    <h2 id="watch-supporters" className={SECTION_TITLE}>
-                      <Crown size={17} weight="fill" className="shrink-0 text-ember" />
-                      Top supporters
-                    </h2>
-                    <SupportersStrip gifters={topGifters} />
-                  </section>
-                )}
-                <section
-                  aria-labelledby="watch-schedule"
-                  className={cn("min-w-0", topGifters.length === 0 && "@2xl:col-span-2")}
-                >
-                  <h2 id="watch-schedule" className={SECTION_TITLE}>
-                    <CalendarBlank size={17} weight="bold" className="shrink-0 text-muted-foreground" />
-                    <span className="truncate">Coming up</span>
-                  </h2>
-                  {hostUpcoming.length > 0 ? (
-                    <ScheduleList items={hostUpcoming} />
-                  ) : (
-                    <p className="rounded-[14px] bg-surface px-4 py-5 text-sm text-muted-foreground">
-                      Nothing scheduled yet —{" "}
-                      <Link href={`/c/${streamer.username}`} className="font-semibold text-foreground underline-offset-2 hover:underline">
-                        see when {hostName} usually streams
-                      </Link>
-                      .
-                    </p>
-                  )}
-                </section>
-              </div>
+            {/* The host's next broadcasts, with live countdowns. (The top
+                gifters moved into the chat, where the room reads them.) */}
+            {hostUpcoming.length > 0 && (
+              <section aria-labelledby="watch-schedule" className="mt-10 min-w-0">
+                <h2 id="watch-schedule" className={SECTION_TITLE}>
+                  <CalendarBlank size={17} weight="bold" className="shrink-0 text-muted-foreground" />
+                  <span className="truncate">Coming up</span>
+                </h2>
+                <ScheduleList items={hostUpcoming} />
+              </section>
             )}
 
             {/* Then what this audience also watches — always there, no tab. */}
@@ -2794,37 +2828,6 @@ export default function StreamPage({
           </div>
         </div>
 
-        {/* Gift rail — the room's top supporters, at a glance, between the
-            player and the chat. Slim on purpose: it is a leaderboard, not a
-            panel. */}
-        {topGifters.length > 0 && !theaterMode && chatPlacement === "side" && (
-          <aside
-            aria-label="Top supporters"
-            className="hidden w-16 shrink-0 flex-col items-center gap-3 py-4 lg:flex"
-          >
-            <span className="mb-1 flex size-8 items-center justify-center rounded-full bg-ember text-on-ember shadow-glow-ember">
-              <Crown size={15} weight="fill" />
-            </span>
-            {topGifters.slice(0, 8).map((g, i) => (
-              <Link
-                key={g.userId ?? g.username}
-                href={`/c/${g.username}`}
-                title={`${g.displayName || g.username} · $${(g.totalUsdMinor / 100).toFixed(2)}`}
-                // Rank rings as on the top gifters board: #1 Ember, #2
-                // white, #3 Chili, then quiet.
-                className={cn(
-                  "press rounded-full p-[2px]",
-                  i === 0 ? "bg-ember" : i === 1 ? "bg-white/70" : i === 2 ? "bg-chili" : "bg-white/[0.12]"
-                )}
-              >
-                <span className="block rounded-full bg-background p-[2px]">
-                  <UserAvatar src={g.avatar} name={g.displayName || g.username} size={32} className="size-8" />
-                </span>
-              </Link>
-            ))}
-          </aside>
-        )}
-
         {/* Chat sidebar */}
         <div
           className={cn(
@@ -2843,6 +2846,8 @@ export default function StreamPage({
                   room={roomRef.current}
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
+                  topGifters={topGifters}
+                  hostUsername={streamer.username}
                 />
               </div>
             </div>

@@ -272,8 +272,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function NextUpTile({ next, more, live, now }: { next: RowItem | null; more: number; live: boolean; now: number }) {
   return (
-    <div className="relative isolate flex min-h-[300px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_24px_60px_-30px_rgba(0,0,0,0.9)] md:p-7 lg:col-span-5">
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-1/2 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0))]" />
+    <div className="relative isolate flex min-h-[300px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 md:p-7 lg:col-span-5">
       <div className="flex items-center justify-between gap-3">
         <p className="caps font-mono text-[10.5px] text-on-ember/70">{live ? "On air" : "Next up"}</p>
         {!live && more > 0 && (

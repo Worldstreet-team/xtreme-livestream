@@ -23,7 +23,7 @@ Feature code imports from `@/components/xtream` and uses **roles, never hex**. A
 | Role | Token / utility | Use it for | Never |
 | --- | --- | --- | --- |
 | **Chili** | `bg-chili` (#E3122A, white text 4.8:1), `text-chili-hi` (#FF5A66, 6.6:1 on ground), `chili-lo` pressed | Live and action: LIVE, Go live once on air, recording, counts that need you now | Selection, decoration |
-| **Ember** | `bg-ember` (#F85810) with `text-on-ember` ink (5.9:1), `text-ember-hi` (#FF8A4C, 8.6:1), `ring-ember` | Energy and choice: the focus ring, selected/switched on, progress, links, streaks, the ×2 window | White text on an Ember fill |
+| **Ember** | `bg-ember` (#F85810) with `text-on-ember` ink (5.9:1), `text-ember-hi` (#FF8A4C, 8.6:1), `ring-ember` | Energy and choice: the focus ring, selected/switched on, progress, links, streaks, the ×2 window. An Ember surface is **flat**: the fill and dark ink, nothing else (owner, 2026-09-25) | White text on an Ember fill; a sheen, lit edge or glow on an Ember surface |
 | **White** | `bg-white text-[#0b0708]`, `shadow-glow-white` | The one neutral primary on a surface; whatever is *on* in chips and tabs | Two white primaries in one decision |
 | **Heat** | `bg-heat`, `text-heat`, `shadow-glow-heat` | **Two homes only**: rings (live/story avatars, the ally burst) and gift moments (the burst, a picked/sent gift, the combo). Go live is solid Chili (owner, 2026-09-24) | Backgrounds, cards, headings, dividers, ordinary buttons, Go live |
 | **Value (gold)** | `text-value` (#F5C76E), `<Money>` | Money: amounts, prices, the wallet | Anything that isn't a currency amount |
@@ -73,7 +73,7 @@ Nothing has a square corner.
 
 - **On a picture**, anything you touch wears the object language: `.obj` (black 55%, hairline, lit top edge, lift). The one control that's on is `.obj-on` (white with a glow). Never blur on a picture; it has to read on any frame.
 - **Off the picture**, quiet controls are `bg-control` with a lit top edge (`shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]`).
-- **Glows** light the colour a thing already is: `shadow-glow-chili`, `-ember`, `-white`, `-heat`.
+- **Glows** light the colour a thing already is: `shadow-glow-chili`, `-white`, `-heat` — never an Ember surface (flat, dark ink). Chat is flat too: no capsules, sheens or lit edges on its lines (owner, 2026-09-25).
 - **Glass is for navigation only**: the tab bar (`.tabbar-glass`) and sticky headers.
 - **Sheets** use `.sheet-obj`: a lit top edge and a deep shadow.
 

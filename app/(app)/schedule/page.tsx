@@ -353,9 +353,8 @@ export default function SchedulePage() {
           {/* ── Book ─────────────────────────────────────────────────── */}
           <section
             aria-labelledby="book-title"
-            className="relative isolate flex flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_24px_60px_-30px_rgba(0,0,0,0.9)] md:p-8 lg:col-span-5"
+            className="relative isolate flex flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 md:p-8 lg:col-span-5"
           >
-            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-1/2 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0))]" />
             <h2 id="book-title" className="caps font-mono text-[10.5px] text-on-ember/70">
               You&apos;re going live
             </h2>
@@ -382,7 +381,7 @@ export default function SchedulePage() {
                 type="button"
                 onClick={book}
                 disabled={busy || !user}
-                className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#0b0708] shadow-[0_10px_24px_-12px_rgba(28,10,3,0.6)] disabled:opacity-60"
+                className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#0b0708] disabled:opacity-60"
               >
                 <CalendarPlus size={18} weight="bold" />
                 {busy ? "Booking…" : "Book it"}

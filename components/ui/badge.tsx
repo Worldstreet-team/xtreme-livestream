@@ -35,7 +35,7 @@ const VARIANT: Record<BadgeVariant, string> = {
   dark: `bg-black/70 text-white/95 ${OBJ}`,
   live: "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_6px_18px_-6px_rgba(227,18,42,0.85)]",
   muted: "bg-white/[0.06] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
-  ember: "bg-ember text-on-ember shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]",
+  ember: "bg-ember text-on-ember",
   value: "bg-black/60 text-value shadow-[inset_0_0_0_1px_rgba(245,199,110,0.35),inset_0_1px_0_rgba(255,255,255,0.08)]",
   default: "bg-primary text-primary-foreground",
   secondary: "bg-white/[0.06] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",

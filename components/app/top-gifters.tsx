@@ -19,7 +19,7 @@ interface Gifter {
 }
 
 /** Rank chips on the ember ground: #1 ink, #2 white, #3 Chili. */
-const RANK_CHIP = ["bg-on-ember text-white", "bg-white text-[#0b0708]", "bg-chili text-white"];
+const RANK_CHIP = ["bg-on-ember text-ember", "bg-on-ember/[0.16] text-on-ember", "bg-on-ember/[0.16] text-on-ember"];
 /** The board's own ground — solid Ember (owner, 2026-09-24: "i just need the solid ember"); ink sits on it. */
 const GROUND = "bg-ember";
 
@@ -30,7 +30,7 @@ function Podium({ g, rank }: { g: Gifter; rank: 0 | 1 | 2 }) {
       href={`/c/${g.username}`}
       className={cn("group/pod flex min-w-0 flex-col items-center text-center", first ? "-mt-1 flex-[1.3]" : "mt-5 flex-1")}
     >
-      {first && <Crown size={18} weight="fill" className="mb-1 text-white drop-shadow-[0_2px_6px_rgba(28,10,3,0.35)]" aria-hidden />}
+      {first && <Crown size={18} weight="fill" className="mb-1 text-on-ember" aria-hidden />}
       <span className="relative">
         <UserAvatar
           src={g.avatar}
@@ -95,11 +95,10 @@ export function TopGiftersBoard({ heading, className }: { heading?: ReactNode; c
           upper half, like lacquer. No pattern (owner, 2026-09-24). */}
       <div
         className={cn(
-          "relative isolate overflow-hidden rounded-panel px-3 pt-4 pb-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_18px_40px_-24px_rgba(0,0,0,0.9)]",
+          "relative isolate overflow-hidden rounded-panel px-3 pt-4 pb-2.5",
           GROUND,
         )}
       >
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-1/2 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0))]" />
         <div className="flex items-start gap-2">
           {two ? <Podium g={two} rank={1} /> : <span className="flex-1" />}
           <Podium g={one} rank={0} />

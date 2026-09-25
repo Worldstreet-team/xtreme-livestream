@@ -35,7 +35,7 @@ export function BalancePills({ size = "md", className }: { size?: "sm" | "md"; c
   return (
     <div className={cn("flex gap-2", className)}>
       <Link href="/rewards" className={pill} aria-label={points === null ? "Points" : `${points.toLocaleString()} points`}>
-        <span aria-hidden className="size-3 shrink-0 rounded-full bg-ember shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]" />
+        <span aria-hidden className="size-3 shrink-0 rounded-full bg-ember" />
         <span className="truncate">{points === null ? "—" : size === "sm" ? points.toLocaleString() : `${points.toLocaleString()} pts`}</span>
       </Link>
       <Link href="/wallet" className={pill} aria-label="Wallet">

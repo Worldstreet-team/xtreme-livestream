@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  *  - primary  white: the one neutral action on a surface (Ally, Watch)
  *  - live     Chili, solid: things that are on air, or put you on air
  *  - heat     the gradient — Go live and gift moments only (the allowlist)
- *  - ember    Ember, solid, dark ink: energy — claim, join, start a game
+ *  - ember    Ember, flat, dark ink: energy — claim, join, start a game
  *  - glass    the quiet control: warm charcoal with a lit top edge
  *  - soft     a tinted control in a tone, for states
  *  - ghost    text only, for the least important thing in a row
@@ -43,7 +43,7 @@ const VARIANT: Record<PillVariant, string> = {
   primary: "bg-white text-[#0b0708] shadow-glow-white hover:bg-white/90",
   live: "bg-chili text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),var(--glow-chili)] hover:brightness-110",
   heat: "bg-heat text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.42),inset_0_-8px_16px_-8px_rgba(120,10,0,0.5),var(--glow-heat)] hover:brightness-110",
-  ember: "bg-ember text-on-ember shadow-glow-ember hover:brightness-105",
+  ember: "bg-ember text-on-ember hover:brightness-105",
   glass: `bg-control text-foreground/90 ${LIT} hover:bg-control-hover hover:text-foreground`,
   soft: "",
   ghost: "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",

@@ -286,10 +286,9 @@ function BalanceTile({ balance, rules, gain }: { balance: number; rules: Rewards
   return (
     <div
       className={cn(
-        "relative isolate flex min-h-[248px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_24px_60px_-30px_rgba(0,0,0,0.9)] md:col-span-6 lg:col-span-5 md:p-7",
+        "relative isolate flex min-h-[248px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 md:col-span-6 lg:col-span-5 md:p-7",
       )}
     >
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-1/2 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),rgba(255,255,255,0))]" />
       <div className="flex items-center justify-between">
         <p className="caps font-mono text-[10.5px] text-on-ember/70">Balance</p>
         <span className="flex items-center gap-1.5 rounded-full bg-on-ember/10 px-2.5 py-1 text-[11.5px] font-semibold text-on-ember/85">
@@ -399,7 +398,7 @@ function StreakTile({ streak }: { streak: Rewards["streak"] }) {
               <span
                 className={cn(
                   "size-2.5 rounded-full transition-colors",
-                  d.active ? "bg-ember shadow-[0_0_10px_rgba(248,88,16,0.8)]" : "bg-white/[0.09]",
+                  d.active ? "bg-ember" : "bg-white/[0.09]",
                   i === streak.week.length - 1 && !d.active && "ring-1 ring-ember/60",
                 )}
               />
@@ -459,7 +458,7 @@ function QuestCard({ quest, onClaim }: { quest: Quest; onClaim: (q: Quest) => Pr
         <span className={cn("flex size-10 items-center justify-center rounded-control", quest.claimed ? "bg-white/[0.05] text-muted-foreground" : quest.claimable ? "bg-on-ember/10 text-on-ember" : "bg-control text-foreground")}>
           <Icon size={20} weight={quest.claimable ? "fill" : "regular"} />
         </span>
-        <span className={cn("rounded-full px-2.5 py-1 font-mono text-[12px] font-bold tabular-nums", quest.claimed ? "bg-white/[0.05] text-muted-foreground" : quest.claimable ? "bg-on-ember text-white" : "bg-ember/[0.14] text-ember-hi")}>
+        <span className={cn("rounded-full px-2.5 py-1 font-mono text-[12px] font-bold tabular-nums", quest.claimed ? "bg-white/[0.05] text-muted-foreground" : quest.claimable ? "bg-on-ember/[0.12] text-on-ember" : "bg-ember/[0.14] text-ember-hi")}>
           +{formatPoints(quest.points)}
         </span>
       </div>
@@ -481,7 +480,7 @@ function QuestCard({ quest, onClaim }: { quest: Quest; onClaim: (q: Quest) => Pr
             type="button"
             onClick={claim}
             disabled={busy}
-            className="press flex h-10 w-full items-center justify-center gap-2 rounded-full bg-white text-[14px] font-semibold text-[#0b0708] shadow-[0_8px_20px_-10px_rgba(28,10,3,0.6)] transition-opacity disabled:opacity-70"
+            className="press flex h-10 w-full items-center justify-center gap-2 rounded-full bg-white text-[14px] font-semibold text-[#0b0708] transition-opacity disabled:opacity-70"
           >
             {busy ? "Claiming…" : `Claim +${formatPoints(quest.points)}`}
             {!busy && <ArrowRight size={15} weight="bold" />}

@@ -1,0 +1,298 @@
+"use client";
+
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { Crown, HandWaving, ShieldStar, UsersThree } from "@/components/icons";
+import { UserAvatar } from "@/components/ui/user-avatar";
+import { GiftArt } from "@/components/app/gift-art";
+import { centsToDollars, giftByEmoji } from "@/lib/gifts";
+import { cn } from "@/lib/utils";
+import { giftUnit, nameColor, type ChatMsg } from "./lines";
+
+/**
+ * How chat reads, line by line. Flat on purpose (owner, 2026-09-25: "i
+ * don't like the glossy looks in the chat") — no capsules, sheens or lit
+ * edges. On the panel it's a Twitch-style log: coloured names, small
+ * badges, a gift as a quiet block with its amount in gold. Over video it's
+ * TikTok's lane: words straight on the picture with a shadow to hold them.
+ */
+export type ChatSkin = "panel" | "overlay";
+
+/** On video, words need a shadow instead of a box. */
+export const ON_VIDEO = "[text-shadow:0_1px_2px_rgba(0,0,0,0.9),0_0_14px_rgba(0,0,0,0.4)]";
+
+export interface Supporter {
+  userId?: string;
+  username: string;
+  displayName?: string;
+  avatar: string;
+  totalUsdMinor: number;
+}
+
+function time(at: number) {
+  return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Who's speaking: the host, a mod, a top gifter, someone from WorldSpace. */
+export function Badges({
+  host,
+  mod,
+  rank,
+  platform,
+}: {
+  host?: boolean;
+  mod?: boolean;
+  rank?: number;
+  platform?: ChatMsg["platform"];
+}) {
+  return (
+    <>
+      {host && (
+        <span className="mr-1 inline-flex h-4 items-center rounded-[4px] bg-chili px-1 align-[1px] text-[9.5px] font-bold tracking-wide text-white uppercase">
+          Host
+        </span>
+      )}
+      {mod && (
+        <ShieldStar size={13} weight="fill" aria-label="Moderator" className="mr-1 inline align-[-2px] text-[#86EFAC]" />
+      )}
+      {rank !== undefined && (
+        <span
+          title={`Top gifter #${rank}`}
+          className={cn(
+            "mr-1 inline-flex h-4 items-center rounded-[4px] px-1 align-[1px] font-mono text-[9.5px] font-bold tabular-nums",
+            rank === 1 ? "bg-value text-[#1b1406]" : "bg-white/[0.14] text-white/90"
+          )}
+        >
+          No.{rank}
+        </span>
+      )}
+      {(platform === "socials" || platform === "worldspace") && (
+        <span className="mr-1 inline-flex h-4 items-center rounded-[4px] bg-sky-500/15 px-1 align-[1px] text-[9px] font-bold tracking-wide text-sky-300 uppercase">
+          WorldSpace
+        </span>
+      )}
+    </>
+  );
+}
+
+/** Someone speaking — or an emoji reaction, which is just a louder word. */
+export function MessageLine({
+  msg,
+  skin,
+  badges,
+  highlight = false,
+  tools,
+  onTap,
+}: {
+  msg: ChatMsg;
+  skin: ChatSkin;
+  badges: ReactNode;
+  /** The line mentions you. */
+  highlight?: boolean;
+  /** The host's tools for this line, if any. */
+  tools?: ReactNode;
+  onTap?: () => void;
+}) {
+  const reaction = msg.type === "reaction";
+  if (skin === "overlay") {
+    return (
+      <div className={cn("group relative flex w-fit max-w-full items-start gap-2 py-[3px]", ON_VIDEO)} onClick={onTap}>
+        <UserAvatar src={msg.avatar} name={msg.username} size={22} className="mt-px size-[22px] shrink-0" />
+        <p className="min-w-0 text-[13.5px] leading-snug break-words text-white">
+          {badges}
+          <span className="mr-1.5 font-semibold text-white/70">{msg.username}</span>
+          <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
+        </p>
+        {tools}
+      </div>
+    );
+  }
+  return (
+    <div
+      title={time(msg.at)}
+      onClick={onTap}
+      className={cn(
+        "group relative flex gap-2 rounded-[8px] px-2 py-[5px] transition-colors hover:bg-white/[0.035]",
+        highlight && "bg-ember/[0.08] hover:bg-ember/[0.12]"
+      )}
+    >
+      <UserAvatar src={msg.avatar} name={msg.username} size={20} className="mt-[2px] size-5 shrink-0" />
+      <p className="min-w-0 flex-1 text-[13px] leading-[1.45] break-words text-foreground/90">
+        {badges}
+        <span className="mr-1.5 font-semibold" style={{ color: nameColor(msg.username) }}>
+          {msg.username}
+        </span>
+        <span className={cn(reaction && "text-[18px] leading-none")}>{msg.content}</span>
+      </p>
+      {tools}
+    </div>
+  );
+}
+
+/** A gift, or a run of the same gift (×N) — the room seeing money move. */
+export function GiftLine({
+  msg,
+  count,
+  total,
+  skin,
+  badges,
+}: {
+  msg: ChatMsg;
+  count: number;
+  total: number;
+  skin: ChatSkin;
+  badges: ReactNode;
+}) {
+  const def = giftByEmoji(msg.emoji);
+  const unit = giftUnit(msg);
+  // The catalog's verb reads like the room: "lit it up", "crowned the stream".
+  const what = def ? def.verb : msg.content || "tipped";
+  const amount =
+    unit === "usd"
+      ? centsToDollars(total)
+      : unit === "pts"
+        ? `+${total.toLocaleString()} pts`
+        : `${msg.tipAmount} ${msg.tipCurrency}`;
+  const big = unit === "usd" && total >= 1000;
+
+  if (skin === "overlay") {
+    return (
+      <div className={cn("flex w-fit max-w-full items-center gap-2 py-[3px]", ON_VIDEO)}>
+        <GiftArt emoji={msg.emoji ?? "🎁"} size={30} className="-my-1 shrink-0" />
+        <p className="min-w-0 text-[13.5px] leading-snug text-white">
+          {badges}
+          <span className="mr-1 font-semibold text-white/70">{msg.username}</span>
+          {what}
+          {count > 1 && <span className="ml-1 font-mono font-bold">×{count}</span>}
+          <span className={cn("ml-1.5 font-bold", unit === "pts" ? "text-ember-hi" : "text-value")}>{amount}</span>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className={cn("my-1 flex items-center gap-3 rounded-[12px] px-2.5 py-2", big ? "bg-ember/[0.12]" : "bg-white/[0.045]")}>
+      <GiftArt emoji={msg.emoji ?? "🎁"} size={big ? 40 : 30} className="shrink-0" />
+      <p className="min-w-0 flex-1 text-[13px] leading-snug">
+        {badges}
+        <span className="font-semibold" style={{ color: nameColor(msg.username) }}>
+          {msg.username}
+        </span>
+        <span className="text-foreground/75"> {what}</span>
+        {count > 1 && <span className="ml-1 font-mono text-[12px] font-bold text-foreground">×{count}</span>}
+      </p>
+      <span className={cn("shrink-0 font-mono text-[13px] font-bold tabular-nums", unit === "pts" ? "text-ember-hi" : "text-value")}>
+        {amount}
+      </span>
+    </div>
+  );
+}
+
+/** A run of drops as one line: the faces, who caught them, the points. */
+export function DropsLine({ catches, skin }: { catches: ChatMsg[]; skin: ChatSkin }) {
+  // Newest first, each person once.
+  const people: ChatMsg[] = [];
+  for (let i = catches.length - 1; i >= 0; i--) {
+    if (!people.some((p) => p.username === catches[i].username)) people.push(catches[i]);
+  }
+  const others = people.length - 1;
+  const points = catches.reduce((n, c) => n + (Number(c.tipAmount) || 0), 0);
+  const overlay = skin === "overlay";
+  return (
+    <div className={cn("flex items-center gap-2", overlay ? cn("w-fit max-w-full py-[3px]", ON_VIDEO) : "px-2 py-[5px]")}>
+      <span className="flex shrink-0 -space-x-1.5">
+        {people.slice(0, 3).map((p) => (
+          <UserAvatar
+            key={p.username}
+            src={p.avatar}
+            name={p.username}
+            size={overlay ? 20 : 18}
+            className={cn("ring-2", overlay ? "size-5 ring-black/60" : "size-[18px] ring-background")}
+          />
+        ))}
+      </span>
+      <p className={cn("min-w-0 flex-1 text-[12.5px] leading-snug", overlay ? "text-white/85" : "text-muted-foreground")}>
+        <span className={cn("font-semibold", overlay ? "text-white" : "text-foreground/90")}>{people[0].username}</span>
+        {others > 0 && ` and ${others} other${others === 1 ? "" : "s"}`}
+        {catches.length === 1 ? " caught a drop" : ` caught ${catches.length} drops`}
+        <span className="ml-1.5 font-semibold whitespace-nowrap text-ember-hi">+{points.toLocaleString()} pts</span>
+      </p>
+    </div>
+  );
+}
+
+/** Someone joining or leaving the stage — the room's own news. */
+export function StageLine({ msg, skin }: { msg: ChatMsg; skin: ChatSkin }) {
+  const overlay = skin === "overlay";
+  return (
+    <p className={cn("flex items-center gap-1.5 text-[12px]", overlay ? cn("w-fit py-[3px] text-white/80", ON_VIDEO) : "px-2 py-[5px] text-muted-foreground")}>
+      <UsersThree size={13} weight="fill" className="shrink-0 text-ember-hi" />
+      <span>
+        <span className={cn("font-semibold", overlay ? "text-white" : "text-foreground/90")}>{msg.username}</span> {msg.content}
+      </span>
+    </p>
+  );
+}
+
+/**
+ * Arrivals as a ticker, not rows: in a busy room a row per join drowned the
+ * conversation. One line, the latest name, and how many came with them.
+ */
+export function ArrivalTicker({
+  arrival,
+  skin,
+}: {
+  arrival: { name: string; others: number; key: number } | null;
+  skin: ChatSkin;
+}) {
+  if (!arrival) return null;
+  const overlay = skin === "overlay";
+  return (
+    <p
+      key={arrival.key}
+      aria-live="polite"
+      className={cn(
+        "flex animate-in items-center gap-1.5 text-[12px] duration-300 fade-in slide-in-from-bottom-1",
+        overlay ? cn("pointer-events-none w-fit pb-1.5 text-white/80", ON_VIDEO) : "px-4 pb-2 text-muted-foreground"
+      )}
+    >
+      <HandWaving size={13} weight="fill" className="shrink-0 text-ember-hi" />
+      <span className="min-w-0 truncate">
+        <span className={cn("font-semibold", overlay ? "text-white" : "text-foreground/90")}>{arrival.name}</span>
+        {arrival.others > 0 && ` and ${arrival.others} other${arrival.others === 1 ? "" : "s"}`} joined
+      </span>
+    </p>
+  );
+}
+
+/**
+ * The room's top gifters, leading the chat the way Twitch's leaderboard
+ * does — rank, face, name and what they've given, in gold because it's
+ * money. Replaces the column of faces that sat beside the chat.
+ */
+export function TopGiftersBar({ gifters }: { gifters: Supporter[] }) {
+  if (gifters.length === 0) return null;
+  return (
+    // Fades at the right edge when there are more than fit: the eye reads "scroll for more".
+    <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 pb-3 scrollbar-none [mask-image:linear-gradient(to_right,black_88%,transparent)]">
+      <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-muted-foreground">
+        <Crown size={13} weight="fill" className="text-value" />
+        Top
+      </span>
+      {gifters.slice(0, 5).map((g, i) => (
+        <Link
+          key={g.userId ?? g.username}
+          href={`/c/${g.username}`}
+          title={`${g.displayName || g.username} · ${centsToDollars(g.totalUsdMinor)}`}
+          className="press flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.05] py-1 pr-2.5 pl-1 transition-colors hover:bg-white/[0.09]"
+        >
+          <UserAvatar src={g.avatar} name={g.displayName || g.username} size={22} className="size-[22px]" />
+          <span className={cn("font-mono text-[10.5px] font-bold", i === 0 ? "text-value" : "text-muted-foreground")}>
+            {i + 1}
+          </span>
+          <span className="max-w-[6.5rem] truncate text-[12px] font-semibold text-foreground/90">{g.displayName || g.username}</span>
+          <span className="font-mono text-[11.5px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}

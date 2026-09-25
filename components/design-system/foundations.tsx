@@ -61,7 +61,7 @@ shadow-glow-chili        shadow-glow-ember`}
               <span>-lo <Hex>#B30E1F</Hex></span>
             </div>
           </div>
-          <div className="flex min-h-[210px] flex-col justify-between rounded-panel bg-ember p-5 text-on-ember shadow-glow-ember">
+          <div className="flex min-h-[210px] flex-col justify-between rounded-panel bg-ember p-5 text-on-ember">
             <div>
               <p className="font-wide text-[28px] leading-none font-bold tracking-[-0.03em]">Ember</p>
               <p className="mt-1 text-[13px] text-on-ember/80">Energy and choice</p>
