@@ -9,18 +9,23 @@ import {
   streamIdParamsSchema,
 } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
+import { CHAT_SLOW_MODE_SECONDS, chatPayload } from "../chat.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createToken, sendRoomData } from "../livekit.js";
+import { createToken, sendRoomData, sendRoomDataTo } from "../livekit.js";
 import { assertNotBanned } from "./moderation.js";
+import { heldView } from "./safety.js";
 import {
   ChatMessage,
   Follow,
+  Notification,
   Report,
   Stream,
   StreamLike,
   User,
 } from "../models.js";
+import { checkMessage, HELD_REASON_LABELS } from "../safety/filter.js";
+import { moderatorIdentities, roleIn } from "../safety/roles.js";
 import {
   markStreamEnded,
   parseImageDataUri,
@@ -28,11 +33,14 @@ import {
 } from "../stream-service.js";
 
 /**
- * Cooldown between messages when the streamer has slow mode on.
- * Mirrored client-side as SLOW_MODE_SECONDS in components/app/live-chat.tsx —
- * keep the two in step so the countdown matches what the server enforces.
+ * Cooldown between messages when the streamer has slow mode on
+ * (CHAT_SLOW_MODE_SECONDS, chat.ts). Mirrored client-side as
+ * SLOW_MODE_SECONDS in components/app/live-chat.tsx — keep the two in step
+ * so the countdown matches what the server enforces.
  */
-const CHAT_SLOW_MODE_SECONDS = 30;
+
+/** An account younger than this is held while Shield is up. */
+const NEW_ACCOUNT_MS = 24 * 60 * 60 * 1000;
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -364,13 +372,27 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await Stream.findById(request.params.id).select(
-        "streamerId",
+        "streamerId title",
       );
 
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      if (stream.streamerId.equals(dbUser._id)) {
+
+      // A chat line, or the stream itself. The line's words are kept with
+      // the report: it may be deleted before anyone reviews it.
+      const messageId = request.body.messageId ?? null;
+      let message: { username: string; content: string } | null = null;
+      if (messageId) {
+        const row = await ChatMessage.findOne({ _id: messageId, streamId: stream._id }).select("userId username content").lean();
+        if (!row) {
+          throw new ApiError(404, "Message not found", "MESSAGE_NOT_FOUND");
+        }
+        if (String(row.userId) === String(dbUser._id)) {
+          throw new ApiError(400, "You can't report your own message", "SELF_REPORT");
+        }
+        message = { username: row.username, content: row.content };
+      } else if (stream.streamerId.equals(dbUser._id)) {
         throw new ApiError(
           400,
           "You cannot report your own stream",
@@ -378,22 +400,44 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      await Report.updateOne(
-        { streamId: stream._id, reporterId: dbUser._id },
+      const result = await Report.updateOne(
+        { streamId: stream._id, reporterId: dbUser._id, messageId },
         {
           $set: {
             reason: request.body.reason,
             details: request.body.details ?? "",
             status: "open",
+            ...(message ? { message } : {}),
           },
+          // The response clock starts at the first report, not a repeat.
           $setOnInsert: {
             streamId: stream._id,
             streamerId: stream.streamerId,
             reporterId: dbUser._id,
+            messageId,
+            dueAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
           },
         },
         { upsert: true },
       );
+
+      // Admins hear about every new report, with the clock already running.
+      if (result.upsertedCount > 0 && config.ADMIN_USERNAMES.length > 0) {
+        const admins = await User.find({ username: { $in: config.ADMIN_USERNAMES } }).select("_id").lean();
+        if (admins.length) {
+          await Notification.insertMany(
+            admins.map((a) => ({
+              userId: a._id,
+              type: "report",
+              actorId: dbUser._id,
+              actorName: dbUser.displayName || dbUser.username,
+              streamId: stream._id,
+              streamTitle: message ? `a chat line in “${stream.title}”` : stream.title,
+              link: "/admin/reports",
+            })),
+          ).catch(() => {});
+        }
+      }
 
       return {
         success: true,
@@ -418,7 +462,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
 
-      const filter: Record<string, unknown> = { streamId: stream._id };
+      // Held lines wait for a moderator; nobody else sees them in history.
+      const filter: Record<string, unknown> = { streamId: stream._id, status: { $ne: "held" } };
       if (request.query.before) {
         filter._id = { $lt: request.query.before };
       }
@@ -473,22 +518,20 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      // The streamer's moderation settings were being collected in Settings
-      // and saved to the profile, but nothing ever read them — slow mode was
-      // enforced only by client-side state (trivially bypassed by posting
-      // directly) and subscriber-only chat did nothing at all. The host is
-      // exempt from their own restrictions.
-      const isHost = stream.streamerId.equals(dbUser._id);
-      if (!isHost) {
+      // The room's rules, enforced here — client-side state is trivially
+      // bypassed by posting directly. The host and their moderators are
+      // exempt; everyone else meets the ban list, Shield, allies-only, slow
+      // mode and the chat filter, in that order.
+      const streamer = await User.findById(stream.streamerId).select("settings safety");
+      const role = streamer ? roleIn(streamer, dbUser._id) : stream.streamerId.equals(dbUser._id) ? "host" : null;
+      const shield = Boolean(stream.shield?.on);
+      let held: ReturnType<typeof checkMessage> = null;
+      if (!role) {
         // Ban check first: a banned user's message must not slip through on
         // a stream with no other restrictions enabled.
         await assertNotBanned(stream._id, dbUser._id);
 
-        const streamer = await User.findById(stream.streamerId).select(
-          "settings",
-        );
-
-        if (streamer?.settings.subscriberOnly) {
+        if (streamer?.settings.subscriberOnly || shield) {
           const follows = await Follow.exists({
             followerId: dbUser._id,
             followingId: stream.streamerId,
@@ -496,13 +539,15 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           if (!follows) {
             throw new ApiError(
               403,
-              "This chat is for allies only — ally with the streamer to join in",
+              shield
+                ? "Shield is up — for now only allies can chat. Ally with the streamer to join in"
+                : "This chat is for allies only — ally with the streamer to join in",
               "FOLLOWERS_ONLY",
             );
           }
         }
 
-        if (streamer?.settings.slowMode) {
+        if (streamer?.settings.slowMode || shield) {
           const since = new Date(Date.now() - CHAT_SLOW_MODE_SECONDS * 1000);
           const recent = await ChatMessage.exists({
             streamId: stream._id,
@@ -517,6 +562,21 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
             );
           }
         }
+
+        // The chat filter: its switch and levels are the host's; Shield
+        // raises the floor whether or not the switch is on. Reactions are
+        // the room's own emoji, so there's nothing to read.
+        if (body.type !== "reaction") {
+          const createdAt = (dbUser as { createdAt?: Date }).createdAt;
+          const verdict = checkMessage(body.content, streamer?.settings.profanityFilter === false ? null : (streamer?.safety ?? {}), {
+            shield,
+            newAccount: createdAt ? Date.now() - new Date(createdAt).getTime() < NEW_ACCOUNT_MS : false,
+          });
+          if (verdict?.level === "block") {
+            throw new ApiError(422, "That message wasn't sent — it goes against this room's chat rules", "MESSAGE_BLOCKED");
+          }
+          held = verdict;
+        }
       }
 
       const message = await ChatMessage.create({
@@ -524,34 +584,35 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         userId: dbUser._id,
         username: dbUser.username,
         avatar: dbUser.avatar,
-        isMod: isHost,
+        isMod: role !== null,
         content: body.content,
         type: body.type,
         tipAmount: body.tipAmount ?? null,
         tipCurrency: body.tipCurrency ?? null,
         emoji: body.emoji ?? null,
         platform: body.platform,
+        status: held ? "held" : "visible",
+        heldReason: held?.category ?? "",
       });
+
+      // Held: only the host and moderators hear about it, to approve or
+      // turn down; the writer sees it waiting.
+      if (held && streamer) {
+        void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), {
+          __evt: "held",
+          message: heldView(message),
+        });
+        return {
+          success: true,
+          data: { message, held: true, reason: HELD_REASON_LABELS[held.category] },
+        };
+      }
 
       // The API fans the message into the live room. Delivery used to
       // depend on the sender's own client republishing over WebRTC, which
       // was silence for anyone whose token lacked canPublishData — the
       // usual state of cross-platform viewers. Clients dedupe on `id`.
-      void sendRoomData(stream.livekitRoomName, {
-        id: String(message._id),
-        // Moderation acts on users, not usernames — clients keep this so the
-        // host's ban/timeout buttons know whom to target.
-        userId: String(dbUser._id),
-        username: dbUser.username,
-        avatar: dbUser.avatar,
-        isMod: isHost,
-        content: body.content,
-        type: body.type,
-        tipAmount: body.tipAmount,
-        tipCurrency: body.tipCurrency,
-        emoji: body.emoji,
-        platform: body.platform,
-      });
+      void sendRoomData(stream.livekitRoomName, chatPayload(message));
 
       return { success: true, data: { message } };
     },

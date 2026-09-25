@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { AuditLog, Payout, User, type IBattle, type IPayout, type PayoutKind } from "./models.js";
+import { Payout, User, type IBattle, type IPayout, type PayoutKind } from "./models.js";
 import { awardPoints, InsufficientPointsError } from "./points.js";
 import { creditWallet, isTreasuryConfigured } from "./wallet.js";
 
@@ -28,13 +28,10 @@ export class RedeemError extends Error {
   }
 }
 
-export async function audit(actorId: mongoose.Types.ObjectId | null, action: string, targetType: string, targetId: mongoose.Types.ObjectId | null, meta: Record<string, unknown> = {}) {
-  try {
-    await AuditLog.create({ actorId, action, targetType, targetId, meta });
-  } catch (error) {
-    console.error("audit write failed:", error);
-  }
-}
+// Moved to audit.ts so moderation can write the trail without the wallet;
+// re-exported here for the modules that already import it from rewards.
+export { audit } from "./audit.js";
+import { audit } from "./audit.js";
 
 /** Try the wallet for one payout row; records the outcome either way. */
 export async function attemptPayout(payout: IPayout) {

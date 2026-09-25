@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { config } from "./config.js";
-import { Stream } from "./models.js";
+import { Report, Stream } from "./models.js";
 
 /**
  * Give pre-existing thumbnails a non-zero `thumbnailVersion`.
@@ -26,6 +26,20 @@ async function backfillThumbnailVersions() {
   return result.modifiedCount;
 }
 
+/**
+ * Reports used to be unique per (stream, reporter); chat lines can be
+ * reported now too, so the key gains the message. The old index would
+ * refuse someone's second report on a stream, so it goes. Idempotent.
+ */
+async function migrateReportIndex() {
+  try {
+    await Report.collection.dropIndex("streamId_1_reporterId_1");
+    console.info("[database] dropped the old stream-only report index");
+  } catch {
+    // Already gone, or the collection doesn't exist yet.
+  }
+}
+
 export async function connectDatabase() {
   if (mongoose.connection.readyState === 1) return mongoose;
 
@@ -41,6 +55,7 @@ export async function connectDatabase() {
       `[database] backfilled thumbnailVersion on ${backfilled} stream(s)`,
     );
   }
+  await migrateReportIndex();
 
   return connection;
 }

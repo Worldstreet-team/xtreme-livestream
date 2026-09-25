@@ -246,6 +246,45 @@ export async function setRoomScene(roomName: string, scene: unknown) {
  * party that always has publish rights and already knows the room, so it is
  * the fan-out. Best-effort: chat must not fail because a data packet did.
  */
+/**
+ * Fan-out to some of the room only — held chat lines go to the host and
+ * moderators, never to the viewers they're held from. Best-effort, like
+ * sendRoomData.
+ */
+export async function sendRoomDataTo(
+  roomName: string,
+  identities: string[],
+  payload: Record<string, unknown>,
+) {
+  if (!roomName || identities.length === 0) return;
+  try {
+    await roomService.sendData(
+      roomName,
+      new TextEncoder().encode(JSON.stringify(payload)),
+      0, // DataPacket_Kind.RELIABLE
+      { destinationIdentities: identities },
+    );
+  } catch (error) {
+    const msg = String((error as Error)?.message ?? error);
+    if (!/not.?found|does not exist/i.test(msg)) {
+      console.error(`LiveKit sendData (targeted) ${roomName} failed:`, msg);
+    }
+  }
+}
+
+/** Close a room, disconnecting everyone in it — a takedown. Best-effort. */
+export async function closeRoom(roomName: string) {
+  if (!roomName) return;
+  try {
+    await roomService.deleteRoom(roomName);
+  } catch (error) {
+    const msg = String((error as Error)?.message ?? error);
+    if (!/not.?found|does not exist/i.test(msg)) {
+      console.error(`LiveKit deleteRoom ${roomName} failed:`, msg);
+    }
+  }
+}
+
 export async function sendRoomData(
   roomName: string,
   payload: Record<string, unknown>,

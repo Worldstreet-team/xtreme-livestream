@@ -388,6 +388,93 @@ export type ReportReason = z.infer<typeof reportReasonSchema>;
 export const createReportBodySchema = z.object({
   reason: reportReasonSchema,
   details: z.string().trim().max(500).optional(),
+  /** Reporting one chat line rather than the stream. */
+  messageId: objectIdSchema.optional(),
+});
+
+/* ── Safety kit (Phase 1) ─────────────────────────────────────────────── */
+
+/**
+ * What the chat filter watches for, each at its own level: off, hold (a
+ * moderator approves it first) or block (it's never sent).
+ */
+export const FILTER_CATEGORIES = ["profanity", "insults", "slurs", "sexual", "links", "scams"] as const;
+export const FILTER_LEVELS = ["off", "hold", "block"] as const;
+export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
+export type FilterLevel = (typeof FILTER_LEVELS)[number];
+
+export const DEFAULT_FILTER_LEVELS: Record<FilterCategory, FilterLevel> = {
+  profanity: "off",
+  insults: "off",
+  slurs: "block",
+  sexual: "hold",
+  links: "hold",
+  scams: "hold",
+};
+
+/** A lead moderator also manages the other moderators and can raise Shield. */
+export const MOD_ROLES = ["lead", "mod"] as const;
+export type ModRole = (typeof MOD_ROLES)[number];
+/** Who someone is in a channel's room. */
+export type ChannelRole = "host" | ModRole;
+
+/** Moderators putting chat lines on screen: never, as suggestions the host approves, or directly. */
+export const MODS_CAN_FEATURE = ["off", "suggest", "on"] as const;
+export type ModsCanFeature = (typeof MODS_CAN_FEATURE)[number];
+
+const blockedTermSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(40)
+  .refine((t) => t.replace(/[*\s]/g, "").length > 0, "A term needs letters, not just wildcards");
+
+const filterLevelSchema = z.enum(FILTER_LEVELS).optional();
+
+export const safetySettingsBodySchema = z
+  .object({
+    filters: z
+      .object({
+        profanity: filterLevelSchema,
+        insults: filterLevelSchema,
+        slurs: filterLevelSchema,
+        sexual: filterLevelSchema,
+        links: filterLevelSchema,
+        scams: filterLevelSchema,
+      })
+      .strict()
+      .optional(),
+    /** The creator's own terms; `*` stands for the rest of a word. */
+    blockedTerms: z.array(blockedTermSchema).max(100).optional(),
+    blockedTermsLevel: z.enum(["hold", "block"]).optional(),
+    modsCanFeature: z.enum(MODS_CAN_FEATURE).optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });
+
+export const addModBodySchema = z.object({
+  username: usernameSchema,
+  role: z.enum(MOD_ROLES).default("mod"),
+});
+
+export const channelParamsSchema = z.object({ id: objectIdSchema });
+export const channelModParamsSchema = z.object({ id: objectIdSchema, userId: objectIdSchema });
+
+export const shieldBodySchema = z.object({ on: z.boolean() });
+export const slowModeBodySchema = z.object({ enabled: z.boolean() });
+
+/** How long the platform has to act on a report (NITDA's code of practice). */
+export const REPORT_RESPONSE_HOURS = 48;
+
+export const reportResolveBodySchema = z.object({
+  /** Take the content down (end the stream, or delete the line), or keep it up. */
+  action: z.enum(["takedown", "dismiss"]),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const reportListQuerySchema = z.object({
+  status: z.enum(["open", "closed"]).default("open"),
 });
 
 export const updateProfileBodySchema = z

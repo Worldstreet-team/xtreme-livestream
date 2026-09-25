@@ -60,6 +60,8 @@ vi.mock("../src/livekit.js", () => ({
   sendRoomData: async (_room: string, payload: Record<string, unknown>) => {
     dataEvents.push(payload);
   },
+  sendRoomDataTo: async () => {},
+  closeRoom: async () => {},
   setParticipantPublishPermission: async () => {},
 }));
 
@@ -94,9 +96,12 @@ vi.mock("../src/models.js", () => ({
     },
   },
   User: {
+    // The channel: its host and (no) moderators — what the roles read.
     findById: () => ({
       select: async () => ({
-        settings: { slowMode: false, subscriberOnly: false },
+        _id: id(HOST_ID),
+        settings: { slowMode: false, subscriberOnly: false, profanityFilter: false },
+        safety: { mods: [] },
       }),
     }),
   },
@@ -121,6 +126,15 @@ vi.mock("../src/models.js", () => ({
         );
         return row ? { ...row, username: "viewer", avatar: "" } : null;
       },
+      // Delete path: findOne({_id, streamId}).select().lean()
+      select: () => ({
+        lean: async () => {
+          const row = chatMessages.find(
+            (m) => m._id === String(q._id) && m.streamId === String(q.streamId),
+          );
+          return row ? { userId: row.userId, status: "visible", heldReason: "" } : null;
+        },
+      }),
       // Ban path: findOne({streamId, userId}).sort().select().lean()
       sort: () => ({
         select: () => ({

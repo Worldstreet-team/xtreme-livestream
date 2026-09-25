@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { adminRoutes } from "./admin.js";
 import { battleRoutes } from "./battles.js";
 import { gameRoutes } from "./games.js";
 import { dashboardRoutes } from "./dashboard.js";
@@ -9,6 +10,7 @@ import { guestRoutes } from "./guests.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
 import { rewardRoutes } from "./rewards.js";
+import { safetyRoutes } from "./safety.js";
 import { streamActionRoutes } from "./stream-actions.js";
 import { streamRoutes } from "./streams.js";
 import { userRoutes } from "./users.js";
@@ -27,6 +29,8 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(guestRoutes);
   await fastify.register(coLiveRoutes);
   await fastify.register(moderationRoutes);
+  await fastify.register(safetyRoutes);
+  await fastify.register(adminRoutes);
   await fastify.register(notificationRoutes);
   await fastify.register(webhookRoutes);
 };

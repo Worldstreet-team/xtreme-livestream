@@ -1,5 +1,16 @@
 import mongoose, { type Document, type Model, Schema } from "mongoose";
-import { type Category, type FeaturedItem } from "@xtreme/contracts";
+import {
+  DEFAULT_FILTER_LEVELS,
+  FILTER_LEVELS,
+  MOD_ROLES,
+  MODS_CAN_FEATURE,
+  type Category,
+  type FeaturedItem,
+  type FilterCategory,
+  type FilterLevel,
+  type ModRole,
+  type ModsCanFeature,
+} from "@xtreme/contracts";
 
 export interface IUser extends Document {
   authUserId: string;
@@ -51,6 +62,19 @@ export interface IUser extends Document {
     lowerThird: string;
     logo: string;
     logoVersion: number;
+  };
+  /**
+   * The channel's safety kit: the chat filter's level per category, the
+   * creator's own blocked terms, their moderators, and whether moderators
+   * may put chat lines on screen. The filter's on/off switch is
+   * `settings.profanityFilter`.
+   */
+  safety?: {
+    filters: Record<FilterCategory, FilterLevel>;
+    blockedTerms: string[];
+    blockedTermsLevel: "hold" | "block";
+    mods: Array<{ userId: mongoose.Types.ObjectId; username: string; role: ModRole; addedAt: Date }>;
+    modsCanFeature: ModsCanFeature;
   };
   settings: {
     autoRecord: boolean;
@@ -126,6 +150,33 @@ const userSchema = new Schema<IUser>(
       lowerThird: { type: String, enum: ["bar", "pill"], default: "bar" },
       logo: { type: String, default: "" },
       logoVersion: { type: Number, default: 0 },
+    },
+    safety: {
+      filters: {
+        profanity: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.profanity },
+        insults: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.insults },
+        slurs: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.slurs },
+        sexual: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.sexual },
+        links: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.links },
+        scams: { type: String, enum: FILTER_LEVELS, default: DEFAULT_FILTER_LEVELS.scams },
+      },
+      blockedTerms: { type: [String], default: [] },
+      blockedTermsLevel: { type: String, enum: ["hold", "block"], default: "block" },
+      mods: {
+        type: [
+          new Schema(
+            {
+              userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+              username: { type: String, required: true },
+              role: { type: String, enum: MOD_ROLES, default: "mod" },
+              addedAt: { type: Date, default: Date.now },
+            },
+            { _id: false },
+          ),
+        ],
+        default: [],
+      },
+      modsCanFeature: { type: String, enum: MODS_CAN_FEATURE, default: "suggest" },
     },
     settings: {
       autoRecord: { type: Boolean, default: false },
@@ -240,6 +291,22 @@ export interface IStream extends Document {
     content: string;
   } | null;
   /**
+   * Shield mode, raised by the host or a lead moderator: allies only, slow
+   * mode, links and scams blocked, and new accounts held for review.
+   */
+  shield: { on: boolean; at: Date | null; by: mongoose.Types.ObjectId | null };
+  /** Set when a platform admin took the stream down after a report; it's then kept out of listings. */
+  takenDownAt: Date | null;
+  /** Lines moderators suggested for the screen, waiting on the host. */
+  featureQueue: Array<{
+    messageId: mongoose.Types.ObjectId;
+    username: string;
+    text: string;
+    kind: "chat" | "gift";
+    suggestedBy: string;
+    at: Date;
+  }>;
+  /**
    * Three-valued, matching every major platform's live taxonomy. `isLive`
    * stays as the hot-path boolean the list queries index on; `status` adds
    * the state `isLive` can't express — a broadcast that is scheduled but
@@ -335,6 +402,28 @@ const streamSchema = new Schema<IStream>(
       ),
       default: null,
     },
+    shield: {
+      on: { type: Boolean, default: false },
+      at: { type: Date, default: null },
+      by: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    },
+    takenDownAt: { type: Date, default: null },
+    featureQueue: {
+      type: [
+        new Schema(
+          {
+            messageId: { type: Schema.Types.ObjectId, required: true },
+            username: { type: String, default: "" },
+            text: { type: String, default: "" },
+            kind: { type: String, enum: ["chat", "gift"], default: "chat" },
+            suggestedBy: { type: String, default: "" },
+            at: { type: Date, default: Date.now },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     status: {
       type: String,
       enum: ["upcoming", "live", "ended"],
@@ -376,6 +465,10 @@ export interface IChatMessage extends Document {
   tipAmount: string | null;
   tipCurrency: string | null;
   emoji: string | null;
+  /** "held": the filter caught it and it waits for a moderator; nobody else sees it. */
+  status: "visible" | "held";
+  /** Which filter category held it. */
+  heldReason: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -407,6 +500,8 @@ const chatMessageSchema = new Schema<IChatMessage>(
     tipAmount: { type: String, default: null },
     tipCurrency: { type: String, default: null },
     emoji: { type: String, default: null },
+    status: { type: String, enum: ["visible", "held"], default: "visible" },
+    heldReason: { type: String, default: "" },
   },
   { timestamps: true },
 );
@@ -465,13 +560,19 @@ giftTransactionSchema.index({ senderId: 1, createdAt: -1 });
 export interface INotification extends Document {
   /** Recipient. */
   userId: mongoose.Types.ObjectId;
-  /** live = someone you follow went live; reminder = a stream you asked about started. */
-  type: "live" | "reminder" | "battle_invite" | "battle_result";
+  /**
+   * live = someone you follow went live; reminder = a stream you asked
+   * about started; mod_added = a creator made you a moderator; report = a
+   * report reached the review queue (platform admins only).
+   */
+  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report";
   /** Who did the thing (the streamer who went live). */
   actorId: mongoose.Types.ObjectId;
   actorName: string;
-  streamId: mongoose.Types.ObjectId;
+  streamId: mongoose.Types.ObjectId | null;
   streamTitle: string;
+  /** Where the row opens, when it isn't a stream (a channel, the report queue). */
+  link: string;
   read: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -485,11 +586,16 @@ const notificationSchema = new Schema<INotification>(
       required: true,
       index: true,
     },
-    type: { type: String, enum: ["live", "reminder", "battle_invite", "battle_result"], default: "live" },
+    type: {
+      type: String,
+      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report"],
+      default: "live",
+    },
     actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     actorName: { type: String, required: true },
-    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", default: null },
     streamTitle: { type: String, default: "" },
+    link: { type: String, default: "" },
     read: { type: Boolean, default: false },
   },
   { timestamps: true },
@@ -558,7 +664,16 @@ export interface IReport extends Document {
   reporterId: mongoose.Types.ObjectId;
   reason: string;
   details: string;
-  status: "open" | "reviewed" | "dismissed";
+  /** "actioned": taken down; "dismissed": reviewed and kept up. "reviewed" is legacy. */
+  status: "open" | "reviewed" | "actioned" | "dismissed";
+  /** A chat line, when that's what was reported (its words kept, in case it's deleted). */
+  messageId: mongoose.Types.ObjectId | null;
+  message: { username: string; content: string } | null;
+  /** When the platform must have acted by — 48 hours from intake. */
+  dueAt: Date;
+  resolvedBy: mongoose.Types.ObjectId | null;
+  resolvedAt: Date | null;
+  note: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -584,16 +699,27 @@ const reportSchema = new Schema<IReport>(
     details: { type: String, default: "", maxlength: 500 },
     status: {
       type: String,
-      enum: ["open", "reviewed", "dismissed"],
+      enum: ["open", "reviewed", "actioned", "dismissed"],
       default: "open",
     },
+    messageId: { type: Schema.Types.ObjectId, default: null },
+    message: {
+      type: new Schema({ username: String, content: String }, { _id: false }),
+      default: null,
+    },
+    dueAt: { type: Date, default: () => new Date(Date.now() + 48 * 60 * 60 * 1000) },
+    resolvedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    resolvedAt: { type: Date, default: null },
+    note: { type: String, default: "", maxlength: 500 },
   },
   { timestamps: true },
 );
 
-// One report per user per stream — repeat submissions update the original.
-reportSchema.index({ streamId: 1, reporterId: 1 }, { unique: true });
-reportSchema.index({ status: 1, createdAt: -1 });
+// One report per user per stream, or per chat line — repeat submissions
+// update the original. (Replaces the old stream-only unique index, which
+// migrateIndexes() drops.)
+reportSchema.index({ streamId: 1, reporterId: 1, messageId: 1 }, { unique: true, name: "report_once" });
+reportSchema.index({ status: 1, dueAt: 1 });
 
 export interface IFollow extends Document {
   followerId: mongoose.Types.ObjectId;

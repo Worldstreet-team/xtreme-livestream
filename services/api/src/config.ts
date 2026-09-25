@@ -37,6 +37,20 @@ const envSchema = z.object({
    */
   WALLET_TREASURY_USER_ID: z.string().default(""),
   /**
+   * Platform admins, by username, comma-separated: they get the report
+   * queue (/admin/reports) and its 48-hour clock, and a notification for
+   * every report. Unset: nobody is an admin and reports wait in the queue.
+   */
+  ADMIN_USERNAMES: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  /**
    * How long a stream stays live after its feed drops — an OBS/RTMP encoder,
    * or since 2026-09-25 the host's browser — waiting for it to reconnect
    * before it is ended. Five minutes covers a router reboot or a mobile-data

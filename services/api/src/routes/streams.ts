@@ -54,7 +54,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         page,
       } = request.query;
       const skip = (page - 1) * limit;
-      const filter: Record<string, unknown> = {};
+      // What a platform admin took down after a report stays out of every list.
+      const filter: Record<string, unknown> = { takenDownAt: null };
 
       if (live !== undefined) filter.isLive = live === "true";
       if (status) {
@@ -279,6 +280,9 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           featured: null,
           version: scene ? 1 : 0,
         },
+        // Each broadcast starts with Shield down and no suggestions waiting.
+        shield: { on: false, at: null, by: null },
+        featureQueue: [],
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,
@@ -526,6 +530,9 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      }
+      if (stream.takenDownAt) {
+        throw new ApiError(410, "This stream was removed for breaking the community rules", "TAKEN_DOWN");
       }
 
       // The list route and the token route both reconcile; this one didn't,

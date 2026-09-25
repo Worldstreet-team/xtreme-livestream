@@ -63,6 +63,8 @@ vi.mock("../src/livekit.js", () => ({
   sendRoomData: async (_room: string, payload: Record<string, unknown>) => {
     state.events.push(payload);
   },
+  sendRoomDataTo: async () => {},
+  closeRoom: async () => {},
 }));
 
 vi.mock("../src/models.js", () => ({
@@ -92,7 +94,9 @@ vi.mock("../src/models.js", () => ({
     findOneAndDelete: async (q: { _id: string }) => state.messages.find((m) => m._id === String(q._id)) ?? null,
     deleteMany: async () => ({}),
   },
-  User: {},
+  User: {
+    findById: () => ({ select: async () => ({ _id: id(HOST_ID), safety: { mods: [] }, settings: {} }) }),
+  },
   Follow: {},
   StreamBan: { findOne: async () => null, findOneAndUpdate: async () => ({ username: "tolu" }) },
   Report: {},

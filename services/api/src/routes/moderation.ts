@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import type mongoose from "mongoose";
+import mongoose from "mongoose";
 import {
   chatMessageParamsSchema,
   createBanBodySchema,
@@ -8,14 +8,19 @@ import {
   streamIdParamsSchema,
   streamUserParamsSchema,
 } from "@xtreme/contracts";
+import { audit } from "../audit.js";
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { featuredFrom, isDropMessage, sceneView, unfeatureMessage, unfeatureUser, writeFeatured } from "../featured.js";
-import { sendRoomData } from "../livekit.js";
-import { ChatMessage, Stream, StreamBan, type IStream } from "../models.js";
+import { sendRoomData, sendRoomDataTo } from "../livekit.js";
+import { ChatMessage, Stream, StreamBan } from "../models.js";
+import { assertActionable, moderatorIdentities, requireChannelRole } from "../safety/roles.js";
+import { featureQueueView } from "./safety.js";
 
 /**
- * Moderation v1 — the host deletes messages and bans users, per stream.
+ * Moderation — the host and their moderators (safety kit roles) delete
+ * messages, time out and ban, pin, and put lines on screen, per stream.
+ * Moderators act on viewers only; every action is audited.
  *
  * A ban row with `expiresAt: null` lasts the stream's lifetime; with a date
  * it's a timeout that lapses on its own (checked lazily at enforcement time,
@@ -55,11 +60,7 @@ export async function assertNotBanned(
   );
 }
 
-function requireHost(stream: IStream, userId: unknown) {
-  if (!stream.streamerId.equals(String(userId))) {
-    throw new ApiError(403, "Only the host can moderate", "FORBIDDEN");
-  }
-}
+const oid = (v: unknown) => new mongoose.Types.ObjectId(String(v));
 
 async function loadStream(id: string) {
   const stream = await Stream.findById(id);
@@ -77,7 +78,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: delete a chat message",
+        summary: "Host and moderators: delete a chat message (or deny a held one)",
         security: [{ bearerAuth: [] }],
         params: chatMessageParamsSchema,
       },
@@ -85,7 +86,19 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      const { streamer, role } = await requireChannelRole(stream, dbUser._id, "mod");
+
+      const target = await ChatMessage.findOne({ _id: request.params.messageId, streamId: stream._id })
+        .select("userId status heldReason")
+        .lean();
+      if (!target) {
+        throw new ApiError(404, "Message not found", "MESSAGE_NOT_FOUND");
+      }
+      // Moderators keep the viewers' lines; the host's and other
+      // moderators' are the host's to remove. Anyone can remove their own.
+      if (role !== "host" && String(target.userId) !== String(dbUser._id)) {
+        assertActionable(streamer, target.userId);
+      }
 
       // Hard delete: history reloads clean, and there's nothing sensitive
       // to retain — reports capture their own evidence separately.
@@ -100,6 +113,20 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
       void sendRoomData(stream.livekitRoomName, {
         __evt: "chat_delete",
         messageId: request.params.messageId,
+      });
+      // A held line that's turned down: the moderators' queues clear it,
+      // and its writer hears it won't be posted.
+      if (target.status === "held") {
+        void sendRoomDataTo(stream.livekitRoomName, [...moderatorIdentities(streamer), String(target.userId)], {
+          __evt: "held_resolved",
+          messageId: request.params.messageId,
+          outcome: "denied",
+        });
+      }
+      await audit(dbUser._id, target.status === "held" ? "chat.deny" : "chat.delete", "chat", oid(request.params.messageId), {
+        streamId: String(stream._id),
+        authorId: String(target.userId),
+        ...(target.status === "held" ? { reason: target.heldReason } : {}),
       });
       // A deleted line doesn't stay on screen either. The delete is done
       // whatever happens here; a miss only means it comes down at its time.
@@ -116,7 +143,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: ban a user from the stream (or time them out)",
+        summary: "Host and moderators: ban a viewer from the stream (or time them out)",
         security: [{ bearerAuth: [] }],
         params: streamUserParamsSchema,
         body: createBanBodySchema,
@@ -125,11 +152,12 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      const { streamer } = await requireChannelRole(stream, dbUser._id, "mod");
 
       if (request.params.userId === String(dbUser._id)) {
         throw new ApiError(400, "You can't ban yourself", "CANNOT_BAN_SELF");
       }
+      assertActionable(streamer, request.params.userId);
 
       const expiresAt = request.body.minutes
         ? new Date(Date.now() + request.body.minutes * 60_000)
@@ -181,6 +209,10 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
       await unfeatureUser(stream._id, request.params.userId).catch((err) =>
         request.log.error({ err }, "taking a banned user's line off screen failed"),
       );
+      await audit(dbUser._id, expiresAt ? "chat.timeout" : "chat.ban", "user", oid(request.params.userId), {
+        streamId: String(stream._id),
+        ...(request.body.minutes ? { minutes: request.body.minutes } : {}),
+      });
 
       return {
         success: true,
@@ -199,7 +231,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: lift a ban",
+        summary: "Host and moderators: lift a ban",
         security: [{ bearerAuth: [] }],
         params: streamUserParamsSchema,
       },
@@ -207,7 +239,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      await requireChannelRole(stream, dbUser._id, "mod");
 
       await StreamBan.deleteOne({
         streamId: stream._id,
@@ -218,6 +250,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         __evt: "chat_unban",
         userId: request.params.userId,
       });
+      await audit(dbUser._id, "chat.unban", "user", oid(request.params.userId), { streamId: String(stream._id) });
 
       return { success: true, data: { unbanned: true } };
     },
@@ -228,7 +261,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: pin a chat message above the chat",
+        summary: "Host and moderators: pin a chat message above the chat",
         security: [{ bearerAuth: [] }],
         params: chatMessageParamsSchema,
       },
@@ -236,7 +269,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      await requireChannelRole(stream, dbUser._id, "mod");
 
       const message = await ChatMessage.findOne({
         _id: request.params.messageId,
@@ -263,6 +296,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         __evt: "pin",
         message: { ...pinned, messageId: String(pinned.messageId) },
       });
+      await audit(dbUser._id, "chat.pin", "chat", oid(pinned.messageId), { streamId: String(stream._id) });
 
       return { success: true, data: { pinned: true } };
     },
@@ -273,7 +307,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: unpin the pinned message",
+        summary: "Host and moderators: unpin the pinned message",
         security: [{ bearerAuth: [] }],
         params: streamIdParamsSchema,
       },
@@ -281,7 +315,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      await requireChannelRole(stream, dbUser._id, "mod");
 
       await Stream.updateOne(
         { _id: stream._id },
@@ -289,6 +323,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       void sendRoomData(stream.livekitRoomName, { __evt: "unpin" });
+      await audit(dbUser._id, "chat.unpin", "stream", stream._id);
 
       return { success: true, data: { pinned: false } };
     },
@@ -299,7 +334,8 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: put a chat line or gift on screen (10, 20 or 60 seconds, or until taken down)",
+        summary:
+          "Put a chat line or gift on screen (10, 20 or 60 seconds, or until taken down). Moderators, as the host allows: directly, or as a suggestion the host approves",
         security: [{ bearerAuth: [] }],
         params: chatMessageParamsSchema,
         body: featureBodySchema,
@@ -308,7 +344,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      const { streamer, role } = await requireChannelRole(stream, dbUser._id, "mod");
       if (!stream.isLive) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
@@ -325,10 +361,50 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(400, "Drops can't go on screen", "NOT_FEATURABLE");
       }
 
+      if (role !== "host") {
+        const mode = streamer.safety?.modsCanFeature ?? "suggest";
+        if (mode === "off") {
+          throw new ApiError(403, "The host hasn't let moderators put lines on screen", "FORBIDDEN");
+        }
+        if (mode === "suggest") {
+          // Into the host's queue, once; the newest twenty are kept.
+          const entry = {
+            messageId: message._id,
+            username: message.username,
+            text: message.content,
+            kind: message.type === "tip" ? ("gift" as const) : ("chat" as const),
+            suggestedBy: dbUser.username,
+            at: new Date(),
+          };
+          await Stream.updateOne(
+            { _id: stream._id, "featureQueue.messageId": { $ne: message._id } },
+            { $push: { featureQueue: { $each: [entry], $slice: -20 } } },
+          );
+          const fresh = await Stream.findById(stream._id).select("featureQueue").lean();
+          const queue = featureQueueView(fresh?.featureQueue);
+          void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { __evt: "feature_queue", queue });
+          await audit(dbUser._id, "feature.suggest", "chat", oid(message._id), { streamId: String(stream._id) });
+          return { success: true, data: { suggested: true, queue } };
+        }
+      }
+
       const scene = await writeFeatured(stream._id, featuredFrom(message, request.body.seconds));
       if (!scene) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
+      // Up on screen: it leaves the suggestions if it was waiting there.
+      if (stream.featureQueue?.some((q) => String(q.messageId) === String(message._id))) {
+        await Stream.updateOne({ _id: stream._id }, { $pull: { featureQueue: { messageId: message._id } } });
+        const fresh = await Stream.findById(stream._id).select("featureQueue").lean();
+        void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), {
+          __evt: "feature_queue",
+          queue: featureQueueView(fresh?.featureQueue),
+        });
+      }
+      await audit(dbUser._id, "feature.show", "chat", oid(message._id), {
+        streamId: String(stream._id),
+        seconds: request.body.seconds,
+      });
       return { success: true, data: { scene } };
     },
   );
@@ -338,7 +414,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: take a chat line or gift off screen",
+        summary: "Take a chat line or gift off screen (the host; moderators when allowed to put them up)",
         security: [{ bearerAuth: [] }],
         params: chatMessageParamsSchema,
       },
@@ -346,10 +422,16 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      const { streamer, role } = await requireChannelRole(stream, dbUser._id, "mod");
+      if (role !== "host" && (streamer.safety?.modsCanFeature ?? "suggest") !== "on") {
+        throw new ApiError(403, "Only the host takes lines off screen here", "FORBIDDEN");
+      }
 
       // Only while it's still the one on screen — a newer pick stays up.
       const scene = await unfeatureMessage(stream._id, request.params.messageId);
+      if (scene) {
+        await audit(dbUser._id, "feature.hide", "chat", oid(request.params.messageId), { streamId: String(stream._id) });
+      }
       return { success: true, data: { scene: scene ?? sceneView(stream.scene) } };
     },
   );
@@ -359,7 +441,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Moderation"],
-        summary: "Host: list bans on this stream",
+        summary: "Host and moderators: list bans on this stream",
         security: [{ bearerAuth: [] }],
         params: streamIdParamsSchema,
       },
@@ -367,7 +449,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      await requireChannelRole(stream, dbUser._id, "mod");
 
       const bans = await StreamBan.find({ streamId: stream._id })
         .sort({ createdAt: -1 })
