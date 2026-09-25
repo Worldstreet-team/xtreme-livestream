@@ -35,6 +35,7 @@ import {
   Sword,
   Sparkle,
   DotsThree,
+  CellSignalLow,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -55,7 +56,7 @@ import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { stageLayout } from "@/lib/stage-layout";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
 import { LiveChat } from "@/components/app/live-chat";
 import { DragSheet } from "@/components/app/drag-sheet";
@@ -67,6 +68,7 @@ import type {
   Room,
   LocalVideoTrack,
   LocalAudioTrack,
+  DisconnectReason as DisconnectReasonType,
 } from "livekit-client";
 
 type SourceType = "camera" | "screen" | "obs";
@@ -167,6 +169,25 @@ export default function StudioPage() {
    */
   const [streamKey, setStreamKey] = useState<{ url: string; streamKey: string } | null>(null);
   const [rotatingKey, setRotatingKey] = useState(false);
+
+  // ---- Staying on air through drops ----
+  /**
+   * "reconnecting": LiveKit is healing the connection itself — a few
+   * seconds, usually. "rejoining": the connection died, and the studio is
+   * fetching a fresh token and republishing while the stream holds (the API
+   * keeps it live through the grace window; viewers see "Be right back").
+   */
+  const [conn, setConn] = useState<"live" | "reconnecting" | "rejoining">("live");
+  /** A screen share can't restart without a click — browsers insist on one. */
+  const [needsReshare, setNeedsReshare] = useState(false);
+  const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
+  /** The live session's facts, for room events and timers that outlive a render. */
+  const liveRef = useRef({ streamId: null as string | null, source: "camera" as SourceType, title: "", micEnabled: true, camEnabled: true });
+  // Wired to the real handlers further down, once they're declared.
+  const onRoomGoneRef = useRef<(reason: DisconnectReasonType | undefined, reasons: typeof DisconnectReasonType) => void>(() => {});
+  const attemptRejoinRef = useRef<() => Promise<void>>(async () => {});
+  /** When a resumed stream really started, so its clock doesn't restart at 0:00. */
+  const resumedStartRef = useRef<Date | null>(null);
 
   // ---- Session stats ----
   const [peakViewers, setPeakViewers] = useState(0);
@@ -366,7 +387,8 @@ export default function StudioPage() {
   // Elapsed timer
   useEffect(() => {
     if (isLive) {
-      startTimeRef.current = new Date();
+      startTimeRef.current = resumedStartRef.current ?? new Date();
+      resumedStartRef.current = null;
       elapsedInterval.current = setInterval(() => {
         if (!startTimeRef.current) return;
         const diff = Math.floor(
@@ -725,18 +747,197 @@ export default function StudioPage() {
   }, [isLive, streamId]);
 
   /**
-   * Start broadcasting — or, with `resume`, rejoin an OBS stream that is
-   * already live (the encoder never stopped; this tab just left). A resume
-   * skips creating a stream and is always the encoder path.
+   * Join the stream's room and put this tab's feed into it: the camera or
+   * screen and the mic, or — for OBS — nothing, since the encoder is the
+   * publisher and this tab only watches. Used to go live, to resume after a
+   * reload, and by the rejoin loop after a drop (`rejoin`).
+   */
+  const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
+    const { Room: LKRoom, RoomEvent, Track, VideoPresets, DisconnectReason } = await import("livekit-client");
+    const room = new LKRoom({
+      // Pause simulcast layers no subscriber is consuming.
+      dynacast: true,
+      videoCaptureDefaults: {
+        resolution: captureResolution(orientation),
+        facingMode: facing,
+      },
+      publishDefaults: {
+        videoCodec: "vp8",
+        // Explicit ladder under the 720p capture so adaptive viewers
+        // (phones, small tiles, bad networks) get a right-sized layer
+        // instead of the full feed or nothing.
+        simulcast: true,
+        videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+      },
+    });
+
+    // The RTMP encoder joins as obs-<my id> — it's the feed, not a viewer.
+    const countViewers = () => {
+      let n = 0;
+      room.remoteParticipants.forEach((p) => {
+        // Neither the RTMP encoder nor the host's own monitor tab counts.
+        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-"))
+          n += 1;
+      });
+      return n;
+    };
+    room.on(RoomEvent.ParticipantConnected, (participant) => {
+      setViewerCount(countViewers());
+      if (
+        participant.identity.startsWith("obs-") ||
+        participant.identity.startsWith("mon-")
+      )
+        return;
+      setConnectedViewers((prev) => [
+        ...prev,
+        {
+          identity: participant.identity,
+          name: participant.name || participant.identity,
+          joinedAt: new Date(),
+        },
+      ]);
+    });
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      setViewerCount(countViewers());
+      setConnectedViewers((prev) =>
+        prev.filter((v) => v.identity !== participant.identity)
+      );
+    });
+
+    // Stage guests publish into this room once approved. Their video
+    // becomes a tile over the preview; their audio plays out loud so the
+    // host can hold an actual conversation.
+    room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (!track) return;
+      // The encoder's video IS the program feed — into the main preview,
+      // never a guest tile. Its audio stays unattached: monitoring your
+      // own mix through the dashboard is a feedback loop.
+      if (participant.identity === `obs-${user?.id}`) {
+        if (track.kind === Track.Kind.Video && videoElRef.current) {
+          track.attach(videoElRef.current);
+          setObsFeedActive(true);
+        }
+        return;
+      }
+      if (track.kind === Track.Kind.Video) {
+        guestTracksRef.current.set(
+          participant.identity,
+          track as unknown as AttachableVideoTrack
+        );
+        // A fresh array even when the guest is already listed: the tile
+        // reads its track from the ref during render, so a republished
+        // track (camera toggle, reconnect) only reaches it on re-render.
+        setGuestTiles((prev) =>
+          prev.some((t) => t.identity === participant.identity)
+            ? [...prev]
+            : [
+                ...prev,
+                {
+                  identity: participant.identity,
+                  name: participant.name || "Guest",
+                },
+              ]
+        );
+      }
+      if (track.kind === Track.Kind.Audio) {
+        const el = track.attach() as HTMLAudioElement;
+        document.body.appendChild(el);
+        guestAudioElsRef.current.set(track, el);
+        el.play().catch(() => {});
+      }
+    });
+    room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      if (!track) return;
+      if (participant.identity === `obs-${user?.id}`) {
+        if (track.kind === Track.Kind.Video) setObsFeedActive(false);
+        return;
+      }
+      track.detach().forEach((el) => el.remove());
+      guestAudioElsRef.current.delete(track);
+      if (track.kind === Track.Kind.Video) {
+        guestTracksRef.current.delete(participant.identity);
+        setGuestTiles((prev) =>
+          prev.filter((t) => t.identity !== participant.identity)
+        );
+      }
+    });
+
+    // Stage requests, stage transitions, and tip alerts.
+    room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+      handleStudioDataRef.current(payload);
+    });
+
+    // Connection health. LiveKit heals short drops by itself; a room that
+    // does disconnect goes to onRoomGone, which decides whether to rejoin.
+    // Events from a room this tab already replaced or left are old news.
+    room.on(RoomEvent.Reconnecting, () => {
+      if (roomRef.current === room) setConn("reconnecting");
+    });
+    room.on(RoomEvent.Reconnected, () => {
+      if (roomRef.current === room) setConn("live");
+    });
+    room.on(RoomEvent.Disconnected, (reason?: DisconnectReasonType) => {
+      if (roomRef.current !== room) return;
+      onRoomGoneRef.current(reason, DisconnectReason);
+    });
+
+    await room.connect(livekitUrl, livekitToken);
+    roomRef.current = room;
+    setLiveRoom(room);
+
+    // Publish camera/screen + audio — unless OBS is the source, in which
+    // case the encoder publishes and this tab only watches. A rejoin puts
+    // things back the way the host left them: a muted mic stays muted.
+    if (src !== "obs") {
+      const { micEnabled: micOn, camEnabled: camOn } = liveRef.current;
+      if (src === "camera") {
+        if (!rejoin || camOn) await room.localParticipant.setCameraEnabled(true);
+      } else {
+        try {
+          await room.localParticipant.setScreenShareEnabled(true);
+        } catch (err) {
+          // Going live, a refused share is a failed start. Rejoining, it's
+          // the browser wanting a click first — the stage asks for one.
+          if (!rejoin) throw err;
+          setNeedsReshare(true);
+        }
+      }
+      if (!rejoin || micOn) await room.localParticipant.setMicrophoneEnabled(true);
+
+      // Attach local video to preview element
+      const videoPubs = room.localParticipant.videoTrackPublications;
+      videoPubs.forEach((pub) => {
+        if (pub.track && videoElRef.current) {
+          pub.track.attach(videoElRef.current);
+          videoTrackRef.current = pub.track as LocalVideoTrack;
+        }
+      });
+
+      const audioPubs = room.localParticipant.audioTrackPublications;
+      audioPubs.forEach((pub) => {
+        if (pub.track) {
+          audioTrackRef.current = pub.track as LocalAudioTrack;
+        }
+      });
+    }
+    return room;
+  };
+
+  /**
+   * Start broadcasting — or, with `resume`, pick up a stream that is already
+   * live: an OBS stream whose studio tab closed (the encoder never stopped),
+   * or a camera/screen stream holding after a drop, a reload, or on another
+   * device. A resume skips creating a stream.
    */
   const goLive = async (resume?: {
     id: string;
     livekitToken: string;
     livekitUrl: string;
+    source?: SourceType;
     ingress?: { url: string; streamKey: string };
-  }) => {
-    if (!resume && !title.trim()) return;
-    const src: SourceType = resume ? "obs" : source;
+  }): Promise<boolean> => {
+    if (!resume && !title.trim()) return false;
+    const src: SourceType = resume ? (resume.source ?? "obs") : source;
     setIsConnecting(true);
     setError(null);
 
@@ -795,158 +996,17 @@ export default function StudioPage() {
         setPreviewTrack(null);
       }
 
-      // Step 3: Connect to LiveKit room
-      const { Room: LKRoom, RoomEvent, Track, VideoPresets } = await import("livekit-client");
-      const room = new LKRoom({
-        // Pause simulcast layers no subscriber is consuming.
-        dynacast: true,
-        videoCaptureDefaults: {
-          resolution: captureResolution(orientation),
-          facingMode: facing,
-        },
-        publishDefaults: {
-          videoCodec: "vp8",
-          // Explicit ladder under the 720p capture so adaptive viewers
-          // (phones, small tiles, bad networks) get a right-sized layer
-          // instead of the full feed or nothing.
-          simulcast: true,
-          videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
-        },
-      });
+      // Step 3: into the room, feed published.
+      await joinRoom(livekitUrl, livekitToken, src);
 
-      // The RTMP encoder joins as obs-<my id> — it's the feed, not a viewer.
-      const countViewers = () => {
-        let n = 0;
-        room.remoteParticipants.forEach((p) => {
-          // Neither the RTMP encoder nor the host's own monitor tab counts.
-          if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-"))
-            n += 1;
-        });
-        return n;
-      };
-      room.on(RoomEvent.ParticipantConnected, (participant) => {
-        setViewerCount(countViewers());
-        if (
-          participant.identity.startsWith("obs-") ||
-          participant.identity.startsWith("mon-")
-        )
-          return;
-        setConnectedViewers((prev) => [
-          ...prev,
-          {
-            identity: participant.identity,
-            name: participant.name || participant.identity,
-            joinedAt: new Date(),
-          },
-        ]);
-      });
-      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        setViewerCount(countViewers());
-        setConnectedViewers((prev) =>
-          prev.filter((v) => v.identity !== participant.identity)
-        );
-      });
-
-      // Stage guests publish into this room once approved. Their video
-      // becomes a tile over the preview; their audio plays out loud so the
-      // host can hold an actual conversation.
-      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-        if (!track) return;
-        // The encoder's video IS the program feed — into the main preview,
-        // never a guest tile. Its audio stays unattached: monitoring your
-        // own mix through the dashboard is a feedback loop.
-        if (participant.identity === `obs-${user?.id}`) {
-          if (track.kind === Track.Kind.Video && videoElRef.current) {
-            track.attach(videoElRef.current);
-            setObsFeedActive(true);
-          }
-          return;
-        }
-        if (track.kind === Track.Kind.Video) {
-          guestTracksRef.current.set(
-            participant.identity,
-            track as unknown as AttachableVideoTrack
-          );
-          // A fresh array even when the guest is already listed: the tile
-          // reads its track from the ref during render, so a republished
-          // track (camera toggle, reconnect) only reaches it on re-render.
-          setGuestTiles((prev) =>
-            prev.some((t) => t.identity === participant.identity)
-              ? [...prev]
-              : [
-                  ...prev,
-                  {
-                    identity: participant.identity,
-                    name: participant.name || "Guest",
-                  },
-                ]
-          );
-        }
-        if (track.kind === Track.Kind.Audio) {
-          const el = track.attach() as HTMLAudioElement;
-          document.body.appendChild(el);
-          guestAudioElsRef.current.set(track, el);
-          el.play().catch(() => {});
-        }
-      });
-      room.on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-        if (!track) return;
-        if (participant.identity === `obs-${user?.id}`) {
-          if (track.kind === Track.Kind.Video) setObsFeedActive(false);
-          return;
-        }
-        track.detach().forEach((el) => el.remove());
-        guestAudioElsRef.current.delete(track);
-        if (track.kind === Track.Kind.Video) {
-          guestTracksRef.current.delete(participant.identity);
-          setGuestTiles((prev) =>
-            prev.filter((t) => t.identity !== participant.identity)
-          );
-        }
-      });
-
-      // Stage requests, stage transitions, and tip alerts.
-      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
-        handleStudioDataRef.current(payload);
-      });
-
-      await room.connect(livekitUrl, livekitToken);
-      roomRef.current = room;
-      setLiveRoom(room);
-
-      // Step 4: publish camera/screen + audio — unless OBS is the source,
-      // in which case the encoder publishes and this tab only watches.
-      if (src !== "obs") {
-        if (src === "camera") {
-          await room.localParticipant.setCameraEnabled(true);
-        } else {
-          await room.localParticipant.setScreenShareEnabled(true);
-        }
-        await room.localParticipant.setMicrophoneEnabled(true);
-
-        // Attach local video to preview element
-        const videoPubs = room.localParticipant.videoTrackPublications;
-        videoPubs.forEach((pub) => {
-          if (pub.track && videoElRef.current) {
-            pub.track.attach(videoElRef.current);
-            videoTrackRef.current = pub.track as LocalVideoTrack;
-          }
-        });
-
-        const audioPubs = room.localParticipant.audioTrackPublications;
-        audioPubs.forEach((pub) => {
-          if (pub.track) {
-            audioTrackRef.current = pub.track as LocalAudioTrack;
-          }
-        });
-      }
-
+      setConn("live");
       setIsLive(true);
       setPanel("chat");
+      return true;
     } catch (err) {
       // Cleanup: if a stream was created here but connection/publish failed,
-      // end it. A failed resume leaves the live stream alone — the encoder
-      // is still feeding it.
+      // end it. A failed resume leaves the live stream alone — it's still
+      // holding (or an encoder is still feeding it).
       if (createdStreamId && !resume) {
         try {
           await apiFetch(`/api/streams/${createdStreamId}/end`, {
@@ -958,10 +1018,10 @@ export default function StudioPage() {
         setStreamId(null);
       }
 
-      if (roomRef.current) {
-        roomRef.current.disconnect();
-        roomRef.current = null;
-      }
+      // Out of roomRef first, so its Disconnected event reads as ours.
+      const stale = roomRef.current;
+      roomRef.current = null;
+      stale?.disconnect();
 
       const msg =
         err instanceof Error ? err.message : "Failed to start stream";
@@ -975,12 +1035,19 @@ export default function StudioPage() {
 
       // Restart preview
       startPreview();
+      return false;
     } finally {
       setIsConnecting(false);
     }
   };
 
+  const stopRejoin = () => {
+    if (rejoinRef.current?.timer) clearTimeout(rejoinRef.current.timer);
+    rejoinRef.current = null;
+  };
+
   const endStream = async () => {
+    stopRejoin();
     try {
       if (streamId) {
         await apiFetch(`/api/streams/${streamId}/end`, { method: "POST" });
@@ -989,12 +1056,19 @@ export default function StudioPage() {
       // Best-effort
     }
 
-    // Disconnect from LiveKit
-    if (roomRef.current) {
-      roomRef.current.disconnect();
-      roomRef.current = null;
-    }
+    // Out of roomRef first, so its Disconnected event reads as ours.
+    const room = roomRef.current;
+    roomRef.current = null;
+    room?.disconnect();
 
+    resetAfterLive();
+  };
+
+  /** Back to setup after a broadcast, however it ended. */
+  const resetAfterLive = () => {
+    stopRejoin();
+    setConn("live");
+    setNeedsReshare(false);
     videoTrackRef.current = null;
     audioTrackRef.current = null;
     setIsLive(false);
@@ -1143,10 +1217,14 @@ export default function StudioPage() {
   // Cleanup on unmount
   useEffect(() => {
     const guestAudioEls = guestAudioElsRef.current;
+    const rejoin = rejoinRef;
     return () => {
-      if (roomRef.current) {
-        roomRef.current.disconnect();
-      }
+      if (rejoin.current?.timer) clearTimeout(rejoin.current.timer);
+      rejoin.current = null;
+      // Out of roomRef first, so its Disconnected event reads as ours.
+      const room = roomRef.current;
+      roomRef.current = null;
+      room?.disconnect();
       // Guests' audio elements live on document.body, outside this tree.
       guestAudioEls.forEach((el) => el.remove());
       guestAudioEls.clear();
@@ -1154,17 +1232,18 @@ export default function StudioPage() {
   }, []);
 
   /**
-   * Recover from an orphaned stream.
-   *
-   * The browser is the publisher, so refreshing or crashing this tab kills the
-   * broadcast — but the Mongo row stays flagged live until reconciliation
-   * notices, and the host lands back on a studio that looks idle. There's no
-   * way to resume (the tracks are gone), so the honest option is to tell them
-   * and let them close it out before starting fresh.
+   * A stream of yours that is live while this studio isn't on it: the tab
+   * reloaded or crashed (the stream holds through the grace window, viewers
+   * seeing "Be right back"), it's running on another device, or an encoder
+   * is still feeding it. The banner offers to pick it up here — or end it.
    */
-  const [orphan, setOrphan] = useState<{ id: string; title: string; source: string } | null>(
-    null
-  );
+  const [orphan, setOrphan] = useState<{
+    id: string;
+    title: string;
+    source: string;
+    /** Set while the stream is holding for its feed to come back. */
+    feedDroppedAt?: string | null;
+  } | null>(null);
   const [endingOrphan, setEndingOrphan] = useState(false);
   const [resuming, setResuming] = useState(false);
 
@@ -1175,11 +1254,15 @@ export default function StudioPage() {
       try {
         const res = await apiFetch<{
           success: boolean;
-          data: { stream: { id: string; title: string; source?: string } | null };
+          data: {
+            stream: { id: string; title: string; source?: string; feedDroppedAt?: string | null } | null;
+            graceMs?: number;
+          };
         }>("/api/streams/active/mine");
         if (!cancelled) {
           const s = res.data.stream;
-          setOrphan(s ? { id: s.id, title: s.title, source: s.source ?? "camera" } : null);
+          setOrphan(s ? { id: s.id, title: s.title, source: s.source ?? "camera", feedDroppedAt: s.feedDroppedAt ?? null } : null);
+          if (typeof res.data.graceMs === "number") setGraceMs(res.data.graceMs);
         }
       } catch {
         // Non-critical — the Go Live path ends any stale stream anyway.
@@ -1221,7 +1304,11 @@ export default function StudioPage() {
     }
   };
 
-  /** Back into the room of an OBS stream this tab left running. */
+  /**
+   * Pick the stream up here: back into the room of an OBS stream this tab
+   * left running, or the camera/screen back on air — after a reload, or
+   * moved over from another device (which steps off as this one joins).
+   */
   const resumeStream = async () => {
     if (!orphan || resuming) return;
     setResuming(true);
@@ -1230,25 +1317,30 @@ export default function StudioPage() {
       const r = await apiFetch<{
         success: boolean;
         data: {
-          stream: { id: string; title: string; category: Category; feedDroppedAt: string | null };
+          stream: { id: string; title: string; category: Category; startedAt?: string; source?: string; feedDroppedAt: string | null };
           livekitToken: string;
           livekitUrl: string;
+          graceMs?: number;
           ingress?: { url: string; streamKey: string };
         };
       }>(`/api/streams/${orphan.id}/resume`, { method: "POST" });
+      const src = (r.data.stream.source ?? orphan.source) as SourceType;
       setTitle(r.data.stream.title);
       setCategory(r.data.stream.category);
-      setSource("obs");
-      setFeedDropped(!!r.data.stream.feedDroppedAt);
-      await goLive({
+      setSource(src);
+      if (typeof r.data.graceMs === "number") setGraceMs(r.data.graceMs);
+      setFeedDropped(src === "obs" && !!r.data.stream.feedDroppedAt);
+      if (r.data.stream.startedAt) resumedStartRef.current = new Date(r.data.stream.startedAt);
+      const resumed = await goLive({
         id: r.data.stream.id,
         livekitToken: r.data.livekitToken,
         livekitUrl: r.data.livekitUrl,
+        source: src,
         ...(r.data.ingress ? { ingress: r.data.ingress } : {}),
       });
-      setOrphan(null);
+      if (resumed) setOrphan(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't reopen the studio");
+      setError(err instanceof Error ? err.message : "Couldn't pick the stream back up");
     } finally {
       setResuming(false);
     }
@@ -1266,6 +1358,126 @@ export default function StudioPage() {
       );
     } finally {
       setEndingOrphan(false);
+    }
+  };
+
+  // ---- Staying on air through drops ----
+
+  /**
+   * The room disconnected. Why decides what happens next: the same account
+   * joined from another device, so the stream moved there — step back to
+   * setup, where the banner offers to take it back; the server closed the
+   * room — it's over; anything else is the network — hold on and rejoin.
+   * (Leaving on purpose never gets here: End stream and unmount take the
+   * room out of roomRef before disconnecting it.)
+   */
+  const onRoomGone = (reason: DisconnectReasonType | undefined, reasons: typeof DisconnectReasonType) => {
+    roomRef.current = null;
+    setLiveRoom(null);
+    // Whatever the room carried went with it; a rejoin subscribes afresh.
+    guestTracksRef.current.clear();
+    guestAudioElsRef.current.forEach((el) => el.remove());
+    guestAudioElsRef.current.clear();
+    setGuestTiles([]);
+    if (reason === reasons.CLIENT_INITIATED) return;
+    const { streamId: id, source: src, title: streamTitle } = liveRef.current;
+    if (!id) return;
+    if (reason === reasons.DUPLICATE_IDENTITY) {
+      resetAfterLive();
+      setOrphan({ id, title: streamTitle, source: src, feedDroppedAt: null });
+      return;
+    }
+    if (
+      reason === reasons.ROOM_DELETED ||
+      reason === reasons.ROOM_CLOSED ||
+      reason === reasons.PARTICIPANT_REMOVED
+    ) {
+      resetAfterLive();
+      setError("Your stream was taken off the air.");
+      return;
+    }
+    if (rejoinRef.current) return;
+    rejoinRef.current = { timer: null, attempt: 0 };
+    setConn("rejoining");
+    void attemptRejoinRef.current();
+  };
+
+  /**
+   * One try at getting back on air: a fresh token from the API, then into a
+   * new room with the feed republished. The API decides whether there's
+   * still a stream to go back to — past the grace window it answers 404 —
+   * so the loop runs until it's back, told it's over, or the host ends it.
+   */
+  const attemptRejoin = async () => {
+    const state = rejoinRef.current;
+    const { streamId: id, source: src } = liveRef.current;
+    if (!state || !id) return;
+    state.timer = null;
+    state.attempt += 1;
+    try {
+      const r = await apiFetch<{
+        success: boolean;
+        data: { livekitToken: string; livekitUrl: string; graceMs?: number };
+      }>(`/api/streams/${id}/resume`, { method: "POST" });
+      if (rejoinRef.current !== state) return;
+      if (typeof r.data.graceMs === "number") setGraceMs(r.data.graceMs);
+      await joinRoom(r.data.livekitUrl, r.data.livekitToken, src, true);
+      if (rejoinRef.current !== state) return;
+      rejoinRef.current = null;
+      setConn("live");
+    } catch (err) {
+      if (rejoinRef.current !== state) return;
+      // A half-made room from this try goes before the next one starts.
+      const stale = roomRef.current;
+      roomRef.current = null;
+      stale?.disconnect();
+      if (err instanceof ApiError && err.status === 404) {
+        resetAfterLive();
+        setError("You were offline longer than the stream could wait, so it ended. Go live again whenever you're ready.");
+        return;
+      }
+      // Still offline, or LiveKit said no: again soon, backing off to 10 s.
+      state.timer = setTimeout(
+        () => void attemptRejoinRef.current(),
+        Math.min(10_000, 1_000 * 2 ** Math.min(state.attempt, 4))
+      );
+    }
+  };
+
+  useEffect(() => {
+    liveRef.current = { streamId, source, title, micEnabled, camEnabled };
+    onRoomGoneRef.current = onRoomGone;
+    attemptRejoinRef.current = attemptRejoin;
+  });
+
+  // Back online: don't sit out the rest of the backoff.
+  useEffect(() => {
+    const online = () => {
+      const state = rejoinRef.current;
+      if (!state?.timer) return;
+      clearTimeout(state.timer);
+      state.timer = null;
+      void attemptRejoinRef.current();
+    };
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
+  }, []);
+
+  /** Rejoining can't restart a screen share on its own — this click can. */
+  const reshareScreen = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.localParticipant.setScreenShareEnabled(true);
+      room.localParticipant.videoTrackPublications.forEach((pub) => {
+        if (pub.track && videoElRef.current) {
+          pub.track.attach(videoElRef.current);
+          videoTrackRef.current = pub.track as LocalVideoTrack;
+        }
+      });
+      setNeedsReshare(false);
+    } catch {
+      // Picker dismissed: the button stays for another try.
     }
   };
 
@@ -1332,8 +1544,9 @@ export default function StudioPage() {
     };
   }, [isLive, streamId, source, camEnabled]);
 
-  // Warn before closing/refreshing the tab while live — leaving stops the
-  // broadcast. Not for OBS streams: the encoder carries the feed there.
+  // Warn before closing/refreshing the tab while live — leaving takes the
+  // camera off the air (the stream holds for the grace window, then ends).
+  // Not for OBS streams: the encoder carries the feed there.
   useEffect(() => {
     if (!isLive || source === "obs") return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -1345,7 +1558,8 @@ export default function StudioPage() {
   }, [isLive, source]);
 
   // Warn before in-app navigation while live (the browser is the publisher,
-  // so leaving the studio page ends the broadcast). OBS streams survive it.
+  // so leaving the studio page takes the stream off the air until you're
+  // back, and ends it after the grace window). OBS streams survive it.
   useEffect(() => {
     if (!isLive || source === "obs") return;
     const handler = (e: MouseEvent) => {
@@ -1357,7 +1571,7 @@ export default function StudioPage() {
       if (url.origin !== window.location.origin) return;
       if (url.pathname === window.location.pathname) return;
       const leave = window.confirm(
-        "You're live! Leaving the studio will end your stream for all viewers. Leave anyway?"
+        `You're live! If you leave the studio, viewers see "Be right back" and the stream ends in ${Math.round(graceMs / 60_000)} minutes unless you come back to it. Leave anyway?`
       );
       if (!leave) {
         e.preventDefault();
@@ -1366,7 +1580,7 @@ export default function StudioPage() {
     };
     document.addEventListener("click", handler, true);
     return () => document.removeEventListener("click", handler, true);
-  }, [isLive, source]);
+  }, [isLive, source, graceMs]);
 
   // Host share: share/copy the public stream link
   const shareStream = async () => {
@@ -1544,34 +1758,41 @@ export default function StudioPage() {
   // One column in the side panel; two once the console is wide enough (tablets).
   const setupFields = (
     <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
-      {orphan && (
-        <div className={cn("rounded-[12px] px-4 py-3.5 @[620px]:col-span-2", orphan.source === "obs" ? "bg-ember/[0.1]" : "bg-chili/[0.12]")}>
-          <div className="flex items-start gap-3">
-            {orphan.source === "obs" ? <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-ember-hi" /> : <Warning size={18} className="mt-0.5 shrink-0 text-chili-hi" />}
-            <div className="min-w-0">
-              <p className="text-[14px] font-semibold">
-                &ldquo;{orphan.title}&rdquo; is still {orphan.source === "obs" ? "live" : "marked live"}
-              </p>
-              <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
-                {orphan.source === "obs"
-                  ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and gifts back."
-                  : "The broadcast stopped when this tab closed, but the stream was never ended. Close it out before going live again."}
-              </p>
+      {orphan && (() => {
+        // Three ways a stream can be live without this studio on it.
+        const obs = orphan.source === "obs";
+        const holding = !obs && Boolean(orphan.feedDroppedAt);
+        const minutes = Math.round(graceMs / 60_000);
+        const heading = obs ? "is still live" : holding ? "is on hold" : "is live on another device";
+        const body = obs
+          ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and gifts back."
+          : holding
+            ? `Your ${orphan.source === "screen" ? "screen share" : "camera"} dropped off the air, and viewers are seeing “Be right back”. Pick it up within ${minutes} minutes and the stream carries on where it left off.`
+            : "Continue here to move it to this device — the other one steps off the air the moment this one joins.";
+        const action = obs ? "Reopen studio" : holding ? "Resume stream" : "Continue here";
+        return (
+          <div className={cn("rounded-[12px] px-4 py-3.5 @[620px]:col-span-2", holding ? "bg-chili/[0.12]" : "bg-ember/[0.1]")}>
+            <div className="flex items-start gap-3">
+              {holding ? <Warning size={18} className="mt-0.5 shrink-0 text-chili-hi" /> : <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-ember-hi" />}
+              <div className="min-w-0">
+                <p className="text-[14px] font-semibold">
+                  &ldquo;{orphan.title}&rdquo; {heading}
+                </p>
+                <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{body}</p>
+              </div>
             </div>
-          </div>
-          <div className="mt-3 flex gap-2">
-            {orphan.source === "obs" && (
+            <div className="mt-3 flex gap-2">
               <button onClick={resumeStream} disabled={resuming || endingOrphan} className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-white text-[13.5px] font-semibold text-[#0b0708] disabled:opacity-50">
                 {resuming ? <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={14} weight="fill" />}
-                Reopen studio
+                {action}
               </button>
-            )}
-            <button onClick={endOrphan} disabled={endingOrphan || resuming} className="press h-10 flex-1 rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover disabled:opacity-50">
-              {endingOrphan ? "Ending…" : "End it"}
-            </button>
+              <button onClick={endOrphan} disabled={endingOrphan || resuming} className="press h-10 flex-1 rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover disabled:opacity-50">
+                {endingOrphan ? "Ending…" : "End it"}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {booking && (
         <div className="flex items-start gap-3 rounded-[12px] bg-ember/[0.1] px-4 py-3.5 @[620px]:col-span-2">
@@ -2136,6 +2357,34 @@ export default function StudioPage() {
           </div>
         )}
 
+        {/* Off the air for a moment: the connection is healing, or the
+            studio is getting back in. The stream holds meanwhile. */}
+        {isLive && source !== "obs" && (conn !== "live" || needsReshare) && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+            <div className="max-w-sm px-6 text-center">
+              <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-ember/15 text-ember-hi">
+                {needsReshare && conn === "live" ? <MonitorArrowUp size={24} /> : <CellSignalLow size={24} weight="fill" />}
+              </span>
+              <p className="mt-4 font-wide text-[19px] leading-tight font-bold tracking-[-0.02em] text-white">
+                {needsReshare && conn === "live" ? "Share your screen again" : conn === "reconnecting" ? "Reconnecting…" : "Connection lost — getting you back"}
+              </p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
+                {needsReshare && conn === "live"
+                  ? "You're back in the room, but the browser needs a click before it shares your screen again."
+                  : conn === "reconnecting"
+                    ? "Hang on — this usually takes a few seconds."
+                    : `Your stream is on hold: viewers see “Be right back” for up to ${Math.round(graceMs / 60_000)} minutes while the studio reconnects. Nothing to do but keep this tab open.`}
+              </p>
+              {needsReshare && conn === "live" && (
+                <button type="button" onClick={() => void reshareScreen()} className="press mt-5 inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14px] font-semibold text-[#0b0708]">
+                  <MonitorArrowUp size={16} />
+                  Share screen
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Scrims: the copy and controls sit on black, never on the picture. */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
         {isLive && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent", mode === "phone" ? "h-64" : "h-36")} />}
@@ -2202,6 +2451,12 @@ export default function StudioPage() {
                   {viewerCount}
                 </button>
               </span>
+              {conn !== "live" && (
+                <span className="obj flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-ember-hi">
+                  <span className="size-1.5 animate-pulse rounded-full bg-ember" />
+                  Reconnecting
+                </span>
+              )}
               {source === "obs" && (
                 <span className="obj flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-white/85">
                   <span className={cn("size-1.5 rounded-full", obsFeedActive ? "bg-emerald-400" : "animate-pulse bg-ember")} />

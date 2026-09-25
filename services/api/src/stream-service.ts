@@ -1,4 +1,4 @@
-import { isBroadcasterConnected } from "./livekit.js";
+import { isBroadcasterConnected, sendRoomData } from "./livekit.js";
 import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
@@ -169,25 +169,49 @@ export async function markStreamEnded(stream: IStream) {
 }
 
 /**
- * An OBS/RTMP stream whose encoder is not in the room right now: keep it
- * live for the reconnect grace window, ending it only once the encoder has
- * been gone longer than that. The first sighting of the drop stamps
- * `feedDroppedAt` (the webhook usually gets there first, but a missed event
- * must not turn into an instant end). Browser-fed streams have no encoder
- * to wait for, so they are never held. Returns whether the stream is still
- * live afterwards.
+ * The participant a stream's picture comes from: the RTMP encoder
+ * (`obs-<id>`) for an OBS stream, the host's own browser otherwise.
+ */
+export function feedIdentity(stream: Pick<IStream, "source" | "streamerId">) {
+  const bid = stream.streamerId.toString();
+  return stream.source === "obs" ? `obs-${bid}` : bid;
+}
+
+/**
+ * The stream's feed is not in the room right now — an encoder dropped, or
+ * the host's browser lost its connection, reloaded or closed. Keep the
+ * stream live for the reconnect grace window, ending it only once the feed
+ * has been gone longer than that: a blip on a Lagos network is a pause, not
+ * the end of a broadcast hundreds are watching.
+ *
+ * The first sighting stamps `feedDroppedAt` (the webhook usually gets there
+ * first, but a missed event must not turn into an instant end) and tells
+ * the room, so viewers see "be right back" instead of a frozen frame.
+ * Returns whether the stream is still live afterwards.
  */
 export async function holdForReconnect(stream: IStream): Promise<boolean> {
-  if (stream.source !== "obs") return false;
   const droppedAt = stream.feedDroppedAt
     ? new Date(stream.feedDroppedAt).getTime()
     : null;
   if (droppedAt === null) {
     stream.feedDroppedAt = new Date();
     await stream.save();
+    void sendRoomData(stream.livekitRoomName, {
+      __evt: "feed",
+      state: "reconnecting",
+      graceMs: config.OBS_RECONNECT_GRACE_MS,
+    });
     return true;
   }
   return Date.now() - droppedAt < config.OBS_RECONNECT_GRACE_MS;
+}
+
+/** The feed is back in the room: clear the drop and tell everyone watching. */
+export async function markFeedBack(stream: IStream) {
+  if (!stream.feedDroppedAt) return;
+  stream.feedDroppedAt = null;
+  await stream.save();
+  void sendRoomData(stream.livekitRoomName, { __evt: "feed", state: "live" });
 }
 
 export async function reconcileStream(stream: IStream) {
@@ -207,6 +231,12 @@ export async function reconcileStream(stream: IStream) {
     await markStreamEnded(stream);
     return false;
   }
+
+  // The host's browser is back but its join webhook never landed: clear the
+  // drop here so viewers aren't left on "be right back". (An OBS stream's
+  // check also counts the studio tab, so only its encoder's own join clears
+  // a drop — see the webhook.)
+  if (stream.source !== "obs" && stream.feedDroppedAt) await markFeedBack(stream);
 
   return true;
 }

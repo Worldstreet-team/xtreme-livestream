@@ -37,9 +37,11 @@ const envSchema = z.object({
    */
   WALLET_TREASURY_USER_ID: z.string().default(""),
   /**
-   * How long an OBS/RTMP stream stays live after its encoder drops, waiting
-   * for it to reconnect on the same key, before it is ended. Five minutes
-   * covers a router reboot or a mobile-data hiccup.
+   * How long a stream stays live after its feed drops — an OBS/RTMP encoder,
+   * or since 2026-09-25 the host's browser — waiting for it to reconnect
+   * before it is ended. Five minutes covers a router reboot or a mobile-data
+   * hiccup. (The name predates browser holds; it's kept so deployed env
+   * files keep working.)
    */
   OBS_RECONNECT_GRACE_MS: z.coerce.number().int().min(30_000).default(300_000),
   // WorldStreet Social gateway. Leave unset to disable the live-post relay —

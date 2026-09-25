@@ -384,24 +384,31 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             source: stream.source ?? "camera",
             feedDroppedAt: stream.feedDroppedAt ?? null,
           },
+          graceMs: config.OBS_RECONNECT_GRACE_MS,
         },
       };
     },
   );
 
   /**
-   * Reopen the studio on an OBS stream that is still live. The encoder is
-   * the publisher, so a closed or crashed studio tab never ended anything;
-   * the host just needs a fresh token into the same room to see chat,
-   * guests and tips again. Browser-fed streams can't be resumed — their
-   * tracks died with the tab.
+   * A fresh host token into a stream that is still live — how the studio
+   * gets back on air after a drop, and how a host carries a live stream
+   * over to another device.
+   *
+   * OBS: the encoder is the publisher, so a closed studio tab never ended
+   * anything; the token just brings back chat, guests and gifts. Browser
+   * streams: the stream holds through the reconnect grace window after its
+   * camera drops (see holdForReconnect), and the studio republishes with
+   * this token — automatically after a network drop, or from the "Resume"
+   * banner after a reload. Joining from a second device under the same
+   * identity makes LiveKit close the first session, which is the handover.
    */
   app.post(
     "/streams/:id/resume",
     {
       schema: {
         tags: ["Streams"],
-        summary: "A fresh host token for the caller's live OBS stream",
+        summary: "A fresh host token for the caller's live stream",
         params: streamIdParamsSchema,
         security: [{ bearerAuth: [] }],
       },
@@ -415,13 +422,6 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       });
       if (!stream || !(await reconcileStream(stream))) {
         throw new ApiError(404, "That stream is no longer live", "STREAM_NOT_FOUND");
-      }
-      if (stream.source !== "obs") {
-        throw new ApiError(
-          409,
-          "Only encoder-fed streams can be reopened — the browser was this stream's camera",
-          "NOT_RESUMABLE",
-        );
       }
       const livekitToken = await createToken(
         stream.livekitRoomName,
@@ -437,11 +437,13 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             title: stream.title,
             category: stream.category,
             startedAt: stream.startedAt,
+            source: stream.source ?? "camera",
             feedDroppedAt: stream.feedDroppedAt ?? null,
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
-          ...(dbUser.obsIngress
+          graceMs: config.OBS_RECONNECT_GRACE_MS,
+          ...(stream.source === "obs" && dbUser.obsIngress
             ? { ingress: { url: dbUser.obsIngress.url, streamKey: dbUser.obsIngress.streamKey } }
             : {}),
         },

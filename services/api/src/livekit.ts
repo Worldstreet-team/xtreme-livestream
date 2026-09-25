@@ -205,6 +205,21 @@ export async function isBroadcasterConnected(
 }
 
 /**
+ * Whether this exact identity has a session in the room right now. A host
+ * who rejoined — or took the stream over from another device — can be back
+ * in before the old session's leave webhook arrives; that leave is not a
+ * drop. Errs towards "no", which only means the hold starts a beat early.
+ */
+export async function isIdentityInRoom(roomName: string, identity: string) {
+  try {
+    const participants = await roomService.listParticipants(roomName);
+    return participants.some((participant) => participant.identity === identity);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Server-side fan-out into a live room's data channel.
  *
  * Chat, tips and likes used to reach other viewers only via the *sender's*

@@ -54,7 +54,7 @@ import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, apiUrl, ApiError } from "@/lib/api-client";
-import type { Room } from "livekit-client";
+import type { Room, DisconnectReason as DisconnectReasonType } from "livekit-client";
 import {
   GiftOverlay,
   type GiftOverlayHandle,
@@ -171,6 +171,8 @@ interface StreamData {
   startedAt: string;
   livekitRoomName: string;
   pinnedMessage?: PinnedMessage | null;
+  /** Set while the host's feed has dropped and the stream is holding for it. */
+  feedDroppedAt?: string | null;
   streamerId: {
     _id: string;
     username: string;
@@ -211,8 +213,14 @@ export default function StreamPage({
   // OBS stream is flagged live the moment the key is issued, long before the
   // encoder pushes. Track them apart so the player can say which it is.
   const [hasVideo, setHasVideo] = useState(false);
-  /** The broadcaster's encoder dropped and the stream is waiting for it. */
-  const [feedReconnecting, setFeedReconnecting] = useState(false);
+  /** How long the stream holds for a dropped feed — from the API's "feed" event. */
+  const [graceMs, setGraceMs] = useState(300_000);
+  /** Bumped to rejoin the room after this viewer's own connection gave out. */
+  const [rejoinNonce, setRejoinNonce] = useState(0);
+  /** Getting this viewer back into the room after their connection dropped. */
+  const [rejoining, setRejoining] = useState(false);
+  /** The same account opened this stream in another tab, which took over. */
+  const [playingElsewhere, setPlayingElsewhere] = useState(false);
   /**
    * Bumped every time the host's video track object is replaced.
    *
@@ -610,7 +618,7 @@ export default function StreamPage({
       );
 
       // Dynamic import to avoid SSR issues
-      const { Room: LKRoom, RoomEvent, Track } = await import("livekit-client");
+      const { Room: LKRoom, RoomEvent, Track, DisconnectReason } = await import("livekit-client");
 
       // adaptiveStream matches each subscribed video's quality to the size
       // it's actually rendered at; dynacast lets the publisher pause simulcast
@@ -705,7 +713,7 @@ export default function StreamPage({
           setConnQuality(String(quality));
         }
       });
-      room.on(RoomEvent.Disconnected, () => {
+      room.on(RoomEvent.Disconnected, (reason?: DisconnectReasonType) => {
         setConnected(false);
         setHasVideo(false);
         videoTrackRef.current = null;
@@ -715,9 +723,29 @@ export default function StreamPage({
         setGuestVideos([]);
         setLocalStageTrack(null);
         setStageState("idle");
-        // Host ended the stream — sync UI state and show modal
-        setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
-        setStreamEnded(true);
+        // Why the room let go decides what the viewer is told. This used to
+        // call every disconnect the end of the stream — so a viewer whose
+        // own wifi blinked got "Stream ended" on a stream still going.
+        if (reason === DisconnectReason.CLIENT_INITIATED) return;
+        if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
+          setPlayingElsewhere(true);
+          setPlaybackError("This stream is playing in another tab or on another device.");
+          return;
+        }
+        if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+          setPlaybackError("You were removed from this stream.");
+          return;
+        }
+        if (reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.ROOM_CLOSED) {
+          setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
+          setStreamEnded(true);
+          return;
+        }
+        // Most likely this viewer's own network. Ask the API whether the
+        // stream is still on (if it isn't, the ended sheet takes over), then
+        // go back in.
+        setRejoining(true);
+        void fetchStream({ quiet: true }).then(() => setRejoinNonce((n) => n + 1));
       });
 
       // Real-time engagement events, broadcast by the API server-side.
@@ -744,10 +772,18 @@ export default function StreamPage({
             game?: GameView;
             points?: number;
             state?: string;
+            graceMs?: number;
           };
-          // The encoder dropped or came back: the overlay says which.
+          // The host's feed dropped or came back — the API decides, the
+          // player shows "Be right back" while it's away.
           if (data.__evt === "feed") {
-            setFeedReconnecting(data.state === "reconnecting");
+            const away = data.state === "reconnecting";
+            setStream((prev) =>
+              prev
+                ? { ...prev, feedDroppedAt: away ? (prev.feedDroppedAt ?? new Date().toISOString()) : null }
+                : prev
+            );
+            if (typeof data.graceMs === "number") setGraceMs(data.graceMs);
             return;
           }
           // A drop: the on-player moment; chat gets its own row from the API.
@@ -893,6 +929,8 @@ export default function StreamPage({
       await room.connect(res.data.livekitUrl, res.data.token);
       roomRef.current = room;
       setConnected(true);
+      setRejoining(false);
+      setPlayingElsewhere(false);
       setViewerCount(room.remoteParticipants.size);
 
       // Attach any already-published tracks
@@ -910,13 +948,25 @@ export default function StreamPage({
       // timer over a permanently black player, with no indication anything had
       // gone wrong. Surface it instead.
       console.error("[Stream] Failed to join the LiveKit room:", err);
+      setRejoining(false);
       setPlaybackError(
         err instanceof ApiError && err.status === 400
           ? "This stream has ended."
           : "Couldn't connect to this stream. It may have ended."
       );
     }
-  }, [stream?.isLive, id, connected]);
+  }, [stream?.isLive, id, connected, fetchStream]);
+
+  // Back online after a failed rejoin: go back in without waiting for a tap.
+  useEffect(() => {
+    if (!playbackError || !stream?.isLive || playingElsewhere) return;
+    const online = () => {
+      setPlaybackError(null);
+      setRejoinNonce((n) => n + 1);
+    };
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
+  }, [playbackError, stream?.isLive, playingElsewhere]);
 
   // Attach the video track whenever BOTH it and the element exist. The old
   // code attached inside the subscribe callback against a ref that could
@@ -953,7 +1003,8 @@ export default function StreamPage({
       audioEls.forEach((el) => el.remove());
       audioEls.clear();
     };
-  }, [stream?.isLive, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+    // rejoinNonce: a bump re-runs this to go back in after a drop.
+  }, [stream?.isLive, authLoading, rejoinNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -1669,6 +1720,38 @@ export default function StreamPage({
       </span>
     );
 
+  /** Back into the room after this viewer's own connection gave out. */
+  const retryPlayback = () => {
+    setPlaybackError(null);
+    setRejoinNonce((n) => n + 1);
+  };
+
+  // The host's feed dropped and the stream is holding for it (the API's
+  // reconnect grace): say so plainly, instead of a black or frozen frame.
+  const hostAway = stream.isLive && Boolean(stream.feedDroppedAt) && !hasVideo && !playbackError;
+  // In a battle the scoreboard stays up top (gifts still count), so the
+  // card sits below it rather than under it.
+  const battleUp = Boolean(battle && (isBattleActive(battle) || battle.status === "ended"));
+  const brbCard = (
+    <div className={cn("absolute inset-0 flex items-center justify-center bg-black/85", battleUp && "pt-24")}>
+      <div className="max-w-sm px-8 text-center">
+        <span className="relative mx-auto flex w-fit">
+          <UserAvatar src={streamer.avatar} name={hostName} size={64} ring="seen" ringGapClassName="bg-black" />
+          <span className="absolute -right-1 -bottom-1 flex size-7 items-center justify-center rounded-full bg-ember text-on-ember ring-4 ring-black">
+            <CellSignalLow size={14} weight="fill" />
+          </span>
+        </span>
+        <p className="mt-5 font-wide text-[22px] font-bold tracking-[-0.025em] text-white">Be right back</p>
+        <p className="mt-1.5 text-[13.5px] leading-relaxed text-white/60">
+          {hostName} lost their connection. The stream picks up right here when they&apos;re back — stay put.
+        </p>
+        <p className="caps mt-4 font-mono text-[10.5px] text-white/40">
+          Holding for up to {Math.round(graceMs / 60_000)} min
+        </p>
+      </div>
+    </div>
+  );
+
   // Shared by the desktop page and the mobile immersive view.
   const mergeOverlay = mergingInto && (
     <div className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/80">
@@ -1896,30 +1979,37 @@ export default function StreamPage({
         <FloatingHearts onReady={handleHeartsReady} />
 
         {/* Status overlays */}
-        {stream.isLive && connected && !hasVideo && !playbackError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <div className="px-8 text-center">
-              <Spinner className="mx-auto size-7 text-white/70" />
-              <p className="mt-4 font-wide text-[17px] font-bold tracking-[-0.02em] text-white/85">
-                {feedReconnecting ? "Reconnecting…" : "Waiting for the broadcaster"}
-              </p>
-              <p className="mt-1 text-[13px] text-white/50">
-                {feedReconnecting
-                  ? "Their connection dropped for a moment — stay put."
-                  : "The picture appears the moment they start sending."}
-              </p>
-            </div>
-          </div>
-        )}
+        {hostAway
+          ? brbCard
+          : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                <div className="px-8 text-center">
+                  <Spinner className="mx-auto size-7 text-white/70" />
+                  <p className="mt-4 font-wide text-[17px] font-bold tracking-[-0.02em] text-white/85">
+                    {rejoining ? "Reconnecting you…" : "Waiting for the broadcaster"}
+                  </p>
+                  <p className="mt-1 text-[13px] text-white/50">
+                    {rejoining
+                      ? "Your connection dropped — getting you back in."
+                      : "The picture appears the moment they start sending."}
+                  </p>
+                </div>
+              </div>
+            )}
         {stream.isLive && playbackError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">
             <div className="px-8 text-center">
               <p className="font-wide text-[17px] font-bold tracking-[-0.02em] text-white/80">
                 {playbackError}
               </p>
-              <PillLink href="/explore" variant="glass" size="md" className="mt-5">
-                Browse live streams
-              </PillLink>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Pill variant="primary" size="md" onClick={retryPlayback}>
+                  {playingElsewhere ? "Watch here" : "Try again"}
+                </Pill>
+                <PillLink href="/explore" variant="glass" size="md">
+                  Browse live streams
+                </PillLink>
+              </div>
             </div>
           </div>
         )}
@@ -2319,35 +2409,44 @@ export default function StreamPage({
               </div>
             )}
 
-            {/* Live and joined, but nothing is being published yet — the
-                normal state for an OBS stream between getting the key and
-                the encoder connecting. Previously just a black rectangle. */}
-            {stream.isLive && connected && !hasVideo && !playbackError && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-                <div className="px-6 text-center">
-                  <Spinner className="mx-auto size-7 text-white/70" />
-                  <p className="mt-4 font-wide text-[19px] font-bold tracking-[-0.02em] text-white/85">
-                    {feedReconnecting ? "Reconnecting…" : "Waiting for the broadcaster"}
-                  </p>
-                  <p className="mt-1 text-sm text-white/50">
-                    {feedReconnecting
-                      ? "Their connection dropped for a moment. Stay put — the picture comes back on its own."
-                      : "The video appears here the moment they start sending."}
-                  </p>
-                </div>
-              </div>
-            )}
+            {/* The host's feed dropped and the stream is holding for it —
+                "Be right back". Otherwise: live and joined, but nothing is
+                being published yet — the normal state for an OBS stream
+                between getting the key and the encoder connecting — or this
+                viewer is on the way back in after their own drop. */}
+            {hostAway
+              ? brbCard
+              : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                    <div className="px-6 text-center">
+                      <Spinner className="mx-auto size-7 text-white/70" />
+                      <p className="mt-4 font-wide text-[19px] font-bold tracking-[-0.02em] text-white/85">
+                        {rejoining ? "Reconnecting you…" : "Waiting for the broadcaster"}
+                      </p>
+                      <p className="mt-1 text-sm text-white/50">
+                        {rejoining
+                          ? "Your connection dropped — getting you back in."
+                          : "The video appears here the moment they start sending."}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-            {/* Flagged live, but we couldn't actually join the room */}
+            {/* Flagged live, but we couldn't join the room — or lost it */}
             {stream.isLive && playbackError && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-6 text-center">
                   <p className="font-wide text-[19px] font-bold tracking-[-0.02em] text-white/80">
                     {playbackError}
                   </p>
-                  <PillLink href="/explore" variant="glass" size="md" className="mt-5">
-                    Browse live streams
-                  </PillLink>
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    <Pill variant="primary" size="md" onClick={retryPlayback}>
+                      {playingElsewhere ? "Watch here" : "Try again"}
+                    </Pill>
+                    <PillLink href="/explore" variant="glass" size="md">
+                      Browse live streams
+                    </PillLink>
+                  </div>
                 </div>
               </div>
             )}

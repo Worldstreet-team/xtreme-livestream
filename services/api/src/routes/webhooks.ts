@@ -1,8 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ApiError } from "../errors.js";
-import { roomService, sendRoomData, webhookReceiver } from "../livekit.js";
+import { isIdentityInRoom, roomService, sendRoomData, webhookReceiver } from "../livekit.js";
 import { Stream, type IStream } from "../models.js";
-import { accrueViewerSeconds, holdForReconnect, markStreamEnded } from "../stream-service.js";
+import {
+  accrueViewerSeconds,
+  feedIdentity,
+  holdForReconnect,
+  markFeedBack,
+  markStreamEnded,
+} from "../stream-service.js";
 import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
 
 /**
@@ -92,10 +98,10 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           livekitRoomName: roomName,
           isLive: true,
         });
-        // An OBS room can empty out while the encoder is reconnecting (the
-        // studio tab closed, viewers gave up); the ingress recreates the
-        // room when the push resumes. Inside the grace window that is a
-        // pause, not an end.
+        // A room can empty out while its feed is reconnecting (the studio
+        // tab closed, viewers gave up); the encoder's push or the host's
+        // rejoin recreates it. Inside the grace window that is a pause, not
+        // an end.
         if (stream && !(await holdForReconnect(stream))) {
           await markStreamEnded(stream);
         }
@@ -106,11 +112,10 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           isLive: true,
         });
         const bid = stream?.streamerId.toString();
-        // The encoder is back: clear the drop and tell the room.
-        if (stream && identity === `obs-${bid}` && stream.feedDroppedAt) {
-          stream.feedDroppedAt = null;
-          await stream.save();
-          void sendRoomData(stream.livekitRoomName, { __evt: "feed", state: "live" });
+        // The feed is back — the encoder, or the host's browser rejoining:
+        // clear the drop and tell the room.
+        if (stream && identity === feedIdentity(stream)) {
+          await markFeedBack(stream);
         }
         if (
           stream &&
@@ -141,19 +146,20 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
             isLive: true,
           });
           if (stream) {
-            const bid = stream.streamerId.toString();
             // For an OBS stream the ENCODER is the feed — the dashboard
             // browser coming and going must not end the broadcast. For
             // browser streams it's the opposite.
-            const feedLeft =
-              stream.source === "obs"
-                ? identity === `obs-${bid}`
-                : identity === bid;
-            if (feedLeft) {
-              // A dropped encoder is a reconnect in progress, not an end:
-              // the key is persistent, so OBS/vMix comes straight back into
-              // this room. The stream stays live for the grace window and
-              // viewers are told what's happening.
+            if (identity === feedIdentity(stream)) {
+              // A new session under the same identity is already in: the
+              // host rejoined or moved the stream to another device, and
+              // this is the old session leaving. Nothing dropped.
+              if (await isIdentityInRoom(roomName, identity)) {
+                return { success: true };
+              }
+              // A dropped feed is a reconnect in progress, not an end: the
+              // encoder comes straight back on its persistent key, the
+              // studio rejoins on its own. The stream stays live for the
+              // grace window and viewers are told what's happening.
               if (!(await holdForReconnect(stream))) {
                 await markStreamEnded(stream);
               }
