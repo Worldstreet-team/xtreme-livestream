@@ -52,6 +52,13 @@ export const guestUserParamsSchema = z.object({
  * hitting it.
  */
 export const MAX_STAGE_GUESTS = 3;
+/**
+ * Where someone is with the stage: asking; backstage (producer mode) —
+ * in the room with camera and mic on, checking their devices, seen only by
+ * the host and their producers until they're put on; or live on stage.
+ */
+export const GUEST_STATUSES = ["requested", "backstage", "live"] as const;
+export type GuestStatus = (typeof GUEST_STATUSES)[number];
 
 /** Stream id + a target user — shared by stage and moderation actions. */
 export const streamUserParamsSchema = guestUserParamsSchema;
@@ -1040,10 +1047,17 @@ export const createStreamBodySchema = z.object({
   /** Go live with this scene already up — "Starting soon", say — so the
    *  first frame anyone sees is the card, not the camera finding its feet. */
   scene: sceneBodySchema.optional(),
+  /**
+   * A practice run (producer mode): a private room nobody else can find or
+   * join, with simulated chat and gifts, so a creator can rehearse the
+   * studio, their rules and their run of show. Nothing is announced, listed,
+   * relayed or paid. Decided when the stream is made.
+   */
+  practice: z.boolean().default(false),
 });
 
 export const updateStreamBodySchema = createStreamBodySchema
-  .omit({ scheduledStreamId: true, scene: true })
+  .omit({ scheduledStreamId: true, scene: true, practice: true })
   .partial()
   .refine((body) => Object.keys(body).length > 0, {
     message: "At least one field is required",

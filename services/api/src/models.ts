@@ -7,6 +7,7 @@ import {
   STAGE_ACCOUNT_DAYS,
   STAGE_REQUEST_RULES,
   EVASION_TREATMENTS,
+  GUEST_STATUSES,
   type Category,
   type FeaturedItem,
   type FilterCategory,
@@ -15,6 +16,7 @@ import {
   type ModsCanFeature,
   type StageRequestRule,
   type EvasionTreatment,
+  type GuestStatus,
 } from "@xtreme/contracts";
 
 export interface IUser extends Document {
@@ -261,7 +263,7 @@ export interface IStreamGuest {
   userId: mongoose.Types.ObjectId;
   username: string;
   avatar: string;
-  status: "requested" | "live";
+  status: GuestStatus;
   requestedAt: Date;
   /** Where they stood with the channel when they asked (the request line). */
   standing?: { ally: boolean; level: number; hours: number } | null;
@@ -376,6 +378,8 @@ export interface IStream extends Document {
   shield: { on: boolean; at: Date | null; by: mongoose.Types.ObjectId | null };
   /** Set when a platform admin took the stream down after a report; it's then kept out of listings. */
   takenDownAt: Date | null;
+  /** A practice run: private, unlisted, unannounced, with simulated chat and gifts (practice.ts). */
+  practice: boolean;
   /**
    * The goal bar (Phase 2, goals and status) — the host's goal and how far
    * it's got. Written only by goals.ts, each time with one atomic update.
@@ -509,7 +513,7 @@ const streamSchema = new Schema<IStream>(
           avatar: { type: String, default: "" },
           status: {
             type: String,
-            enum: ["requested", "live"],
+            enum: GUEST_STATUSES,
             default: "requested",
           },
           requestedAt: { type: Date, default: Date.now },
@@ -539,6 +543,7 @@ const streamSchema = new Schema<IStream>(
       by: { type: Schema.Types.ObjectId, ref: "User", default: null },
     },
     takenDownAt: { type: Date, default: null },
+    practice: { type: Boolean, default: false },
     goal: { type: Schema.Types.Mixed, default: null },
     heat: { type: Schema.Types.Mixed, default: null },
     requestsOpen: { type: Boolean, default: false },
