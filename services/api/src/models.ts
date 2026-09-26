@@ -6,6 +6,7 @@ import {
   MODS_CAN_FEATURE,
   STAGE_ACCOUNT_DAYS,
   STAGE_REQUEST_RULES,
+  EVASION_TREATMENTS,
   type Category,
   type FeaturedItem,
   type FilterCategory,
@@ -13,6 +14,7 @@ import {
   type ModRole,
   type ModsCanFeature,
   type StageRequestRule,
+  type EvasionTreatment,
 } from "@xtreme/contracts";
 
 export interface IUser extends Document {
@@ -97,6 +99,8 @@ export interface IUser extends Document {
     blockedTermsLevel: "hold" | "block";
     mods: Array<{ userId: mongoose.Types.ObjectId; username: string; role: ModRole; addedAt: Date }>;
     modsCanFeature: ModsCanFeature;
+    /** What happens to lines from a likely ban evader (safety/evasion.ts). */
+    evasion?: EvasionTreatment;
   };
   settings: {
     autoRecord: boolean;
@@ -231,6 +235,7 @@ const userSchema = new Schema<IUser>(
         default: [],
       },
       modsCanFeature: { type: String, enum: MODS_CAN_FEATURE, default: "suggest" },
+      evasion: { type: String, enum: EVASION_TREATMENTS, default: "flag" },
     },
     settings: {
       autoRecord: { type: Boolean, default: false },

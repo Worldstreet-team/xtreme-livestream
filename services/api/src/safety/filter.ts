@@ -26,7 +26,7 @@ export interface FilterSettings {
 
 export interface FilterVerdict {
   level: "hold" | "block";
-  category: FilterCategory | "custom" | "new-account";
+  category: FilterCategory | "custom" | "new-account" | "evasion";
 }
 
 /** Look-alikes read as the letters they stand in for — only when matching terms. */
@@ -152,4 +152,5 @@ export const HELD_REASON_LABELS: Record<FilterVerdict["category"], string> = {
   scams: "Scam or wallet address",
   custom: "Your blocked terms",
   "new-account": "New account (Shield)",
+  evasion: "Looks like a banned account",
 };

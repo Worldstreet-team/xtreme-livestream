@@ -205,6 +205,8 @@ export function LiveChat({
   const canModerate = role !== null;
   /** What the filter is holding — moderators only. */
   const [held, setHeld] = useState<HeldLine[]>([]);
+  /** Moderators: accounts that look like ones banned here lately, and why (safety/evasion.ts). */
+  const [suspects, setSuspects] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [heldBusy, setHeldBusy] = useState<string | null>(null);
   /** My own held lines, so their outcome can be told to me. */
   const pendingIdsRef = useRef<Set<string>>(new Set());
@@ -449,6 +451,12 @@ export function LiveChat({
               case "role":
                 setRules((r) => ({ ...r, role: data.role ?? null }));
                 return;
+              // Moderators: an account that looks like one banned here lately.
+              case "suspect": {
+                const d = data as { userId?: string; reason?: string };
+                if (d.userId && d.reason) setSuspects((cur) => new Map(cur).set(d.userId!, d.reason!));
+                return;
+              }
               // Moderators: a line the filter caught.
               case "held": {
                 const line = toHeldLine(data.message as unknown as Record<string, unknown>);
@@ -961,15 +969,29 @@ export function LiveChat({
     return map;
   }, [topGifters]);
 
-  const badgesFor = (msg: ChatMsg) => (
-    <Badges
-      host={Boolean(hostUsername) && msg.username === hostUsername}
-      mod={msg.isMod}
-      rank={ranks.get(msg.username)}
-      fan={msg.fan}
-      platform={msg.platform}
-    />
-  );
+  const badgesFor = (msg: ChatMsg) => {
+    const suspect = msg.userId ? suspects.get(msg.userId) : undefined;
+    return (
+      <>
+        {suspect && (
+          <span
+            title={suspect}
+            aria-label={`Suspicious: ${suspect}`}
+            className="mr-1 inline-flex h-4 items-center rounded-[4px] bg-warning/90 px-1 align-[1px] text-[9.5px] font-bold tracking-wide text-[#1a1203] uppercase"
+          >
+            Suspicious
+          </span>
+        )}
+        <Badges
+          host={Boolean(hostUsername) && msg.username === hostUsername}
+          mod={msg.isMod}
+          rank={ranks.get(msg.username)}
+          fan={msg.fan}
+          platform={msg.platform}
+        />
+      </>
+    );
+  };
 
   const toolButton = (label: string, onClick: () => void, icon: ReactNode, tone: "plain" | "danger" | "on" = "plain") => (
     <button

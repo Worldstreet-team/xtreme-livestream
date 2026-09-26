@@ -1175,6 +1175,13 @@ const blockedTermSchema = z
 
 const filterLevelSchema = z.enum(FILTER_LEVELS).optional();
 
+/**
+ * A young account named like one the channel banned lately (safety/evasion.ts):
+ * "flag" marks its lines for moderators; "hold" also holds them for review.
+ */
+export const EVASION_TREATMENTS = ["flag", "hold"] as const;
+export type EvasionTreatment = (typeof EVASION_TREATMENTS)[number];
+
 export const safetySettingsBodySchema = z
   .object({
     filters: z
@@ -1192,6 +1199,7 @@ export const safetySettingsBodySchema = z
     blockedTerms: z.array(blockedTermSchema).max(100).optional(),
     blockedTermsLevel: z.enum(["hold", "block"]).optional(),
     modsCanFeature: z.enum(MODS_CAN_FEATURE).optional(),
+    evasion: z.enum(EVASION_TREATMENTS).optional(),
   })
   .strict()
   .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });

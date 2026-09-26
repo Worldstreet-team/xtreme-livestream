@@ -6,7 +6,7 @@ import { ArrowUpRight, Check, Plus, ShieldStar, Storefront, Trash, Warning, X } 
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import type { FilterCategory, FilterLevel, ModRole, ModsCanFeature } from "@xtreme/contracts";
+import type { EvasionTreatment, FilterCategory, FilterLevel, ModRole, ModsCanFeature } from "@xtreme/contracts";
 
 /**
  * Settings → Chat's safety kit: the chat filter (a level per category),
@@ -26,6 +26,7 @@ export interface SafetyState {
   blockedTerms: string[];
   blockedTermsLevel: "hold" | "block";
   modsCanFeature: ModsCanFeature;
+  evasion: EvasionTreatment;
 }
 
 export interface ModRow {
@@ -399,6 +400,56 @@ const SCREEN_OPTIONS: { id: ModsCanFeature; label: string; hint: string }[] = [
   { id: "off", label: "Not at all", hint: "Only you put lines on screen." },
 ];
 
+const EVASION_OPTIONS: { id: EvasionTreatment; label: string; hint: string }[] = [
+  { id: "flag", label: "Flag them", hint: "Your moderators see “Looks like @name” beside their lines." },
+  { id: "hold", label: "Hold their lines", hint: "Their messages wait for a moderator — and are flagged too." },
+];
+
+/** A few choices, one on — the same shape for each of the moderators' settings. */
+function Choices<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onPick,
+}: {
+  label: string;
+  value: T;
+  options: { id: T; label: string; hint: string }[];
+  disabled: boolean;
+  onPick: (id: T) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="mt-3 flex flex-col gap-1.5">
+      {options.map((o) => {
+        const on = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => !on && onPick(o.id)}
+            className={cn(
+              "press flex items-start gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors disabled:opacity-50",
+              on ? "bg-white/[0.08]" : "bg-white/[0.03] hover:bg-white/[0.06]"
+            )}
+          >
+            <span className={cn("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full", on ? "bg-ember" : "bg-white/[0.12]")}>
+              {on && <span className="size-1.5 rounded-full bg-on-ember" />}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13.5px] font-semibold">{o.label}</span>
+              <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{o.hint}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ModsTile({
   userId,
   mods,
@@ -563,33 +614,19 @@ export function ModsTile({
           <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
             Whether moderators can put chat lines on your stream.
           </p>
-          <div role="radiogroup" aria-label="Moderators and the screen" className="mt-3 flex flex-col gap-1.5">
-            {SCREEN_OPTIONS.map((o) => {
-              const on = screen === o.id;
-              return (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  disabled={!safety}
-                  onClick={() => !on && onSave({ modsCanFeature: o.id }, show)}
-                  className={cn(
-                    "press flex items-start gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors disabled:opacity-50",
-                    on ? "bg-white/[0.08]" : "bg-white/[0.03] hover:bg-white/[0.06]"
-                  )}
-                >
-                  <span className={cn("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full", on ? "bg-ember" : "bg-white/[0.12]")}>
-                    {on && <span className="size-1.5 rounded-full bg-on-ember" />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13.5px] font-semibold">{o.label}</span>
-                    <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{o.hint}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <Choices label="Moderators and the screen" value={screen} options={SCREEN_OPTIONS} disabled={!safety} onPick={(id) => onSave({ modsCanFeature: id }, show)} />
+
+          <p className="mt-6 text-[14px] font-semibold">Likely ban evaders</p>
+          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
+            New accounts named like someone banned here in the last two weeks — “sp4mmer_2” after “spammer”.
+          </p>
+          <Choices
+            label="Likely ban evaders"
+            value={safety?.evasion ?? "flag"}
+            options={EVASION_OPTIONS}
+            disabled={!safety}
+            onPick={(id) => onSave({ evasion: id }, show)}
+          />
         </div>
       </div>
     </div>

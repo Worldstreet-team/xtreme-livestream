@@ -25,6 +25,7 @@ import {
   User,
 } from "../models.js";
 import { checkMessage, HELD_REASON_LABELS, NEW_ACCOUNT_MS } from "../safety/filter.js";
+import { evasionOf, evasionReason } from "../safety/evasion.js";
 import { moderatorIdentities, roleIn } from "../safety/roles.js";
 import {
   markStreamEnded,
@@ -41,6 +42,30 @@ import { fireRules } from "../rules.js";
  * SLOW_MODE_SECONDS in components/app/live-chat.tsx — keep the two in step
  * so the countdown matches what the server enforces.
  */
+
+/** Suspicious accounts already pointed out, per stream: once every half hour is enough. */
+const flagged = new Map<string, number>();
+const FLAG_EVERY_MS = 30 * 60_000;
+
+/** Tell the room's moderators — only them — that this account looks like a ban evader. */
+function flagSuspect(
+  stream: { _id: unknown; livekitRoomName: string },
+  streamer: Parameters<typeof moderatorIdentities>[0],
+  user: { _id: unknown; username: string },
+  reason: string,
+  now = Date.now(),
+) {
+  const key = `${String(stream._id)}:${String(user._id)}`;
+  if (now - (flagged.get(key) ?? 0) < FLAG_EVERY_MS) return;
+  flagged.set(key, now);
+  if (flagged.size > 5000) flagged.delete(flagged.keys().next().value!);
+  void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), {
+    __evt: "suspect",
+    userId: String(user._id),
+    username: user.username,
+    reason,
+  }).catch(() => {});
+}
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -594,6 +619,14 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
             throw new ApiError(422, "That message wasn't sent — it goes against this room's chat rules", "MESSAGE_BLOCKED");
           }
           held = verdict;
+        }
+
+        // A young account named like one banned here lately: the moderators
+        // are told, and if the host says so its lines wait for review.
+        const evasion = await evasionOf(stream.streamerId, dbUser).catch(() => null);
+        if (evasion) {
+          if (!held && streamer?.safety?.evasion === "hold") held = { level: "hold", category: "evasion" };
+          if (streamer) flagSuspect(stream, streamer, dbUser, evasionReason(evasion));
         }
       }
 

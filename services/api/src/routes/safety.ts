@@ -44,6 +44,7 @@ function safetyView(user: Pick<IUser, "settings" | "safety">) {
     blockedTerms: s?.blockedTerms ?? [],
     blockedTermsLevel: s?.blockedTermsLevel ?? "block",
     modsCanFeature: s?.modsCanFeature ?? "suggest",
+    evasion: s?.evasion ?? "flag",
   };
 }
 
@@ -168,6 +169,7 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.blockedTerms) set["safety.blockedTerms"] = [...new Set(body.blockedTerms)];
       if (body.blockedTermsLevel) set["safety.blockedTermsLevel"] = body.blockedTermsLevel;
       if (body.modsCanFeature) set["safety.modsCanFeature"] = body.modsCanFeature;
+      if (body.evasion) set["safety.evasion"] = body.evasion;
       const updated = await User.findByIdAndUpdate(dbUser._id, { $set: set }, { new: true });
       await audit(dbUser._id, "safety.update", "user", dbUser._id, { changes: Object.keys(set) });
       return { success: true, data: { safety: safetyView(updated ?? dbUser) } };

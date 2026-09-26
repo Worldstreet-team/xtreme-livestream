@@ -15,6 +15,7 @@ import { featuredFrom, isDropMessage, sceneView, unfeatureMessage, unfeatureUser
 import { sendRoomData, sendRoomDataTo } from "../livekit.js";
 import { ChatMessage, Stream, StreamBan } from "../models.js";
 import { assertActionable, moderatorIdentities, requireChannelRole } from "../safety/roles.js";
+import { forgetBans } from "../safety/evasion.js";
 import { featureQueueView } from "./safety.js";
 
 /**
@@ -192,6 +193,8 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         streamId: stream._id,
         userId: request.params.userId,
       });
+      // A new name for the same person should be spotted from now, not in a minute.
+      forgetBans(stream.streamerId);
 
       // Banned users also come off the stage / out of the request queue.
       await Stream.updateOne(
