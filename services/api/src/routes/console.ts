@@ -36,7 +36,9 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const streamer = await User.findOne({ username: request.params.username })
-        .select("username displayName avatar safety settings.featureSeconds settings.featureGiftsFromMinor brand.accent brand.lowerThird brand.font brand.logo brand.logoVersion")
+        .select(
+          "username displayName avatar safety settings.featureSeconds settings.featureGiftsFromMinor settings.stageRequests settings.stageAccountDays brand.accent brand.lowerThird brand.font brand.logo brand.logoVersion",
+        )
         .lean();
       if (!streamer) throw new ApiError(404, "There's no channel by that name", "USER_NOT_FOUND");
       const role = roleIn(streamer, dbUser._id);
@@ -57,6 +59,8 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
         // How long the host has lines stay up, so a producer's go up the same.
         featureSeconds: streamer.settings?.featureSeconds ?? 20,
         featureGiftsFromMinor: streamer.settings?.featureGiftsFromMinor ?? 0,
+        // The request line as the host set it — theirs to change.
+        stageLine: { who: streamer.settings?.stageRequests ?? "everyone", accountDays: streamer.settings?.stageAccountDays ?? 0 },
       };
 
       // The host's sponsors, for the graphics and cues a producer puts up,
@@ -93,7 +97,13 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
             source: stream.source ?? "camera",
             startedAt: stream.startedAt,
             scene: sceneView(stream.scene),
-            guests: (stream.guests ?? []).map((g) => ({ userId: String(g.userId), username: g.username, avatar: g.avatar, status: g.status })),
+            guests: (stream.guests ?? []).map((g) => ({
+              userId: String(g.userId),
+              username: g.username,
+              avatar: g.avatar,
+              status: g.status,
+              standing: g.standing ?? null,
+            })),
             goal: goalView(stream.goal),
             heat: heatView(stream.heat),
             pinned: stream.pinnedMessage

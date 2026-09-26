@@ -938,6 +938,25 @@ export const DEFAULT_FILTER_LEVELS: Record<FilterCategory, FilterLevel> = {
  * device too.
  */
 export const MOD_ROLES = ["lead", "mod", "producer"] as const;
+
+/**
+ * The request line (producer mode): who can ask to join a channel's stage.
+ * The host's crew — moderators and producers — can always ask. "fans" is a
+ * fan level of STAGE_FAN_LEVEL or more with the channel (fans.ts).
+ */
+export const STAGE_REQUEST_RULES = ["everyone", "allies", "fans", "off"] as const;
+export type StageRequestRule = (typeof STAGE_REQUEST_RULES)[number];
+export const STAGE_FAN_LEVEL = 3;
+/** How old an account must be to ask to join, in days; 0 is any age. */
+export const STAGE_ACCOUNT_DAYS = [0, 1, 7] as const;
+export type StageAccountDays = (typeof STAGE_ACCOUNT_DAYS)[number];
+/** Where someone asking to join stands with the channel, as the host sees it beside their name. */
+export interface StageStanding {
+  ally: boolean;
+  level: number;
+  /** Hours watched with the channel. */
+  hours: number;
+}
 export type ModRole = (typeof MOD_ROLES)[number];
 /** Who someone is in a channel's room. */
 export type ChannelRole = "host" | ModRole;
@@ -1019,6 +1038,10 @@ export const updateProfileBodySchema = z
           .optional(),
         /** How long a comment stays on screen; 0 is until the host takes it down. */
         featureSeconds: z.union([z.literal(0), z.literal(10), z.literal(20), z.literal(60)]).optional(),
+        /** Who can ask to join the stage; the crew always can. */
+        stageRequests: z.enum(STAGE_REQUEST_RULES).optional(),
+        /** How old an account must be to ask to join, in days. */
+        stageAccountDays: z.union([z.literal(0), z.literal(1), z.literal(7)]).optional(),
       })
       .strict()
       .optional(),

@@ -82,6 +82,7 @@ import {
   FloatingHearts,
   type FloatingHeartsHandle,
 } from "@/components/app/floating-hearts";
+import { readStageLine } from "@/components/app/stage-line";
 
 const REPORT_REASONS: Array<{ value: string; label: string }> = [
   { value: "spam", label: "Spam or misleading" },
@@ -216,6 +217,8 @@ interface StreamData {
     isLive: boolean;
     /** The brand kit the graphics wear — the logo as a version, never its bytes. */
     brand?: { accent?: string; lowerThird?: string; logoVersion?: number; logoUrl?: string | null };
+    /** Whether the request line is open ("off" hides Join; the API holds the rest of the rules). */
+    settings?: { stageRequests?: string };
   };
 }
 
@@ -947,6 +950,12 @@ export default function StreamPage({
             if (brand) setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, brand } } : prev));
             return;
           }
+          // The host changed who can ask to join: Join shows or goes.
+          if (data.__evt === "stage_line") {
+            const who = readStageLine(data).who;
+            setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, settings: { ...prev.streamerId.settings, stageRequests: who } } } : prev));
+            return;
+          }
           // Taken down while we watch: the room closes next; say why.
           if (data.__evt === "takedown") {
             setRemoved(true);
@@ -1452,6 +1461,13 @@ export default function StreamPage({
     }
   };
 
+  // A refusal says its piece, then clears.
+  useEffect(() => {
+    if (!stageError) return;
+    const t = setTimeout(() => setStageError(null), 6000);
+    return () => clearTimeout(t);
+  }, [stageError]);
+
   const cancelStageRequest = async () => {
     if (stageBusy) return;
     setStageBusy(true);
@@ -1902,6 +1918,8 @@ export default function StreamPage({
 
   const hostName = streamer.displayName || streamer.username;
   const brand = readBrand(streamer.brand, streamer._id);
+  // The request line: closed hides Join; the API holds the other rules and says why.
+  const lineOpen = streamer.settings?.stageRequests !== "off";
 
   /** The native share sheet where there is one; the clipboard, said out loud, where there isn't. */
   const shareStream = () => {
@@ -2526,6 +2544,16 @@ export default function StreamPage({
           )}
         </div>
 
+        {/* Why asking to join didn't go through — the request line's rules, a full list. */}
+        {stageError && (
+          <p
+            role="status"
+            className="animate-fade-in absolute top-[max(env(safe-area-inset-top),12px)] left-1/2 z-40 mt-40 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2 rounded-[14px] bg-black/75 px-4 py-2.5 text-center text-[13px] leading-snug font-semibold text-white"
+          >
+            {stageError}
+          </p>
+        )}
+
         {/* Unmute — the one control that never hides. */}
         {muted && stream.isLive && hasVideo && !playbackError && (
           <button
@@ -2578,7 +2606,7 @@ export default function StreamPage({
               />
             </>
           )}
-          {user && !isOwner && stream.isLive && connected && (
+          {user && !isOwner && stream.isLive && connected && (stageState !== "idle" || lineOpen) && (
             stageState === "idle" ? (
               <RailButton
                 title="Ask to join the stream"
@@ -3179,6 +3207,7 @@ export default function StreamPage({
                   !isOwner &&
                   stream.isLive &&
                   connected &&
+                  (stageState !== "idle" || lineOpen) &&
                   (stageState === "idle" ? (
                     <Pill
                       variant="ember"

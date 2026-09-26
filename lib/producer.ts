@@ -27,6 +27,8 @@ export interface ConsoleHost {
   /** How long the host has lines stay up, so a producer's go up the same. */
   featureSeconds: number;
   featureGiftsFromMinor: number;
+  /** Who can ask to join the stage — the host's to change. */
+  stageLine: unknown;
 }
 
 export interface ConsoleStream {
@@ -36,7 +38,7 @@ export interface ConsoleStream {
   source: string;
   startedAt: string | null;
   scene: unknown;
-  guests: { userId: string; username: string; avatar: string; status: string }[];
+  guests: { userId: string; username: string; avatar: string; status: string; standing?: unknown }[];
   goal: unknown;
   heat: unknown;
   pinned: PinnedMessage | null;
@@ -173,7 +175,7 @@ export function useConsoleRoom({
         if (p.identity === hostId || p.identity === `obs-${hostId}`) {
           const screen = videos.find((pub) => pub.source === Track.Source.ScreenShare);
           const camera = videos.find((pub) => pub.source !== Track.Source.ScreenShare);
-          // The browser studio's camera wins over the encoder's feed only if the encoder has none.
+          // An encoder's feed is the picture when there is one (an OBS stream has the studio in the room too).
           if (camera?.track && (!hostCamera || p.identity === `obs-${hostId}`)) hostCamera = camera.track;
           if (screen?.track) hostScreen = screen.track;
         } else {

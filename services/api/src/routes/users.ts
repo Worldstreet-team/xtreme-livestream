@@ -353,6 +353,18 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         throw error;
       }
 
+      // The request line changed mid-stream: the room hears who can ask now.
+      if (body.settings && ("stageRequests" in body.settings || "stageAccountDays" in body.settings)) {
+        const live = await Stream.findOne({ streamerId: dbUser._id, isLive: true }).select("livekitRoomName").lean();
+        if (live) {
+          void sendRoomData(live.livekitRoomName, {
+            __evt: "stage_line",
+            who: dbUser.settings.stageRequests ?? "everyone",
+            accountDays: dbUser.settings.stageAccountDays ?? 0,
+          }).catch(() => {});
+        }
+      }
+
       return {
         success: true,
         message: "Profile updated",

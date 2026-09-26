@@ -36,7 +36,13 @@ let streamDoc: {
 };
 
 /** Who `authenticate` resolves to — switched per test. */
-let caller: { _id: ReturnType<typeof id>; username: string; avatar: string };
+let caller: { _id: ReturnType<typeof id>; username: string; avatar: string; createdAt?: Date };
+
+/** The host's request line, their crew, and where the caller stands with them. */
+let hostSettings: Record<string, unknown> = {};
+let hostMods: Array<{ userId: string; role: string }> = [];
+let allied = false;
+let fanLevel = 0;
 
 const permissionCalls: Array<{ identity: string; canPublish: boolean }> = [];
 const dataEvents: Array<Record<string, unknown>> = [];
@@ -67,6 +73,10 @@ vi.mock("../src/livekit.js", () => ({
     if (permissionShouldFail) throw new Error("participant not found");
     permissionCalls.push({ identity, canPublish });
   },
+}));
+
+vi.mock("../src/fans.js", () => ({
+  fanStatus: async () => ({ level: fanLevel, hours: fanLevel * 4, badge: 0 }),
 }));
 
 vi.mock("../src/stream-service.js", () => ({
@@ -132,15 +142,41 @@ vi.mock("../src/models.js", () => ({
       return {};
     },
   },
-  // The channel, for the role check (the host, or a producer, runs the stage).
-  User: { findById: () => ({ select: async () => ({ _id: HOST_ID, username: "host", safety: { mods: [] } }) }) },
-  Follow: {},
+  // The channel, for the role check (the host, or a producer, runs the stage) and its request line.
+  User: {
+    findById: () => ({
+      select: () => {
+        const host = { _id: HOST_ID, username: "host", displayName: "Host", settings: hostSettings, safety: { mods: hostMods } };
+        return Object.assign(Promise.resolve(host), { lean: async () => host });
+      },
+    }),
+  },
+  Follow: { exists: async () => (allied ? { _id: "f1" } : null) },
   ChatMessage: {},
   StreamBan: { findOne: async () => null },
   Report: {},
   StreamLike: {},
   GiftTransaction: {},
 }));
+
+/** A fresh live stream with no one on stage, and a month-old viewer asking. */
+function reset() {
+  streamDoc = {
+    _id: id(STREAM_ID),
+    streamerId: id(HOST_ID),
+    isLive: true,
+    livekitRoomName: "room-1",
+    guests: [],
+  };
+  caller = { _id: id(VIEWER_ID), username: "viewer", avatar: "", createdAt: new Date(Date.now() - 30 * 86_400_000) };
+  hostSettings = {};
+  hostMods = [];
+  allied = false;
+  fanLevel = 0;
+  permissionCalls.length = 0;
+  dataEvents.length = 0;
+  permissionShouldFail = false;
+}
 
 describe("stage guest endpoints", () => {
   let app: FastifyInstance;
@@ -154,19 +190,7 @@ describe("stage guest endpoints", () => {
     await app.close();
   });
 
-  beforeEach(() => {
-    streamDoc = {
-      _id: id(STREAM_ID),
-      streamerId: id(HOST_ID),
-      isLive: true,
-      livekitRoomName: "room-1",
-      guests: [],
-    };
-    caller = { _id: id(VIEWER_ID), username: "viewer", avatar: "" };
-    permissionCalls.length = 0;
-    dataEvents.length = 0;
-    permissionShouldFail = false;
-  });
+  beforeEach(reset);
 
   const asHost = () => {
     caller = { _id: id(HOST_ID), username: "host", avatar: "" };
@@ -284,5 +308,72 @@ describe("stage guest endpoints", () => {
     expect(permissionCalls).toEqual([
       { identity: VIEWER_ID, canPublish: false },
     ]);
+  });
+});
+
+describe("the stage request line", () => {
+  // Its own app: the request route's rate limit counts per app.
+  let app: FastifyInstance;
+  beforeAll(async () => {
+    const { buildApp } = await import("../src/app.js");
+    app = await buildApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  beforeEach(reset);
+  const request = () => app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/request` });
+
+  const refused = async (code: string) => {
+    const res = await request();
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe(code);
+    expect(streamDoc.guests).toHaveLength(0);
+    return res.json().message as string;
+  };
+
+  it("stays closed when the host turned requests off", async () => {
+    hostSettings = { stageRequests: "off" };
+    expect(await refused("STAGE_CLOSED")).toBe("Host isn't taking requests to join right now");
+  });
+
+  it("lets only allies ask when the host says so", async () => {
+    hostSettings = { stageRequests: "allies" };
+    await refused("STAGE_ALLIES_ONLY");
+    allied = true;
+    expect((await request()).statusCode).toBe(200);
+  });
+
+  it("lets only fans at level 3 or more ask when the host says so", async () => {
+    hostSettings = { stageRequests: "fans" };
+    fanLevel = 2;
+    expect(await refused("STAGE_FANS_ONLY")).toContain("you're level 2");
+    fanLevel = 3;
+    expect((await request()).statusCode).toBe(200);
+  });
+
+  it("makes brand-new accounts wait", async () => {
+    hostSettings = { stageAccountDays: 1 };
+    caller = { ...caller, createdAt: new Date(Date.now() - 2 * 3_600_000) };
+    expect(await refused("STAGE_NEW_ACCOUNT")).toContain("a day old");
+  });
+
+  it("never holds back the host's crew", async () => {
+    hostSettings = { stageRequests: "off", stageAccountDays: 7 };
+    hostMods = [{ userId: VIEWER_ID, role: "mod" }];
+    caller = { ...caller, createdAt: new Date() };
+    expect((await request()).statusCode).toBe(200);
+  });
+
+  it("tells the host where someone asking stands, and viewers who can ask", async () => {
+    hostSettings = { stageRequests: "allies", stageAccountDays: 1 };
+    allied = true;
+    fanLevel = 4;
+    await request();
+    const announced = dataEvents.find((e) => e.__evt === "guest_request");
+    expect(announced?.standing).toEqual({ ally: true, level: 4, hours: 16 });
+    const state = (await app.inject({ method: "GET", url: `/api/streams/${STREAM_ID}/guests` })).json().data;
+    expect(state.requests[0].standing).toEqual({ ally: true, level: 4, hours: 16 });
+    expect(state.line).toEqual({ who: "allies", accountDays: 1 });
   });
 });

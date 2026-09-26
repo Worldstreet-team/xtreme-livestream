@@ -27,6 +27,7 @@ import { LayoutAndCards } from "@/components/app/scene-controls";
 import { SceneGraphicsPanel } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import { RunOfShow } from "@/components/app/run-of-show";
+import { StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
@@ -46,7 +47,7 @@ const CARD_SHORT: Record<(typeof CARDS)[number]["id"], string> = { "starting-soo
 const MAX_STAGE_GUESTS = 3;
 
 type Tab = "scenes" | "show" | "stage" | "chat";
-type StageUser = { userId: string; username: string; avatar: string };
+type StageUser = { userId: string; username: string; avatar: string; standing?: StageStanding | null };
 type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight">>;
 
 /**
@@ -139,8 +140,15 @@ function LiveConsole({
   const [cardNote, setCardNote] = useState(() => readScene(stream.scene)?.cardNote ?? "");
   const [error, setError] = useState<string | null>(null);
   const [featureQueue, setFeatureQueue] = useState(() => readFeatureQueue([]));
-  const [requests, setRequests] = useState<StageUser[]>(() => stream.guests.filter((g) => g.status === "requested"));
-  const [onStage, setOnStage] = useState<StageUser[]>(() => stream.guests.filter((g) => g.status === "live"));
+  const [requests, setRequests] = useState<StageUser[]>(() =>
+    stream.guests
+      .filter((g) => g.status === "requested")
+      .map((g) => ({ userId: g.userId, username: g.username, avatar: g.avatar, standing: readStanding(g.standing) }))
+  );
+  const [onStage, setOnStage] = useState<StageUser[]>(() =>
+    stream.guests.filter((g) => g.status === "live").map((g) => ({ userId: g.userId, username: g.username, avatar: g.avatar }))
+  );
+  const [stageLine, setStageLine] = useState(() => readStageLine(host.stageLine));
   const [stageBusy, setStageBusy] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
   const [segments, setSegments] = useState<RundownSegment[]>(data.segments);
@@ -186,9 +194,12 @@ function LiveConsole({
       case "feature_queue":
         setFeatureQueue(readFeatureQueue(evt.queue));
         return;
+      case "stage_line":
+        setStageLine(readStageLine(evt));
+        return;
       case "guest_request": {
         if (typeof evt.userId !== "string") return;
-        const row = { userId: evt.userId, username: String(evt.username ?? "viewer"), avatar: String(evt.avatar ?? "") };
+        const row = { userId: evt.userId, username: String(evt.username ?? "viewer"), avatar: String(evt.avatar ?? ""), standing: readStanding(evt.standing) };
         setRequests((prev) => (prev.some((r) => r.userId === row.userId) ? prev : [...prev, row]));
         return;
       }
@@ -321,6 +332,22 @@ function LiveConsole({
       setStageError(err instanceof Error ? err.message : "That didn't go through — try again.");
     } finally {
       setStageBusy(null);
+    }
+  };
+
+  /** The host at their second screen changes who can ask; a producer sees it as it stands. */
+  const saveStageLine = async (next: StageLineRule) => {
+    const before = stageLine;
+    setStageLine(next);
+    setStageError(null);
+    try {
+      await apiFetch("/api/user/me", {
+        method: "PATCH",
+        body: JSON.stringify({ settings: { stageRequests: next.who, stageAccountDays: next.accountDays } }),
+      });
+    } catch {
+      setStageLine(before);
+      setStageError("Couldn't change who can ask — try again.");
     }
   };
 
@@ -489,6 +516,11 @@ function LiveConsole({
   const stagePanel = (
     <div className="flex flex-col gap-6 px-4 pt-4 pb-6">
       {stageError && <p className="rounded-[10px] bg-chili/[0.12] px-3 py-2 text-[12.5px] text-chili-hi">{stageError}</p>}
+      {data.role === "host" ? (
+        <StageLineControl line={stageLine} onChange={(next) => void saveStageLine(next)} />
+      ) : (
+        <StageLineControl line={stageLine} />
+      )}
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className={LABEL}>Asking to join</h3>
@@ -503,7 +535,10 @@ function LiveConsole({
             {requests.map((r) => (
               <div key={r.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                 <UserAvatar src={r.avatar} name={r.username} size={32} className="size-8" />
-                <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{r.username}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground/90">{r.username}</p>
+                  <StandingLine standing={r.standing} />
+                </div>
                 <button
                   type="button"
                   onClick={() => void stageAction(r.userId, "approve")}

@@ -4,12 +4,15 @@ import {
   FILTER_LEVELS,
   MOD_ROLES,
   MODS_CAN_FEATURE,
+  STAGE_ACCOUNT_DAYS,
+  STAGE_REQUEST_RULES,
   type Category,
   type FeaturedItem,
   type FilterCategory,
   type FilterLevel,
   type ModRole,
   type ModsCanFeature,
+  type StageRequestRule,
 } from "@xtreme/contracts";
 
 export interface IUser extends Document {
@@ -112,6 +115,10 @@ export interface IUser extends Document {
     featureGiftsFromMinor: number;
     /** How long a featured comment stays on screen, in seconds; 0 is until taken down. */
     featureSeconds: number;
+    /** Who can ask to join the stage (the request line); the crew always can. */
+    stageRequests: StageRequestRule;
+    /** How old an account must be to ask to join, in days; 0 is any age. */
+    stageAccountDays: number;
   };
   /**
    * The two-screen cold-start picker. Categories chosen seed the first
@@ -233,6 +240,8 @@ const userSchema = new Schema<IUser>(
       discoverableByTag: { type: Boolean, default: true },
       featureGiftsFromMinor: { type: Number, enum: [0, 500, 2000, 10_000], default: 0 },
       featureSeconds: { type: Number, enum: [0, 10, 20, 60], default: 20 },
+      stageRequests: { type: String, enum: STAGE_REQUEST_RULES, default: "everyone" },
+      stageAccountDays: { type: Number, enum: STAGE_ACCOUNT_DAYS, default: 0 },
     },
     onboarding: {
       completedAt: { type: Date, default: null },
@@ -249,6 +258,8 @@ export interface IStreamGuest {
   avatar: string;
   status: "requested" | "live";
   requestedAt: Date;
+  /** Where they stood with the channel when they asked (the request line). */
+  standing?: { ally: boolean; level: number; hours: number } | null;
 }
 
 export interface IStream extends Document {
@@ -480,6 +491,10 @@ const streamSchema = new Schema<IStream>(
             default: "requested",
           },
           requestedAt: { type: Date, default: Date.now },
+          standing: {
+            type: { _id: false, ally: Boolean, level: Number, hours: Number },
+            default: null,
+          },
         },
       ],
       default: [],
