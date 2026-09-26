@@ -47,6 +47,9 @@ export function VanishingPlaceholder({ texts, className, holdMs = 2600 }: { text
     const dpr = 2;
     canvas.width = canvas.offsetWidth * dpr;
     canvas.height = canvas.offsetHeight * dpr;
+    // A canvas the browser couldn't size (a hidden page, a size it won't back)
+    // reads as zero wide: skip it rather than throw.
+    if (!canvas.width || !canvas.height) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const cs = getComputedStyle(canvas);
     ctx.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * dpr}px ${cs.fontFamily}`;
@@ -54,13 +57,20 @@ export function VanishingPlaceholder({ texts, className, holdMs = 2600 }: { text
     if ("letterSpacing" in ctx && Number.isFinite(spacing)) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${spacing * dpr}px`;
     ctx.fillStyle = cs.color;
     // The ink is translucent, so "part of a glyph" is judged against its own alpha.
-    ctx.fillRect(0, 0, 1, 1);
-    const inkAlpha = ctx.getImageData(0, 0, 1, 1).data[3] ?? 255;
-    ctx.clearRect(0, 0, 1, 1);
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, 0, canvas.height / 2);
-
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let inkAlpha = 255;
+    let data: Uint8ClampedArray;
+    try {
+      ctx.fillRect(0, 0, 1, 1);
+      inkAlpha = ctx.getImageData(0, 0, 1, 1).data[3] ?? 255;
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 0, canvas.height / 2);
+      data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    } catch {
+      // A decoration never takes the page down: no particles this time.
+      particlesRef.current = [];
+      return;
+    }
     const particles: Particle[] = [];
     // Every second pixel: dense enough, a quarter of the work.
     for (let y = 0; y < canvas.height; y += 2) {
