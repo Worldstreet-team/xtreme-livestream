@@ -211,6 +211,7 @@ export function SceneRenderer({
   host,
   brand = DEFAULT_BRAND,
   insets,
+  stage,
 }: {
   scene: Scene;
   /** Is the frame taller than it is wide? Splits follow the long axis. */
@@ -238,6 +239,12 @@ export function SceneRenderer({
    * the way of controls that come and go.
    */
   insets?: { top?: string; bottom?: string };
+  /**
+   * Where the tiles sit in the frame (CSS lengths) — a battle on an upright
+   * phone keeps the two sides in a band under its header. The whole frame
+   * when unset. The frame itself doesn't move, so tiles glide in and out.
+   */
+  stage?: { top: string; height: string };
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
   const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
@@ -275,7 +282,10 @@ export function SceneRenderer({
           <MarketChart chart={chart.value} accent={ACCENTS[brand.accent]} headerLow={logoTop} maxCandles={portrait ? 45 : 90} />
         </div>
       )}
-      <div className={cn("grid size-full gap-px", grid.container)}>
+      <div
+        className={cn("grid gap-px", stage ? "absolute inset-x-0" : "size-full", grid.container)}
+        style={stage ? { top: stage.top, height: stage.height } : undefined}
+      >
         {/* In chart mode this same cell becomes the corner camera — restyled,
             not moved, so the host's video element is never remounted. The
             cell is where the layout puts the tile; the picture inside it is

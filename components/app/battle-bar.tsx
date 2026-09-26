@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Gift, Lightning, Trophy, ArrowSquareOut } from "@/components/icons";
 import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, type BattleView } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
@@ -27,11 +28,14 @@ function usd(minor: number) {
 export function BattleBar({
   battle,
   streamId,
+  actionsEnd,
   className,
 }: {
   battle: BattleView;
   /** The stream this bar is rendered in — decides which side "you" are on. */
   streamId: string;
+  /** More controls at the end of the actions row (a phone's like and share, in a battle). */
+  actionsEnd?: ReactNode;
   className?: string;
 }) {
   const now = useNow(isBattleActive(battle));
@@ -105,8 +109,17 @@ export function BattleBar({
             {battle.bonusUsdMinor > 0 && !tie ? ` · +${usd(battle.bonusUsdMinor)} bonus` : ""}
           </span>
         ) : (
-          <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold">
-            {hot ? "Last seconds — gifts count double" : "Gifts decide it"}
+          <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold whitespace-nowrap">
+            {hot ? (
+              <>
+                {/* The clock already says ×2; a phone keeps the line to one row. */}
+                <span className="hidden sm:inline">Last seconds — </span>
+                <span className="sm:hidden">G</span>
+                <span className="hidden sm:inline">g</span>ifts count double
+              </>
+            ) : (
+              "Gifts decide it"
+            )}
           </span>
         )}
         <span className="flex items-baseline gap-1.5">
@@ -116,18 +129,23 @@ export function BattleBar({
       </div>
 
       {!ended && (
-        <div className="pointer-events-auto flex items-center gap-2">
+        // On a phone the names give way: "Back Ada" keeps its length in check
+        // and the other room is just "Their side".
+        <div className="pointer-events-auto flex min-w-0 items-center gap-2">
           <Pill
             size="sm"
             variant="heat"
             icon={<Gift size={14} weight="fill" />}
             onClick={() => window.dispatchEvent(new CustomEvent("xtreme:open-gifts"))}
+            className="min-w-0"
           >
-            Back {me.displayName}
+            <span className="max-w-[34vw] truncate sm:max-w-none">Back {me.displayName}</span>
           </Pill>
           <PillLink href={`/stream/${them.streamId}`} size="sm" variant="glass" trailing={<ArrowSquareOut size={13} />}>
-            Watch from {them.displayName}&apos;s side
+            <span className="sm:hidden">Their side</span>
+            <span className="hidden sm:inline">Watch from {them.displayName}&apos;s side</span>
           </PillLink>
+          {actionsEnd && <div className="ml-auto flex shrink-0 items-center gap-1.5">{actionsEnd}</div>}
         </div>
       )}
     </div>

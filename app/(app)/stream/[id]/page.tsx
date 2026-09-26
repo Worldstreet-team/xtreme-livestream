@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -2004,10 +2004,35 @@ export default function StreamPage({
     </div>
   );
 
+  // A battle's other side, while it's on: a muted picture of their room on
+  // our stage — the same tile on a phone and on the desktop player.
+  const opponent =
+    battle && isBattleActive(battle) ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
+  const opponentCell = (o: BattleView["host"]): SceneCell => ({
+    key: "opponent",
+    node: (
+      <div className="relative size-full bg-black">
+        <LivePreview
+          streamId={o.streamId}
+          className="absolute inset-0"
+          poster={<div className="absolute inset-0 bg-black" />}
+          fallbackSrc={null}
+        />
+        <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
+          <span className="block truncate text-xs font-semibold text-white">
+            {o.displayName}
+            <span className="font-medium text-white/60"> · muted</span>
+          </span>
+        </div>
+      </div>
+    ),
+  });
+
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
     const scene = stream.scene ?? DEFAULT_SCENE;
     const others: SceneCell[] = [
+      ...(opponent ? [opponentCell(opponent)] : []),
       ...guestVideos.map((g) => ({
         key: g.identity,
         node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
@@ -2016,16 +2041,26 @@ export default function StreamPage({
         ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
         : []),
     ];
-    const sharing = guestsShown(scene.layout, others.length) > 0;
+    const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
+    // A battle on an upright phone, TikTok's way: the two sides side by side
+    // in a band under the header, the scoreboard and "Back" right under
+    // them where a thumb reaches, the chat in what's left.
+    const band = Boolean(opponent) && portraitScreen;
     return (
-      <div className="fixed inset-0 z-[60] bg-black">
+      <div
+        className="fixed inset-0 z-[60] bg-black"
+        style={{ "--band-top": "calc(max(env(safe-area-inset-top), 12px) + 98px)", "--band-h": "min(80vw, 40dvh)" } as CSSProperties}
+      >
         {/* The program, drawn from the scene — full-bleed, and split along
             the screen's long axis: rows while upright, columns once the
-            phone is turned (lib/stage-layout.ts). */}
+            phone is turned (lib/stage-layout.ts). A battle's band splits
+            into columns, whichever way the phone is held. */}
         <div className="absolute inset-0">
           <SceneRenderer
             scene={scene}
-            portrait={portraitScreen}
+            portrait={band ? false : portraitScreen}
+            forceAuto={Boolean(opponent)}
+            stage={band ? { top: "var(--band-top)", height: "var(--band-h)" } : undefined}
             host={{ name: hostName, avatar: streamer.avatar }}
             mainLabel={hostName}
             main={
@@ -2049,8 +2084,13 @@ export default function StreamPage({
             pipClassName="top-[132px] right-3"
             guests={others}
             brand={brand}
-            // Graphics keep between the header and the chat lane.
-            insets={{ top: "124px", bottom: "calc(34dvh + 96px + env(safe-area-inset-bottom))" }}
+            // Graphics keep between the header and the chat lane — or, in a
+            // battle's band, to the band.
+            insets={
+              band
+                ? { top: "var(--band-top)", bottom: "calc(100dvh - var(--band-top) - var(--band-h))" }
+                : { top: "124px", bottom: "calc(34dvh + 96px + env(safe-area-inset-bottom))" }
+            }
           />
         </div>
 
@@ -2101,6 +2141,44 @@ export default function StreamPage({
               This stream is offline
             </p>
           </div>
+        )}
+
+        {/* The battle's scoreboard: under the band while the sides are up,
+            under the header while the result stays on after the clock. */}
+        {battle && (isBattleActive(battle) || battle.status === "ended") && (
+          <BattleBar
+            battle={battle}
+            streamId={id}
+            className={band ? "top-[calc(var(--band-top)+var(--band-h)+10px)]" : "top-[calc(var(--band-top)+4px)]"}
+            // Like and share ride in the scoreboard's row while the band is
+            // up — the side rail would climb over the totals on a short phone.
+            actionsEnd={
+              band ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      heartsRef.current?.push();
+                      if (user && !liked) void toggleLike();
+                    }}
+                    aria-label={liked ? "Liked" : "Like"}
+                    className="press flex h-8 items-center gap-1.5 rounded-full bg-control px-3 text-[12px] font-semibold text-white tabular-nums hover:bg-control-hover"
+                  >
+                    <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
+                    {likeCount > 0 ? formatNumber(likeCount) : "Like"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={shareStream}
+                    aria-label={copied ? "Link copied" : "Share this stream"}
+                    className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
+                  >
+                    {copied ? <Check size={15} weight="bold" /> : <ShareNetwork size={15} weight="fill" />}
+                  </button>
+                </>
+              ) : undefined
+            }
+          />
         )}
 
         {/* Light falls off at the top, so the bar reads on any picture. */}
@@ -2212,21 +2290,26 @@ export default function StreamPage({
         {/* Right action rail — above the chat layer, which is painted after
             it and would otherwise sit over these buttons. */}
         <div className="absolute right-2.5 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-3.5">
-          <RailButton
-            title={liked ? "Liked" : "Like"}
-            label={likeCount > 0 ? formatNumber(likeCount) : "Like"}
-            onClick={() => {
-              heartsRef.current?.push();
-              if (user && !liked) void toggleLike();
-            }}
-            icon={<Heart size={23} weight="fill" className={liked ? "text-chili" : "text-white"} />}
-          />
-          <RailButton
-            title="Share this stream"
-            label={copied ? "Copied" : "Share"}
-            onClick={shareStream}
-            icon={copied ? <Check size={21} weight="bold" /> : <ShareNetwork size={22} weight="fill" />}
-          />
+          {/* In a battle's band these two ride in the scoreboard instead. */}
+          {!band && (
+            <>
+              <RailButton
+                title={liked ? "Liked" : "Like"}
+                label={likeCount > 0 ? formatNumber(likeCount) : "Like"}
+                onClick={() => {
+                  heartsRef.current?.push();
+                  if (user && !liked) void toggleLike();
+                }}
+                icon={<Heart size={23} weight="fill" className={liked ? "text-chili" : "text-white"} />}
+              />
+              <RailButton
+                title="Share this stream"
+                label={copied ? "Copied" : "Share"}
+                onClick={shareStream}
+                icon={copied ? <Check size={21} weight="bold" /> : <ShareNetwork size={22} weight="fill" />}
+              />
+            </>
+          )}
           {user && !isOwner && stream.isLive && connected && (
             stageState === "idle" ? (
               <RailButton
@@ -2281,8 +2364,14 @@ export default function StreamPage({
             right padding covers the action rail's column, and a full-width
             box there swallowed Like, Share and Ask-to-join on phones (Greg,
             2026-09-22). LiveChat's overlay pieces opt back in one by one. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]">
-          <div className="h-[46dvh]">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]",
+            // In a battle the chat takes what's left under the scoreboard.
+            band && "top-[calc(var(--band-top)+var(--band-h)+132px)]"
+          )}
+        >
+          <div className={band ? "h-full" : "h-[46dvh]"}>
             <LiveChat
               streamId={id}
               room={roomRef.current}
@@ -2432,37 +2521,9 @@ export default function StreamPage({
                 the lot. The main video element keeps its place across
                 layout changes, so the track never re-attaches. */}
             {(() => {
-              const opponent =
-                battle && isBattleActive(battle)
-                  ? sideOf(battle, id) === "host"
-                    ? battle.challenger
-                    : battle.host
-                  : null;
               const scene = stream.scene ?? DEFAULT_SCENE;
               const others: SceneCell[] = [
-                ...(opponent
-                  ? [
-                      {
-                        key: "opponent",
-                        node: (
-                          <div className="relative size-full bg-black">
-                            <LivePreview
-                              streamId={opponent.streamId}
-                              className="absolute inset-0"
-                              poster={<div className="absolute inset-0 bg-black" />}
-                              fallbackSrc={null}
-                            />
-                            <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
-                              <span className="block truncate text-xs font-semibold text-white">
-                                {opponent.displayName}
-                                <span className="font-medium text-white/60"> · muted</span>
-                              </span>
-                            </div>
-                          </div>
-                        ),
-                      },
-                    ]
-                  : []),
+                ...(opponent ? [opponentCell(opponent)] : []),
                 ...guestVideos.map((g) => ({
                   key: g.identity,
                   node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
