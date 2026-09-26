@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Gift, Lightning, Trophy, ArrowSquareOut } from "@/components/icons";
-import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, type BattleView } from "@/lib/battles";
+import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleView } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -121,7 +121,7 @@ export function BattleBar({
         </span>
         {ended ? (
           <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold">
-            {tie ? "Nobody took it — a draw" : iWon ? `${me.displayName} wins` : `${them.displayName} wins`}
+            {tie ? "Nobody took it — a draw" : iWon ? `${teamName(me)} win${me.partner ? "" : "s"}` : `${teamName(them)} win${them.partner ? "" : "s"}`}
             {battle.bonusUsdMinor > 0 && !tie ? ` · +${usd(battle.bonusUsdMinor)} bonus` : ""}
           </span>
         ) : (
@@ -151,7 +151,7 @@ export function BattleBar({
       {loser && battle.forfeit && (
         <div className="flex justify-center">
           <span className="max-w-full truncate rounded-full bg-ember px-3 py-1 text-[12px] font-bold text-on-ember">
-            Victory lap · {loser.displayName} {battle.forfeit}
+            Victory lap · {teamName(loser)} {battle.forfeit}
           </span>
         </div>
       )}
@@ -167,11 +167,11 @@ export function BattleBar({
             onClick={() => window.dispatchEvent(new CustomEvent("xtreme:open-gifts"))}
             className="min-w-0"
           >
-            <span className="block max-w-[34vw] truncate sm:max-w-none">Back {me.displayName}</span>
+            <span className="block max-w-[34vw] truncate sm:max-w-none">Back {teamName(me)}</span>
           </Pill>
           <PillLink href={`/stream/${them.streamId}`} size="sm" variant="glass" trailing={<ArrowSquareOut size={13} />}>
             <span className="sm:hidden">Their side</span>
-            <span className="hidden sm:inline">Watch from {them.displayName}&apos;s side</span>
+            <span className="hidden sm:inline">Watch from {teamName(them)}&apos;s side</span>
           </PillLink>
           {actionsEnd && <div className="ml-auto flex shrink-0 items-center gap-1.5">{actionsEnd}</div>}
         </div>
@@ -197,21 +197,31 @@ function Backers({ backers, ring }: { backers?: BattleView["host"]["top"]; ring:
 }
 
 function Side({ side, won, align }: { side: BattleView["host"]; won: boolean; align: "left" | "right" }) {
+  const ring = align === "left" ? "ring-chili" : "ring-ember";
   return (
     <Link
       href={`/c/${side.username}`}
       className={cn("flex shrink-0 items-center gap-2", align === "right" && "flex-row-reverse text-right")}
-      title={side.displayName}
+      title={teamName(side)}
     >
-      <span className="relative">
-        <UserAvatar src={side.avatar} name={side.displayName} size={30} className={cn("size-[30px] ring-2", align === "left" ? "ring-chili" : "ring-ember")} />
+      <span className={cn("relative flex", align === "right" && "flex-row-reverse")}>
+        <UserAvatar src={side.avatar} name={side.displayName} size={30} className={cn("size-[30px] ring-2", ring)} />
+        {/* A 2v2's partner, tucked in behind. */}
+        {side.partner && (
+          <UserAvatar
+            src={side.partner.avatar}
+            name={side.partner.displayName}
+            size={24}
+            className={cn("size-6 self-end ring-2", ring, align === "left" ? "-ml-2" : "-mr-2")}
+          />
+        )}
         {won && (
           <span className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-foil text-[#1a1206] ring-2 ring-black">
             <Trophy size={9} weight="fill" />
           </span>
         )}
       </span>
-      <span className="hidden max-w-[110px] truncate text-[12.5px] font-semibold sm:block">{side.displayName}</span>
+      <span className="hidden max-w-[130px] truncate text-[12.5px] font-semibold sm:block">{teamName(side)}</span>
     </Link>
   );
 }

@@ -93,3 +93,21 @@ export function StageTile({
     </div>
   );
 }
+
+/**
+ * A 2v2 seat with no picture: the partner's camera is off, still
+ * connecting, or they've left the stage. Their name on dark, until it's back.
+ */
+export function AwayTile({ name }: { name: string }) {
+  return (
+    <div className="flex size-full flex-col items-center justify-center gap-2 bg-[#120c0d] px-3 text-center">
+      <span className="flex size-10 items-center justify-center rounded-full bg-white/[0.06] text-[15px] font-bold text-white/70">
+        {name.trim().charAt(0).toUpperCase() || "?"}
+      </span>
+      <span className="flex max-w-full flex-col leading-tight">
+        <span className="truncate text-[12.5px] font-semibold text-white/75">{name}</span>
+        <span className="text-[11px] text-white/45">Off camera</span>
+      </span>
+    </div>
+  );
+}

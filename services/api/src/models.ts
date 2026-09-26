@@ -1046,10 +1046,20 @@ export interface IBattle extends Document {
   lateResetUsed: boolean;
   /** What the loser does on the victory lap ("sings a song"); "" for none. */
   forfeit: string;
+  /**
+   * "2v2": each side is its stream and the partner on its stage — a guest,
+   * or a creator brought over by co-live. Gifts still count per stream.
+   */
+  mode: BattleMode;
+  /** Each side's partner in a 2v2: the first guest live on its stage when the clock started. */
+  hostPartnerId: mongoose.Types.ObjectId | null;
+  challengerPartnerId: mongoose.Types.ObjectId | null;
   endedReason: "clock" | "cancelled" | "disconnect" | "declined" | "expired" | null;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type BattleMode = "1v1" | "2v2";
 
 const battleSchema = new Schema<IBattle>(
   {
@@ -1077,6 +1087,9 @@ const battleSchema = new Schema<IBattle>(
     overtimeUsed: { type: Boolean, default: false },
     lateResetUsed: { type: Boolean, default: false },
     forfeit: { type: String, default: "", maxlength: 60 },
+    mode: { type: String, enum: ["1v1", "2v2"], default: "1v1" },
+    hostPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    challengerPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     endedReason: { type: String, default: null },
   },
   { timestamps: true },
@@ -1100,12 +1113,15 @@ export const Battle = mongoose.model<IBattle>("Battle", battleSchema);
 export interface IBattleQueue extends Document {
   userId: mongoose.Types.ObjectId;
   streamId: mongoose.Types.ObjectId;
+  /** Pairs only with someone waiting for the same kind of battle. */
+  mode: BattleMode;
   at: Date;
 }
 const battleQueueSchema = new Schema<IBattleQueue>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
     streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    mode: { type: String, enum: ["1v1", "2v2"], default: "1v1" },
     at: { type: Date, default: Date.now, expires: 300 },
   },
   { timestamps: false },

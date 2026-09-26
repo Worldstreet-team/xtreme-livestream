@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties, type ReactNode } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -38,7 +38,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
-import { LivePreview } from "@/components/app/live-preview";
+import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
@@ -71,6 +71,7 @@ import {
   type GiftOverlayHandle,
 } from "@/components/app/gift-overlay";
 import {
+  AwayTile,
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
@@ -474,6 +475,11 @@ export default function StreamPage({
   useEffect(() => {
     pictureModeRef.current = pictureMode;
   }, [pictureMode]);
+  // A 2v2's other pair: their host and partner over one connection to their
+  // room, a tile each. (A 1v1's other side is one LivePreview.)
+  const pairOpponent =
+    battle && isBattleActive(battle) && battle.mode === "2v2" ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, !radio);
   const pickPicture = (mode: PictureMode) => {
     setShowPicture(false);
     if (mode === "radio") {
@@ -2109,40 +2115,65 @@ export default function StreamPage({
   // our stage — the same tile on a phone and on the desktop player.
   const opponent =
     battle && isBattleActive(battle) ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
-  const opponentCell = (o: BattleView["host"]): SceneCell => ({
-    key: "opponent",
+  /** The other side's picture, named on it: "Ada · muted". */
+  const previewCell = (key: string, name: string, picture: ReactNode): SceneCell => ({
+    key,
     node: (
       <div className="relative size-full bg-black">
-        <LivePreview
-          streamId={o.streamId}
-          enabled={!radio}
-          className="absolute inset-0"
-          poster={<div className="absolute inset-0 bg-black" />}
-          fallbackSrc={null}
-        />
+        {picture}
         <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
           <span className="block truncate text-xs font-semibold text-white">
-            {o.displayName}
+            {name}
             <span className="font-medium text-white/60"> · muted</span>
           </span>
         </div>
       </div>
     ),
   });
+  const opponentCell = (o: BattleView["host"]): SceneCell =>
+    previewCell(
+      "opponent",
+      o.displayName,
+      <LivePreview streamId={o.streamId} enabled={!radio} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+    );
+  /**
+   * Everyone else in the picture, in the order the scene brings them in: a
+   * battle's other side, the guests, you. A 2v2 is a 2×2 — our pair down
+   * the left, theirs down the right, so after our host the grid takes their
+   * host, our partner, their partner. Other guests sit the battle out.
+   */
+  const stageCells = (): SceneCell[] => {
+    const me: SceneCell | null =
+      stageState === "live" && localStageTrack
+        ? { key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }
+        : null;
+    const guestCell = (g: (typeof guestVideos)[number]): SceneCell => ({
+      key: g.identity,
+      node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
+    });
+    if (pairOpponent && battle) {
+      const mate = (sideOf(battle, id) === "host" ? battle.host : battle.challenger).partner ?? null;
+      const mateGuest = mate ? guestVideos.find((g) => g.identity === mate.userId) : undefined;
+      const theirMate = pairOpponent.partner ?? null;
+      return [
+        previewCell("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+        mateGuest
+          ? guestCell(mateGuest)
+          : me && mate && user?.id === mate.userId
+            ? me
+            : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Their partner"} /> },
+        theirMate
+          ? previewCell("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+          : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
+      ];
+    }
+    return [...(opponent ? [opponentCell(opponent)] : []), ...guestVideos.map(guestCell), ...(me ? [me] : [])];
+  };
 
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
     const scene = stream.scene ?? DEFAULT_SCENE;
-    const others: SceneCell[] = [
-      ...(opponent ? [opponentCell(opponent)] : []),
-      ...guestVideos.map((g) => ({
-        key: g.identity,
-        node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
-      })),
-      ...(stageState === "live" && localStageTrack
-        ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
-        : []),
-    ];
+    const others = stageCells();
     const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
     // A battle on an upright phone, TikTok's way: the two sides side by side
     // in a band under the header, the scoreboard and "Back" right under
@@ -2710,16 +2741,7 @@ export default function StreamPage({
                 layout changes, so the track never re-attaches. */}
             {(() => {
               const scene = stream.scene ?? DEFAULT_SCENE;
-              const others: SceneCell[] = [
-                ...(opponent ? [opponentCell(opponent)] : []),
-                ...guestVideos.map((g) => ({
-                  key: g.identity,
-                  node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
-                })),
-                ...(stageState === "live" && localStageTrack
-                  ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
-                  : []),
-              ];
+              const others = stageCells();
               const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
               return (
                 <SceneRenderer
@@ -2744,6 +2766,9 @@ export default function StreamPage({
                   }
                   pipClassName="top-14 right-3"
                   guests={others}
+                  // A 2v2's four tiles start under the scoreboard's strip,
+                  // so the top two keep their faces.
+                  stage={pairOpponent ? { top: "92px", height: "calc(100% - 92px)" } : undefined}
                   goal={goal}
                   heat={heat}
                   brand={brand}

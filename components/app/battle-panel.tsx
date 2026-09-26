@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank } from "@/components/icons";
+import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, type BattleView } from "@/lib/battles";
+import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, teamName, type BattleMode, type BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
 import { useNow } from "@/lib/use-now";
@@ -12,22 +12,30 @@ import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Pill } from "@/components/ui/pill";
 import { LiveBadge } from "@/components/ui/badge";
+import { CapsuleTabs } from "@/components/ui/capsule-tabs";
 
 /**
  * The studio's battle controls: challenge a live creator, answer an invite,
  * and follow the score while it runs. Polls the caller's battles every few
  * seconds — a studio tab is one place, not an audience, so polling is the
  * simplest correct thing.
+ *
+ * A 2v2 is two pairs: you and the partner on your stage (a guest, or a
+ * creator you co-live with) against another pair. Gifts count per stream
+ * as ever, and a winning pair splits the bonus.
  */
 export function BattlePanel({
   streamId,
   onBattle,
   inline = false,
+  partner = null,
 }: {
   streamId: string;
   onBattle?: (b: BattleView | null) => void;
   /** Inside a sheet or tab: full width, form open from the start, no toggle. */
   inline?: boolean;
+  /** Who's on your stage to pair with for a 2v2, if anyone. */
+  partner?: { userId: string; username: string; avatar: string } | null;
 }) {
   const { user } = useAuth();
   const [mine, setMine] = useState<BattleView[]>([]);
@@ -46,6 +54,9 @@ export function BattlePanel({
   const [forfeit, setForfeit] = useState("");
   // Waiting in quick match for whoever's free.
   const [queued, setQueued] = useState(false);
+  // One on one, or pairs.
+  const [mode, setMode] = useState<BattleMode>("1v1");
+  const needsPartner = mode === "2v2" && !partner;
   const outgoing = useMemo(() => mine.find((b) => b.status === "invited" && b.host.userId === user?.id) ?? null, [mine, user?.id]);
   const incoming = useMemo(() => mine.filter((b) => b.status === "invited" && b.challenger.userId === user?.id), [mine, user?.id]);
 
@@ -100,7 +111,10 @@ export function BattlePanel({
     setBusy(true);
     setError(null);
     try {
-      const r = await apiFetch<{ success: boolean; data: { battle: BattleView | null; queued: boolean } }>(`/api/battles/quick`, { method: "POST" });
+      const r = await apiFetch<{ success: boolean; data: { battle: BattleView | null; queued: boolean } }>(`/api/battles/quick`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      });
       const matched = r.data.battle;
       if (matched) setMine((m) => [matched, ...m.filter((b) => b.id !== matched.id)]);
       setQueued(r.data.queued);
@@ -128,9 +142,15 @@ export function BattlePanel({
     const hot = inMultiplierWindow(active, now);
     const total = active.host.usdMinor + active.challenger.usdMinor;
     const share = total ? active.host.usdMinor / total : 0.5;
+    const pairFaces = (side: BattleView["host"], ring: string) => (
+      <span className="flex shrink-0 -space-x-2" title={teamName(side)}>
+        <UserAvatar src={side.avatar} name={side.displayName} size={28} className={cn("size-7 ring-2", ring)} />
+        {side.partner && <UserAvatar src={side.partner.avatar} name={side.partner.displayName} size={28} className={cn("size-7 ring-2", ring)} />}
+      </span>
+    );
     return (
       <div className={cn("flex items-center gap-3 rounded-sm bg-white/[0.05] px-3 py-2", hot && "ring-1 ring-ember/60")}>
-        <UserAvatar src={active.host.avatar} name={active.host.displayName} size={28} className="size-7 ring-2 ring-chili" />
+        {pairFaces(active.host, "ring-chili")}
         <div className="w-40">
           <div className="relative h-2 overflow-hidden rounded-full bg-white/[0.12]">
             <div className="absolute inset-y-0 left-0 bg-chili transition-[width]" style={{ width: `${share * 100}%` }} />
@@ -141,7 +161,7 @@ export function BattlePanel({
             <span>${Math.round(active.challenger.usdMinor / 100)}</span>
           </div>
         </div>
-        <UserAvatar src={active.challenger.avatar} name={active.challenger.displayName} size={28} className="size-7 ring-2 ring-ember" />
+        {pairFaces(active.challenger, "ring-ember")}
         <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", hot ? "bg-ember text-on-ember" : "bg-white text-neutral-950")}>
           {hot && <Lightning size={11} weight="fill" />}
           {active.status === "overtime" ? "OT " : ""}
@@ -158,16 +178,26 @@ export function BattlePanel({
     <div className={cn("flex flex-col gap-2", inline ? "items-stretch" : "items-end")}>
       <div className="flex flex-wrap items-center gap-2">
         {incoming.map((b) => (
-          <div key={b.id} className="flex items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
+          <div key={b.id} className="flex flex-wrap items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
             <Sword size={15} weight="fill" />
             <UserAvatar src={b.host.avatar} name={b.host.displayName} size={22} className="size-[22px]" />
-            <span className="font-medium">{b.host.displayName} challenges you</span>
-            <Pill size="sm" variant="primary" icon={<Check size={13} weight="bold" />} onClick={() => act(`/api/battles/${b.id}/accept`)} disabled={busy}>
+            <span className="font-medium">
+              {b.host.displayName} challenges you{b.mode === "2v2" ? " to a 2v2" : ""}
+            </span>
+            <Pill
+              size="sm"
+              variant="primary"
+              icon={<Check size={13} weight="bold" />}
+              onClick={() => act(`/api/battles/${b.id}/accept`)}
+              disabled={busy || (b.mode === "2v2" && !partner)}
+              title={b.mode === "2v2" && !partner ? "Bring a partner on stage to take on a 2v2" : undefined}
+            >
               Accept
             </Pill>
             <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${b.id}/decline`)} disabled={busy}>
               Decline
             </Pill>
+            {b.mode === "2v2" && !partner && <span className="w-full pb-0.5 text-[12px] text-muted-foreground">Bring a partner on stage to take it on.</span>}
           </div>
         ))}
         {queued && !outgoing && (
@@ -197,13 +227,50 @@ export function BattlePanel({
 
       {open && !outgoing && (
         <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-popover shadow-2xl")}>
+          {/* One on one, or you and your stage partner against another pair. */}
+          <CapsuleTabs
+            label="Kind of battle"
+            className="mb-2.5"
+            items={[
+              { id: "1v1" as const, label: "1 v 1" },
+              { id: "2v2" as const, label: "2 v 2" },
+            ]}
+            value={mode}
+            onChange={setMode}
+          />
+          {mode === "2v2" && (
+            <div className="mb-3 flex items-center gap-2.5 rounded-sm bg-white/[0.04] px-2.5 py-2">
+              {partner ? (
+                <UserAvatar src={partner.avatar} name={partner.username} size={28} className="size-7" />
+              ) : (
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground">
+                  <UsersThree size={14} />
+                </span>
+              )}
+              <p className="min-w-0 text-[12px] leading-snug text-muted-foreground">
+                {partner ? (
+                  <>
+                    You and <span className="font-semibold text-foreground">{partner.username}</span> against another pair. Win, and you split the bonus.
+                  </>
+                ) : (
+                  "Bring your partner on stage first — anyone on your Stage, or a creator you co-live with."
+                )}
+              </p>
+            </div>
+          )}
           {/* Quickest way in: whoever else is waiting, straight into a battle. */}
           <div className="mb-3 flex items-center gap-3 rounded-sm bg-ember/[0.1] p-2.5">
-            <Pill size="sm" variant="ember" icon={<Lightning size={13} weight="fill" />} onClick={() => void quickMatch()} disabled={busy || queued}>
+            <Pill size="sm" variant="ember" icon={<Lightning size={13} weight="fill" />} onClick={() => void quickMatch()} disabled={busy || queued || needsPartner}>
               {queued ? "Looking…" : "Quick match"}
             </Pill>
             <p className="min-w-0 text-[12px] leading-snug text-muted-foreground">
-              {queued ? "You'll be matched with the next creator who's looking." : "Battle whoever's free right now — it starts the moment you're paired."}
+              {queued
+                ? mode === "2v2"
+                  ? "You'll be matched with the next pair who's looking."
+                  : "You'll be matched with the next creator who's looking."
+                : mode === "2v2"
+                  ? "Take on whichever pair is free right now — it starts the moment you're matched."
+                  : "Battle whoever's free right now — it starts the moment you're paired."}
             </p>
           </div>
 
@@ -235,8 +302,8 @@ export function BattlePanel({
               <button
                 key={s._id}
                 type="button"
-                disabled={busy}
-                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username, forfeit: forfeit.trim() })}
+                disabled={busy || needsPartner}
+                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username, forfeit: forfeit.trim(), mode })}
                 className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-white/[0.05] disabled:opacity-50"
               >
                 <UserAvatar src={s.streamerId.avatar} name={s.streamerId.displayName} size={32} className="size-8" />
@@ -278,7 +345,14 @@ export function BattlePanel({
                 size="sm"
                 variant="glass"
                 disabled={busy || !bookName.trim() || !bookAt}
-                onClick={() => act(`/api/battles/schedule`, { challengerUsername: bookName.trim().replace(/^@/, ""), scheduledAt: new Date(bookAt).toISOString(), forfeit: forfeit.trim() })}
+                onClick={() =>
+                  act(`/api/battles/schedule`, {
+                    challengerUsername: bookName.trim().replace(/^@/, ""),
+                    scheduledAt: new Date(bookAt).toISOString(),
+                    forfeit: forfeit.trim(),
+                    mode,
+                  })
+                }
               >
                 Book
               </Pill>
@@ -289,7 +363,7 @@ export function BattlePanel({
                   <div key={b.id} className="flex items-center gap-2 rounded-sm bg-white/[0.04] px-2 py-1.5 text-[12px] text-muted-foreground">
                     <CalendarBlank size={12} />
                     <span className="min-w-0 flex-1 truncate">
-                      vs <span className="text-foreground">{b.host.userId === user?.id ? b.challenger.displayName : b.host.displayName}</span> · {b.scheduledAt ? new Date(b.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}
+                      {b.mode === "2v2" ? "2v2 " : ""}vs <span className="text-foreground">{b.host.userId === user?.id ? b.challenger.displayName : b.host.displayName}</span> · {b.scheduledAt ? new Date(b.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}
                     </span>
                     <button type="button" onClick={() => act(`/api/battles/${b.id}/cancel`)} disabled={busy} className="text-muted-foreground hover:text-foreground" aria-label="Cancel booking">
                       <X size={12} />

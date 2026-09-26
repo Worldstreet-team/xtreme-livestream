@@ -6,6 +6,7 @@ import {
   Notification,
   Stream,
   User,
+  type BattleMode,
   type IBattle,
   type IGiftTransaction,
   type IStream,
@@ -16,6 +17,8 @@ import { relayBattleResult } from "./socials-relay.js";
 
 /**
  * Live battles: two creators, one clock, the audience decides with gifts.
+ * Or two pairs (2v2): each side is a stream and the partner on its stage,
+ * and a winning pair splits the bonus.
  *
  * Everything that matters is decided here, on the server: when the clock
  * starts and ends, how much a gift counts (double in the closing window),
@@ -56,7 +59,14 @@ export interface BattleView {
   lateResetUsed: boolean;
   /** What the loser does on the victory lap; "" for none. */
   forfeit: string;
+  mode: BattleMode;
   endedReason: string | null;
+}
+interface PartnerView {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatar: string;
 }
 interface BattleSideView {
   userId: string;
@@ -67,6 +77,8 @@ interface BattleSideView {
   usdMinor: number;
   /** The side's biggest backers, by what their gifts scored. */
   top: Array<{ userId: string; username: string; displayName: string; avatar: string; usdMinor: number }>;
+  /** A 2v2's partner on this side's stage; null in a 1v1 (or if they'd left before the clock). */
+  partner: PartnerView | null;
 }
 
 const USER_FIELDS = "username displayName avatar";
@@ -94,12 +106,26 @@ async function topBackers(b: IBattle) {
 }
 
 export async function toBattleView(b: IBattle): Promise<BattleView> {
-  const [host, challenger, top] = await Promise.all([
+  const partnerIds = [b.hostPartnerId, b.challengerPartnerId].filter((id): id is mongoose.Types.ObjectId => Boolean(id));
+  const [host, challenger, top, partners] = await Promise.all([
     User.findById(b.hostId).select(USER_FIELDS).lean(),
     User.findById(b.challengerId).select(USER_FIELDS).lean(),
     topBackers(b),
+    partnerIds.length ? User.find({ _id: { $in: partnerIds } }).select(USER_FIELDS).lean() : Promise.resolve([]),
   ]);
-  const side = (u: typeof host, id: mongoose.Types.ObjectId, streamId: mongoose.Types.ObjectId, usd: number, backers: BattleSideView["top"]): BattleSideView => ({
+  const partnerView = (id: mongoose.Types.ObjectId | null | undefined): PartnerView | null => {
+    if (!id) return null;
+    const u = partners.find((p) => String(p._id) === String(id));
+    return { userId: String(id), username: u?.username ?? "", displayName: u?.displayName || u?.username || "Partner", avatar: u?.avatar ?? "" };
+  };
+  const side = (
+    u: typeof host,
+    id: mongoose.Types.ObjectId,
+    streamId: mongoose.Types.ObjectId,
+    usd: number,
+    backers: BattleSideView["top"],
+    partner: PartnerView | null,
+  ): BattleSideView => ({
     userId: String(id),
     username: u?.username ?? "",
     displayName: u?.displayName || u?.username || "Streamer",
@@ -107,6 +133,7 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     streamId: String(streamId),
     usdMinor: usd,
     top: backers,
+    partner,
   });
   return {
     id: String(b._id),
@@ -117,15 +144,48 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     durationSec: b.durationSec,
     multiplierWindowSec: b.multiplierWindowSec,
     multiplier: b.multiplier,
-    host: side(host, b.hostId, b.hostStreamId, b.hostUsdMinor, top.host),
-    challenger: side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger),
+    host: side(host, b.hostId, b.hostStreamId, b.hostUsdMinor, top.host, partnerView(b.hostPartnerId)),
+    challenger: side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, partnerView(b.challengerPartnerId)),
     winnerId: b.winnerId ? String(b.winnerId) : null,
     bonusUsdMinor: b.bonusUsdMinor,
     overtimeUsed: b.overtimeUsed,
     lateResetUsed: Boolean(b.lateResetUsed),
     forfeit: b.forfeit ?? "",
+    mode: b.mode ?? "1v1",
     endedReason: b.endedReason,
   };
+}
+
+/**
+ * The partner a 2v2 side brings: the first guest live on its stage (a
+ * viewer brought up, or a creator who came over by co-live). Null when the
+ * stage is empty.
+ */
+export async function stagePartner(streamId: mongoose.Types.ObjectId | string) {
+  const stream = await Stream.findById(streamId).select("guests").lean();
+  const guest = stream?.guests?.find((g) => g.status === "live");
+  return guest ? (guest.userId as mongoose.Types.ObjectId) : null;
+}
+
+/**
+ * Who the bonus goes to: the winner, or — in a 2v2 — the winner and their
+ * partner, half each (the winner keeps the odd cent). The partner earns no
+ * gifts on someone else's stream, so this is their share of the win.
+ */
+export function bonusShares(b: Pick<IBattle, "winnerId" | "bonusUsdMinor" | "hostId" | "hostPartnerId" | "challengerPartnerId">) {
+  if (!b.winnerId || b.bonusUsdMinor <= 0) return [];
+  const partner = partnerOf(b, b.winnerId);
+  if (!partner) return [{ userId: b.winnerId, usdMinor: b.bonusUsdMinor }];
+  const half = Math.floor(b.bonusUsdMinor / 2);
+  return [
+    { userId: b.winnerId, usdMinor: b.bonusUsdMinor - half },
+    ...(half > 0 ? [{ userId: partner, usdMinor: half }] : []),
+  ];
+}
+
+/** The partner who shares a side's result with this creator, in a 2v2. */
+export function partnerOf(b: Pick<IBattle, "hostId" | "hostPartnerId" | "challengerPartnerId">, userId: mongoose.Types.ObjectId) {
+  return userId.equals(b.hostId) ? (b.hostPartnerId ?? null) : (b.challengerPartnerId ?? null);
 }
 
 /** The battle a stream is in right now (live or overtime), from either side. */
@@ -181,6 +241,7 @@ export async function inviteToBattle(
   hostStream: IStream,
   challengerStream: IStream,
   forfeit = "",
+  mode: BattleMode = "1v1",
 ) {
   const battle = await Battle.create({
     hostId: host._id,
@@ -190,6 +251,7 @@ export async function inviteToBattle(
     status: "invited",
     invitedAt: new Date(),
     forfeit,
+    mode,
   });
   await notify(challengerStream.streamerId as mongoose.Types.ObjectId, "battle_invite", host, hostStream);
   // The challenger's room hears it too, so the studio shows the invite at once.
@@ -198,9 +260,14 @@ export async function inviteToBattle(
   return battle;
 }
 
-/** Accept: the clock starts now. */
+/** Accept: the clock starts now. A 2v2 takes each side's partner off its stage as it starts. */
 export async function startBattle(battle: IBattle) {
   const now = new Date();
+  if (battle.mode === "2v2") {
+    const [hp, cp] = await Promise.all([stagePartner(battle.hostStreamId), stagePartner(battle.challengerStreamId)]);
+    battle.hostPartnerId = hp;
+    battle.challengerPartnerId = cp;
+  }
   battle.status = "live";
   battle.startsAt = now;
   battle.endsAt = new Date(now.getTime() + battle.durationSec * 1000);
@@ -263,10 +330,12 @@ async function streamIsFree(streamId: mongoose.Types.ObjectId) {
  * host to ask. Both asked for a battle, so it starts at once — no invite to
  * answer. Someone whose stream ended while waiting is passed over.
  */
-export async function quickMatch(me: { _id: mongoose.Types.ObjectId }, myStream: IStream) {
+export async function quickMatch(me: { _id: mongoose.Types.ObjectId }, myStream: IStream, mode: BattleMode = "1v1") {
   const since = new Date(Date.now() - QUEUE_TTL_MS);
+  // Pairs with pairs, singles with singles (an entry from before modes is a single).
+  const sameMode = mode === "2v2" ? { mode: "2v2" } : { mode: { $ne: "2v2" } };
   for (let tries = 0; tries < 3; tries++) {
-    const other = await BattleQueue.findOneAndDelete({ userId: { $ne: me._id }, at: { $gte: since } }, { sort: { at: 1 } });
+    const other = await BattleQueue.findOneAndDelete({ userId: { $ne: me._id }, at: { $gte: since }, ...sameMode }, { sort: { at: 1 } });
     if (!other) break;
     const theirs = await Stream.findOne({ _id: other.streamId, isLive: true }).select("_id streamerId livekitRoomName");
     if (!theirs || !(await streamIsFree(theirs._id as mongoose.Types.ObjectId))) continue;
@@ -278,10 +347,11 @@ export async function quickMatch(me: { _id: mongoose.Types.ObjectId }, myStream:
       challengerStreamId: myStream._id,
       status: "invited",
       invitedAt: new Date(),
+      mode,
     });
     return { battle: await startBattle(battle), queued: false as const };
   }
-  await BattleQueue.updateOne({ userId: me._id }, { $set: { streamId: myStream._id, at: new Date() } }, { upsert: true });
+  await BattleQueue.updateOne({ userId: me._id }, { $set: { streamId: myStream._id, mode, at: new Date() } }, { upsert: true });
   return { battle: null, queued: true as const };
 }
 
@@ -315,11 +385,12 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
     const tie = battle.hostUsdMinor === battle.challengerUsdMinor;
     battle.winnerId = tie ? null : hostWins ? battle.hostId : battle.challengerId;
     battle.bonusUsdMinor = tie ? 0 : Math.floor(battle.commissionUsdMinor * BONUS_SHARE);
-    // The bonus is booked to the winner's earnings here; the central wallet
-    // credit is a follow-up once the wallet service exposes a credit call
-    // (today it only charges with a split).
+    // The bonus is booked to the winner's earnings here — split down the
+    // middle with their partner in a 2v2; payBattleBonus pays it out.
     if (battle.winnerId && battle.bonusUsdMinor > 0) {
-      await User.updateOne({ _id: battle.winnerId }, { $inc: { earningsUsdMinor: battle.bonusUsdMinor } });
+      for (const share of bonusShares(battle)) {
+        await User.updateOne({ _id: share.userId }, { $inc: { earningsUsdMinor: share.usdMinor } });
+      }
     }
   }
   await battle.save();
@@ -334,7 +405,7 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
   if (battle.status === "ended") {
     // The bonus as money: a payout row, then the wallet. Best-effort here;
     // the payout sweep finishes anything the wallet couldn't take now.
-    await payBattleBonus(battle).catch((e) => console.error("battle bonus payout failed:", e));
+    await payBattleBonus(battle, bonusShares(battle)).catch((e) => console.error("battle bonus payout failed:", e));
     // The Wolf race hears about it — best-effort, the socials side decides scoring.
     void relayBattleResult(battle).catch(() => {});
   }
@@ -349,10 +420,11 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
       const actorFor = (winner: boolean) => (winner ? host : challenger);
       const winnerIsHost = battle.winnerId ? battle.winnerId.equals(battle.hostId) : false;
       const actor = { _id: (winnerIsHost ? host : challenger)._id as mongoose.Types.ObjectId, username: actorFor(winnerIsHost).username, displayName: actorFor(winnerIsHost).displayName };
-      await Promise.all([
-        notify(battle.hostId, "battle_result", actor, hostStream as Pick<IStream, "_id" | "title">),
-        notify(battle.challengerId, "battle_result", actor, hostStream as Pick<IStream, "_id" | "title">),
-      ]);
+      // A 2v2's partners hear how it went too.
+      const everyone = [battle.hostId, battle.challengerId, battle.hostPartnerId, battle.challengerPartnerId].filter(
+        (id): id is mongoose.Types.ObjectId => Boolean(id),
+      );
+      await Promise.all(everyone.map((id) => notify(id, "battle_result", actor, hostStream as Pick<IStream, "_id" | "title">)));
     }
   }
   return battle;
@@ -371,6 +443,7 @@ export async function scheduleBattle(
   challenger: { _id: mongoose.Types.ObjectId; username: string; displayName?: string },
   at: Date,
   forfeit = "",
+  mode: BattleMode = "1v1",
 ) {
   const placeholder = new mongoose.Types.ObjectId();
   const battle = await Battle.create({
@@ -382,6 +455,7 @@ export async function scheduleBattle(
     invitedAt: new Date(),
     scheduledAt: at,
     forfeit,
+    mode,
   });
   const fake = { _id: placeholder, title: `Battle: ${host.displayName || host.username} vs ${challenger.displayName || challenger.username}` } as Pick<IStream, "_id" | "title">;
   await notify(challenger._id, "battle_invite", host, fake);
@@ -412,7 +486,11 @@ export function startBattleSweep() {
           Stream.findOne({ streamerId: b.hostId, isLive: true }).select("_id"),
           Stream.findOne({ streamerId: b.challengerId, isLive: true }).select("_id"),
         ]);
-        if (hs && cs) {
+        // A booked 2v2 waits for both partners to be on stage, too.
+        const pairsReady =
+          b.mode !== "2v2" ||
+          Boolean(hs && cs && (await stagePartner(hs._id as mongoose.Types.ObjectId)) && (await stagePartner(cs._id as mongoose.Types.ObjectId)));
+        if (hs && cs && pairsReady) {
           b.hostStreamId = hs._id as mongoose.Types.ObjectId;
           b.challengerStreamId = cs._id as mongoose.Types.ObjectId;
           await startBattle(b);

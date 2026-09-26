@@ -149,3 +149,91 @@ export function LivePreview({
     </div>
   );
 }
+
+/**
+ * Every camera in a room at once, for a 2v2's other side — their host and
+ * their partner — over one connection, keeping LivePreview's one-preview
+ * rule. Tracks come back keyed by who publishes them; with Data saver on,
+ * nothing connects.
+ */
+export function useRoomPreview(streamId: string | null, enabled = true) {
+  // Kept with the room they came from, so another room never shows the last one's.
+  const [seen, setSeen] = useState<{ streamId: string; tracks: ReadonlyMap<string, RemoteTrack> } | null>(null);
+  const saving = useDataMode() === "saver";
+
+  useEffect(() => {
+    if (!streamId || !enabled || saving) return;
+    let cancelled = false;
+    let room: Room | null = null;
+    const sync = () => {
+      if (cancelled || !room) return;
+      const next = new Map<string, RemoteTrack>();
+      for (const p of room.remoteParticipants.values()) {
+        const pubs = [...p.videoTrackPublications.values()].filter((pub) => pub.track);
+        // Someone sending a camera and a screen: the camera is the face.
+        const pub = pubs.find((x) => x.source === Track.Source.Camera) ?? pubs[0];
+        if (pub?.track) next.set(p.identity, pub.track);
+      }
+      setSeen({ streamId, tracks: next });
+    };
+
+    async function start() {
+      try {
+        const res = await apiFetch<{ success: boolean; data: { token: string; livekitUrl: string } }>(`/api/streams/${streamId}/token?preview=true`);
+        if (cancelled) return;
+        room = new Room({ adaptiveStream: true, dynacast: true });
+        if (active && active !== room) void active.disconnect().catch(() => {});
+        active = room;
+        room.on(RoomEvent.TrackSubscribed, sync).on(RoomEvent.TrackUnsubscribed, sync).on(RoomEvent.ParticipantDisconnected, sync);
+        await room.connect(res.data.livekitUrl, res.data.token);
+        sync();
+      } catch {
+        // Empty tiles; a preview that fails is just a dark square.
+      }
+    }
+    void start();
+
+    return () => {
+      cancelled = true;
+      if (room) {
+        if (active === room) active = null;
+        void room.disconnect().catch(() => {});
+      }
+    };
+  }, [streamId, enabled, saving]);
+
+  return streamId && enabled && !saving && seen?.streamId === streamId ? seen.tracks : EMPTY_TRACKS;
+}
+
+const EMPTY_TRACKS: ReadonlyMap<string, RemoteTrack> = new Map();
+
+/** Which of a room's cameras is its host's: their browser, their encoder, or whoever else isn't the partner. */
+export function hostTrackOf(tracks: ReadonlyMap<string, RemoteTrack>, host: { userId: string }, partnerId?: string | null) {
+  const own = tracks.get(host.userId) ?? tracks.get(`obs-${host.userId}`);
+  if (own) return own;
+  for (const [identity, track] of tracks) if (identity !== partnerId && !identity.startsWith("mon-")) return track;
+  return undefined;
+}
+
+/** One camera from useRoomPreview, muted, filling its tile. */
+export function PreviewVideo({ track, className }: { track: RemoteTrack | undefined; className?: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !track) return;
+    track.attach(el);
+    return () => {
+      track.detach(el);
+    };
+  }, [track]);
+  return (
+    <video
+      ref={ref}
+      muted
+      playsInline
+      autoPlay
+      aria-hidden
+      className={cn("absolute inset-0 size-full object-cover transition-opacity duration-500", track ? "opacity-100" : "opacity-0", className)}
+    />
+  );
+}

@@ -109,13 +109,32 @@ export async function redeemPoints(user: { _id: mongoose.Types.ObjectId; created
 }
 
 /** The winner's bonus, as a payout row plus the wallet attempt. */
-export async function payBattleBonus(battle: IBattle) {
-  if (!battle.winnerId || battle.bonusUsdMinor <= 0) return null;
-  const existing = await Payout.findOne({ kind: "battle_bonus", refId: battle._id });
-  if (existing) return existing;
-  const payout = await createPayout(battle.winnerId, "battle_bonus", battle.bonusUsdMinor, 0, battle._id as mongoose.Types.ObjectId);
-  await audit(null, "battle.bonus", "battle", battle._id as mongoose.Types.ObjectId, { winnerId: String(battle.winnerId), usdMinor: battle.bonusUsdMinor, status: payout.status });
-  return payout;
+export async function payBattleBonus(
+  battle: IBattle,
+  /** Who gets what — a 2v2's winning pair splits it (battles.ts, bonusShares). The winner alone by default. */
+  shares?: Array<{ userId: mongoose.Types.ObjectId; usdMinor: number }>,
+) {
+  if (!battle.winnerId || battle.bonusUsdMinor <= 0) return [];
+  const split = shares ?? [{ userId: battle.winnerId, usdMinor: battle.bonusUsdMinor }];
+  const out: IPayout[] = [];
+  for (const share of split) {
+    if (share.usdMinor <= 0) continue;
+    // One payout per person per battle, however often settlement runs.
+    const existing = await Payout.findOne({ kind: "battle_bonus", refId: battle._id, userId: share.userId });
+    if (existing) {
+      out.push(existing);
+      continue;
+    }
+    const payout = await createPayout(share.userId, "battle_bonus", share.usdMinor, 0, battle._id as mongoose.Types.ObjectId);
+    await audit(null, "battle.bonus", "battle", battle._id as mongoose.Types.ObjectId, {
+      winnerId: String(battle.winnerId),
+      userId: String(share.userId),
+      usdMinor: share.usdMinor,
+      status: payout.status,
+    });
+    out.push(payout);
+  }
+  return out;
 }
 
 /** Every five minutes: pay whatever is still pending, once the treasury is there. */

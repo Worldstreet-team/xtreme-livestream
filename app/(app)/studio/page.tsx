@@ -53,7 +53,7 @@ import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
 import { GamesPanel } from "@/components/app/games-panel";
-import { LivePreview } from "@/components/app/live-preview";
+import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
@@ -91,6 +91,7 @@ import { captureVideoFrame, compressImage } from "@/lib/image-utils";
 import { LiveChat } from "@/components/app/live-chat";
 import { DragSheet } from "@/components/app/drag-sheet";
 import {
+  AwayTile,
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
@@ -404,6 +405,10 @@ export default function StudioPage() {
   >([]);
   const guestTracksRef = useRef<Map<string, AttachableVideoTrack>>(new Map());
   const guestAudioElsRef = useRef<Map<object, HTMLAudioElement>>(new Map());
+  // A 2v2's other pair, a tile each, over one connection to their room.
+  const pairOpponent =
+    battle && battle.mode === "2v2" && streamId ? (sideOf(battle, streamId) === "host" ? battle.challenger : battle.host) : null;
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
 
   // ---- Co-live ----
   /** An open invite from another live host, shown in the Stage tab. */
@@ -1945,8 +1950,37 @@ export default function StudioPage() {
         ? battle.challenger.streamId
         : battle.host.streamId
       : null;
+  /** The other side's picture, named on it. */
+  const opponentTile = (key: string, name: string, picture: React.ReactNode): SceneCell => ({
+    key,
+    node: (
+      <div className="relative size-full bg-black">
+        {picture}
+        <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
+          {name} · opponent
+        </span>
+      </div>
+    ),
+  });
+  // A 2v2 is a 2×2, as viewers see it: our pair down the left, theirs down
+  // the right — so after us come their host, our partner, their partner.
+  const pairCells = (): SceneCell[] => {
+    if (!pairOpponent || !battle || !streamId) return [];
+    const mate = (sideOf(battle, streamId) === "host" ? battle.host : battle.challenger).partner ?? null;
+    const mateTile = mate ? guestTiles.find((t) => t.identity === mate.userId) : undefined;
+    const theirMate = pairOpponent.partner ?? null;
+    return [
+      opponentTile("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+      mateTile
+        ? { key: mateTile.identity, node: <StageTile fill track={guestTracksRef.current.get(mateTile.identity)} label={mateTile.name} /> }
+        : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Your partner"} /> },
+      theirMate
+        ? opponentTile("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+        : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
+    ];
+  };
   // The others on stage, in the order the scene brings them in.
-  const stageOthers: SceneCell[] = [
+  const stageOthers: SceneCell[] = pairOpponent ? pairCells() : [
     ...(opponentStreamId && battle && streamId
       ? [
           {
@@ -2832,7 +2866,14 @@ export default function StudioPage() {
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "viewers" && "hidden")}>{viewersPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "stats" && "hidden")}>{statsPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "battle" && "hidden")}>
-        {streamId && <BattlePanel inline streamId={streamId} onBattle={setBattle} />}
+        {streamId && (
+          <BattlePanel
+            inline
+            streamId={streamId}
+            onBattle={setBattle}
+            partner={liveGuests[0] ? { userId: liveGuests[0].userId, username: liveGuests[0].username, avatar: liveGuests[0].avatar } : null}
+          />
+        )}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "games" && "hidden")}>
         {streamId && <GamesPanel inline streamId={streamId} />}
