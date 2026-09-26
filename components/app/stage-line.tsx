@@ -72,6 +72,28 @@ export function StandingLine({ standing }: { standing: StageStanding | null | un
 }
 
 /**
+ * Keep a guest on screen in a corner whatever the layout — a sign-language
+ * interpreter (accessibility). One at a time; the auto-director and the
+ * layouts leave them out.
+ */
+export function InterpreterToggle({ on, onToggle }: { on: boolean; onToggle: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(!on)}
+      aria-pressed={on}
+      title="Keep them on screen in a corner, whatever the layout — for a sign-language interpreter"
+      className={cn(
+        "press h-8 shrink-0 rounded-full px-3 text-[12.5px] font-medium transition-colors",
+        on ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground/85 hover:bg-white/[0.12]"
+      )}
+    >
+      Interpreter
+    </button>
+  );
+}
+
+/**
  * Who can ask, and how old their account must be. The host changes it;
  * a producer's console shows it as it stands (no `onChange`).
  */

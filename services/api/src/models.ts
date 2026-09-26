@@ -331,6 +331,8 @@ export interface IStream extends Document {
     gains?: Record<string, number>;
     /** The guest beside the host in a Split, by room identity (null: stage order). */
     spotlight?: string | null;
+    /** A sign-language interpreter on stage, kept on screen in a corner (null: none). */
+    interpreter?: string | null;
     version: number;
   };
   viewers: number;
@@ -484,6 +486,7 @@ const streamSchema = new Schema<IStream>(
       featured: { type: Schema.Types.Mixed, default: null },
       gains: { type: Schema.Types.Mixed, default: () => ({}) },
       spotlight: { type: String, default: null },
+      interpreter: { type: String, default: null },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },

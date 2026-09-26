@@ -267,6 +267,12 @@ export const sceneBodySchema = z.object({
    * they're the one talking. Null keeps the stage's own order.
    */
   spotlight: z.string().regex(/^[\w.:-]{1,64}$/).nullable().default(null),
+  /**
+   * A sign-language interpreter on stage (accessibility): their room
+   * identity. They stay on screen in a corner whatever the layout, and the
+   * layouts and the auto-director leave them out. Null for none.
+   */
+  interpreter: z.string().regex(/^[\w.:-]{1,64}$/).nullable().default(null),
 });
 
 /**

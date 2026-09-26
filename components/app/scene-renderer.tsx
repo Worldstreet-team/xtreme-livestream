@@ -273,12 +273,16 @@ export function SceneRenderer({
   hideRestricted?: boolean;
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
+  // A sign-language interpreter stays in a corner, whatever the layout, and
+  // the layout places everyone else.
+  const interpreter = scene.interpreter ? guests.find((g) => (g.identity ?? g.key) === scene.interpreter) : undefined;
+  const others = interpreter ? guests.filter((g) => g !== interpreter) : guests;
   // The guest in the spotlight comes first, so a Split shows them beside the
   // host. A battle keeps its own order: its sides are never reshuffled.
   const ordered =
     scene.spotlight && !forceAuto
-      ? [...guests].sort((a, b) => Number((b.identity ?? b.key) === scene.spotlight) - Number((a.identity ?? a.key) === scene.spotlight))
-      : guests;
+      ? [...others].sort((a, b) => Number((b.identity ?? b.key) === scene.spotlight) - Number((a.identity ?? a.key) === scene.spotlight))
+      : others;
   const shown = ordered.slice(0, guestsShown(layout, ordered.length, forceAuto));
   const grid = stageLayout(1 + shown.length, portrait);
   // Chart + face: the chart has the frame and the host's face the corner.
@@ -386,8 +390,61 @@ export function SceneRenderer({
         goal={goal}
         heat={heat}
         hideRestricted={hideRestricted}
+        interpreter={interpreter?.node}
       />
+      <GraphicsAnnouncer scene={scene} />
     </div>
+  );
+}
+
+/** Words a screen reader says when a graphic goes up — a lower third, a banner, a card, a line put on screen. */
+function announcementOf(scene: Scene) {
+  const said: string[] = [];
+  if (scene.card) said.push(`${CARDS.find((c) => c.id === scene.card)?.title ?? "A card"} on screen${scene.cardNote ? `: ${scene.cardNote}` : ""}.`);
+  const lower = layerOf(scene.layers, "lower-third");
+  if (lower) said.push(`${lower.title}${lower.subtitle ? `, ${lower.subtitle}` : ""}.`);
+  const banner = layerOf(scene.layers, "banner");
+  if (banner) said.push(`${banner.text}.`);
+  const ticker = layerOf(scene.layers, "ticker");
+  if (ticker) said.push(`${ticker.text}.`);
+  if (scene.featured) said.push(`${scene.featured.username}: ${scene.featured.text}`);
+  return said;
+}
+
+/**
+ * Graphics for screen readers (accessibility): what goes up on screen is
+ * said once, politely — only what's new, and no more than one message
+ * every few seconds, so a busy show doesn't talk over itself.
+ */
+function GraphicsAnnouncer({ scene }: { scene: Scene }) {
+  const [message, setMessage] = useState("");
+  const said = useRef<Set<string>>(new Set());
+  const lastAt = useRef(0);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lines = announcementOf(scene).join(" ");
+  useEffect(() => {
+    const fresh = lines ? announcementOf(scene).filter((l) => !said.current.has(l)) : [];
+    said.current = new Set(announcementOf(scene));
+    if (fresh.length === 0) return;
+    const wait = Math.max(0, lastAt.current + 4000 - Date.now());
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(() => {
+      lastAt.current = Date.now();
+      setMessage(fresh.join(" "));
+    }, wait);
+    // `lines` stands for the scene's words: a new version with the same words says nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines]);
+  useEffect(
+    () => () => {
+      if (pending.current) clearTimeout(pending.current);
+    },
+    []
+  );
+  return (
+    <p aria-live="polite" aria-atomic="true" className="sr-only">
+      {message}
+    </p>
   );
 }
 
@@ -412,6 +469,7 @@ function SceneGraphics({
   goal,
   heat,
   hideRestricted,
+  interpreter,
 }: {
   layers: SceneLayer[];
   featured: FeaturedItem | null;
@@ -423,6 +481,8 @@ function SceneGraphics({
   goal: StreamGoal | null;
   heat: StreamHeat | null;
   hideRestricted: boolean;
+  /** A sign-language interpreter's picture: in the bottom-right stack, over cards too. */
+  interpreter?: ReactNode;
 }) {
   const accent = ACCENTS[brand.accent];
   // The goal and the meter keep to the top with the banner: under a card
@@ -516,7 +576,7 @@ function SceneGraphics({
           </div>
         )}
 
-        {(lowerThird || ticker || bottomLogo || card || cta || sponsor) && (
+        {(lowerThird || ticker || bottomLogo || card || cta || sponsor || interpreter) && (
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-[calc(var(--g-m)/2)]">
             {card && (
               <div className={cn("flex px-[var(--g-m)]", !lowerThird && !bottomLogo && !ticker && "pb-[var(--g-m)]")}>
@@ -525,7 +585,7 @@ function SceneGraphics({
             )}
             {/* The lower third's row: a bottom logo stacks above it on the
                 left, or shares its baseline on the right. */}
-            {(lowerThird || bottomLogo || cta || sponsor) && (
+            {(lowerThird || bottomLogo || cta || sponsor || interpreter) && (
               // Side by side on a wide frame; on a narrow one (a phone) the
               // right-hand column stacks above, so the name keeps its width.
               <div
@@ -548,8 +608,14 @@ function SceneGraphics({
                   )}
                 </div>
                 {/* Right: the sponsor and the call to action, a bottom-right logo above them. */}
-                {(bottomLogo === "bottom-right" || cta || sponsor) && (
+                {(bottomLogo === "bottom-right" || cta || sponsor || interpreter) && (
                   <div className="flex shrink-0 flex-col items-end gap-[calc(var(--g-m)/2)] self-end @lg:self-auto">
+                    {interpreter && (
+                      <div className="relative aspect-[3/4] w-[clamp(104px,20cqw,240px)] overflow-hidden rounded-[10px] bg-black ring-2 ring-white/85">
+                        {interpreter}
+                        <span className="absolute top-1.5 left-1.5 rounded-full bg-black/60 px-1.5 py-px text-[10px] font-bold text-white">Interpreter</span>
+                      </div>
+                    )}
                     {bottomLogo === "bottom-right" && logoImg()}
                     {sponsor && <SponsorGraphic key={`${sponsor.source}:${sponsor.sponsorId}`} sponsor={sponsor} fontClass={fontClass} />}
                     {cta && <CtaGraphic key={`${cta.title}|${cta.url}`} title={cta.title} url={cta.url} fontClass={fontClass} />}

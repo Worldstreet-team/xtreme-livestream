@@ -32,7 +32,18 @@ import { apiUrl } from "@/lib/api-client";
 
 export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
-export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, featured: null, version: 0 };
+export const DEFAULT_SCENE: Scene = {
+  layout: "auto",
+  card: null,
+  cardNote: "",
+  chart: null,
+  layers: [],
+  gains: {},
+  spotlight: null,
+  interpreter: null,
+  featured: null,
+  version: 0,
+};
 
 /** What Chart + face shows until the host picks a market. */
 export const DEFAULT_CHART: SceneChart = { symbol: "BTC-USD", interval: "5m" };
@@ -64,6 +75,7 @@ export function readScene(raw: unknown): Scene | null {
     layers: readLayers(r.layers),
     gains: readGains(r.gains),
     spotlight: typeof r.spotlight === "string" && /^[\w.:-]{1,64}$/.test(r.spotlight) ? r.spotlight : null,
+    interpreter: typeof r.interpreter === "string" && /^[\w.:-]{1,64}$/.test(r.interpreter) ? r.interpreter : null,
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };

@@ -77,7 +77,10 @@ describe("the scene contract", () => {
   });
 
   it("defaults to the automatic layout with no card and no graphics", () => {
-    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null });
+    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, interpreter: null });
+    // An interpreter is a room identity, like the spotlight.
+    expect(sceneBodySchema.parse({ interpreter: "6ab7f3cb9a1678b5c7075bf1" }).interpreter).toBe("6ab7f3cb9a1678b5c7075bf1");
+    expect(sceneBodySchema.safeParse({ interpreter: "not an identity!" }).success).toBe(false);
   });
 
   it("takes guest faders by room identity, 0 to 1, eight at most", () => {
@@ -157,7 +160,7 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, featured: null, version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, interpreter: null, featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toEqual(scene);
     expect(streamDoc.save).toHaveBeenCalledTimes(1);

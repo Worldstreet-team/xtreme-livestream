@@ -27,7 +27,7 @@ import { LayoutAndCards } from "@/components/app/scene-controls";
 import { SceneGraphicsPanel } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import { RunOfShow } from "@/components/app/run-of-show";
-import { StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
+import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
@@ -48,7 +48,7 @@ const MAX_STAGE_GUESTS = 3;
 
 type Tab = "scenes" | "show" | "stage" | "chat";
 type StageUser = { userId: string; username: string; avatar: string; standing?: StageStanding | null };
-type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight">>;
+type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight" | "interpreter">>;
 
 /**
  * Producer mode (Phase 3): the console at /produce/<channel>. The host on a
@@ -284,6 +284,7 @@ function LiveConsole({
           layers: next.layers,
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
+          interpreter: next.interpreter ?? null,
         }),
       });
       const saved = readScene(r.data.scene);
@@ -480,7 +481,7 @@ function LiveConsole({
         crew
         scene={scene}
         battle={Boolean(battleOn)}
-        guests={guestNames}
+        guests={guestNames.filter((g) => g.identity !== scene.interpreter)}
         cardNote={cardNote}
         onCardNote={setCardNote}
         onScene={(patch) => void applyScene(patch)}
@@ -577,6 +578,7 @@ function LiveConsole({
                   {g.username}
                   {scene.spotlight === g.userId && <span className="ml-2 text-[11.5px] font-medium text-ember-hi">beside the host</span>}
                 </p>
+                <InterpreterToggle on={scene.interpreter === g.userId} onToggle={(on) => void applyScene({ interpreter: on ? g.userId : null })} />
                 <button
                   type="button"
                   onClick={() => void stageAction(g.userId, "remove")}

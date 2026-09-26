@@ -74,7 +74,7 @@ import { useRequestQueue } from "@/lib/requests";
 import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
 import { LiveAudience } from "@/components/app/stream-recap";
-import { StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
+import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
@@ -380,7 +380,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     return () => clearTimeout(t);
   }, []);
   const hostIdentities = useMemo(() => (user?.id ? [user.id, `obs-${user.id}`] : []), [user?.id]);
-  const guestIdentities = useMemo(() => guestTiles.map((t) => t.identity), [guestTiles]);
+  // The auto-director cuts between the people on stage — never to the interpreter, who stays in their corner.
+  const interpreterId = scene.interpreter ?? null;
+  const guestIdentities = useMemo(() => guestTiles.filter((t) => t.identity !== interpreterId).map((t) => t.identity), [guestTiles, interpreterId]);
   const directorBlocked: DirectorBlock =
     guestIdentities.length === 0
       ? "alone"
@@ -2808,6 +2810,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               <div key={g.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                 <UserAvatar src={g.avatar} name={g.username} size={32} className="size-8" />
                 <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{g.username}</p>
+                <InterpreterToggle on={scene.interpreter === g.userId} onToggle={(on) => void applyScene({ interpreter: on ? g.userId : null })} />
                 <button onClick={() => removeGuest(g.userId)} disabled={stageBusyId !== null} className="h-8 rounded-full bg-white/[0.07] px-3 text-[12.5px] font-medium text-foreground/85 transition-colors hover:bg-white/[0.12] disabled:opacity-50">Remove</button>
               </div>
             ))}
@@ -2850,7 +2853,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
   const applyScene = async (
-    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight">>,
+    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight" | "interpreter">>,
     /** The auto-director's own cuts don't pause it; anyone else's framing does. */
     by: "host" | "director" = "host",
   ): Promise<string | null> => {
@@ -2874,6 +2877,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           layers: next.layers,
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
+          interpreter: next.interpreter ?? null,
         }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
@@ -3221,7 +3225,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       <LayoutAndCards
         scene={scene}
         battle={Boolean(battle)}
-        guests={guestTiles}
+        guests={guestTiles.filter((t) => t.identity !== interpreterId)}
         cardNote={cardNote}
         onCardNote={setCardNote}
         onScene={(patch) => void applyScene(patch)}
