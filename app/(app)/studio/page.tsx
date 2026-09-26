@@ -2026,7 +2026,7 @@ export default function StudioPage() {
       )}
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">
         {ingestProtocol === "whip"
-          ? "In OBS 30 or later: Settings → Stream → Service: WHIP, then paste the server and the bearer token. "
+          ? "In OBS 30 or later (32.1+ is best — it sends lighter qualities for weak connections): Settings → Stream → Service: WHIP, then paste the server and the bearer token. "
           : "Set it once in OBS or vMix — it never changes. "}
         If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
       </p>

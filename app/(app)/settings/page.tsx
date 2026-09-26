@@ -371,7 +371,7 @@ function ProfileSection() {
 type Protocol = "rtmp" | "whip";
 const PROTOCOLS: { id: Protocol; label: string; server: string; key: string; hint: string }[] = [
   { id: "rtmp", label: "RTMP · any encoder", server: "Server URL", key: "Stream key", hint: "Works with OBS, vMix, Streamlabs, ffmpeg — anything that streams RTMP." },
-  { id: "whip", label: "WHIP · OBS 30+", server: "WHIP server", key: "Bearer token", hint: "Lower delay. In OBS 30 or later: Settings → Stream → Service: WHIP, then paste the server and the bearer token." },
+  { id: "whip", label: "WHIP · OBS 30+", server: "WHIP server", key: "Bearer token", hint: "Lower delay. In OBS 30 or later: Settings → Stream → Service: WHIP, then paste the server and the bearer token. OBS 32.1+ also sends lighter qualities for viewers on weak connections." },
 ];
 
 function StreamingSection() {
@@ -529,7 +529,7 @@ function StreamingSection() {
             ))}
           </dl>
           <p className="mt-auto pt-5 text-[12px] leading-relaxed text-muted-foreground/80">
-            On a weak connection, 720p at 1,500–2,500 kbps keeps the picture steady. WHIP needs OBS 30 or later.
+            On a weak connection, 720p at 1,500–2,500 kbps keeps the picture steady. WHIP needs OBS 30 or later; 32.1+ is best.
           </p>
         </div>
       </div>

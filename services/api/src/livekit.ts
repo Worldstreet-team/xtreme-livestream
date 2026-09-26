@@ -60,13 +60,15 @@ async function mintIngress(
   roomName: string,
   protocol: IngressProtocol = "rtmp",
 ): Promise<UserIngress> {
-  // WHIP keeps LiveKit's transcode, so viewers still get the simulcast
-  // ladder a weak connection needs.
+  // WHIP goes straight through, untranscoded — LiveKit's default for WHIP,
+  // made explicit: it's free, and the qualities viewers get are the ones the
+  // encoder sends (OBS 32.1+ sends several; older OBS sends one).
   const ingress = await ingressClient.createIngress(protocol === "whip" ? IngressInput.WHIP_INPUT : IngressInput.RTMP_INPUT, {
     name: encoderIdentity(userId),
     roomName,
     participantIdentity: encoderIdentity(userId),
     participantName: displayName,
+    ...(protocol === "whip" ? { enableTranscoding: false } : {}),
   });
   return {
     ingressId: ingress.ingressId,
