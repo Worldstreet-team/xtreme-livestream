@@ -120,6 +120,32 @@ export async function rotateUserIngress(user: IUser, protocol: IngressProtocol =
   return ensureUserIngress(user, undefined, protocol);
 }
 
+/** LiveKit's ingress status, in the studio's words (ENDPOINT_COMPLETE reads as not sending). */
+const INGRESS_STATUS = ["inactive", "buffering", "publishing", "error", "inactive"] as const;
+
+/**
+ * What an encoder is sending right now, as LiveKit's ingress sees it: its
+ * status, and the input's bitrate, size and frame rate. Null when LiveKit
+ * doesn't know the ingress.
+ */
+export async function ingressReading(ingressId: string, protocol: IngressProtocol) {
+  const [info] = await ingressClient.listIngress({ ingressId });
+  if (!info) return null;
+  const state = info.state;
+  const video = state?.video && state.video.width > 0 ? state.video : null;
+  const audio = state?.audio && state.audio.averageBitrate > 0 ? state.audio : null;
+  return {
+    at: Date.now(),
+    protocol,
+    status: INGRESS_STATUS[state?.status ?? 0] ?? "inactive",
+    error: state?.error ?? "",
+    video: video
+      ? { codec: video.mimeType, kbps: Math.round(video.averageBitrate / 1000), width: video.width, height: video.height, fps: Math.round(video.framerate) }
+      : null,
+    audio: audio ? { codec: audio.mimeType, kbps: Math.round(audio.averageBitrate / 1000) } : null,
+  };
+}
+
 /** Best-effort ingress teardown — only for rotation now; streams never delete theirs. */
 export async function deleteIngress(ingressId: string) {
   try {

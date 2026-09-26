@@ -18,10 +18,15 @@ const state = vi.hoisted(() => ({
   live: true,
   updates: [] as Array<{ filter: Record<string, unknown>; update: Record<string, any> }>,
   windows: [] as unknown[],
+  ingress: new Map<string, { status: string } | null>(),
+  asked: [] as string[],
 }));
 
 vi.mock("../src/auth.js", () => ({
-  authenticate: async () => ({ authUserId: "clerk_x", dbUser: { _id: id(state.caller) } }),
+  authenticate: async () => ({
+    authUserId: "clerk_x",
+    dbUser: { _id: id(state.caller), obsIngress: { ingressId: "IN_rtmp" }, whipIngress: { ingressId: "IN_whip" } },
+  }),
   getOptionalAuthUserId: () => null,
 }));
 
@@ -40,6 +45,11 @@ vi.mock("../src/livekit.js", () => ({
   sendRoomData: async () => {},
   sendRoomDataTo: async () => {},
   closeRoom: async () => {},
+  ingressReading: async (ingressId: string, protocol: string) => {
+    state.asked.push(ingressId);
+    const r = state.ingress.get(ingressId);
+    return r ? { at: 0, protocol, error: "", video: null, audio: null, ...r } : null;
+  },
 }));
 
 vi.mock("../src/models.js", () => ({
@@ -54,6 +64,9 @@ vi.mock("../src/models.js", () => ({
       select: () => ({
         lean: async () => ({ _id: STREAM, streamerId: HOST, startedAt: new Date(0), endedAt: null, health: state.windows }),
       }),
+    }),
+    findOne: (filter: Record<string, unknown>) => ({
+      select: async () => (String(filter.streamerId) === HOST && state.live ? { _id: STREAM } : null),
     }),
   },
   User: {},
@@ -109,5 +122,22 @@ describe("stream health routes", () => {
     expect(mine.json().data.windows).toEqual([window]);
     state.caller = VIEWER;
     expect((await app.inject({ method: "GET", url: `/v1/streams/${STREAM}/health` })).statusCode).toBe(403);
+  });
+
+  it("tells the host what their encoder is sending — the key that's sending wins", async () => {
+    state.ingress = new Map([
+      ["IN_rtmp", { status: "inactive" }],
+      ["IN_whip", { status: "publishing" }],
+    ]);
+    const res = await app.inject({ method: "GET", url: `/v1/streams/${STREAM}/encoder` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.reading).toMatchObject({ protocol: "whip", status: "publishing" });
+    // A poll right after is answered from the last reading.
+    state.asked = [];
+    await app.inject({ method: "GET", url: `/v1/streams/${STREAM}/encoder` });
+    expect(state.asked).toEqual([]);
+
+    state.caller = VIEWER;
+    expect((await app.inject({ method: "GET", url: `/v1/streams/${STREAM}/encoder` })).statusCode).toBe(404);
   });
 });

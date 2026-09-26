@@ -3,7 +3,13 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { healthBodySchema, MAX_HEALTH_WINDOWS, streamIdParamsSchema } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
+import { ingressReading } from "../livekit.js";
 import { Stream } from "../models.js";
+
+type EncoderReading = NonNullable<Awaited<ReturnType<typeof ingressReading>>>;
+/** A few seconds per stream: the studio polls, LiveKit's API needn't hear every poll. */
+const ENCODER_CACHE_MS = 4_000;
+const encoderCache = new Map<string, { at: number; reading: EncoderReading | null }>();
 
 /**
  * Stream health (Phase 1): the host's studio sends a 30-second summary of
@@ -38,6 +44,43 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(404, "No live broadcast of yours by that id", "NOT_YOUR_LIVE_STREAM");
       }
       return { success: true };
+    },
+  );
+
+  app.get(
+    "/streams/:id/encoder",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "What the host's encoder (OBS and the like) is sending right now, as LiveKit's ingress sees it",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findOne({ _id: request.params.id, streamerId: dbUser._id, isLive: true }).select("_id");
+      if (!stream) throw new ApiError(404, "No live broadcast of yours by that id", "NOT_YOUR_LIVE_STREAM");
+
+      const key = String(stream._id);
+      const hit = encoderCache.get(key);
+      if (hit && Date.now() - hit.at < ENCODER_CACHE_MS) return { success: true, data: { reading: hit.reading } };
+
+      // The account's encoder keys — RTMP, WHIP, or both. The one sending
+      // wins; else the one connecting; else whatever LiveKit says.
+      const keys = [
+        ["rtmp", dbUser.obsIngress?.ingressId],
+        ["whip", dbUser.whipIngress?.ingressId],
+      ] as const;
+      const readings = await Promise.all(
+        keys.filter(([, id]) => Boolean(id)).map(([protocol, id]) => ingressReading(id!, protocol).catch(() => null)),
+      );
+      const reading =
+        readings.find((r) => r?.status === "publishing") ?? readings.find((r) => r?.status === "buffering") ?? readings.find(Boolean) ?? null;
+      if (encoderCache.size > 500) encoderCache.clear();
+      encoderCache.set(key, { at: Date.now(), reading });
+      return { success: true, data: { reading } };
     },
   );
 

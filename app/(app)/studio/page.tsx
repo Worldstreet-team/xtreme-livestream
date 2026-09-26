@@ -63,7 +63,7 @@ import { GoalPanel } from "@/components/app/goal-panel";
 import { RequestsPanel } from "@/components/app/requests-panel";
 import { useRequestQueue } from "@/lib/requests";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
-import { useStreamHealth } from "@/lib/use-stream-health";
+import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import {
   CARDS,
@@ -356,12 +356,15 @@ export default function StudioPage() {
   /** Lines moderators suggested for the screen, waiting on me. */
   const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
   // Stream health: what's being sent — the shared screen, else the camera —
-  // read every 2 s while live from the browser (an encoder has its own stats).
+  // read every 2 s while live from the browser; from an encoder, what
+  // LiveKit's ingress is receiving, asked every 5 s.
   const measuredTrack = useCallback(() => localScreen ?? (camEnabled ? videoTrackRef.current : null), [localScreen, camEnabled]);
-  const health = useStreamHealth(measuredTrack, {
+  const browserHealth = useStreamHealth(measuredTrack, {
     active: isLive && source !== "obs" && (camEnabled || Boolean(localScreen)),
     streamId,
   });
+  const encoderHealth = useEncoderHealth({ active: isLive && source === "obs", streamId });
+  const health = source === "obs" ? encoderHealth : browserHealth;
   // The goal bar and heat meter: each broadcast starts without them.
   const [goal, setGoal] = useState<StreamGoal | null>(null);
   const [heat, setHeat] = useState<StreamHeat | null>(null);
@@ -2804,7 +2807,7 @@ export default function StudioPage() {
     <div className="px-4 pb-4">
       {health.verdict && (
         <div className="pt-4">
-          <HealthSection samples={health.samples} verdict={health.verdict} />
+          <HealthSection samples={health.samples} verdict={health.verdict} encoder={source === "obs" ? encoderHealth.reading : null} />
         </div>
       )}
       <div className="grid grid-cols-2 gap-2 pt-4">

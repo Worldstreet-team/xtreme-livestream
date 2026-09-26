@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { HealthLevel, HealthReport, HealthSample, HealthVerdict, HealthWindow } from "@/lib/stream-health";
+import type { EncoderReading, HealthLevel, HealthReport, HealthSample, HealthVerdict, HealthWindow } from "@/lib/stream-health";
 
 /**
  * Stream health on screen (Phase 1): a chip in the studio's live bar, the
@@ -48,22 +48,43 @@ function Sparkline({ samples, level }: { samples: HealthSample[]; level: HealthL
   );
 }
 
-/** The Stats panel's Connection section: the verdict, the fix, the numbers. */
-export function HealthSection({ samples, verdict }: { samples: HealthSample[]; verdict: HealthVerdict }) {
+/** "video/h264" → "H.264"; the names people see in OBS. */
+function codecName(mime: string | undefined) {
+  const c = (mime ?? "").split("/").pop()?.toLowerCase() ?? "";
+  return ({ h264: "H.264", h265: "HEVC", hevc: "HEVC", vp8: "VP8", vp9: "VP9", av1: "AV1", opus: "Opus", aac: "AAC", "mp4a-latm": "AAC" } as Record<string, string>)[c] ?? (c ? c.toUpperCase() : "—");
+}
+
+/**
+ * The Stats panel's Connection section: the verdict, the fix, the numbers.
+ * From an encoder, the numbers are what LiveKit is receiving from it.
+ */
+export function HealthSection({ samples, verdict, encoder = null }: { samples: HealthSample[]; verdict: HealthVerdict; encoder?: EncoderReading | null }) {
   const last = samples[samples.length - 1];
-  const stats: [string, string][] = last
+  // From an encoder, what it's sending now — nothing, once it stops.
+  const video = encoder?.status === "publishing" ? encoder.video : null;
+  const audio = encoder?.status === "publishing" ? encoder.audio : null;
+  const stats: [string, string][] = encoder
     ? [
-        ["Picture", `${last.height}p`],
-        ["Frame rate", `${last.fps} fps`],
-        ["Upload", mbps(last.kbps)],
-        ["Round trip", last.rttMs === null ? "—" : `${last.rttMs} ms`],
-        ["Loss", `${last.lossPct}%`],
+        ["Picture", video ? `${video.width}×${video.height}` : "—"],
+        ["Frame rate", video ? `${video.fps} fps` : "—"],
+        ["Bitrate", video ? mbps(video.kbps) : "—"],
+        ["Video", video ? codecName(video.codec) : "—"],
+        ["Audio", audio ? `${codecName(audio.codec)} · ${audio.kbps}k` : "—"],
+        ["Via", encoder.protocol === "whip" ? "WHIP" : "RTMP"],
       ]
-    : [];
+    : last
+      ? [
+          ["Picture", `${last.height}p`],
+          ["Frame rate", `${last.fps} fps`],
+          ["Upload", mbps(last.kbps)],
+          ["Round trip", last.rttMs === null ? "—" : `${last.rttMs} ms`],
+          ["Loss", `${last.lossPct}%`],
+        ]
+      : [];
   return (
     <section aria-labelledby="studio-health" className="rounded-[12px] bg-white/[0.04] p-4">
       <p id="studio-health" className={EYEBROW}>
-        Connection
+        {encoder ? "Encoder" : "Connection"}
       </p>
       <p className="mt-2.5 flex items-center gap-2 text-[15px] font-bold">
         <span className={cn("size-2 rounded-full", DOT[verdict.level])} />

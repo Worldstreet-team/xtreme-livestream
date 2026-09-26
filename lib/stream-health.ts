@@ -190,3 +190,96 @@ export function report(windows: HealthWindow[], startedAt: number): HealthReport
     advice,
   };
 }
+
+/**
+ * An encoder's feed (OBS and the like), as LiveKit's ingress reports it and
+ * the API relays it (GET /streams/:id/encoder). There are no sender stats
+ * to read from the browser, so this is what the studio has to go on.
+ */
+export type EncoderStatus = "publishing" | "buffering" | "inactive" | "error";
+export interface EncoderReading {
+  at: number;
+  protocol: "rtmp" | "whip";
+  status: EncoderStatus;
+  error: string;
+  video: { codec: string; kbps: number; width: number; height: number; fps: number } | null;
+  audio: { codec: string; kbps: number } | null;
+}
+
+/** An encoder reading as a health sample: the same chart and the same report. */
+export function encoderSample(r: EncoderReading): HealthSample {
+  return {
+    at: r.at,
+    kbps: (r.video?.kbps ?? 0) + (r.audio?.kbps ?? 0),
+    fps: Math.round(r.video?.fps ?? 0),
+    height: r.video?.height ?? 0,
+    rttMs: null,
+    lossPct: 0,
+    limitation: "none",
+  };
+}
+
+/**
+ * What an encoder's feed says, in words a creator can act on in OBS. The
+ * picture rules judge the last three readings, so one soft reading doesn't
+ * raise an alarm.
+ */
+export function assessEncoder(readings: EncoderReading[]): HealthVerdict {
+  const last = readings[readings.length - 1];
+  if (!last) return { level: "good", label: "Checking", headline: "Asking your encoder how it's doing…", fix: null };
+  if (last.status === "error") {
+    return {
+      level: "poor",
+      label: "Encoder error",
+      headline: last.error ? `Your encoder's feed failed: ${last.error}` : "Your encoder's feed failed.",
+      fix: "Stop and start streaming in OBS — and check the server and key match this page.",
+    };
+  }
+  if (last.status === "inactive") {
+    return { level: "poor", label: "Not sending", headline: "Nothing's reaching us from your encoder.", fix: "Press Start Streaming in OBS, and check the server and key." };
+  }
+  if (last.status === "buffering") return { level: "fair", label: "Connecting", headline: "Your encoder is connecting…", fix: null };
+  if (!last.video) {
+    return { level: "fair", label: "No picture", headline: "Sound is arriving, but no picture.", fix: "Add a video source to your OBS scene." };
+  }
+
+  const recent = readings.slice(-3).filter((r) => r.status === "publishing" && r.video);
+  const avg = (f: (v: NonNullable<EncoderReading["video"]>) => number) =>
+    Math.round(recent.reduce((a, r) => a + f(r.video!), 0) / Math.max(1, recent.length));
+  const kbps = avg((v) => v.kbps);
+  const fps = avg((v) => v.fps);
+  const height = last.video.height;
+
+  if (kbps < 300) {
+    return {
+      level: "poor",
+      label: "Very low bitrate",
+      headline: `Your encoder is sending ${mbps(kbps)} — the picture will look blocky.`,
+      fix: "Set the video bitrate to 2,500–3,500 kbps in OBS (Settings → Output), or check your upload.",
+    };
+  }
+  if (height >= 720 && kbps < 1200) {
+    return {
+      level: "fair",
+      label: "Low bitrate",
+      headline: `${mbps(kbps)} is thin for ${height}p — viewers see a soft picture.`,
+      fix: "Raise the video bitrate to 2,500–3,500 kbps in OBS (Settings → Output), or send 720p.",
+    };
+  }
+  if (fps < 24) {
+    return { level: "fair", label: "Low frame rate", headline: `Your encoder is sending ${fps} fps.`, fix: "Set 30 fps in OBS (Settings → Video → Common FPS Values)." };
+  }
+  if (height > 1080) {
+    return { level: "fair", label: "Very large", headline: `${height}p is more than most phones can take.`, fix: "Output 1920×1080 or 1280×720 in OBS (Settings → Video)." };
+  }
+  // WHIP isn't transcoded: viewers get what the encoder sends.
+  if (last.protocol === "whip" && kbps > 6000) {
+    return {
+      level: "fair",
+      label: "Heavy for phones",
+      headline: `${mbps(kbps)} goes to viewers as it is — phones on mobile data will struggle.`,
+      fix: "Keep it under 4,000 kbps, or turn on simulcast in OBS (Settings → Output → Stream → Simulcast).",
+    };
+  }
+  return { level: "good", label: "Good", headline: `Encoder looking good — ${height}p at ${last.video.fps} fps, ${mbps(last.video.kbps)}.`, fix: null };
+}

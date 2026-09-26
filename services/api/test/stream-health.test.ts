@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest";
 // The web app has no test runner of its own; this pure helper is exercised
 // from here (the repo's only vitest) via a relative import. It turns the
 // studio's sender stats into a verdict a creator can act on.
-import { assess, levelOf, report, summarize, toSample, type HealthSample, type RawSenderStats } from "../../lib/stream-health";
+import {
+  assess,
+  assessEncoder,
+  encoderSample,
+  levelOf,
+  report,
+  summarize,
+  toSample,
+  type EncoderReading,
+  type HealthSample,
+  type RawSenderStats,
+} from "../../lib/stream-health";
 
 const raw = (over: Partial<RawSenderStats> = {}): RawSenderStats => ({
   at: 0,
@@ -91,5 +102,44 @@ describe("after the broadcast", () => {
     expect(r).toMatchObject({ minutes: 2, roughPatches: 1, worst: { minuteIn: 10, kbps: 200, lossPct: 9 } });
     expect(r.advice).toContain("upload");
     expect(report(windows.filter((w) => w.level === "good"), start)!.advice).toContain("clean");
+  });
+});
+
+describe("an encoder's feed", () => {
+  const reading = (over: Partial<EncoderReading> = {}, video: Partial<NonNullable<EncoderReading["video"]>> = {}): EncoderReading => ({
+    at: 0,
+    protocol: "rtmp",
+    status: "publishing",
+    error: "",
+    video: { codec: "video/h264", kbps: 3000, width: 1280, height: 720, fps: 30, ...video },
+    audio: { codec: "audio/opus", kbps: 128 },
+    ...over,
+  });
+
+  it("says what's wrong with the connection before the picture", () => {
+    expect(assessEncoder([])).toMatchObject({ label: "Checking" });
+    expect(assessEncoder([reading({ status: "inactive" })])).toMatchObject({ level: "poor", label: "Not sending" });
+    expect(assessEncoder([reading({ status: "error", error: "bad key" })])).toMatchObject({ level: "poor", headline: "Your encoder's feed failed: bad key" });
+    expect(assessEncoder([reading({ status: "buffering" })])).toMatchObject({ level: "fair", label: "Connecting" });
+    expect(assessEncoder([reading({ video: null })])).toMatchObject({ label: "No picture" });
+  });
+
+  it("reads the picture over the last few readings, in OBS's own settings", () => {
+    expect(assessEncoder([reading(), reading(), reading()])).toMatchObject({ level: "good", headline: "Encoder looking good — 720p at 30 fps, 3.0 Mbps." });
+    expect(assessEncoder([reading({}, { kbps: 200 })])).toMatchObject({ level: "poor", label: "Very low bitrate" });
+    expect(assessEncoder([reading({}, { kbps: 900 })]).fix).toContain("Settings → Output");
+    expect(assessEncoder([reading({}, { fps: 15 })])).toMatchObject({ label: "Low frame rate" });
+    expect(assessEncoder([reading({}, { height: 1440, width: 2560, kbps: 9000 })])).toMatchObject({ label: "Very large" });
+    // One soft reading among good ones doesn't raise the alarm.
+    expect(assessEncoder([reading(), reading(), reading({}, { kbps: 1000 })])).toMatchObject({ level: "good" });
+  });
+
+  it("warns about a heavy WHIP feed only — RTMP is transcoded for viewers", () => {
+    expect(assessEncoder([reading({ protocol: "whip" }, { kbps: 8000, height: 1080 })])).toMatchObject({ label: "Heavy for phones" });
+    expect(assessEncoder([reading({}, { kbps: 8000, height: 1080 })])).toMatchObject({ level: "good" });
+  });
+
+  it("feeds the same chart and report as a browser broadcast", () => {
+    expect(encoderSample(reading())).toEqual({ at: 0, kbps: 3128, fps: 30, height: 720, rttMs: null, lossPct: 0, limitation: "none" });
   });
 });
