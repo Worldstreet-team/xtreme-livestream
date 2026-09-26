@@ -121,6 +121,19 @@ function runTime(duration: string) {
  * the same object the live feed's column uses. Chili for the stage's
  * warnings (a muted mic, leaving), Ember while a request is waiting.
  */
+/** Said while the host's AI assistant speaks, in case its voice is on air. */
+function AiVoiceBadge() {
+  return (
+    <span
+      title="The host's AI assistant is speaking"
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-2.5 text-xs font-semibold text-white motion-safe:animate-[fade-in_200ms_ease-out_both]"
+    >
+      <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-white/80" />
+      AI voice
+    </span>
+  );
+}
+
 function RailButton({
   icon,
   label,
@@ -248,6 +261,9 @@ export default function StreamPage({
   // OBS stream is flagged live the moment the key is issued, long before the
   // encoder pushes. Track them apart so the player can say which it is.
   const [hasVideo, setHasVideo] = useState(false);
+  /** The host's AI assistant is speaking (and may be heard on air). */
+  const [aiVoice, setAiVoice] = useState(false);
+  const aiVoiceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** How long the stream holds for a dropped feed — from the API's "feed" event. */
   const [graceMs, setGraceMs] = useState(300_000);
   /** Bumped to rejoin the room after this viewer's own connection gave out. */
@@ -887,7 +903,7 @@ export default function StreamPage({
       // The event carries the authoritative post-write count — client-sent
       // deltas could drift (drops, replays) and never reached viewers whose
       // sender had no data-publish rights (cross-platform, guests).
-      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }) => {
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as {
             __evt?: string;
@@ -908,6 +924,17 @@ export default function StreamPage({
             state?: string;
             graceMs?: number;
           };
+          // The host's assistant is talking — said by the host's own studio,
+          // so it only counts from them. It lapses by itself if the "off" is lost.
+          if (data.__evt === "ai_voice") {
+            if (from && from.identity === streamerIdRef.current) {
+              const on = (data as { on?: boolean }).on === true;
+              setAiVoice(on);
+              if (aiVoiceTimer.current) clearTimeout(aiVoiceTimer.current);
+              if (on) aiVoiceTimer.current = setTimeout(() => setAiVoice(false), 20_000);
+            }
+            return;
+          }
           // The host changed the scene: the newer version wins.
           if (data.__evt === "scene") {
             const next = readScene((data as { scene?: unknown }).scene);
@@ -2395,6 +2422,7 @@ export default function StreamPage({
           </div>
           <div className="mt-2 flex items-center gap-1.5">
             {stream.isLive && <LiveBadge size="md" />}
+            {stream.isLive && aiVoice && <AiVoiceBadge />}
             <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
               <Badge variant="glass" size="md" className="max-w-[44vw] truncate">
                 {stream.category}
@@ -2936,6 +2964,7 @@ export default function StreamPage({
               )}
             >
               {stream.isLive && <LiveBadge size="md" />}
+              {stream.isLive && aiVoice && <AiVoiceBadge />}
               <Badge variant="glass" size="md" icon={<Eye size={14} />}>
                 {stream.isLive
                   ? // Prefer the room roster once we're actually in the room;

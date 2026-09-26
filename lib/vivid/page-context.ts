@@ -177,3 +177,44 @@ export function registerStudioBridge(bridge: StudioBridge): () => void {
 export function getStudioBridge(): StudioBridge | null {
   return studioBridge
 }
+
+// ── Production bridge ───────────────────────────────────────────────────────
+// Vivid as producer (Phase 3): the studio's scenes, graphics, run of show and
+// room tools, through the same handlers the host's own taps use — so a
+// voice command is exactly a tap, checked and saved the same way.
+
+export const PRODUCTION_GRAPHICS = ["lower_third", "banner", "countdown", "sponsor", "ticker", "qr"] as const
+export type ProductionGraphic = (typeof PRODUCTION_GRAPHICS)[number]
+
+export type ProductionRequest =
+  | { do: "layout"; layout: string }
+  | { do: "card"; card: string | null }
+  | { do: "spotlight"; guest: string }
+  | { do: "chart"; market: string }
+  | { do: "lower_third"; title: string; subtitle?: string }
+  | { do: "banner"; text: string }
+  | { do: "countdown"; minutes: number; label?: string }
+  | { do: "sponsor"; name: string }
+  | { do: "hide"; graphic: ProductionGraphic }
+  | { do: "show"; step: "start" | "next" | "stop" }
+  | { do: "prompter"; on: boolean }
+  | { do: "director"; on: boolean }
+  | { do: "shield"; on: boolean }
+  | { do: "prediction"; question: string; outcomes: string[]; seconds?: number }
+  | { do: "sound"; pad: string }
+  | { do: "ban"; username: string; minutes?: number }
+
+export type ProductionBridge = (request: ProductionRequest) => Promise<Record<string, unknown>>
+
+let productionBridge: ProductionBridge | null = null
+
+export function registerProductionBridge(bridge: ProductionBridge): () => void {
+  productionBridge = bridge
+  return () => {
+    if (productionBridge === bridge) productionBridge = null
+  }
+}
+
+export function getProductionBridge(): ProductionBridge | null {
+  return productionBridge
+}

@@ -19,9 +19,12 @@ import { apiFetch, ApiError } from "@/lib/api-client"
 import { GIFT_CATALOG, centsToDollars } from "@/lib/gifts"
 import {
   getPageInfo,
+  getProductionBridge,
   getStudioBridge,
+  PRODUCTION_GRAPHICS,
   readLiveContext,
   STUDIO_ACTIONS,
+  type ProductionRequest,
   type StudioAction,
 } from "@/lib/vivid/page-context"
 
@@ -348,6 +351,169 @@ export const studioControl = define({
   executionContext: "client",
 })
 
+// ── Vivid as producer (Phase 3) ─────────────────────────────────────────────
+// Scenes, graphics, the run of show and the room, through the studio's own
+// handlers (the production bridge). All reversible except a ban, which takes
+// a spoken yes like end_stream does.
+
+async function produce(...requests: ProductionRequest[]): Promise<Record<string, unknown>> {
+  if (typeof window === "undefined") return { error: "Studio controls are only available in the browser" }
+  const bridge = getProductionBridge()
+  if (!bridge) return { error: "The user isn't in the studio. Use navigateToPage(studio) first." }
+  let last: Record<string, unknown> = {}
+  for (const request of requests) {
+    try {
+      last = await bridge(request)
+    } catch (err) {
+      return errorOf(err, "The studio couldn't do that")
+    }
+    if ("error" in last) return last
+  }
+  return last
+}
+
+const LAYOUT_IDS = ["auto", "solo", "split", "trio", "grid", "screen-face", "chart-face"] as const
+const PAD_IDS = ["airhorn", "applause", "drumroll", "kaching", "badumtss", "whoosh", "levelup", "sadtrombone"] as const
+
+export const sceneControl = define({
+  name: "sceneControl",
+  description:
+    "Change what viewers see, in the Studio while the user is live. Pass any of: layout (auto splits for whoever's on stage, solo is the host alone, split/trio/grid bring in guests, screen-face puts a shared screen up with the camera in the corner, chart-face a live market chart with the camera in the corner); " +
+    "card (starting-soon, brb or ending covers the picture; none takes it down); guest (a guest's name — puts them beside the host); market (the chart's market, like BTC, SOL or ETH-USD — switches to chart-face). " +
+    "Reversible, so no confirmation. Say what changed in a few words.",
+  parameters: buildParameters({
+    layout: enumParam("The layout.", LAYOUT_IDS),
+    card: enumParam("A full-screen card, or none to take it down.", ["starting-soon", "brb", "ending", "none"]),
+    guest: stringParam("A guest's name, to put beside the host."),
+    market: stringParam("A market for the live chart, like BTC or SOL-USD."),
+  }),
+  handler: async ({ layout, card, guest, market }: { layout?: string; card?: string; guest?: string; market?: string }) => {
+    const steps: ProductionRequest[] = []
+    if (market) steps.push({ do: "chart", market })
+    else if (layout) steps.push({ do: "layout", layout })
+    if (guest) steps.push({ do: "spotlight", guest })
+    if (card) steps.push({ do: "card", card: card === "none" ? null : card })
+    if (steps.length === 0) return { error: "Say what to change: a layout, a card, a guest or a market." }
+    return produce(...steps)
+  },
+  executionContext: "client",
+})
+
+export const graphicsControl = define({
+  name: "graphicsControl",
+  description:
+    "Put a graphic on the user's live stream, or take one down, in the Studio. show a lower_third (title: a name or topic, subtitle: a line under it), a banner across the top (title: its text), a countdown (minutes), or a sponsor's card (sponsor: the sponsor's name as the user saved it — the card always says 'Paid promotion'). " +
+    "hide takes any of them down, or the ticker or QR code. Reversible, so no confirmation.",
+  parameters: buildParameters({
+    action: enumParam("show or hide.", ["show", "hide"], true),
+    graphic: enumParam("Which graphic.", PRODUCTION_GRAPHICS, true),
+    title: stringParam("Lower third: the name or topic. Banner: the text."),
+    subtitle: stringParam("Lower third: the line under it."),
+    minutes: numberParam("Countdown: how many minutes, 1 to 120."),
+    sponsor: stringParam("Sponsor card: the sponsor's name."),
+  }),
+  handler: async (a: { action?: string; graphic?: string; title?: string; subtitle?: string; minutes?: number; sponsor?: string }) => {
+    const graphic = a.graphic as (typeof PRODUCTION_GRAPHICS)[number] | undefined
+    if (!graphic || !PRODUCTION_GRAPHICS.includes(graphic)) return { error: "Unknown graphic.", graphics: PRODUCTION_GRAPHICS }
+    if (a.action === "hide") return produce({ do: "hide", graphic })
+    switch (graphic) {
+      case "lower_third":
+        return a.title ? produce({ do: "lower_third", title: a.title, subtitle: a.subtitle }) : { error: "What should the lower third say?" }
+      case "banner":
+        return a.title ? produce({ do: "banner", text: a.title }) : { error: "What should the banner say?" }
+      case "countdown":
+        return produce({ do: "countdown", minutes: a.minutes ?? 5, label: a.title })
+      case "sponsor":
+        return a.sponsor ? produce({ do: "sponsor", name: a.sponsor }) : { error: "Which sponsor?" }
+      default:
+        return { error: "The ticker and QR code are set up in the Scenes panel — Vivid can take them down, not write them." }
+    }
+  },
+  executionContext: "client",
+})
+
+export const showControl = define({
+  name: "showControl",
+  description:
+    "Run the user's show in the Studio. start_show puts the first segment of their run of show on air, next_segment moves on to the next one (its planned changes go on screen and its clock starts), stop_show stops the rundown. " +
+    "prompter_on/prompter_off shows or hides their teleprompter; director_on/director_off turns the auto-director (the picture follows whoever's talking) on or off. Reversible, so no confirmation. " +
+    "The run of show's segments are in getCurrentPageContext under studio.show.",
+  parameters: buildParameters({
+    action: enumParam("What to do.", ["start_show", "next_segment", "stop_show", "prompter_on", "prompter_off", "director_on", "director_off"], true),
+  }),
+  handler: async ({ action }: { action?: string }) => {
+    switch (action) {
+      case "start_show":
+        return produce({ do: "show", step: "start" })
+      case "next_segment":
+        return produce({ do: "show", step: "next" })
+      case "stop_show":
+        return produce({ do: "show", step: "stop" })
+      case "prompter_on":
+      case "prompter_off":
+        return produce({ do: "prompter", on: action === "prompter_on" })
+      case "director_on":
+      case "director_off":
+        return produce({ do: "director", on: action === "director_on" })
+      default:
+        return { error: `Unknown action "${action}".` }
+    }
+  },
+  executionContext: "client",
+})
+
+export const startPrediction = define({
+  name: "startPrediction",
+  description:
+    "Open a prediction for the user's viewers while they're live: a question and two to four short outcomes; viewers call it with points for `seconds` (30 to 600, default 120), then the host settles it from the Games panel. " +
+    "Read the question and the options back in one sentence before calling. Only one game runs at a time.",
+  parameters: buildParameters({
+    question: stringParam("The question, up to 140 characters.", true),
+    outcomes: { type: "array", items: { type: "string" }, description: "Two to four outcomes, each up to 40 characters.", _required: true },
+    seconds: numberParam("How long it stays open, 30 to 600 seconds."),
+  }),
+  handler: async ({ question, outcomes, seconds }: { question?: string; outcomes?: string[]; seconds?: number }) => {
+    if (!question || !Array.isArray(outcomes) || outcomes.length < 2) return { error: "A prediction needs a question and at least two outcomes." }
+    return produce({ do: "prediction", question, outcomes: outcomes.slice(0, 4), seconds })
+  },
+  executionContext: "client",
+})
+
+export const roomControl = define({
+  name: "roomControl",
+  description:
+    "Keep the user's live room safe. shield_on/shield_off raises or lowers Shield (allies only, slow mode, links held, new accounts held) — reversible, no confirmation. " +
+    "ban removes a viewer from the stream by username (minutes makes it a timeout instead) — a serious step: say who will be banned, wait for a clear spoken yes, then call again with confirmed=true.",
+  parameters: buildParameters({
+    action: enumParam("What to do.", ["shield_on", "shield_off", "ban"], true),
+    username: stringParam("ban: the viewer's username."),
+    minutes: numberParam("ban: a timeout of this many minutes instead of a ban."),
+    confirmed: booleanParam("ban: true only after the user has said yes."),
+  }),
+  handler: async ({ action, username, minutes, confirmed }: { action?: string; username?: string; minutes?: number; confirmed?: boolean }) => {
+    if (action === "shield_on" || action === "shield_off") return produce({ do: "shield", on: action === "shield_on" })
+    if (action !== "ban") return { error: `Unknown action "${action}".` }
+    if (!username) return { error: "Who should be banned?" }
+    if (confirmed !== true) {
+      return {
+        needsConfirmation: true,
+        username,
+        say: minutes ? `Ask: time out ${username} for ${minutes} minutes?` : `Ask: ban ${username} from this stream?`,
+      }
+    }
+    return produce({ do: "ban", username: username.replace(/^@/, ""), minutes })
+  },
+  executionContext: "client",
+})
+
+export const playSound = define({
+  name: "playSound",
+  description: "Play one of the user's sound pads on their live stream — their audio desk (Sound) has to be on. airhorn, applause, drumroll, kaching, badumtss, whoosh, levelup, sadtrombone.",
+  parameters: buildParameters({ pad: enumParam("Which sound.", PAD_IDS, true) }),
+  handler: async ({ pad }: { pad?: string }) => (pad ? produce({ do: "sound", pad }) : { error: "Which sound?" }),
+  executionContext: "client",
+})
+
 // ── Server tool stubs (real bodies in lib/vivid-functions.server.ts) ────────
 
 export const listLiveStreams = serverStub(
@@ -432,6 +598,12 @@ export const xtremeFunctions: VoiceFunctionConfig[] = [
   likeStream,
   sendGift,
   studioControl,
+  sceneControl,
+  graphicsControl,
+  showControl,
+  startPrediction,
+  roomControl,
+  playSound,
   listLiveStreams,
   findChannel,
   followChannel,

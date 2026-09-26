@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { registerStudioBridge, registerVividContext, type StudioAction } from "@/lib/vivid/page-context";
+import { registerProductionBridge, registerStudioBridge, registerVividContext, type ProductionRequest, type StudioAction } from "@/lib/vivid/page-context";
 import {
   VideoCamera,
   Monitor,
@@ -67,7 +67,7 @@ import { GoalPanel } from "@/components/app/goal-panel";
 import { RequestsPanel } from "@/components/app/requests-panel";
 import { ObsConnect } from "@/components/app/obs-connect";
 import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
-import { AudioDesk, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
+import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
 import { useSponsorships } from "@/lib/sponsors";
 import { applyCues, formatLength, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
@@ -75,10 +75,12 @@ import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
 import { Teleprompter } from "@/components/app/teleprompter";
 import { BesideYou, DirectorSwitch } from "@/components/app/director-switch";
+import { useSiraVivid } from "@/components/vivid/sira-provider";
+import { setPushToTalk, setTalkHeld, usePushToTalk } from "@/lib/vivid/ptt";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
-import { gainFor } from "@/lib/scene";
+import { gainFor, withLayer } from "@/lib/scene";
 import { serverNow } from "@/lib/server-clock";
 import {
   CARDS,
@@ -401,6 +403,8 @@ export default function StudioPage() {
   const [focusSegment, setFocusSegment] = useState<string | null>(null);
   const [segmentBusy, setSegmentBusy] = useState(false);
   const [showPlanner, setShowPlanner] = useState(false);
+  /** What Vivid reads about the show on air (kept current below, read by the studio's Vivid context). */
+  const vividShowRef = useRef<Record<string, unknown>>({});
   // Joined a campaign in another tab? Opening Scenes picks it up.
   useEffect(() => {
     if (panel !== "scenes") return;
@@ -497,6 +501,78 @@ export default function StudioPage() {
     // Its own cuts, marked as its own, so they don't pause it.
     onCut: (shot) => void applyScene({ layout: shot.layout, spotlight: shot.spotlight }, "director"),
   });
+  // Vivid on air (Phase 3, Vivid as producer): while live, Vivid hears the
+  // host only while they hold the talk key — the room is who they're talking
+  // to. And while Vivid speaks, viewers are told it's an AI voice, in case
+  // it's heard on air (desktop audio in OBS, a speaker near the mic).
+  const vivid = useSiraVivid();
+  const vividOnAir = isLive && Boolean(vivid?.isConnected);
+  const ptt = usePushToTalk();
+  useEffect(() => {
+    setPushToTalk(vividOnAir);
+    return () => setPushToTalk(false);
+  }, [vividOnAir]);
+  useEffect(() => {
+    if (!vividOnAir) return;
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return Boolean(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "v" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !typing(e)) setTalkHeld(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "v") setTalkHeld(false);
+    };
+    const letGo = () => setTalkHeld(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", letGo);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", letGo);
+      setTalkHeld(false);
+    };
+  }, [vividOnAir]);
+  const vividSpeaking = isLive && vivid?.state === "speaking";
+  useEffect(() => {
+    if (!liveRoom || !isLive) return;
+    const say = (on: boolean) =>
+      void liveRoom.localParticipant
+        .publishData(new TextEncoder().encode(JSON.stringify({ __evt: "ai_voice", on })), { reliable: true })
+        .catch(() => {});
+    say(vividSpeaking);
+    if (!vividSpeaking) return;
+    // Kept fresh for anyone who joins mid-sentence; viewers let it lapse on their own.
+    const t = setInterval(() => say(true), 10_000);
+    return () => clearInterval(t);
+  }, [vividSpeaking, liveRoom, isLive]);
+  const talkHold = (props: { phone?: boolean }) => (
+    <button
+      type="button"
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setTalkHeld(true);
+      }}
+      onPointerUp={() => setTalkHeld(false)}
+      onPointerCancel={() => setTalkHeld(false)}
+      onLostPointerCapture={() => setTalkHeld(false)}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-pressed={ptt.held}
+      aria-label="Hold to talk to Vivid"
+      title="Hold to talk to Vivid — or hold V"
+      className={cn(
+        "press flex touch-none items-center justify-center gap-2 rounded-full font-semibold transition-colors select-none",
+        props.phone ? "size-11" : "h-11 px-4 text-[13px]",
+        ptt.held ? "bg-white text-[#0b0708]" : props.phone ? "obj text-white" : "text-white hover:bg-white/[0.12]"
+      )}
+    >
+      <span className={cn("size-2 shrink-0 rounded-full", ptt.held ? "animate-pulse bg-ember" : "bg-white/45")} />
+      {!props.phone && (ptt.held ? "Vivid's listening" : "Hold for Vivid")}
+    </button>
+  );
+
   // The gift handler lives in the room's event callback; it reaches the director through this.
   const directorReactRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -1584,6 +1660,7 @@ export default function StudioPage() {
         cameraOn: v.camEnabled,
         screenSharing: v.screenShareActive,
         ...(v.isLive ? { viewers: v.viewerCount, liveFor: v.elapsed, streamId: v.streamId } : {}),
+        ...vividShowRef.current,
         openDialog: v.confirmDialog === "golive" ? "go live confirmation" : v.confirmDialog === "end" ? "end stream confirmation" : null,
       };
     });
@@ -2255,6 +2332,26 @@ export default function StudioPage() {
       setSegmentBusy(false);
     }
   };
+  useEffect(() => {
+    vividShowRef.current = {
+      layout: scene.layout,
+      card: scene.card,
+      graphicsUp: scene.layers.map((l) => l.kind),
+      guestsOnStage: guestTiles.map((t) => t.name),
+      besideHost: guestTiles.find((t) => t.identity === scene.spotlight)?.name ?? null,
+      sponsors: cueSponsors.map((x) => x.name),
+      show:
+        segments.length > 0
+          ? {
+              onAir: onAirSegment?.title ?? null,
+              next: nextSegment?.title ?? null,
+              segments: segments.map((x) => `${x.title} (${formatLength(x.seconds)})`),
+            }
+          : null,
+      prompter: prompterOn,
+      autoDirector: directorOn,
+    };
+  });
 
   const runOfShow = (
     <RunOfShow
@@ -2700,8 +2797,8 @@ export default function StudioPage() {
     patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight">>,
     /** The auto-director's own cuts don't pause it; anyone else's framing does. */
     by: "host" | "director" = "host",
-  ) => {
-    if (!streamId) return;
+  ): Promise<string | null> => {
+    if (!streamId) return "Go live first";
     if (by === "host" && ("layout" in patch || "card" in patch || "spotlight" in patch)) director.pause();
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
@@ -2721,11 +2818,129 @@ export default function StudioPage() {
         }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
+      return null;
     } catch (err) {
       setScene(before);
-      setError(err instanceof Error ? err.message : "Couldn't change the scene");
+      const message = err instanceof Error ? err.message : "Couldn't change the scene";
+      setError(message);
+      return message;
     }
   };
+
+  /**
+   * Vivid as producer: a voice request becomes exactly the tap it names —
+   * the same scene writes, run-of-show steps and room calls as the panels
+   * make (lib/vivid/page-context.ts). Answers in words Vivid can say.
+   */
+  const produce = async (req: ProductionRequest): Promise<Record<string, unknown>> => {
+    const ok = (said: Record<string, unknown> = {}) => ({ success: true, ...said });
+    if (req.do !== "prompter" && req.do !== "director" && (!isLive || !streamId)) {
+      return { error: "Go live first — that changes what viewers see." };
+    }
+    const scenery = async (patch: Parameters<typeof applyScene>[0], said: Record<string, unknown>) => {
+      const failed = await applyScene(patch);
+      return failed ? { error: failed } : ok(said);
+    };
+    const byName = <T extends { name: string }>(list: T[], name: string) => {
+      const q = name.trim().toLowerCase();
+      return list.find((x) => x.name.toLowerCase() === q) ?? list.find((x) => x.name.toLowerCase().includes(q));
+    };
+    switch (req.do) {
+      case "layout": {
+        const layout = LAYOUTS.find((l) => l.id === req.layout);
+        if (!layout) return { error: `There's no layout called ${req.layout}.`, layouts: LAYOUTS.map((l) => l.id) };
+        if (battle) return { error: "A battle keeps both sides on screen until it ends." };
+        return scenery(layout.id === "chart-face" && !scene.chart ? { layout: layout.id, chart: DEFAULT_CHART } : { layout: layout.id }, { layout: layout.label });
+      }
+      case "card": {
+        if (req.card === null) return scenery({ card: null }, { card: "taken down" });
+        const card = CARDS.find((c) => c.id === req.card);
+        return card ? scenery({ card: card.id }, { card: card.title }) : { error: `There's no card called ${req.card}.` };
+      }
+      case "spotlight": {
+        const guest = byName(guestTiles, req.guest);
+        if (!guest) return { error: guestTiles.length ? `No one called ${req.guest} is on stage.` : "No guests are on stage.", onStage: guestTiles.map((t) => t.name) };
+        const keep = scene.layout === "split" || scene.layout === "trio";
+        return scenery({ spotlight: guest.identity, ...(keep ? {} : { layout: "split" as const }) }, { beside: guest.name });
+      }
+      case "chart": {
+        const raw = req.market.trim().toUpperCase().replace(/[\s/]+/g, "-");
+        const symbol = raw.includes("-") ? raw : `${raw}-USD`;
+        if (!/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(symbol)) return { error: `I can't chart ${req.market}.` };
+        return scenery({ layout: "chart-face", chart: { symbol, interval: scene.chart?.interval ?? "5m" } }, { chart: symbol });
+      }
+      case "lower_third":
+        return scenery(
+          { layers: withLayer(scene.layers, "lower-third", { kind: "lower-third", title: req.title.slice(0, 48), subtitle: (req.subtitle ?? "").slice(0, 72) }) },
+          { lowerThird: req.title },
+        );
+      case "banner":
+        return scenery({ layers: withLayer(scene.layers, "banner", { kind: "banner", text: req.text.slice(0, 100) }) }, { banner: req.text });
+      case "countdown": {
+        const minutes = Math.min(120, Math.max(1, Math.round(req.minutes)));
+        const endsAt = new Date(serverNow() + minutes * 60_000).toISOString();
+        return scenery({ layers: withLayer(scene.layers, "countdown", { kind: "countdown", label: (req.label ?? "").slice(0, 40), endsAt }) }, { countdownMinutes: minutes });
+      }
+      case "sponsor": {
+        const s = byName(cueSponsors, req.name);
+        if (!s) return { error: `There's no sponsor called ${req.name}.`, sponsors: cueSponsors.map((x) => x.name) };
+        const layer = { kind: "sponsor" as const, source: s.source, sponsorId: s.id, name: s.name, line: s.line, url: s.url, code: s.code, logoUrl: s.logoUrl, restricted: s.restricted };
+        return scenery({ layers: withLayer(scene.layers, "sponsor", layer) }, { sponsor: s.name, label: "Paid promotion" });
+      }
+      case "hide": {
+        const kind = ({ lower_third: "lower-third", banner: "banner", countdown: "countdown", sponsor: "sponsor", ticker: "ticker", qr: "cta" } as const)[req.graphic];
+        if (!scene.layers.some((l) => l.kind === kind)) return ok({ note: "It wasn't up." });
+        return scenery({ layers: withLayer(scene.layers, kind, null) }, { hidden: req.graphic });
+      }
+      case "show": {
+        if (segments.length === 0) return { error: "There's no run of show yet — it's written in the studio's Run of show panel." };
+        const target = req.step === "start" ? segments[0]! : req.step === "next" ? nextSegment : null;
+        if (req.step === "next" && !target) return { error: "That was the last segment." };
+        await goSegment(target);
+        return ok(target ? { onAir: target.title, next: segments[segments.indexOf(target) + 1]?.title ?? null } : { stopped: true });
+      }
+      case "prompter":
+        setPrompterOn(req.on);
+        return ok({ prompter: req.on ? "on" : "off" });
+      case "director":
+        setDirector(req.on);
+        return ok({ director: req.on ? "on" : "off", ...(req.on && directorBlocked ? { standingBy: directorBlocked } : {}) });
+      case "shield":
+        await apiFetch(`/api/streams/${streamId}/shield`, { method: "POST", body: JSON.stringify({ on: req.on }) });
+        return ok({ shield: req.on ? "up" : "down" });
+      case "prediction": {
+        const r = await apiFetch<{ success: boolean; data: { game: { question: string } } }>(`/api/streams/${streamId}/games`, {
+          method: "POST",
+          body: JSON.stringify({
+            type: "prediction",
+            question: req.question.slice(0, 140),
+            outcomes: req.outcomes.map((o) => o.slice(0, 40)),
+            durationSec: Math.min(600, Math.max(30, Math.round(req.seconds ?? 120))),
+          }),
+        });
+        return ok({ question: r.data.game.question });
+      }
+      case "sound": {
+        const pad = PADS.find((p) => p.id === req.pad);
+        if (!pad) return { error: `There's no sound called ${req.pad}.` };
+        if (!deskOnRef.current || !deskRef.current) return { error: "Turn the audio desk on first — Sound, in the dock." };
+        await deskRef.current.playPad(pad.id);
+        return ok({ played: pad.label });
+      }
+      case "ban": {
+        const found = await apiFetch<{ success: boolean; data: { channels: { id: string; username: string }[] } }>(`/api/users/search?q=${encodeURIComponent(req.username)}&limit=5`);
+        const who = found.data.channels.find((c) => c.username.toLowerCase() === req.username.toLowerCase());
+        if (!who) return { error: `There's no one called ${req.username}.` };
+        await apiFetch(`/api/streams/${streamId}/ban/${who.id}`, { method: "POST", body: JSON.stringify(req.minutes ? { minutes: Math.round(req.minutes) } : {}) });
+        return ok({ banned: who.username, ...(req.minutes ? { minutes: Math.round(req.minutes) } : {}) });
+      }
+    }
+  };
+  const produceRef = useRef(produce);
+  useEffect(() => {
+    produceRef.current = produce;
+  });
+  useEffect(() => registerProductionBridge((req) => produceRef.current(req)), []);
 
   // The brand kit, for the preview and the Scenes panel.
   useEffect(() => {
@@ -3552,6 +3767,7 @@ export default function StudioPage() {
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
               {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
               {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
+              {vividOnAir && talkHold({})}
               {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", on: panel === "show", children: <Playlist size={20} /> })}
               {dockButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", on: prompterOn, children: <ClapperboardText size={20} /> })}
               <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />
@@ -3579,6 +3795,7 @@ export default function StudioPage() {
               : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
             {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", active: panel === "show", children: <Playlist size={21} /> })}
             {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
+            {vividOnAir && talkHold({ phone: true })}
           </div>
         )}
 
