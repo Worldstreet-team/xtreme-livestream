@@ -6,6 +6,7 @@ import {
   LOWER_THIRD_STYLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
+  MAX_SCENE_GAINS,
   type BrandAccent,
   type BrandFont,
   type BrandPreset,
@@ -31,7 +32,7 @@ import { apiUrl } from "@/lib/api-client";
 
 export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
-export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], featured: null, version: 0 };
+export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, featured: null, version: 0 };
 
 /** What Chart + face shows until the host picks a market. */
 export const DEFAULT_CHART: SceneChart = { symbol: "BTC-USD", interval: "5m" };
@@ -61,9 +62,25 @@ export function readScene(raw: unknown): Scene | null {
     cardNote: typeof r.cardNote === "string" ? r.cardNote.slice(0, 80) : "",
     chart: readChart(r.chart),
     layers: readLayers(r.layers),
+    gains: readGains(r.gains),
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };
+}
+
+/** The guest faders, as far as they make sense: identities to a level 0–1, eight at most. */
+export function readGains(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [identity, level] of Object.entries(raw as Record<string, unknown>).slice(0, MAX_SCENE_GAINS)) {
+    if (typeof level === "number" && Number.isFinite(level) && /^[\w.:-]{1,64}$/.test(identity)) out[identity] = Math.min(1, Math.max(0, level));
+  }
+  return out;
+}
+
+/** How loud one person on stage plays, by the host's fader (1 when there isn't one). */
+export function gainFor(gains: Record<string, number> | undefined, identity: string | undefined) {
+  return identity && gains && typeof gains[identity] === "number" ? gains[identity] : 1;
 }
 
 /** The comment or gift on screen, if what came is one we can draw. */

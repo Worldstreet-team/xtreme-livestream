@@ -220,6 +220,8 @@ export const sceneLayerSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/** Guest faders a scene can carry. */
+export const MAX_SCENE_GAINS = 8;
 export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
@@ -231,6 +233,15 @@ export const sceneBodySchema = z.object({
     .max(SCENE_LAYER_KINDS.length)
     .default([])
     .refine((layers) => new Set(layers.map((l) => l.kind)).size === layers.length, "One of each graphic at most"),
+  /**
+   * The audio desk's guest faders: how loud each person on stage is, by
+   * their room identity, 0–1 (1 when unset) — so every viewer hears the
+   * mix the host set.
+   */
+  gains: z
+    .record(z.string().regex(/^[\w.:-]{1,64}$/), z.number().min(0).max(1))
+    .default({})
+    .refine((g) => Object.keys(g).length <= MAX_SCENE_GAINS, "Eight faders at most"),
 });
 
 /**

@@ -56,7 +56,7 @@ import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import type { TopFan } from "@/components/app/chat/chat-lines";
 import { readFan, type FanStanding } from "@/components/app/chat/lines";
-import { DEFAULT_SCENE, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { DEFAULT_SCENE, gainFor, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
@@ -290,6 +290,8 @@ export default function StreamPage({
   const volumeRef = useRef(1);
   /** Every attached remote audio element, keyed by its track object. */
   const audioElsRef = useRef<Map<object, HTMLAudioElement>>(new Map());
+  /** The host's guest faders (the scene's gains): each guest plays at the player's volume times theirs. */
+  const gainsRef = useRef<Record<string, number>>({});
 
   // ---- Stage (guests broadcasting alongside the host) ----
   const [stageState, setStageState] = useState<"idle" | "requested" | "live">(
@@ -480,6 +482,14 @@ export default function StreamPage({
   const pairOpponent =
     battle && isBattleActive(battle) && battle.mode === "2v2" ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
   const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, !radio);
+  // The host's guest faders: every guest plays at the level the scene carries.
+  const sceneGains = stream?.scene?.gains;
+  useEffect(() => {
+    gainsRef.current = sceneGains ?? {};
+    audioElsRef.current.forEach((el) => {
+      el.volume = volumeRef.current * gainFor(gainsRef.current, el.dataset.identity);
+    });
+  }, [sceneGains]);
   const pickPicture = (mode: PictureMode) => {
     setShowPicture(false);
     if (mode === "radio") {
@@ -758,7 +768,8 @@ export default function StreamPage({
           // Muted start — see the audio state block. Unmuting flips these
           // elements directly inside the user's click.
           audioEl.muted = mutedRef.current;
-          audioEl.volume = volumeRef.current;
+          audioEl.dataset.identity = participant.identity;
+          audioEl.volume = volumeRef.current * gainFor(gainsRef.current, participant.identity);
           document.body.appendChild(audioEl);
           audioElsRef.current.set(track, audioEl);
         }
@@ -1197,7 +1208,7 @@ export default function StreamPage({
     volumeRef.current = nextVolume;
     audioElsRef.current.forEach((el) => {
       el.muted = nextMuted;
-      el.volume = nextVolume;
+      el.volume = nextVolume * gainFor(gainsRef.current, el.dataset.identity);
       if (!nextMuted) {
         // Runs inside the user's gesture, so autoplay policy allows it.
         el.play().catch(() => {});

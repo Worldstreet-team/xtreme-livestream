@@ -38,6 +38,7 @@ import {
   CellSignalLow,
   LayoutIcon,
   Ticket,
+  Faders,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -62,10 +63,13 @@ import { FeaturedPanel } from "@/components/app/featured-panel";
 import { GoalPanel } from "@/components/app/goal-panel";
 import { RequestsPanel } from "@/components/app/requests-panel";
 import { ObsConnect } from "@/components/app/obs-connect";
+import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
+import { AudioDesk, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
+import { gainFor } from "@/lib/scene";
 import {
   CARDS,
   CHART_INTERVAL_LABELS,
@@ -108,7 +112,7 @@ type SourceType = "camera" | "screen" | "obs";
 type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
-type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more";
+type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -377,6 +381,24 @@ export default function StudioPage() {
   }
   // Paid requests: the menu is the account's, the queue this broadcast's.
   const requestQueue = useRequestQueue(isLive ? streamId : null, liveRoom);
+  // The audio desk: the mic's way out while it's on (lib/audio-desk.ts).
+  // Its levels and the moments it plays for are this device's.
+  const deskRef = useRef<AudioDesk | null>(null);
+  const deskCtxRef = useRef<AudioContext | null>(null);
+  const deskOnRef = useRef(false);
+  const [deskOn, setDeskOn] = useState(false);
+  const [deskStarting, setDeskStarting] = useState(false);
+  const [deskSettings, setDeskSettings] = useState<DeskSettings>(readDeskSettings);
+  const [deskMoments, setDeskMoments] = useState<DeskMoments>({ giftFromMinor: 500, battleWin: true });
+  const deskMomentsRef = useRef(deskMoments);
+  deskMomentsRef.current = deskMoments;
+  /** Battles the airhorn has already played for. */
+  const hornedRef = useRef<Set<string>>(new Set());
+  const meRef = useRef<string | undefined>(undefined);
+  meRef.current = user?.id;
+  /** The guest faders as the scene has them — for audio that arrives later. */
+  const gainsRef = useRef<Record<string, number>>({});
+  const gainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
@@ -689,6 +711,15 @@ export default function StudioPage() {
         };
         // A platform admin took the stream down after a report; the room
         // closes next, and the host is told why.
+        // A battle won: the airhorn, once, if the desk is on and it's wanted.
+        if (data.__evt === "battle") {
+          const b = (data as { battle?: BattleView }).battle;
+          if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
+            hornedRef.current.add(b.id);
+            void deskRef.current?.playPad("airhorn");
+          }
+          return;
+        }
         if (data.__evt === "takedown") {
           takenDownRef.current = true;
           return;
@@ -788,6 +819,9 @@ export default function StudioPage() {
           const id = String(data.id ?? `tip-${Date.now()}-${Math.random()}`);
           const cents = Math.round(parseFloat(amountStr) * 100) || 0;
           setSessionTipsMinor((t) => t + cents);
+          // A big gift: the desk's ka-ching, for everyone.
+          const from = deskMomentsRef.current.giftFromMinor;
+          if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
           playTipChime();
           setTipAlerts((prev) => [
             ...prev.slice(-2),
@@ -1065,6 +1099,9 @@ export default function StudioPage() {
       }
       if (track.kind === Track.Kind.Audio) {
         const el = track.attach() as HTMLAudioElement;
+        // At the level the desk's guest fader has them.
+        el.dataset.identity = participant.identity;
+        el.volume = gainFor(gainsRef.current, participant.identity);
         document.body.appendChild(el);
         guestAudioElsRef.current.set(track, el);
         el.play().catch(() => {});
@@ -1161,6 +1198,8 @@ export default function StudioPage() {
           audioTrackRef.current = pub.track as LocalAudioTrack;
         }
       });
+      // A rejoin publishes a new mic track: the desk goes back in its path.
+      if (deskOnRef.current) void startDesk();
     }
     return room;
   };
@@ -1247,7 +1286,7 @@ export default function StudioPage() {
       if (!resume) {
         setScene(
           openOnCard
-            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), chart: null, layers: [], version: 1 }
+            ? { ...DEFAULT_SCENE, card: "starting-soon", cardNote: cardNote.trim(), version: 1 }
             : DEFAULT_SCENE
         );
       }
@@ -1319,6 +1358,10 @@ export default function StudioPage() {
   /** Back to setup after a broadcast, however it ended. */
   const resetAfterLive = () => {
     stopRejoin();
+    // The mic track went with the room, and the desk with it.
+    deskRef.current = null;
+    deskOnRef.current = false;
+    setDeskOn(false);
     setConn("live");
     setNeedsReshare(false);
     setScene(DEFAULT_SCENE);
@@ -2504,7 +2547,7 @@ export default function StudioPage() {
    * Change the scene. Shown at once here, then saved and broadcast by the
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
-  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart">>) => {
+  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains">>) => {
     if (!streamId) return;
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
@@ -2513,7 +2556,7 @@ export default function StudioPage() {
       const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
         method: "PUT",
         // The whole scene every time: what's left out goes back to its default.
-        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, chart: next.chart ?? null, layers: next.layers }),
+        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, chart: next.chart ?? null, layers: next.layers, gains: next.gains ?? {} }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
     } catch (err) {
@@ -2559,6 +2602,71 @@ export default function StudioPage() {
       }
       throw new Error("Couldn't save that — try again.");
     }
+  };
+
+  /**
+   * Put the audio desk in the mic's path. The audio context has to start
+   * from a click, and if it ever stops running, the desk steps out so the
+   * mic goes out as it is — a silent broadcast is the one thing it must
+   * never cause.
+   */
+  async function startDesk() {
+    const track = audioTrackRef.current;
+    if (!track) {
+      setError("Turn your mic on first.");
+      return;
+    }
+    setDeskStarting(true);
+    try {
+      const ctx = deskCtxRef.current ?? new AudioContext({ latencyHint: "interactive" });
+      deskCtxRef.current = ctx;
+      await ctx.resume();
+      if (ctx.state !== "running") throw new Error("audio context not running");
+      ctx.onstatechange = () => {
+        if (deskOnRef.current && ctx.state !== "running") void stopDesk();
+      };
+      track.setAudioContext(ctx);
+      const desk = new AudioDesk(deskSettings);
+      await track.setProcessor(desk);
+      deskRef.current = desk;
+      deskOnRef.current = true;
+      setDeskOn(true);
+    } catch {
+      await track.stopProcessor().catch(() => {});
+      deskRef.current = null;
+      deskOnRef.current = false;
+      setDeskOn(false);
+      setError("The audio desk couldn't start, so your mic goes out as it is.");
+    } finally {
+      setDeskStarting(false);
+    }
+  }
+  async function stopDesk() {
+    deskOnRef.current = false;
+    setDeskOn(false);
+    deskRef.current = null;
+    await audioTrackRef.current?.stopProcessor().catch(() => {});
+  }
+  // The scene's guest faders, however they arrive (a reload picks them up
+  // from the room): guests the host hears play at those levels too.
+  const sceneGains = scene.gains;
+  useEffect(() => {
+    gainsRef.current = sceneGains ?? {};
+    guestAudioElsRef.current.forEach((el) => {
+      el.volume = gainFor(gainsRef.current, el.dataset.identity);
+    });
+  }, [sceneGains]);
+
+  /** A guest's fader: heard here at once, and by every viewer once the scene carries it. */
+  const setGuestGain = (identity: string, level: number) => {
+    const gains = { ...(scene.gains ?? {}), [identity]: Math.round(level * 100) / 100 };
+    gainsRef.current = gains;
+    setScene((cur) => ({ ...cur, gains }));
+    guestAudioElsRef.current.forEach((el) => {
+      if (el.dataset.identity === identity) el.volume = level;
+    });
+    if (gainTimerRef.current) clearTimeout(gainTimerRef.current);
+    gainTimerRef.current = setTimeout(() => void applyScene({ gains }), 300);
   };
 
   /** The scene an API call answered with — the newer version wins, as everywhere. */
@@ -2859,6 +2967,25 @@ export default function StudioPage() {
     <>
       <div className={cn("min-h-0 flex-1", panel !== "stage" && "hidden")}>
         <div className="h-full overflow-y-auto">{stagePanel}</div>
+      </div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "audio" && "hidden")}>
+        <AudioDeskPanel
+          desk={deskRef.current}
+          on={deskOn}
+          starting={deskStarting}
+          encoder={source === "obs"}
+          settings={deskSettings}
+          onToggle={(on) => void (on ? startDesk() : stopDesk())}
+          onSettings={(next) => {
+            setDeskSettings(next);
+            saveDeskSettings(next);
+          }}
+          moments={deskMoments}
+          onMoments={setDeskMoments}
+          guests={liveGuests}
+          gains={scene.gains ?? {}}
+          onGain={setGuestGain}
+        />
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "requests" && "hidden")}>
         <RequestsPanel
@@ -3185,6 +3312,7 @@ export default function StudioPage() {
           <div className={cn("absolute inset-x-0 bottom-5 z-20 flex justify-center px-4 transition-[opacity,transform] duration-300", dockHidden && "pointer-events-none translate-y-2 opacity-0")}>
             <div className="obj flex items-center gap-1 rounded-full p-1.5">
               {source !== "obs" && dockButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", off: !micEnabled, children: micEnabled ? <Microphone size={21} /> : <MicrophoneSlash size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", on: panel === "audio", children: <Faders size={20} /> })}
               {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
               {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
@@ -3206,6 +3334,7 @@ export default function StudioPage() {
         {isLive && mode === "phone" && source !== "obs" && (
           <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] right-3 z-20 flex flex-col items-center gap-2.5">
             {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", active: panel === "audio", children: <Faders size={22} /> })}
             {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
             {source === "camera"
               ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })

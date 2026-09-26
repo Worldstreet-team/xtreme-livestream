@@ -516,6 +516,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         cardNote: request.body.cardNote,
         chart: request.body.chart,
         layers: request.body.layers,
+        gains: request.body.gains,
         // Not the host's to set here: the feature routes own it (featured.ts).
         featured: stream.scene?.featured ?? null,
         version: (stream.scene?.version ?? 0) + 1,

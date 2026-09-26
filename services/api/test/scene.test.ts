@@ -71,7 +71,15 @@ vi.mock("../src/models.js", () => ({
 
 describe("the scene contract", () => {
   it("defaults to the automatic layout with no card and no graphics", () => {
-    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [] });
+    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {} });
+  });
+
+  it("takes guest faders by room identity, 0 to 1, eight at most", () => {
+    expect(sceneBodySchema.safeParse({ gains: { "6ab4845473be0e4889649273": 0.4, "obs-abc": 1 } }).success).toBe(true);
+    expect(sceneBodySchema.safeParse({ gains: { guest: 1.4 } }).success).toBe(false);
+    expect(sceneBodySchema.safeParse({ gains: { "not ok!": 0.5 } }).success).toBe(false);
+    const nine = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`g${i}`, 0.5]));
+    expect(sceneBodySchema.safeParse({ gains: nine }).success).toBe(false);
   });
 
   it("takes each graphic once, with what it needs", () => {
@@ -143,7 +151,7 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], featured: null, version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toEqual(scene);
     expect(streamDoc.save).toHaveBeenCalledTimes(1);
