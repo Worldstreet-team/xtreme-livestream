@@ -46,7 +46,12 @@ export async function attemptPayout(payout: IPayout) {
   const result = await creditWallet({
     recipientClerkUserId: user.authUserId,
     amountUsdMinor: payout.usdMinor,
-    description: payout.kind === "points_redemption" ? `Xtreme points redemption (${payout.points} pts)` : "Xtreme battle bonus",
+    description:
+      payout.kind === "points_redemption"
+        ? `Xtreme points redemption (${payout.points} pts)`
+        : payout.kind === "request"
+          ? "Xtreme paid request"
+          : "Xtreme battle bonus",
     idempotencyKey: `livestream:payout:${String(payout._id)}`,
     metadata: { payoutId: String(payout._id), kind: payout.kind, username: user.username },
   });
