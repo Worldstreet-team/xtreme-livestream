@@ -10,6 +10,7 @@ import { PointsChip } from "@/components/app/points-chip";
 import { BrandLockup } from "@/components/ui/brand-mark";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useUnreadThreads } from "@/lib/messaging";
 import { CATEGORY_GROUPS } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -56,6 +57,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
+  const unreadThreads = useUnreadThreads(Boolean(user));
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   // Phones: the search row over the bar.
@@ -146,9 +148,18 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       {/* Left: you (or the menu) and the brand on phones; the page text from lg. */}
       <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
         {user ? (
-          <button type="button" onClick={onMenu} aria-label="Open your menu" className="press relative shrink-0 rounded-full md:hidden">
+          <button
+            type="button"
+            onClick={onMenu}
+            aria-label={unreadThreads ? `Open your menu, ${unreadThreads} unread conversations` : "Open your menu"}
+            className="press relative shrink-0 rounded-full md:hidden"
+          >
             <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
             {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
+            {/* Messages live in the drawer on a phone, so the way in says
+                when something's waiting (top corner: the live dot owns the
+                bottom one). */}
+            {unreadThreads > 0 && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
           </button>
         ) : (
           // The WorldSpace menu mark, bare — no chip behind it (owner, 2026-09-24).

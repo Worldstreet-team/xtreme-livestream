@@ -104,7 +104,10 @@ function Face({ src, name, size = 32, className }: Omit<UserAvatarProps, "ring" 
       width={size}
       height={size}
       className={cn(
-        "shrink-0 rounded-full bg-white/10 object-cover",
+        // Square whatever the photo's shape: the width attribute sizes it, and
+        // without aspect-square the reset's height:auto let a 16:9 photo
+        // squash a sizeless avatar into a pill.
+        "aspect-square shrink-0 rounded-full bg-white/10 object-cover",
         className
       )}
       fallback={initials}

@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The messaging packages are vendored TypeScript source (see packages/),
+  // built by Next itself rather than a separate step.
+  transpilePackages: ["@worldstreet/messaging-sdk", "@worldstreet/messaging-contracts"],
   images: {
     remotePatterns: [
       {

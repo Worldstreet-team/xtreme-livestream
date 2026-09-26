@@ -1,0 +1,100 @@
+/*
+ * Messaging and calls: the motion vocabulary, WorldSpace's rules in CSS.
+ *
+ * - Transform and opacity only; nothing animates layout.
+ * - Frequency first: things done a hundred times a day (send, scroll, hover)
+ *   get no entrance. Delight is for the rare moments — a reaction landing,
+ *   a call arriving, a thread opening for the first time.
+ * - Your own action may pop; someone else's rises in quietly.
+ * - Exits are quicker than entrances and never stagger.
+ * - Reduced motion: every loop stops and every entrance is a cut.
+ *
+ * Loaded app-wide by the call provider (a call can ring on any page).
+ */
+
+@keyframes msg-pop {
+  0% { opacity: 0; transform: scale(0.55); }
+  60% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes msg-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-drop {
+  from { opacity: 0; transform: translateY(-16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-lift {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes msg-dot {
+  0%, 70%, 100% { opacity: 0.25; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes call-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.07); }
+}
+@keyframes call-ripple {
+  from { opacity: 0.35; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.55); }
+}
+@keyframes rec-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@keyframes msg-flash {
+  0% { background-color: rgb(248 88 16 / 0.22); }
+  100% { background-color: transparent; }
+}
+
+/* A reaction, a tick, a badge: small things that land. */
+.msg-pop { animation: msg-pop 0.34s var(--ease-spring) both; }
+/* First paint of a list: rows rise in, 18ms apart, the index clamped at 8. */
+.msg-rise { animation: msg-rise 0.34s var(--ease-out) both; animation-delay: calc(min(var(--i, 0), 8) * 18ms); }
+/* Banners arriving from the top (an incoming call). */
+.msg-drop { animation: msg-drop 0.32s var(--ease-out) both; }
+/* Menus, trays and sheets content. */
+.msg-lift { animation: msg-lift 0.24s var(--ease-out) both; }
+.msg-fade { animation: msg-fade 0.2s var(--ease-standard) both; }
+/* A jump-to target: the row flashes Ember once. */
+.msg-flash { animation: msg-flash 1.1s var(--ease-standard) both; border-radius: 12px; }
+
+/* Three dots, alive next to words people stare at ("Calling", "typing"). */
+.msg-dots { display: inline-flex; align-items: center; gap: 3px; }
+.msg-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: msg-dot 1.25s ease-in-out infinite;
+}
+.msg-dots > span:nth-child(2) { animation-delay: 0.16s; }
+.msg-dots > span:nth-child(3) { animation-delay: 0.32s; }
+
+/* Waiting on a person, not loading: the caller's ring breathes, and a soft
+   ripple leaves it. Rings are on Afterglow's heat allowlist. */
+.call-breathe { animation: call-breathe 2.2s ease-in-out infinite; }
+.call-ripple { animation: call-ripple 2.2s var(--ease-out) infinite; }
+.rec-blink { animation: rec-blink 1.1s ease-in-out infinite; }
+
+/* Press feedback everywhere in messaging: a quick settle, no bounce. */
+.msg-press { transition: transform 0.16s var(--ease-out), background-color 0.2s var(--ease-standard), color 0.2s var(--ease-standard), opacity 0.2s var(--ease-standard); }
+.msg-press:active:not(:disabled) { transform: scale(0.95); }
+
+/* The thread scroller: no scrollbar chrome over the conversation. */
+.msg-scroll { scrollbar-width: thin; scrollbar-color: rgb(255 236 230 / 0.12) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-pop, .msg-rise, .msg-drop, .msg-lift, .msg-fade, .msg-flash,
+  .msg-dots > span, .call-breathe, .call-ripple, .rec-blink {
+    animation: none !important;
+  }
+  .msg-press:active:not(:disabled) { transform: none; }
+}

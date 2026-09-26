@@ -1,0 +1,10 @@
+{
+  "name": "@worldstreet/messaging-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vendored from worldstreetsocialmedia-gateway/packages/messaging-contracts until it is published; the source of truth is there.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": { "zod": "^4.1.0" }
+}

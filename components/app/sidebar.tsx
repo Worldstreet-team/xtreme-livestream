@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
+import { useUnreadThreads } from "@/lib/messaging";
 import { useEffect, useRef, useState } from "react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
@@ -75,8 +76,13 @@ const COLLAPSE_KEY = "xtreme-rail-collapsed";
 const CHROMELESS = ["/welcome"];
 /** Phones only: the studio is a viewfinder, and a top bar over a camera
  *  is a bar over the picture. Desktop keeps its chrome. */
-const PHONE_CHROMELESS = ["/studio"];
-const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet"];
+const PHONE_CHROMELESS = [
+  "/studio",
+  // An open thread is its own screen on a phone: its header has the way
+  // back, and a tab bar under the composer would sit under the keyboard.
+  "/messages/",
+];
+const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet", "/messages"];
 
 /** True from the `lg` breakpoint up; false for the server paint. */
 function useMinWidth(px: number) {
@@ -257,6 +263,9 @@ export function Sidebar({
   }, [menuOpen]);
 
   const narrow = collapsed;
+  // Threads with something new from someone else — one shared poll with
+  // the phone drawer's copy (lib/messaging.ts).
+  const unreadThreads = useUnreadThreads(Boolean(user));
 
   // Schedule lives inside Your channel now, so it lights that row.
   const isActive = (href: string) =>
@@ -264,6 +273,9 @@ export function Sidebar({
 
   const renderItem = (item: NavItem, index: number, offset: number) => {
     const active = isActive(item.href);
+    // Chili is for counts that need you now (design system); the Ember dot
+    // still marks the page you're on.
+    const count = item.href === "/messages" ? unreadThreads : 0;
     return (
       <Link
         key={item.href}
@@ -279,10 +291,24 @@ export function Sidebar({
           active ? "font-bold text-foreground" : "font-medium text-foreground/60 hover:text-foreground/90"
         )}
       >
-        <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />
+        <span className="relative shrink-0">
+          <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />
+          {count > 0 && narrow && (
+            // On the icon rail the count shrinks to a dot on the glyph's corner.
+            <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-chili ring-2 ring-background">
+              <span className="sr-only">{count} unread</span>
+            </span>
+          )}
+        </span>
         {!narrow && <span className="text-[16px] tracking-[-0.005em]">{item.label}</span>}
+        {count > 0 && !narrow && (
+          <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums">
+            {count > 99 ? "99+" : count}
+            <span className="sr-only"> unread</span>
+          </span>
+        )}
         {active && !narrow && (
-          <span aria-hidden className="ml-auto size-1.5 shrink-0 rounded-full bg-ember" />
+          <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ember", count > 0 ? "ml-2" : "ml-auto")} />
         )}
         {active && narrow && (
           // On the icon rail the dot sits under the glyph, as on the phone's tab bar.

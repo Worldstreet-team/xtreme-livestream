@@ -28,6 +28,8 @@ import {
   ShieldStar,
 } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
+import { MessageButton } from "@/components/app/message-button";
+import { streamContext } from "@/lib/messaging";
 import { Pill, PillLink } from "@/components/ui/pill";
 import { Badge, LiveBadge } from "@/components/ui/badge";
 import { centsToDollars } from "@/lib/gifts";
@@ -2762,6 +2764,7 @@ export default function StreamPage({
                   </span>
                 </Link>
                 {allyButton("md")}
+                <MessageButton username={streamer.username} name={hostName} context={streamContext(stream)} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {user &&

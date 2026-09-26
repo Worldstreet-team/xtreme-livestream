@@ -10,12 +10,14 @@ import {
   Diamond,
   Faders,
   HeartStraight,
+  ChatCircleDots,
   SignOut,
   SignIn,
   X,
   SealCheck,
 } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
+import { useUnreadThreads } from "@/lib/messaging";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
@@ -39,12 +41,20 @@ import { LauncherGrid } from "@/components/app/launcher-grid";
 
 const SPRING = "cubic-bezier(0.22, 1.15, 0.36, 1)";
 
-type Row = { label: string; href: string; icon: typeof Wallet };
+type Row = {
+  label: string;
+  href: string;
+  icon: typeof Wallet;
+  /** Something waiting for you there (unread threads). */
+  count?: number;
+};
 
 export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
   const close = () => onOpenChange(false);
+  // Shared with the rail's badge: one poll between them (lib/messaging.ts).
+  const unreadThreads = useUnreadThreads(Boolean(user));
 
   // Mount only while open or leaving, so the closed drawer costs nothing
   // and the slide-out finishes before it unmounts.
@@ -106,6 +116,9 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
         // Channel and dashboard are one place now (owner, 2026-09-24).
         { label: "Your channel", href: "/dashboard", icon: ChartDonut },
         { label: "Following", href: "/following", icon: HeartStraight },
+        // The tab bar holds the four places to go, so on a phone this row is
+        // the way into your threads.
+        { label: "Messages", href: "/messages", icon: ChatCircleDots, count: unreadThreads },
         { label: "Wallet", href: "/wallet", icon: Wallet },
         { label: "Rewards", href: "/rewards", icon: Diamond },
         { label: "Settings", href: "/settings", icon: Faders },
@@ -223,6 +236,12 @@ function DrawerRow({ row, active }: { row: Row; active: boolean }) {
     >
       <row.icon size={22} weight={active ? "fill" : "regular"} className={cn("shrink-0", active ? "text-foreground" : "text-foreground/75")} aria-hidden />
       <span className="min-w-0 flex-1 truncate">{row.label}</span>
+      {row.count ? (
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums">
+          {row.count > 99 ? "99+" : row.count}
+          <span className="sr-only"> unread</span>
+        </span>
+      ) : null}
       {active && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-ember" />}
     </Link>
   );

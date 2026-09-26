@@ -18,6 +18,7 @@ import { StreamCard } from "@/components/app/stream-card";
 import { EventCard } from "@/components/app/event-card";
 import { RemindButton } from "@/components/app/upcoming-card";
 import { FollowButton } from "@/components/app/follow-button";
+import { MessageButton } from "@/components/app/message-button";
 import { StreamArt } from "@/components/app/stream-art";
 import { Empty } from "@/components/app/empty";
 import { PillTabs } from "@/components/ui/tabs";
@@ -324,6 +325,7 @@ export default function ChannelPage({
                 setChannel((c) => (c ? { ...c, followers: Math.max(0, c.followers + (next ? 1 : -1)) } : c))
               }
             />
+            <MessageButton username={channel.username} name={name} />
             <Pill variant="glass" iconOnly aria-label={copied ? "Link copied" : "Share channel"} title={copied ? "Link copied" : "Share"} onClick={share} icon={copied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />} />
           </div>
         </header>

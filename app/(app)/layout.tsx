@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell } from "@/components/app/sidebar";
 import { VividVoiceProvider } from "@/components/vivid-provider";
+import { CallProvider } from "@/components/app/calls/call-provider";
 import { useAuth } from "@/lib/auth-context";
 
 
@@ -48,7 +49,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (publicPath) {
     return (
       <VividVoiceProvider>
-        <AppShell>{children}</AppShell>
+        {/* Calls ring on every page, public ones included, once you're signed in. */}
+        <CallProvider enabled={isAuthenticated}>
+          <AppShell>{children}</AppShell>
+        </CallProvider>
       </VividVoiceProvider>
     );
   }
@@ -96,7 +100,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <VividVoiceProvider>
-      <AppShell>{children}</AppShell>
+      <CallProvider enabled={isAuthenticated}>
+        <AppShell>{children}</AppShell>
+      </CallProvider>
     </VividVoiceProvider>
   );
 }
