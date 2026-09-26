@@ -316,6 +316,79 @@ export type FeatureSeconds = (typeof FEATURE_SECONDS)[number];
 /** The scene as stored and broadcast: the body, what's featured, and a version that only goes up. */
 export type Scene = z.infer<typeof sceneBodySchema> & { version: number; featured?: FeaturedItem | null };
 
+/**
+ * Goals (Phase 2, goals and status): one goal bar at a time. Gifts count
+ * their dollars (in US cents); likes and allies count one each. Milestones
+ * are stops on the way, each with what the host promises there ("Shots at
+ * $50"). Progress is the API's — gifts, likes and follows move it — so the
+ * body is only what the host decides, and setting a goal starts it at zero.
+ */
+export const GOAL_KINDS = ["gifts", "likes", "allies"] as const;
+export const MAX_GOAL_MILESTONES = 3;
+/** Targets per kind: $1–$100,000 of gifts, 10 likes to ten million, 5 allies to a million. */
+export const GOAL_TARGET_LIMITS = {
+  gifts: { min: 100, max: 10_000_000 },
+  likes: { min: 10, max: 10_000_000 },
+  allies: { min: 5, max: 1_000_000 },
+} as const;
+
+export const goalMilestoneSchema = z.object({
+  at: z.number().int().min(1),
+  label: z.string().trim().min(1).max(40),
+});
+
+export const goalBodySchema = z
+  .object({
+    kind: z.enum(GOAL_KINDS),
+    title: z.string().trim().min(1).max(40),
+    target: z.number().int().min(1),
+    milestones: z.array(goalMilestoneSchema).max(MAX_GOAL_MILESTONES).default([]),
+  })
+  .superRefine((goal, ctx) => {
+    const { min, max } = GOAL_TARGET_LIMITS[goal.kind];
+    if (goal.target < min || goal.target > max) {
+      ctx.addIssue({ code: "custom", path: ["target"], message: "That target is out of range for this kind of goal" });
+    }
+    goal.milestones.forEach((m, i) => {
+      if (m.at >= goal.target) {
+        ctx.addIssue({ code: "custom", path: ["milestones", i, "at"], message: "A milestone comes before the goal" });
+      }
+      const before = goal.milestones[i - 1];
+      if (before && m.at <= before.at) {
+        ctx.addIssue({ code: "custom", path: ["milestones", i, "at"], message: "Milestones go up in order" });
+      }
+    });
+  });
+
+/**
+ * The heat meter: the dollars gifted over the last minute, as a level from
+ * 1 to 5 — $5, $20, $50, $100, $250. It cools a level every HEAT_COOL_MS
+ * after the last gift, on the server's clock, so every screen agrees.
+ */
+export const HEAT_STEPS_MINOR = [500, 2_000, 5_000, 10_000, 25_000] as const;
+export const HEAT_WINDOW_MS = 60_000;
+export const HEAT_COOL_MS = 20_000;
+
+export type GoalKind = (typeof GOAL_KINDS)[number];
+export type GoalMilestone = z.infer<typeof goalMilestoneSchema>;
+export type GoalBody = z.infer<typeof goalBodySchema>;
+/** A goal as stored and broadcast: what the host set, how far it's got, when it got there. */
+export interface StreamGoal extends GoalBody {
+  id: string;
+  progress: number;
+  startedAt: string;
+  reachedAt: string | null;
+  /** The host took it down; it stays stored so `rev` keeps climbing into the next goal. */
+  endedAt: string | null;
+  /** Goes up with every change, so a late event never rolls the bar back. */
+  rev: number;
+}
+/** The meter as of the last gift: its level then, and when that was. */
+export interface StreamHeat {
+  level: number;
+  at: string;
+}
+
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,

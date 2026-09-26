@@ -12,6 +12,7 @@ import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { ensureUserIngress, rotateUserIngress, sendRoomData } from "../livekit.js";
 import { Follow, Stream, User, type IUser } from "../models.js";
+import { bumpGoal } from "../goals.js";
 import { parseImageDataUri, thumbnailUrlFor } from "../stream-service.js";
 
 /**
@@ -517,6 +518,13 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         User.updateOne({ _id: dbUser._id }, { $inc: { following: 1 } }),
         User.updateOne({ _id: target._id }, { $inc: { followers: 1 } }),
       ]);
+
+      // Allied while they're live: an allies goal counts it, once per person.
+      // Nothing here — the lookup included — may fail the follow.
+      await (async () => {
+        const live = await Stream.findOne({ streamerId: target._id, isLive: true }).select("_id").lean();
+        if (live) await bumpGoal(live._id, "allies", 1, { userId: dbUser._id });
+      })().catch((err) => request.log.error({ err }, "moving the goal failed"));
 
       return {
         success: true,

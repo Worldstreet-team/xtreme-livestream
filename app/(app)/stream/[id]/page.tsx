@@ -53,6 +53,7 @@ import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
+import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import { DEFAULT_SCENE, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
 import { use } from "react";
@@ -180,6 +181,9 @@ interface StreamData {
   feedDroppedAt?: string | null;
   /** How the program is laid out: layout and card (see lib/scene.ts). */
   scene?: Scene;
+  /** The goal bar and the heat meter, as the API last had them (lib/goals.ts reads them). */
+  goal?: unknown;
+  heat?: unknown;
   streamerId: {
     _id: string;
     username: string;
@@ -444,6 +448,17 @@ export default function StreamPage({
   // The prediction running in this stream, if any — same feed: room events
   // plus a slow poll.
   const [game, setGame] = useState<GameView | null>(null);
+  // The goal bar and the heat meter: room events move them the moment a
+  // gift lands, the stream's poll covers a dropped frame. They belong to
+  // this stream — another one starts them afresh.
+  const [goal, setGoal] = useState<StreamGoal | null>(null);
+  const [heat, setHeat] = useState<StreamHeat | null>(null);
+  const [goalsFor, setGoalsFor] = useState(id);
+  if (goalsFor !== id) {
+    setGoalsFor(id);
+    setGoal(null);
+    setHeat(null);
+  }
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -492,6 +507,11 @@ export default function StreamPage({
         }>(`/api/streams/${id}`);
         setStream(res.data.stream);
         setLikeCount(res.data.stream.likes ?? 0);
+        // A poll a beat behind a room event never rolls the goal or meter back.
+        const polledGoal = readGoal(res.data.stream.goal);
+        const polledHeat = readHeat(res.data.stream.heat);
+        setGoal((g) => newerGoal(g, polledGoal));
+        setHeat((h) => newerHeat(h, polledHeat));
       } catch (err) {
         if (err instanceof ApiError && err.status === 410) setRemoved(true);
         if (!opts.quiet) {
@@ -860,6 +880,17 @@ export default function StreamPage({
           }
           if (data.__evt === "battle" && data.battle) {
             setBattle(data.battle);
+            return;
+          }
+          // A gift, a like or an ally moved the goal, or the host changed it.
+          if (data.__evt === "goal") {
+            const next = readGoal((data as { goal?: unknown }).goal);
+            if (next) setGoal((g) => newerGoal(g, next));
+            return;
+          }
+          if (data.__evt === "heat") {
+            const next = readHeat((data as { heat?: unknown }).heat);
+            if (next) setHeat((h) => newerHeat(h, next));
             return;
           }
           if (data.__evt === "like") {
@@ -2083,6 +2114,8 @@ export default function StreamPage({
             }
             pipClassName="top-[132px] right-3"
             guests={others}
+            goal={goal}
+            heat={heat}
             brand={brand}
             // Graphics keep between the header and the chat lane — or, in a
             // battle's band, to the band.
@@ -2556,6 +2589,8 @@ export default function StreamPage({
                   }
                   pipClassName="top-14 right-3"
                   guests={others}
+                  goal={goal}
+                  heat={heat}
                   brand={brand}
                   // Clear of the badges and controls while they show (and of
                   // "Turn sound on", which never hides); the frame's own

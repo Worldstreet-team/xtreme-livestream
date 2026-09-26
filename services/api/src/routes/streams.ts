@@ -281,9 +281,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           featured: null,
           version: scene ? 1 : 0,
         },
-        // Each broadcast starts with Shield down and no suggestions waiting.
+        // Each broadcast starts with Shield down and no suggestions waiting,
+        // no goal and a cold meter.
         shield: { on: false, at: null, by: null },
         featureQueue: [],
+        goal: null,
+        heat: null,
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,

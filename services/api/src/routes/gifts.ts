@@ -11,6 +11,7 @@ import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
 import { sendRoomData } from "../livekit.js";
 import { applyBattleGift } from "../battles.js";
 import { autoFeatureGift } from "../featured.js";
+import { bumpGoal, bumpHeat } from "../goals.js";
 import { reconcileStream } from "../stream-service.js";
 import { assertNotBanned } from "./moderation.js";
 import {
@@ -183,6 +184,12 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           emoji: body.emoji,
           platform: body.platform,
         });
+
+        // The goal bar and the heat meter move with it. Neither may fail the gift.
+        await bumpGoal(stream._id, "gifts", grossUsdMinor).catch((err) =>
+          request.log.error({ err }, "moving the goal failed"),
+        );
+        await bumpHeat(stream).catch((err) => request.log.error({ err }, "the heat meter failed"));
 
         // A gift at the host's tier goes on screen by itself. Never lets a
         // screen failure fail the gift.

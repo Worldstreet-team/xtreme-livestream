@@ -5,6 +5,7 @@ import { gameRoutes } from "./games.js";
 import { dashboardRoutes } from "./dashboard.js";
 import { discoveryRoutes } from "./discovery.js";
 import { giftRoutes } from "./gifts.js";
+import { goalRoutes } from "./goals.js";
 import { coLiveRoutes } from "./colive.js";
 import { guestRoutes } from "./guests.js";
 import { marketRoutes } from "./market.js";
@@ -24,6 +25,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(discoveryRoutes);
   await fastify.register(dashboardRoutes);
   await fastify.register(giftRoutes);
+  await fastify.register(goalRoutes);
   await fastify.register(battleRoutes);
   await fastify.register(gameRoutes);
   await fastify.register(rewardRoutes);

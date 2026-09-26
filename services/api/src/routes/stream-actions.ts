@@ -31,6 +31,7 @@ import {
   parseImageDataUri,
   reconcileStream,
 } from "../stream-service.js";
+import { bumpGoal } from "../goals.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -305,6 +306,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           likes,
           username: dbUser.username,
         });
+        // A likes goal counts it too; never fails the like.
+        await bumpGoal(stream._id, "likes", 1).catch((err) => request.log.error({ err }, "moving the goal failed"));
       }
 
       return { success: true, data: { likes, liked: true } };

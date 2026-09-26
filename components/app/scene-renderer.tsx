@@ -10,6 +10,17 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { QrCode } from "@/components/app/qr-code";
 import { MarketChart } from "@/components/app/market-chart";
+import { Fire } from "@/components/icons";
+import {
+  goalAmount,
+  goalShowing,
+  goalUnit,
+  heatNow,
+  HEAT_NAMES,
+  nextMilestone,
+  type StreamGoal,
+  type StreamHeat,
+} from "@/lib/goals";
 import {
   ACCENTS,
   BRAND_FONT_CLASS,
@@ -212,6 +223,8 @@ export function SceneRenderer({
   brand = DEFAULT_BRAND,
   insets,
   stage,
+  goal = null,
+  heat = null,
 }: {
   scene: Scene;
   /** Is the frame taller than it is wide? Splits follow the long axis. */
@@ -245,6 +258,10 @@ export function SceneRenderer({
    * when unset. The frame itself doesn't move, so tiles glide in and out.
    */
   stage?: { top: string; height: string };
+  /** The host's goal and how far it's got (goals.ts on the API). */
+  goal?: StreamGoal | null;
+  /** The heat meter as of the last gift. */
+  heat?: StreamHeat | null;
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
   const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
@@ -351,6 +368,8 @@ export function SceneRenderer({
         battle={forceAuto}
         pipShown={showPip || chartMode}
         insets={insets}
+        goal={goal}
+        heat={heat}
       />
     </div>
   );
@@ -374,6 +393,8 @@ function SceneGraphics({
   battle,
   pipShown,
   insets,
+  goal,
+  heat,
 }: {
   layers: SceneLayer[];
   featured: FeaturedItem | null;
@@ -382,8 +403,14 @@ function SceneGraphics({
   battle: boolean;
   pipShown: boolean;
   insets?: { top?: string; bottom?: string };
+  goal: StreamGoal | null;
+  heat: StreamHeat | null;
 }) {
   const accent = ACCENTS[brand.accent];
+  // The goal and the meter keep to the top with the banner: under a card
+  // they wait, and a battle has the top to itself.
+  const goalUp = !carded && !battle && goalShowing(goal) ? goal : null;
+  const heatUp = !carded && !battle ? heat : null;
   const fontClass = BRAND_FONT_CLASS[brand.font] ?? "font-wide";
   const lowerThird = carded ? undefined : layerOf(layers, "lower-third");
   const cta = carded ? undefined : layerOf(layers, "cta");
@@ -437,7 +464,7 @@ function SceneGraphics({
       <div className="relative size-full">
         {topLogo && logoImg(cn("absolute top-[var(--g-m)]", topLogo === "top-left" ? "left-[var(--g-m)]" : "right-[var(--g-m)]"))}
 
-        {(banner || countdown) && (
+        {(banner || countdown || goalUp || heatUp) && (
           <div
             className={cn(
               "absolute top-[var(--g-m)] flex flex-col items-center gap-[calc(var(--g-m)/2)]",
@@ -457,6 +484,13 @@ function SceneGraphics({
               </p>
             )}
             {countdown && <CountdownGraphic key={countdown.endsAt} label={countdown.label} endsAt={countdown.endsAt} />}
+            {(goalUp || heatUp) && (
+              <div className="flex max-w-full flex-wrap items-center justify-center gap-[calc(var(--g-m)/2)]">
+                {/* A new goal, or this one reached, enters afresh. */}
+                {goalUp && <GoalBar key={`${goalUp.id}:${goalUp.reachedAt ? "reached" : "going"}`} goal={goalUp} fontClass={fontClass} />}
+                {heatUp && <HeatMeter heat={heatUp} />}
+              </div>
+            )}
           </div>
         )}
 
@@ -688,6 +722,99 @@ function TickerGraphic({ text }: { text: string }) {
           {half(1)}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The goal bar: what the host is going for, how far it's got and the next
+ * stop on the way, in their accent. Reaching it is a gift moment, so the
+ * bar goes heat and says so — and keeps counting past the line.
+ */
+function GoalBar({ goal, fontClass }: { goal: StreamGoal; fontClass: string }) {
+  const reached = Boolean(goal.reachedAt);
+  const share = Math.min(1, goal.progress / goal.target);
+  const next = reached ? null : nextMilestone(goal);
+  const unit = goalUnit(goal.kind, goal.target);
+  return (
+    <div
+      className={cn(
+        "w-[min(100%,28em)] rounded-[clamp(6px,0.8cqw,12px)] bg-black/75 px-[0.85em] pt-[0.55em] pb-[0.65em] text-[clamp(12px,1.6cqw,19px)] text-white",
+        reached
+          ? "motion-safe:animate-[pop-in_520ms_var(--ease-spring)_both]"
+          : "motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-[0.8em]">
+        <p className="min-w-0 truncate">
+          <span className={cn("mr-[0.5em] font-mono text-[0.7em] font-bold tracking-[0.1em] uppercase", reached ? "text-ember-hi" : "text-white/55")}>
+            {reached ? "Goal reached" : "Goal"}
+          </span>
+          <span className={cn("font-bold", fontClass)}>{goal.title}</span>
+        </p>
+        <p className="shrink-0 font-mono text-[0.88em] font-bold tabular-nums">
+          {goalAmount(goal.kind, goal.progress)}
+          <span className="font-medium text-white/50">
+            {" "}/ {goalAmount(goal.kind, goal.target)}
+            {unit && ` ${unit}`}
+          </span>
+        </p>
+      </div>
+      <div className="relative mt-[0.5em] h-[0.45em] rounded-full bg-white/15">
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]",
+            reached ? "bg-heat" : "bg-[var(--g-fill)]"
+          )}
+          style={{ width: `${Math.max(share * 100, 2.5)}%` }}
+        />
+        {/* The stops on the way: white once passed. */}
+        {goal.milestones.map((m) => (
+          <span
+            key={m.at}
+            aria-hidden
+            className={cn(
+              "absolute top-1/2 h-[1.35em] w-[2px] -translate-x-1/2 -translate-y-1/2 rounded-full",
+              m.at <= goal.progress ? "bg-white" : "bg-white/40"
+            )}
+            style={{ left: `${(m.at / goal.target) * 100}%` }}
+          />
+        ))}
+      </div>
+      {next && (
+        <p className="mt-[0.45em] truncate text-[0.78em] text-white/70">
+          Next at <span className="font-mono font-bold text-white tabular-nums">{goalAmount(goal.kind, next.at)}</span> · {next.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The heat meter: five steps from Warm to Inferno as the minute's gifts add
+ * up, cooling a step every 20 s after the last one (on the server's clock,
+ * so every screen agrees). A gift moment — the only place it wears heat.
+ */
+function HeatMeter({ heat }: { heat: StreamHeat }) {
+  const now = useNow() + serverOffset();
+  const level = heatNow(heat, now);
+  if (level === 0) return null;
+  return (
+    <div
+      role="img"
+      aria-label={`Heat: ${HEAT_NAMES[level]}`}
+      className="flex items-center gap-[0.5em] rounded-full bg-black/75 py-[0.4em] pr-[0.85em] pl-[0.6em] text-[clamp(11px,1.35cqw,17px)] font-bold text-white motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+    >
+      <Fire weight="fill" className="size-[1.1em] shrink-0 text-ember-hi" />
+      <span className="flex items-center gap-[0.18em]">
+        {[1, 2, 3, 4, 5].map((step) => (
+          <span
+            key={step}
+            className={cn("h-[0.85em] w-[0.42em] rounded-[2px] transition-colors duration-500", step <= level ? "bg-heat" : "bg-white/15")}
+          />
+        ))}
+      </span>
+      <span className="whitespace-nowrap">{HEAT_NAMES[level]}</span>
     </div>
   );
 }

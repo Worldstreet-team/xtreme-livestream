@@ -58,6 +58,8 @@ import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
+import { GoalPanel } from "@/components/app/goal-panel";
+import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import {
   CARDS,
   CHART_INTERVAL_LABELS,
@@ -339,6 +341,15 @@ export default function StudioPage() {
   const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
   /** Lines moderators suggested for the screen, waiting on me. */
   const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
+  // The goal bar and heat meter: each broadcast starts without them.
+  const [goal, setGoal] = useState<StreamGoal | null>(null);
+  const [heat, setHeat] = useState<StreamHeat | null>(null);
+  const [goalsFor, setGoalsFor] = useState(streamId);
+  if (goalsFor !== streamId) {
+    setGoalsFor(streamId);
+    setGoal(null);
+    setHeat(null);
+  }
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
@@ -649,6 +660,17 @@ export default function StudioPage() {
         // closes next, and the host is told why.
         if (data.__evt === "takedown") {
           takenDownRef.current = true;
+          return;
+        }
+        // A gift, a like or an ally moved the goal; a gift warmed the meter.
+        if (data.__evt === "goal") {
+          const next = readGoal((data as { goal?: unknown }).goal);
+          if (next) setGoal((g) => newerGoal(g, next));
+          return;
+        }
+        if (data.__evt === "heat") {
+          const next = readHeat((data as { heat?: unknown }).heat);
+          if (next) setHeat((h) => newerHeat(h, next));
           return;
         }
         // The encoder dropped or came back — the API decides, we display.
@@ -2448,6 +2470,25 @@ export default function StudioPage() {
     };
   }, [streamId, isLive]);
 
+  // A resumed broadcast's goal and meter, as the API has them; room events
+  // carry them on from here.
+  useEffect(() => {
+    if (!streamId || !isLive) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { stream: { goal?: unknown; heat?: unknown } } }>(`/api/streams/${streamId}`)
+      .then((r) => {
+        if (cancelled) return;
+        const loadedGoal = readGoal(r.data.stream.goal);
+        const loadedHeat = readHeat(r.data.stream.heat);
+        setGoal((g) => newerGoal(g, loadedGoal));
+        setHeat((h) => newerHeat(h, loadedHeat));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId, isLive]);
+
   /** A suggested line: up on screen (it leaves the queue), or turned down. */
   const putUpSuggested = async (messageId: string) => {
     if (!streamId) return;
@@ -2599,6 +2640,8 @@ export default function StudioPage() {
         }}
         onTakeDown={() => void takeDownFeatured()}
       />
+
+      <GoalPanel streamId={isLive ? streamId : null} goal={goal} onGoal={(g) => setGoal((cur) => newerGoal(cur, g))} />
 
       <SceneGraphicsPanel
         layers={scene.layers}
@@ -2804,6 +2847,8 @@ export default function StudioPage() {
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
               guests={stageOthers}
               brand={brand}
+              goal={goal}
+              heat={heat}
               // Full-bleed on a phone: graphics keep between the live row and the room's drawer.
               insets={
                 mode === "phone" && orientation === "portrait"

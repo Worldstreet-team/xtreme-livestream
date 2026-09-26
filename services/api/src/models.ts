@@ -305,6 +305,26 @@ export interface IStream extends Document {
   shield: { on: boolean; at: Date | null; by: mongoose.Types.ObjectId | null };
   /** Set when a platform admin took the stream down after a report; it's then kept out of listings. */
   takenDownAt: Date | null;
+  /**
+   * The goal bar (Phase 2, goals and status) — the host's goal and how far
+   * it's got. Written only by goals.ts, each time with one atomic update.
+   */
+  goal: {
+    id: string;
+    kind: "gifts" | "likes" | "allies";
+    title: string;
+    target: number;
+    milestones: Array<{ at: number; label: string }>;
+    progress: number;
+    startedAt: Date;
+    reachedAt: Date | null;
+    endedAt: Date | null;
+    rev: number;
+    /** Who has allied during an allies goal — each counts once, however often they toggle. */
+    alliedBy?: mongoose.Types.ObjectId[];
+  } | null;
+  /** The heat meter as of the last gift. */
+  heat: { level: number; at: Date } | null;
   /** Lines moderators suggested for the screen, waiting on the host. */
   featureQueue: Array<{
     messageId: mongoose.Types.ObjectId;
@@ -417,6 +437,8 @@ const streamSchema = new Schema<IStream>(
       by: { type: Schema.Types.ObjectId, ref: "User", default: null },
     },
     takenDownAt: { type: Date, default: null },
+    goal: { type: Schema.Types.Mixed, default: null },
+    heat: { type: Schema.Types.Mixed, default: null },
     featureQueue: {
       type: [
         new Schema(
@@ -563,6 +585,8 @@ const giftTransactionSchema = new Schema<IGiftTransaction>(
 );
 
 giftTransactionSchema.index({ battleId: 1, createdAt: -1 });
+// The heat meter reads a stream's last minute of gifts.
+giftTransactionSchema.index({ streamId: 1, createdAt: -1 });
 giftTransactionSchema.index({ streamerId: 1, createdAt: -1 });
 giftTransactionSchema.index({ senderId: 1, createdAt: -1 });
 
