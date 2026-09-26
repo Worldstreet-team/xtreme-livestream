@@ -6,6 +6,7 @@ import {
   LOWER_THIRD_STYLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
+  MAX_PRICE_SYMBOLS,
   MAX_SCENE_GAINS,
   type BrandAccent,
   type BrandFont,
@@ -53,12 +54,15 @@ export const CHART_MARKETS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-
 
 export const CHART_INTERVAL_LABELS: Record<ChartInterval, string> = { "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h" };
 
+/** What a market looks like once uppercased: "BTC-USD", "ADA-USDT". */
+export const MARKET_SYMBOL = /^[A-Z0-9]{2,10}-[A-Z]{3,4}$/;
+
 /** A market off the wire, if it's one we can chart. */
 export function readChart(raw: unknown): SceneChart | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const symbol = typeof r.symbol === "string" ? r.symbol.trim().toUpperCase() : "";
-  if (!/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(symbol)) return null;
+  if (!MARKET_SYMBOL.test(symbol)) return null;
   const interval = CHART_INTERVALS.includes(r.interval as ChartInterval) ? (r.interval as ChartInterval) : "5m";
   return { symbol, interval };
 }
@@ -191,11 +195,32 @@ export function readLayers(raw: unknown): SceneLayer[] {
   return layers;
 }
 
+/**
+ * Markets as typed or sent — "btc-usd", twice, a "$100" — as the price
+ * strip shows them: uppercase, only real-looking pairs, each once, five at
+ * most. What's left is the strip; nothing left, no strip.
+ */
+export function readSymbols(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const symbol = item.trim().toUpperCase();
+    if (MARKET_SYMBOL.test(symbol) && !out.includes(symbol)) out.push(symbol);
+    if (out.length === MAX_PRICE_SYMBOLS) break;
+  }
+  return out;
+}
+
 function readLayer(raw: unknown): SceneLayer | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
   switch (r.kind) {
+    case "prices": {
+      const symbols = readSymbols(r.symbols);
+      return symbols.length > 0 ? { kind: "prices", symbols } : null;
+    }
     case "lower-third": {
       const title = text(r.title, 48);
       return title ? { kind: "lower-third", title, subtitle: text(r.subtitle, 72) } : null;

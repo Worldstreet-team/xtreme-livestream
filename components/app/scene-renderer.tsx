@@ -11,6 +11,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { QrCode } from "@/components/app/qr-code";
 import { MarketChart } from "@/components/app/market-chart";
+import { formatQuote, marketBase, useQuotes } from "@/lib/market";
 import { Fire } from "@/components/icons";
 import {
   goalAmount,
@@ -449,10 +450,11 @@ function GraphicsAnnouncer({ scene }: { scene: Scene }) {
 }
 
 /**
- * The host's graphics, each in its place: the banner and countdown at the
- * top, the lower third and ticker at the bottom, the logo in its corner.
+ * The host's graphics, each in its place: the price strip, banner and
+ * countdown at the top, the lower third and ticker at the bottom, the logo
+ * in its corner.
  *
- * A card takes the lower third, the banner and a featured comment down with
+ * A card takes the lower third, the banner, the prices and a featured comment down with
  * the picture they're about, and draws the countdown itself, big, as its
  * centrepiece; the ticker and logo stay over it. A battle owns the top of the frame, so
  * what's up there stands aside until it ends; and the corner camera keeps
@@ -498,6 +500,8 @@ function SceneGraphics({
   const sponsor = sponsorCard && !(sponsorCard.restricted && hideRestricted) ? sponsorCard : undefined;
   const banner = carded || battle ? undefined : layerOf(layers, "banner");
   const countdown = carded || battle ? undefined : layerOf(layers, "countdown");
+  // The price strip keeps the banner's hours: down under a card, and while a battle has the top.
+  const prices = carded || battle ? undefined : layerOf(layers, "prices");
   const ticker = layerOf(layers, "ticker");
   const logo = brand.logoUrl ? layerOf(layers, "logo") : undefined;
   let corner: LogoCorner | null = logo?.corner ?? null;
@@ -546,7 +550,7 @@ function SceneGraphics({
       <div className="relative size-full">
         {topLogo && logoImg(cn("absolute top-[var(--g-m)]", topLogo === "top-left" ? "left-[var(--g-m)]" : "right-[var(--g-m)]"))}
 
-        {(banner || countdown || goalUp || heatUp) && (
+        {(prices || banner || countdown || goalUp || heatUp) && (
           <div
             className={cn(
               "absolute top-[var(--g-m)] flex flex-col items-center gap-[calc(var(--g-m)/2)]",
@@ -554,6 +558,8 @@ function SceneGraphics({
               topLogo ? "inset-x-[calc(20cqw+var(--g-m)*2)]" : "inset-x-[var(--g-m)]"
             )}
           >
+            {/* Prices first, at the very top: a row of pills the banner and the rest sit under. */}
+            {prices && <PricesStrip symbols={prices.symbols} />}
             {banner && (
               <p
                 key={banner.text}
@@ -847,6 +853,43 @@ function SponsorGraphic({ sponsor, fontClass }: { sponsor: Extract<SceneLayer, {
   ) : (
     <div role="note" aria-label={`${sponsor.name} — paid promotion`} className={cn(cls, "pointer-events-none")}>
       {body}
+    </div>
+  );
+}
+
+/**
+ * Live prices (market layer): a pill per market — the coin, its last price
+ * and its move over 24 hours, green up and chili down — drawn by each
+ * viewer's screen from our shared feed, and always followed by whose
+ * numbers they are and that they're only that. No links, no buy buttons.
+ * Until the first prices land there's nothing to show, so nothing shows;
+ * after a failed fetch the last good ones stay up, marked paused.
+ */
+function PricesStrip({ symbols }: { symbols: string[] }) {
+  const { quotes, source, failed } = useQuotes(symbols);
+  if (quotes.length === 0) return null;
+  return (
+    <div
+      role="group"
+      aria-label="Live prices"
+      className="flex max-w-full flex-wrap items-center justify-center gap-[0.35em] text-[clamp(11px,1.45cqw,18px)] leading-none motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+    >
+      {quotes.map((q) => {
+        const up = q.changePct >= 0;
+        return (
+          <span key={q.symbol} className="flex items-baseline gap-[0.45em] rounded-full bg-black/75 px-[0.8em] py-[0.42em] whitespace-nowrap text-white">
+            <span className="font-bold tracking-[-0.01em]">{marketBase(q.symbol)}</span>
+            <span className="font-money text-[1.08em] tabular-nums">{formatQuote(q.symbol, q.last)}</span>
+            <span className={cn("font-mono text-[0.78em] font-bold tabular-nums", up ? "text-success" : "text-chili-hi")}>
+              <span aria-hidden>{up ? "▲" : "▼"}</span>
+              <span className="sr-only">{up ? "up" : "down"}</span> {Math.abs(q.changePct).toFixed(1)}%
+            </span>
+          </span>
+        );
+      })}
+      <span className="rounded-full bg-black/60 px-[0.7em] py-[0.42em] font-mono text-[0.72em] whitespace-nowrap text-white/65">
+        {source} · {failed && "Paused · "}Not financial advice
+      </span>
     </div>
   );
 }

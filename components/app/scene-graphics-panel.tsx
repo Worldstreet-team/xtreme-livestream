@@ -13,8 +13,10 @@ import {
   ACCENTS,
   BRAND_FONT_CLASS,
   BRAND_FONT_LABELS,
+  CHART_MARKETS,
   LOGO_CORNER_LABELS,
   LOWER_THIRDS,
+  MARKET_SYMBOL,
   formatCountdown,
   layerOf,
   shortUrl,
@@ -27,8 +29,9 @@ import {
   type LowerThirdStyle,
   type SceneLayer,
 } from "@/lib/scene";
-import { MAX_BRAND_PRESETS } from "@xtreme/contracts";
+import { MAX_BRAND_PRESETS, MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
 import { centsToDollars } from "@/lib/gifts";
+import { marketBase } from "@/lib/market";
 import type { CampaignView, SponsorView } from "@/lib/sponsors";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
@@ -105,6 +108,7 @@ export function SceneGraphicsPanel({
   const logo = layerOf(layers, "logo");
   const cta = layerOf(layers, "cta");
   const sponsorUp = layerOf(layers, "sponsor");
+  const prices = layerOf(layers, "prices");
 
   // Drafts: null until typed in, so they follow what's on air (a resumed
   // stream's graphics) and the defaults until then.
@@ -118,6 +122,8 @@ export function SceneGraphicsPanel({
   const [ctaTitle, setCtaTitle] = useState<string | null>(null);
   const [ctaUrl, setCtaUrl] = useState<string | null>(null);
   const [sponsorPick, setSponsorPick] = useState<string | null>(null);
+  const [priceSymbols, setPriceSymbols] = useState<string[] | null>(null);
+  const [pairDraft, setPairDraft] = useState("");
 
   const title = (ltTitle ?? lowerThird?.title ?? hostName).slice(0, 48);
   const subtitle = (ltSubtitle ?? lowerThird?.subtitle ?? streamTitle).slice(0, 72);
@@ -128,6 +134,19 @@ export function SceneGraphicsPanel({
   const ctaTitleDraft = ctaTitle ?? cta?.title ?? "";
   const ctaUrlDraft = ctaUrl ?? cta?.url ?? "";
   const ctaUrlClean = normalizeUrl(ctaUrlDraft);
+
+  // The price strip's markets: the usual ones as chips, plus any pair typed
+  // in (it gets a chip too, so it can be taken off again).
+  const priceList = priceSymbols ?? prices?.symbols ?? [];
+  const priceFull = priceList.length >= MAX_PRICE_SYMBOLS;
+  const priceChoices = [...CHART_MARKETS, ...priceList.filter((s) => !(CHART_MARKETS as readonly string[]).includes(s))];
+  const typedPair = pairDraft.trim().toUpperCase();
+  const pairLooksRight = MARKET_SYMBOL.test(typedPair);
+  const pairAddable = pairLooksRight && !priceList.includes(typedPair) && !priceFull;
+  const togglePrice = (symbol: string) => {
+    if (priceList.includes(symbol)) setPriceSymbols(priceList.filter((s) => s !== symbol));
+    else if (!priceFull) setPriceSymbols([...priceList, symbol]);
+  };
 
   // Presets: kept with the brand kit, a row per kind under its fields.
   const presets = brand.presets ?? [];
@@ -327,6 +346,77 @@ export function SceneGraphicsPanel({
           </GraphicCard>
 
           <GraphicCard
+            title="Prices"
+            on={Boolean(prices)}
+            canShow={priceList.length > 0}
+            status={prices ? `${prices.symbols.map(marketBase).join(", ")} on screen` : undefined}
+            dirty={Boolean(prices) && prices!.symbols.join(",") !== priceList.join(",")}
+            onShow={() => put({ kind: "prices", symbols: priceList })}
+            // Every market taken off while it's up: the strip comes down rather than go up empty.
+            onUpdate={() => (priceList.length > 0 ? put({ kind: "prices", symbols: priceList }) : take("prices"))}
+            onHide={() => take("prices")}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[12px] text-muted-foreground">Markets on the strip</span>
+              <span className="font-mono text-[11.5px] font-semibold text-muted-foreground tabular-nums">
+                {priceList.length} of {MAX_PRICE_SYMBOLS}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5" aria-label="Markets">
+              {priceChoices.map((m) => {
+                const on = priceList.includes(m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={!on && priceFull}
+                    onClick={() => togglePrice(m)}
+                    className={cn(
+                      "press h-8 rounded-full px-3 font-mono text-[11.5px] font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40",
+                      on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                    )}
+                  >
+                    {m.replace("-", "/")}
+                  </button>
+                );
+              })}
+            </div>
+            <form
+              className="flex gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!pairAddable) return;
+                togglePrice(typedPair);
+                setPairDraft("");
+              }}
+            >
+              <input
+                value={pairDraft}
+                onChange={(e) => setPairDraft(e.target.value)}
+                placeholder="Another pair, like ADA-USD"
+                aria-label="Another market"
+                maxLength={15}
+                className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-white/[0.09]"
+              />
+              <button
+                type="submit"
+                disabled={!pairAddable}
+                className="press h-9 shrink-0 rounded-full bg-white/[0.08] px-3.5 text-[12px] font-bold text-foreground transition-colors hover:bg-white/[0.12] disabled:pointer-events-none disabled:opacity-40"
+              >
+                Add
+              </button>
+            </form>
+            {typedPair && !pairLooksRight && <p className="text-[11.5px] text-chili-hi">A market looks like BTC-USD.</p>}
+            {typedPair && pairLooksRight && priceFull && !priceList.includes(typedPair) && (
+              <p className="text-[11.5px] text-chili-hi">Five at most — take one off to add another.</p>
+            )}
+            <p className="text-[12px] leading-snug text-muted-foreground">
+              Live prices on every viewer&apos;s screen, from Coinbase, always marked &ldquo;Not financial advice&rdquo;. No links, no buy buttons.
+            </p>
+          </GraphicCard>
+
+          <GraphicCard
             title="QR code"
             on={Boolean(cta)}
             canShow={Boolean(ctaTitleDraft.trim() && ctaUrlClean)}
@@ -470,9 +560,9 @@ export function SceneGraphicsPanel({
         </div>
         <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
           {battle
-            ? "A battle has the top of the picture — the banner and countdown come back when it ends."
+            ? "A battle has the top of the picture — the banner, prices and countdown come back when it ends."
             : carded
-              ? "A card is up: the lower third and banner wait under it. The ticker, countdown and logo stay on top."
+              ? "A card is up: the lower third, banner and prices wait under it. The ticker, countdown and logo stay on top."
               : "Graphics draw sharp on every screen, whatever the viewer's connection."}
         </p>
       </section>

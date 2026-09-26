@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { formatPrice } from "@/lib/market";
 import type { SceneChart } from "@/lib/scene";
 
 interface Candle {
@@ -27,12 +28,6 @@ const REFRESH_MS = 15_000;
 // The drawing's own units; the SVG stretches to the frame, strokes don't.
 const W = 1000;
 const H = 600;
-
-/** Prices at the scale they're read at: 83,741.2 · 2,713.88 · 0.1734. */
-function formatPrice(n: number) {
-  const digits = n >= 1000 ? 1 : n >= 1 ? 2 : 4;
-  return n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
 
 /**
  * Chart + face's picture: a live market chart drawn on the viewer's own
@@ -171,8 +166,9 @@ export function MarketChart({
         )}
       </div>
 
+      {/* Whose numbers, and that they're only that: the same words the price strip carries. */}
       <p className="absolute bottom-[3%] left-[4%] font-mono text-[clamp(8px,0.9cqw,11px)] text-white/30">
-        {view?.source ?? "Coinbase"} · {chart.interval} candles
+        {view?.source ?? "Coinbase"} · {chart.interval} candles · Not financial advice
       </p>
     </div>
   );
