@@ -27,6 +27,28 @@ export interface ChatMsg {
   at: number;
   /** My own line, held by the filter: only I see it, waiting on a moderator. */
   pending?: boolean;
+  /** The sender's fan level and watch-time badge with this channel. */
+  fan?: FanStanding;
+}
+
+/**
+ * Where a chatter stands with the channel (fans.ts on the API): a fan
+ * level that fades unless they keep coming back, hours watched all time,
+ * and the watch-time badge those hours earned (0, 10, 50 or 100).
+ */
+export interface FanStanding {
+  level: number;
+  hours: number;
+  badge: number;
+}
+
+/** A standing off the wire, or undefined when there's nothing to show. */
+export function readFan(raw: unknown): FanStanding | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const f = raw as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const fan = { level: Math.max(0, Math.min(10, Math.round(num(f.level)))), hours: Math.max(0, num(f.hours)), badge: num(f.badge) };
+  return fan.level > 0 || fan.badge > 0 ? fan : undefined;
 }
 
 /** One thing in the chat, ready to draw. */

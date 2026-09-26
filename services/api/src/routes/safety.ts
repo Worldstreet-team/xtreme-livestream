@@ -21,6 +21,7 @@ import { sendRoomData, sendRoomDataTo } from "../livekit.js";
 import { ChatMessage, Notification, Stream, User, type IStream, type IUser } from "../models.js";
 import { HELD_REASON_LABELS, type FilterVerdict } from "../safety/filter.js";
 import { atLeast, moderatorIdentities, requireChannelRole, roleIn } from "../safety/roles.js";
+import { fanStatus } from "../fans.js";
 
 /**
  * The safety kit's routes: who you are in a room, the channel's filter and
@@ -378,7 +379,8 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
       ).lean();
       if (!message) throw new ApiError(404, "That line isn't waiting any more", "NOT_HELD");
 
-      void sendRoomData(stream.livekitRoomName, chatPayload(message));
+      const fan = await fanStatus(stream.streamerId, message.userId).catch(() => null);
+      void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
       void sendRoomDataTo(stream.livekitRoomName, [...moderatorIdentities(streamer), String(message.userId)], {
         __evt: "held_resolved",
         messageId: String(message._id),

@@ -24,7 +24,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, type GiftDef } from "@/lib/gifts";
 import { GiftKeyboard } from "@/components/app/gift-keyboard";
-import { foldLines, giftUnit, isDrop, mentions, type ChatMsg, type ChatPlatform } from "@/components/app/chat/lines";
+import { foldLines, giftUnit, isDrop, mentions, readFan, type ChatMsg, type ChatPlatform, type FanStanding } from "@/components/app/chat/lines";
 import { useFeaturedShowing } from "@/lib/use-featured";
 import type { FeaturedItem } from "@/lib/scene";
 import type { ChannelRole, ModsCanFeature } from "@xtreme/contracts";
@@ -40,6 +40,7 @@ import {
   TopGiftersBar,
   type ChatSkin,
   type Supporter,
+  type TopFan,
 } from "@/components/app/chat/chat-lines";
 import type { Room } from "livekit-client";
 
@@ -82,6 +83,10 @@ interface LiveChatProps {
   /** The room's top gifters, richest first: ranked beside their names, and
    *  leading the panel. */
   topGifters?: Supporter[];
+  /** This stream's top fans — watch time and chat count, not only gifts. */
+  topFans?: TopFan[];
+  /** Where I stand with the channel, signed in. */
+  myFan?: FanStanding | null;
   /** The host's username, so their lines wear a Host badge. */
   hostUsername?: string;
   /** Host: what's on screen now — its line is marked, and its tool takes it down. */
@@ -141,6 +146,8 @@ export function LiveChat({
   variant = "panel",
   beforeComposer,
   topGifters,
+  topFans,
+  myFan = null,
   hostUsername,
   featured = null,
   featureSeconds = 20,
@@ -310,6 +317,7 @@ export function LiveChat({
               tipCurrency?: string;
               emoji?: string;
               createdAt: string;
+              fan?: unknown;
             }>;
           };
         }>(`/api/streams/${streamId}/chat`);
@@ -327,6 +335,7 @@ export function LiveChat({
           tipCurrency: m.tipCurrency,
           emoji: m.emoji,
           at: new Date(m.createdAt).getTime(),
+          fan: readFan(m.fan),
         }));
         const ids = new Set(history.map((h) => h.id));
         for (const id of ids) seenIdsRef.current.add(id);
@@ -480,6 +489,7 @@ export function LiveChat({
               tipCurrency: data.tipCurrency,
               emoji: data.emoji,
               at: Date.now(),
+              fan: readFan((data as { fan?: unknown }).fan),
             },
           ]);
         } catch {
@@ -585,13 +595,16 @@ export function LiveChat({
     setChatError(null);
     let savedId: string | null = null;
     let heldForReview = false;
+    let fan: ChatMsg["fan"];
     try {
-      const saved = await apiFetch<{ success: boolean; data: { message: { _id: string }; held?: boolean } }>(
+      const saved = await apiFetch<{ success: boolean; data: { message: { _id: string }; held?: boolean; fan?: unknown } }>(
         `/api/streams/${streamId}/chat`,
         { method: "POST", body: JSON.stringify(body) }
       );
       savedId = saved?.data?.message?._id ?? null;
       heldForReview = Boolean(saved?.data?.held);
+      // My own standing, so my line wears my badge like everyone else's.
+      fan = readFan(saved?.data?.fan);
     } catch (err) {
       setChatError(err instanceof Error ? err.message : "Couldn't send that message.");
       // Slow mode: start the countdown so the input says so.
@@ -610,7 +623,7 @@ export function LiveChat({
     }
     // The saved id, so the room's broadcast of this same message dedupes.
     const id = savedId ?? `local-${Date.now()}`;
-    append([{ ...msg, id, at: Date.now(), ...(heldForReview ? { pending: true } : {}) }]);
+    append([{ ...msg, id, at: Date.now(), ...(fan ? { fan } : {}), ...(heldForReview ? { pending: true } : {}) }]);
     if (heldForReview) pendingIdsRef.current.add(id);
     // Sending is also "I want to see the latest".
     pausedRef.current = false;
@@ -832,6 +845,7 @@ export function LiveChat({
       host={Boolean(hostUsername) && msg.username === hostUsername}
       mod={msg.isMod}
       rank={ranks.get(msg.username)}
+      fan={msg.fan}
       platform={msg.platform}
     />
   );
@@ -1011,7 +1025,7 @@ export function LiveChat({
             )}
           </header>
 
-          <TopGiftersBar gifters={topGifters ?? []} />
+          <TopGiftersBar gifters={topGifters ?? []} fans={topFans ?? []} me={myFan} />
 
           {canModerate && showModTools && (
             <div className="mx-3 mb-2 rounded-[12px] bg-white/[0.04] px-3.5 py-3">

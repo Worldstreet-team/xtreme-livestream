@@ -10,7 +10,10 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { Pill, PillLink } from "@/components/ui/pill";
 
 function usd(minor: number) {
-  return minor >= 100_000 ? `$${(minor / 100_000).toFixed(1)}K` : `$${Math.round(minor / 100)}`;
+  if (minor >= 100_000) return `$${(minor / 100_000).toFixed(1)}K`;
+  // Under a dollar keeps its cents: a 30¢ bonus isn't "+$0".
+  if (minor > 0 && minor < 100) return `$${(minor / 100).toFixed(2)}`;
+  return `$${Math.round(minor / 100)}`;
 }
 
 /**
@@ -139,7 +142,7 @@ export function BattleBar({
             onClick={() => window.dispatchEvent(new CustomEvent("xtreme:open-gifts"))}
             className="min-w-0"
           >
-            <span className="max-w-[34vw] truncate sm:max-w-none">Back {me.displayName}</span>
+            <span className="block max-w-[34vw] truncate sm:max-w-none">Back {me.displayName}</span>
           </Pill>
           <PillLink href={`/stream/${them.streamId}`} size="sm" variant="glass" trailing={<ArrowSquareOut size={13} />}>
             <span className="sm:hidden">Their side</span>

@@ -1,14 +1,17 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { goalBodySchema, streamIdParamsSchema } from "@xtreme/contracts";
-import { authenticate } from "../auth.js";
+import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
+import { cachedStreamFans, fanStatus } from "../fans.js";
 import { endGoal, setGoal } from "../goals.js";
-import { Stream } from "../models.js";
+import { Stream, User } from "../models.js";
 
 /**
- * The goal bar (Phase 2, goals and status): the host puts one up and takes
- * it down; gifts, likes and follows move it (goals.ts, from their routes).
+ * Goals and status (Phase 2): the host puts a goal up and takes it down;
+ * gifts, likes and follows move it (goals.ts, from their routes). And the
+ * status that isn't pay-only — a stream's top fans and your level with the
+ * channel (fans.ts).
  */
 export const goalRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -60,6 +63,30 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
       // Nothing up is already the state asked for.
       const goal = await endGoal(stream._id);
       return { success: true, data: { goal } };
+    },
+  );
+
+  app.get(
+    "/streams/:id/fans",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "This stream's top fans — watch time and chat count, not only gifts — and where you stand",
+        params: streamIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const stream = await Stream.findById(request.params.id).select("_id streamerId");
+      if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      const fans = await cachedStreamFans(stream);
+      // Signed in: your own level with the channel, for the chat's header.
+      let me = null;
+      const authUserId = getOptionalAuthUserId(request);
+      if (authUserId) {
+        const caller = await User.findOne({ authUserId }).select("_id").lean();
+        if (caller) me = await fanStatus(stream.streamerId, caller._id).catch(() => null);
+      }
+      return { success: true, data: { fans, me } };
     },
   );
 };

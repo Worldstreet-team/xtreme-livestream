@@ -1,3 +1,4 @@
+import type { FanStatus } from "./fans.js";
 import type { IChatMessage } from "./models.js";
 
 /** Seconds between messages while slow mode (or Shield) is on. */
@@ -13,6 +14,8 @@ export function chatPayload(
     IChatMessage,
     "_id" | "userId" | "username" | "avatar" | "isMod" | "content" | "type" | "tipAmount" | "tipCurrency" | "emoji" | "platform"
   >,
+  /** The author's standing with the channel — a fan level and watch-time badge in chat. */
+  fan?: FanStatus | null,
 ) {
   return {
     id: String(message._id),
@@ -28,5 +31,7 @@ export function chatPayload(
     tipCurrency: message.tipCurrency ?? undefined,
     emoji: message.emoji ?? undefined,
     platform: message.platform,
+    // Only when there's something to show: most lines carry nothing extra.
+    ...(fan && (fan.level > 0 || fan.badge > 0) ? { fan } : {}),
   };
 }

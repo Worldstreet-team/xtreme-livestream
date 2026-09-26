@@ -32,6 +32,7 @@ import {
   reconcileStream,
 } from "../stream-service.js";
 import { bumpGoal } from "../goals.js";
+import { fanStatus, fanStatuses } from "../fans.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -460,7 +461,7 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const stream = await Stream.findById(request.params.id).select("_id");
+      const stream = await Stream.findById(request.params.id).select("_id streamerId");
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
@@ -477,7 +478,15 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         .lean();
 
       messages.reverse();
-      return { success: true, data: { messages } };
+      // Each author's standing with the channel, read once for the page.
+      // Never fails the history.
+      const authors = [...new Map(messages.map((m) => [String(m.userId), m.userId])).values()];
+      const standing = await fanStatuses(stream.streamerId, authors).catch(() => new Map());
+      const withFans = messages.map((m) => {
+        const fan = standing.get(String(m.userId));
+        return fan && (fan.level > 0 || fan.badge > 0) ? { ...m, fan } : m;
+      });
+      return { success: true, data: { messages: withFans } };
     },
   );
 
@@ -615,9 +624,11 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // depend on the sender's own client republishing over WebRTC, which
       // was silence for anyone whose token lacked canPublishData — the
       // usual state of cross-platform viewers. Clients dedupe on `id`.
-      void sendRoomData(stream.livekitRoomName, chatPayload(message));
+      // The author's fan level and watch-time badge ride along. Never fails the line.
+      const fan = await fanStatus(stream.streamerId, dbUser._id).catch(() => null);
+      void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
 
-      return { success: true, data: { message } };
+      return { success: true, data: { message, fan } };
     },
   );
 };

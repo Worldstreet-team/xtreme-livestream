@@ -54,6 +54,8 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
+import type { TopFan } from "@/components/app/chat/chat-lines";
+import { readFan, type FanStanding } from "@/components/app/chat/lines";
 import { DEFAULT_SCENE, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { cn } from "@/lib/utils";
 import { use } from "react";
@@ -1560,6 +1562,29 @@ export default function StreamPage({
     };
   }, [id]);
 
+  // The fans board: watch time and chat count as well as gifts, so it
+  // moves while nobody gifts — a slow poll (the API works it out once per
+  // 15 s for everyone). Signed in, it also says where I stand.
+  const [topFans, setTopFans] = useState<TopFan[]>([]);
+  const [myFan, setMyFan] = useState<FanStanding | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      apiFetch<{ success: boolean; data: { fans: TopFan[]; me: unknown } }>(`/api/streams/${id}/fans`)
+        .then((r) => {
+          if (cancelled) return;
+          setTopFans(r.data.fans);
+          setMyFan(readFan(r.data.me) ?? null);
+        })
+        .catch(() => {});
+    void load();
+    const poll = setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, [id, user?.id]);
+
   // When the stream ends, offer what's live *now* instead of ejecting the
   // viewer — the session should roll on, not stop. The auto-redirect only
   // remains for the case where nothing else is live.
@@ -2188,17 +2213,18 @@ export default function StreamPage({
             actionsEnd={
               band ? (
                 <>
+                  {/* Icon-only: with Back and Their side, the row has to fit a 375px screen. */}
                   <button
                     type="button"
                     onClick={() => {
                       heartsRef.current?.push();
                       if (user && !liked) void toggleLike();
                     }}
-                    aria-label={liked ? "Liked" : "Like"}
-                    className="press flex h-8 items-center gap-1.5 rounded-full bg-control px-3 text-[12px] font-semibold text-white tabular-nums hover:bg-control-hover"
+                    aria-label={`${liked ? "Liked" : "Like"} · ${formatNumber(likeCount)}`}
+                    title={`${formatNumber(likeCount)} likes`}
+                    className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
                   >
                     <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
-                    {likeCount > 0 ? formatNumber(likeCount) : "Like"}
                   </button>
                   <button
                     type="button"
@@ -2261,23 +2287,24 @@ export default function StreamPage({
                 {stream.category}
               </Badge>
             </Link>
-            {/* The room's top gifters, TikTok-style: their faces up top,
-                ranked, and the list a tap away. */}
-            {topGifters.length > 0 && (
+            {/* The room's leaders, TikTok-style: their faces up top, ranked,
+                and the lists a tap away — gifters, and fans (watch time and
+                chat count too). */}
+            {(topGifters.length > 0 || topFans.length > 0) && (
               <button
                 type="button"
                 onClick={() => setShowGifters((v) => !v)}
                 aria-expanded={showGifters}
-                aria-label="Top gifters"
+                aria-label={topGifters.length > 0 ? "Top gifters and fans" : "Top fans"}
                 className="press ml-auto flex shrink-0 -space-x-2 pb-1"
               >
-                {topGifters.slice(0, 3).map((g, i) => (
+                {(topGifters.length > 0 ? topGifters : topFans).slice(0, 3).map((g, i) => (
                   <span key={g.userId ?? g.username} className="relative">
                     <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7 ring-2 ring-black" />
                     <span
                       className={cn(
                         "absolute -bottom-1 left-1/2 flex h-3.5 min-w-3.5 -translate-x-1/2 items-center justify-center rounded-full px-0.5 font-mono text-[8.5px] font-bold ring-2 ring-black",
-                        i === 0 ? "bg-value text-[#1b1406]" : "bg-white text-[#0b0708]"
+                        i === 0 ? (topGifters.length > 0 ? "bg-value text-[#1b1406]" : "bg-ember text-on-ember") : "bg-white text-[#0b0708]"
                       )}
                     >
                       {i + 1}
@@ -2287,24 +2314,73 @@ export default function StreamPage({
               </button>
             )}
           </div>
-          {showGifters && topGifters.length > 0 && (
-            <div className="mt-2 ml-auto w-[min(270px,calc(100vw-24px))] animate-in rounded-[16px] bg-black/80 p-1.5 duration-200 fade-in slide-in-from-top-1">
-              <p className="flex items-center gap-1.5 px-2 pt-1.5 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase">
-                <Crown size={12} weight="fill" className="text-value" />
-                Top gifters
-              </p>
-              {topGifters.slice(0, 5).map((g, i) => (
-                <Link
-                  key={g.userId ?? g.username}
-                  href={`/c/${g.username}`}
-                  className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
-                >
-                  <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-value" : "text-white/55")}>{i + 1}</span>
-                  <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{g.displayName || g.username}</span>
-                  <span className="font-mono text-[12px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
-                </Link>
-              ))}
+          {showGifters && (topGifters.length > 0 || topFans.length > 0) && (
+            <div className="mt-2 ml-auto max-h-[60dvh] w-[min(270px,calc(100vw-24px))] animate-in overflow-y-auto rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-top-1">
+              {topGifters.length > 0 && (
+                <>
+                  <p className="flex items-center gap-1.5 px-2 pt-1.5 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase">
+                    <Crown size={12} weight="fill" className="text-value" />
+                    Top gifters
+                  </p>
+                  {topGifters.slice(0, 5).map((g, i) => (
+                    <Link
+                      key={g.userId ?? g.username}
+                      href={`/c/${g.username}`}
+                      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
+                    >
+                      <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-value" : "text-white/55")}>{i + 1}</span>
+                      <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{g.displayName || g.username}</span>
+                      <span className="font-mono text-[12px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
+                    </Link>
+                  ))}
+                </>
+              )}
+              {topFans.length > 0 && (
+                <>
+                  <p
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase",
+                      topGifters.length > 0 ? "mt-1.5 border-t border-white/10 pt-2.5" : "pt-1.5"
+                    )}
+                  >
+                    <Heart size={11} weight="fill" className="text-ember-hi" />
+                    Top fans
+                    <span className="ml-auto font-medium tracking-normal normal-case">watching, chatting, gifting</span>
+                  </p>
+                  {topFans.slice(0, 5).map((f, i) => (
+                    <Link
+                      key={f.userId}
+                      href={`/c/${f.username}`}
+                      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
+                    >
+                      <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-ember-hi" : "text-white/55")}>{i + 1}</span>
+                      <UserAvatar src={f.avatar} name={f.displayName} size={28} className="size-7" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-white">{f.displayName}</span>
+                        <span className="block truncate text-[11px] text-white/55 tabular-nums">
+                          {[
+                            f.minutes > 0 && (f.minutes >= 60 ? `${Math.floor(f.minutes / 60)}h ${String(f.minutes % 60).padStart(2, "0")}m watched` : `${f.minutes}m watched`),
+                            f.chats > 0 && `${f.chats} ${f.chats === 1 ? "message" : "messages"}`,
+                            f.giftsMinor > 0 && `${centsToDollars(f.giftsMinor)} gifted`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-0.5 font-mono text-[12px] font-semibold text-ember-hi tabular-nums">
+                        <Heart size={9} weight="fill" aria-hidden />
+                        {f.score.toLocaleString("en-US")}
+                      </span>
+                    </Link>
+                  ))}
+                  {myFan && myFan.level > 0 && (
+                    <p className="mx-1 mt-1.5 rounded-[10px] bg-ember/15 px-2.5 py-2 text-[12px] font-semibold text-ember-hi">
+                      You&apos;re level {myFan.level} with {hostName} · {myFan.hours}h watched
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -2412,6 +2488,8 @@ export default function StreamPage({
               isHost={isOwner}
               initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
               variant="overlay"
             />
@@ -2792,6 +2870,8 @@ export default function StreamPage({
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
                 />
               </aside>
@@ -2807,6 +2887,8 @@ export default function StreamPage({
                 isLive={stream.isLive}
                 initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
               />
             </div>
@@ -3020,6 +3102,8 @@ export default function StreamPage({
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
                 />
               </div>
