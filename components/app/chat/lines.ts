@@ -29,6 +29,13 @@ export interface ChatMsg {
   pending?: boolean;
   /** The sender's fan level and watch-time badge with this channel. */
   fan?: FanStanding;
+  /** A Shout: its words are the content, pinned over the chat until then (ISO). */
+  shoutUntil?: string;
+}
+
+/** A Shout — a gift with words. Only the server sets `shoutUntil`, so only a real one wears it. */
+export function isShout(msg: ChatMsg) {
+  return msg.type === "tip" && Boolean(msg.shoutUntil);
 }
 
 /**
@@ -98,8 +105,11 @@ export function foldLines(list: ChatMsg[]): ChatLine[] {
       continue;
     }
     if (msg.type === "tip") {
+      // A Shout never folds: each one has its own words.
       const combo =
         last?.kind === "gift" &&
+        !isShout(msg) &&
+        !isShout(last.msg) &&
         giftUnit(msg) !== "other" &&
         last.msg.username === msg.username &&
         last.msg.emoji === msg.emoji &&

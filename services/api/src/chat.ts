@@ -13,7 +13,7 @@ export function chatPayload(
   message: Pick<
     IChatMessage,
     "_id" | "userId" | "username" | "avatar" | "isMod" | "content" | "type" | "tipAmount" | "tipCurrency" | "emoji" | "platform"
-  >,
+  > & { shoutUntil?: Date | null },
   /** The author's standing with the channel — a fan level and watch-time badge in chat. */
   fan?: FanStatus | null,
 ) {
@@ -33,5 +33,6 @@ export function chatPayload(
     platform: message.platform,
     // Only when there's something to show: most lines carry nothing extra.
     ...(fan && (fan.level > 0 || fan.badge > 0) ? { fan } : {}),
+    ...(message.shoutUntil ? { shoutUntil: new Date(message.shoutUntil).toISOString() } : {}),
   };
 }

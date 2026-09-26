@@ -576,8 +576,11 @@ function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: 
   }, [leaving, onGone]);
 
   if (phase === "gone") return null;
-  const gift = item.kind === "gift";
+  const request = item.kind === "request";
+  const gift = item.kind === "gift" || request;
   const def = gift ? giftByEmoji(item.emoji) : null;
+  // A Shout's card is its words; a request's, what was asked for.
+  const said = request || def?.id === "shout";
   const amount = gift && item.amount ? centsToDollars(Math.round(parseFloat(item.amount) * 100)) : null;
 
   return (
@@ -599,8 +602,18 @@ function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: 
           )}
         </span>
         <p className="min-w-0">
-          <span className="block truncate text-[0.7em] font-semibold text-white/65">{item.username}</span>
-          {gift ? (
+          <span className="block truncate text-[0.7em] font-semibold text-white/65">
+            {request ? `Request from ${item.username}` : item.username}
+          </span>
+          {said ? (
+            <>
+              <span className="mt-[0.1em] line-clamp-3 leading-snug font-semibold break-words text-white">
+                {item.text}
+                {amount && <span className="ml-[0.4em] font-money text-value tabular-nums">{amount}</span>}
+              </span>
+              {item.note && <span className="mt-[0.2em] line-clamp-2 block text-[0.8em] leading-snug break-words text-white/80">{item.note}</span>}
+            </>
+          ) : gift ? (
             <span className="mt-[0.1em] block leading-snug font-semibold text-white">
               {def?.verb ?? item.text}
               {amount && <span className="ml-[0.4em] font-money text-value tabular-nums">{amount}</span>}

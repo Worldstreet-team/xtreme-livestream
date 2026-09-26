@@ -12,6 +12,7 @@ import { guestRoutes } from "./guests.js";
 import { marketRoutes } from "./market.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
+import { requestRoutes } from "./requests.js";
 import { rewardRoutes } from "./rewards.js";
 import { safetyRoutes } from "./safety.js";
 import { streamActionRoutes } from "./stream-actions.js";
@@ -27,6 +28,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(dashboardRoutes);
   await fastify.register(giftRoutes);
   await fastify.register(goalRoutes);
+  await fastify.register(requestRoutes);
   await fastify.register(healthRoutes);
   await fastify.register(battleRoutes);
   await fastify.register(gameRoutes);

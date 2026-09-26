@@ -22,9 +22,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, type GiftDef } from "@/lib/gifts";
-import { GiftKeyboard } from "@/components/app/gift-keyboard";
-import { foldLines, giftUnit, isDrop, mentions, readFan, type ChatMsg, type ChatPlatform, type FanStanding } from "@/components/app/chat/lines";
+import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, REQUEST_GIFT, centsToDollars, type GiftDef } from "@/lib/gifts";
+import { GiftKeyboard, type GiftTab } from "@/components/app/gift-keyboard";
+import { GiftArt } from "@/components/app/gift-art";
+import { foldLines, giftUnit, isDrop, isShout, mentions, readFan, type ChatMsg, type ChatPlatform, type FanStanding } from "@/components/app/chat/lines";
+import { ShoutRail } from "@/components/app/chat/shout-rail";
+import { useViewerRequests, type RequestOrder } from "@/lib/requests";
+import { serverNow } from "@/lib/server-clock";
 import { useFeaturedShowing } from "@/lib/use-featured";
 import type { FeaturedItem } from "@/lib/scene";
 import type { ChannelRole, ModsCanFeature } from "@xtreme/contracts";
@@ -164,6 +168,10 @@ export function LiveChat({
   const [input, setInput] = useState("");
   const [showReactions, setShowReactions] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
+  /** Which tab the gift sheet opens on — the requests chip opens it on the menu. */
+  const [giftTab, setGiftTab] = useState<GiftTab>("gifts");
+  /** Shouts, for the pinned rail: kept apart from the lines, since an hour's pin outlives them. */
+  const [shouts, setShouts] = useState<ChatMsg[]>([]);
   const [giftBusy, setGiftBusy] = useState(false);
   const [giftError, setGiftError] = useState<string | null>(null);
   /** Spendable wallet balance in USD cents; null until loaded (or unavailable). */
@@ -197,6 +205,19 @@ export function LiveChat({
   const [reportFor, setReportFor] = useState<string | null>(null);
   /** A passing confirmation ("Suggested to the host"). */
   const [notice, setNotice] = useState<string | null>(null);
+  // Paid requests: the host's menu while they're taking them, and mine.
+  const onRequestNews = useCallback(
+    (order: RequestOrder) => {
+      const who = hostUsername ?? "The host";
+      setNotice(
+        order.status === "done"
+          ? `Done: ${order.title} — ${who} got to it`
+          : `${order.title} wasn't done — ${centsToDollars(order.priceUsdMinor)} ${order.refunded ? "is back in your wallet" : "is on its way back"}`
+      );
+    },
+    [hostUsername]
+  );
+  const requests = useViewerRequests(streamId, isHost ? null : room, Boolean(user) && !isHost, onRequestNews);
   const onFeatureQueueRef = useRef(onFeatureQueue);
   useEffect(() => {
     onFeatureQueueRef.current = onFeatureQueue;
@@ -215,7 +236,10 @@ export function LiveChat({
   // The battle bar's "Back this side" opens the same gift panel from outside
   // the chat column, so backing a side is one tap from the player.
   useEffect(() => {
-    const open = () => setShowGiftPanel(true);
+    const open = () => {
+      setGiftTab("gifts");
+      setShowGiftPanel(true);
+    };
     window.addEventListener("xtreme:open-gifts", open);
     return () => window.removeEventListener("xtreme:open-gifts", open);
   }, []);
@@ -276,6 +300,17 @@ export function LiveChat({
     setMessages((prev) => [...prev, ...fresh].slice(-MAX_MESSAGES));
   }, []);
 
+  /** A Shout still pinned joins the rail (once); the ones whose pin ran out leave it. */
+  const pinShouts = useCallback((incoming: ChatMsg[]) => {
+    const live = incoming.filter((m) => isShout(m) && Date.parse(m.shoutUntil!) > serverNow());
+    if (live.length === 0) return;
+    setShouts((prev) => {
+      const now = serverNow();
+      const kept = prev.filter((p) => Date.parse(p.shoutUntil!) > now && !live.some((m) => m.id === p.id));
+      return [...kept, ...live].slice(-20);
+    });
+  }, []);
+
   /** An arrival joins the ticker; a quiet spell clears it. */
   const noteArrival = useCallback((name: string) => {
     const now = Date.now();
@@ -318,7 +353,9 @@ export function LiveChat({
               emoji?: string;
               createdAt: string;
               fan?: unknown;
+              shoutUntil?: string | null;
             }>;
+            shouts?: Array<Record<string, unknown>>;
           };
         }>(`/api/streams/${streamId}/chat`);
         if (cancelled) return;
@@ -336,7 +373,24 @@ export function LiveChat({
           emoji: m.emoji,
           at: new Date(m.createdAt).getTime(),
           fan: readFan(m.fan),
+          ...(m.shoutUntil ? { shoutUntil: m.shoutUntil } : {}),
         }));
+        // Every Shout still pinned, however far back it was sent.
+        pinShouts(
+          (res.data.shouts ?? []).map((m) => ({
+            id: String(m._id),
+            userId: m.userId ? String(m.userId) : undefined,
+            username: String(m.username ?? ""),
+            avatar: String(m.avatar ?? ""),
+            content: String(m.content ?? ""),
+            type: "tip" as const,
+            tipAmount: typeof m.tipAmount === "string" ? m.tipAmount : undefined,
+            tipCurrency: "USD",
+            emoji: typeof m.emoji === "string" ? m.emoji : undefined,
+            at: new Date(String(m.createdAt)).getTime(),
+            shoutUntil: typeof m.shoutUntil === "string" ? m.shoutUntil : undefined,
+          }))
+        );
         const ids = new Set(history.map((h) => h.id));
         for (const id of ids) seenIdsRef.current.add(id);
         setMessages((prev) => [...history, ...prev.filter((p) => !ids.has(p.id))].slice(-MAX_MESSAGES));
@@ -347,7 +401,7 @@ export function LiveChat({
     return () => {
       cancelled = true;
     };
-  }, [streamId]);
+  }, [streamId, pinShouts]);
 
   // The room: chat, gifts and the events that shape the chat.
   useEffect(() => {
@@ -419,6 +473,7 @@ export function LiveChat({
                 if (data.messageId) {
                   setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
                   setHeld((h) => h.filter((x) => x.id !== data.messageId));
+                  setShouts((prev) => prev.filter((m) => m.id !== data.messageId));
                 }
                 return;
               // A ban wipes that user's lines everywhere; the banned client
@@ -426,6 +481,7 @@ export function LiveChat({
               case "chat_ban":
                 if (data.userId) {
                   setMessages((prev) => prev.filter((m) => m.userId !== data.userId));
+                  setShouts((prev) => prev.filter((m) => m.userId !== data.userId));
                   if (data.userId === user?.id) setMyBan({ until: data.until ?? null });
                 }
                 return;
@@ -475,8 +531,7 @@ export function LiveChat({
           }
 
           if (!data.username || !data.type) return;
-          append([
-            {
+          const line: ChatMsg = {
               id: String(data.id ?? `rt-${Date.now()}-${Math.random()}`),
               userId: data.userId,
               username: data.username,
@@ -490,8 +545,10 @@ export function LiveChat({
               emoji: data.emoji,
               at: Date.now(),
               fan: readFan((data as { fan?: unknown }).fan),
-            },
-          ]);
+              ...(typeof data.shoutUntil === "string" ? { shoutUntil: data.shoutUntil } : {}),
+          };
+          append([line]);
+          pinShouts([line]);
         } catch {
           // Not a chat payload.
         }
@@ -510,7 +567,7 @@ export function LiveChat({
       }
       attachedRef.current = false;
     };
-  }, [room, user?.id, append, noteArrival]);
+  }, [room, user?.id, append, noteArrival, pinShouts]);
 
   // Follow the bottom — unless the reader has scrolled up, in which case
   // the new lines are counted for the pill instead.
@@ -829,6 +886,63 @@ export function LiveChat({
     }
   };
 
+  // A Shout: the words ride with the gift and pin over the chat. The API
+  // filters them before any money moves, and writes the line.
+  const sendShout = async (amountUsdMinor: number, message: string) => {
+    if (!user || giftBusy) return;
+    setGiftBusy(true);
+    setGiftError(null);
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        data: { chatMessage: { _id?: string; content: string; tipAmount: string; emoji: string | null; shoutUntil?: string | null } };
+      }>(`/api/streams/${streamId}/gifts`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ amountUsdMinor, platform: "xstream", message }),
+      });
+      const row = res.data.chatMessage;
+      const line: ChatMsg = {
+        id: row._id ?? `local-${Date.now()}`,
+        userId: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        content: row.content,
+        type: "tip",
+        tipAmount: row.tipAmount,
+        tipCurrency: "USD",
+        emoji: row.emoji ?? undefined,
+        at: Date.now(),
+        ...(row.shoutUntil ? { shoutUntil: row.shoutUntil } : {}),
+      };
+      append([line]);
+      pinShouts([line]);
+      setShowGiftPanel(false);
+      setWalletMinor((prev) => (prev === null ? prev : Math.max(0, prev - amountUsdMinor)));
+      loadWalletBalance();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) {
+        setGiftError("Insufficient balance — top up your dollar wallet to Shout.");
+        loadWalletBalance();
+      } else if (err instanceof ApiError && err.status === 503) {
+        setGiftError("Shouts aren't available right now. Try again later.");
+      } else {
+        setGiftError(err instanceof Error ? err.message : "Could not send the Shout.");
+      }
+    } finally {
+      setGiftBusy(false);
+    }
+  };
+
+  const requestsForMe = !isHost && Boolean(user) && requests.menu.open;
+  const openGifts = (tab: GiftTab) => {
+    setGiftTab(tab);
+    setShowGiftPanel(true);
+    setShowReactions(false);
+    setGiftError(null);
+    if (requestsForMe) void requests.loadMine();
+  };
+
   // ---- Drawing ----
 
   const lines = useMemo(() => foldLines(overlay ? messages.slice(-OVERLAY_LINES) : messages), [messages, overlay]);
@@ -1099,6 +1213,8 @@ export function LiveChat({
         </p>
       )}
 
+      <ShoutRail shouts={shouts} skin={skin} />
+
       {/* The lines, and the pill that brings a reader back down. */}
       <div className={cn("relative", overlay ? "" : "min-h-0 flex-1")}>
         <div
@@ -1196,6 +1312,22 @@ export function LiveChat({
 
       <ArrivalTicker arrival={arrival} skin={skin} />
 
+      {/* The host is taking requests: one tap to their menu. */}
+      {requestsForMe && isLive && !showGiftPanel && (
+        <button
+          type="button"
+          onClick={() => openGifts("requests")}
+          className={cn(
+            "press flex w-fit max-w-full items-center gap-2 rounded-full py-1 pr-3 pl-1 text-[12.5px] font-semibold",
+            overlay ? "pointer-events-auto mb-1.5 bg-black/60 text-white/90" : "mx-3 mb-2 bg-white/[0.06] text-foreground/90 hover:bg-white/[0.1]"
+          )}
+        >
+          <GiftArt art={REQUEST_GIFT.art} emoji={REQUEST_GIFT.emoji} size={22} />
+          <span className="truncate">{hostUsername ? `${hostUsername} is taking requests` : "Requests are open"}</span>
+          <span className={cn("shrink-0", overlay ? "text-white/60" : "text-muted-foreground")}>· {requests.menu.items.length} on the menu</span>
+        </button>
+      )}
+
       {showReactions && (
         <div className={cn("flex flex-wrap gap-1", overlay ? "pointer-events-auto mb-2 w-fit rounded-[16px] bg-black/60 p-1.5" : "px-3 pb-2")}>
           {QUICK_REACTIONS.map((emoji) => (
@@ -1224,6 +1356,33 @@ export function LiveChat({
         busy={giftBusy}
         error={giftError}
         onSend={(choice) => void sendGift(choice)}
+        onShout={(usdMinor, message) => void sendShout(usdMinor, message)}
+        openTab={giftTab}
+        requests={
+          requestsForMe || requests.mine.pending.length > 0
+            ? {
+                hostName: hostUsername ?? "the host",
+                menu: requests.menu,
+                mine: [...requests.mine.pending, ...requests.mine.decided],
+                onOrder: async (itemId, note) => {
+                  try {
+                    await requests.order(itemId, note);
+                    setWalletMinor((prev) => {
+                      const item = requests.menu.items.find((i) => i.id === itemId);
+                      return prev === null || !item ? prev : Math.max(0, prev - item.priceUsdMinor);
+                    });
+                    loadWalletBalance();
+                  } catch (err) {
+                    if (err instanceof ApiError && err.status === 402) {
+                      loadWalletBalance();
+                      throw new Error("Not enough in your dollar wallet — top up to ask.");
+                    }
+                    throw err;
+                  }
+                },
+              }
+            : null
+        }
       />
 
       {beforeComposer && <div className="pointer-events-auto">{beforeComposer}</div>}
@@ -1273,9 +1432,8 @@ export function LiveChat({
                 "Send a gift",
                 showGiftPanel,
                 () => {
-                  setShowGiftPanel(!showGiftPanel);
-                  setShowReactions(false);
-                  setGiftError(null);
+                  if (showGiftPanel) setShowGiftPanel(false);
+                  else openGifts("gifts");
                 },
                 <Gift size={19} weight="fill" className={showGiftPanel ? "text-value" : undefined} />
               )}

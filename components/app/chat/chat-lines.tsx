@@ -7,7 +7,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
-import { giftUnit, nameColor, type ChatMsg, type FanStanding } from "./lines";
+import { giftUnit, isShout, nameColor, type ChatMsg, type FanStanding } from "./lines";
 
 /**
  * How chat reads, line by line. Flat on purpose (owner, 2026-09-25: "i
@@ -208,8 +208,10 @@ export function GiftLine({
 }) {
   const def = giftByEmoji(msg.emoji);
   const unit = giftUnit(msg);
+  const shout = isShout(msg);
   // The catalog's verb reads like the room: "lit it up", "crowned the stream".
-  const what = def ? def.verb : msg.content || "tipped";
+  // A request's line says what was asked for, which the server wrote.
+  const what = shout ? "shouted" : def?.id === "request" ? msg.content : def ? def.verb : msg.content || "tipped";
   const amount =
     unit === "usd"
       ? centsToDollars(total)
@@ -217,6 +219,43 @@ export function GiftLine({
         ? `+${total.toLocaleString()} pts`
         : `${msg.tipAmount} ${msg.tipCurrency}`;
   const big = unit === "usd" && total >= 1000;
+
+  // A Shout is its words: they lead, in the room's own voice.
+  if (shout && skin === "overlay") {
+    return (
+      <div className={cn("group relative flex w-fit max-w-full items-start gap-2 py-[3px]", ON_VIDEO)} onClick={onTap}>
+        <GiftArt emoji={msg.emoji ?? "📣"} size={26} className="mt-[-1px] shrink-0" />
+        <p className="min-w-0 text-[13.5px] leading-snug text-white">
+          {badges}
+          <span className="mr-1 font-semibold text-white/70">{msg.username}</span>
+          <span className="mr-1.5 font-bold text-value">{amount}</span>
+          <span className="font-semibold break-words">{msg.content}</span>
+          {onStream && <OnStream skin={skin} />}
+        </p>
+        {tools}
+      </div>
+    );
+  }
+  if (shout) {
+    return (
+      <div onClick={onTap} className={cn("group relative my-1 rounded-[12px] px-2.5 py-2", big ? "bg-ember/[0.12]" : "bg-white/[0.06]")}>
+        <div className="flex items-center gap-2.5">
+          <GiftArt emoji={msg.emoji ?? "📣"} size={26} className="shrink-0" />
+          <p className="min-w-0 flex-1 truncate text-[12.5px] leading-snug">
+            {badges}
+            <span className="font-semibold" style={{ color: nameColor(msg.username) }}>
+              {msg.username}
+            </span>
+            <span className="text-foreground/60"> shouted</span>
+            {onStream && <OnStream skin={skin} />}
+          </p>
+          <span className="shrink-0 font-mono text-[13px] font-bold text-value tabular-nums">{amount}</span>
+          {tools}
+        </div>
+        <p className="mt-1 pl-[36px] text-[14.5px] leading-snug font-medium break-words text-foreground">{msg.content}</p>
+      </div>
+    );
+  }
 
   if (skin === "overlay") {
     return (

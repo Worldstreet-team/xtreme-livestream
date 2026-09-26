@@ -73,7 +73,9 @@ interface Earnings {
 }
 interface PayoutRow {
   id: string;
-  kind: "points_redemption" | "battle_bonus";
+  kind: "points_redemption" | "battle_bonus" | "request";
+  /** A paid request's payout: which request it was. */
+  title?: string;
   points: number;
   usdMinor: number;
   status: "pending" | "paid" | "failed";
@@ -356,7 +358,11 @@ export default function WalletPage() {
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col leading-tight">
                       <span className="truncate text-[14px] font-medium text-foreground">
-                        {p.kind === "battle_bonus" ? "Battle bonus" : `${formatPoints(p.points)} points redeemed`}
+                        {p.kind === "battle_bonus"
+                          ? "Battle bonus"
+                          : p.kind === "request"
+                            ? `Request done${p.title ? ` · ${p.title}` : ""}`
+                            : `${formatPoints(p.points)} points redeemed`}
                       </span>
                       <span className="truncate text-[12px] text-muted-foreground">
                         {when(p.createdAt)} · {p.status === "paid" ? "paid to your wallet" : p.status === "failed" ? "failed — nothing was deducted" : "pending"}

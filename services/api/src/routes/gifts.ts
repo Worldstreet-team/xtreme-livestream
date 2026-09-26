@@ -3,11 +3,14 @@ import type { Types } from "mongoose";
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { streamIdParamsSchema } from "@xtreme/contracts";
+import { SHOUT_MAX_LENGTH, SHOUT_MIN_MINOR, shoutSeconds, streamIdParamsSchema } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
+import { chatPayload } from "../chat.js";
+import { fanStatus } from "../fans.js";
 import { ChatMessage, GiftTransaction, Stream, User } from "../models.js";
+import { checkMessage, NEW_ACCOUNT_MS } from "../safety/filter.js";
 import { sendRoomData } from "../livekit.js";
 import { applyBattleGift } from "../battles.js";
 import { autoFeatureGift } from "../featured.js";
@@ -29,6 +32,11 @@ const sendGiftBodySchema = z.object({
   emoji: z.string().trim().max(20).optional(),
   /** Which surface the gift was sent from — badged in chat like messages. */
   platform: z.enum(["xstream", "socials", "worldspace"]).default("xstream"),
+  /**
+   * A Shout: words with the gift, pinned over the chat for longer the more
+   * it costs (SHOUT_TIERS). From $2.
+   */
+  message: z.string().trim().max(SHOUT_MAX_LENGTH).optional(),
 });
 
 const centsToDecimal = (minor: number) => (minor / 100).toFixed(2);
@@ -88,11 +96,29 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
 
       const body = request.body;
       const grossUsdMinor = body.amountUsdMinor;
+
+      // A Shout's words meet the room's chat rules before any money moves —
+      // a paid line can't be held for review, so anything the filter would
+      // stop is turned away here.
+      const shout = body.message ? body.message : null;
+      if (shout) {
+        if (grossUsdMinor < SHOUT_MIN_MINOR) {
+          throw new ApiError(400, `A Shout starts at $${SHOUT_MIN_MINOR / 100}`, "SHOUT_TOO_SMALL");
+        }
+        const createdAt = (sender.dbUser as { createdAt?: Date }).createdAt;
+        const verdict = checkMessage(shout, streamer.settings?.profanityFilter === false ? null : (streamer.safety ?? {}), {
+          shield: Boolean(stream.shield?.on),
+          newAccount: createdAt ? Date.now() - new Date(createdAt).getTime() < NEW_ACCOUNT_MS : false,
+        });
+        if (verdict) {
+          throw new ApiError(422, "That Shout goes against this room's chat rules — try different words", "SHOUT_BLOCKED");
+        }
+      }
       const commissionUsdMinor = Math.floor(
         (grossUsdMinor * config.GIFT_COMMISSION_PERCENT) / 100,
       );
       const netUsdMinor = grossUsdMinor - commissionUsdMinor;
-      const giftName = body.giftName ?? "";
+      const giftName = shout ? "Shout" : (body.giftName ?? "");
 
       // One wallet-side transaction: debit sender (gross), credit streamer's
       // central wallet (net); the commission books as platform revenue there.
@@ -135,7 +161,7 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           streamerId: streamer._id,
           streamId: stream._id,
           giftName,
-          emoji: body.emoji ?? "",
+          emoji: shout ? "📣" : (body.emoji ?? ""),
           grossUsdMinor,
           commissionUsdMinor,
           netUsdMinor,
@@ -154,36 +180,29 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
           request.log.error({ err }, "battle scoring failed"),
         );
 
-        // Announce it in persisted chat so late joiners see the tip too.
+        // Announce it in persisted chat so late joiners see the tip too. A
+        // Shout's line is its words, pinned until `shoutUntil`.
         const message = await ChatMessage.create({
           streamId: stream._id,
           userId: sender.dbUser._id,
           username: sender.dbUser.username,
           avatar: sender.dbUser.avatar,
           isMod: false,
-          content: giftName ? `sent a ${giftName}` : "tipped",
+          content: shout ?? (giftName ? `sent a ${giftName}` : "tipped"),
           type: "tip",
           tipAmount: centsToDecimal(grossUsdMinor),
           tipCurrency: "USD",
-          emoji: body.emoji ?? null,
+          emoji: shout ? "📣" : (body.emoji ?? null),
           platform: body.platform,
+          shoutUntil: shout ? new Date(Date.now() + shoutSeconds(grossUsdMinor) * 1000) : null,
         });
 
         // The tip announcement reaches the room from here, not from the
         // sender's client — a wallet event's visibility should not depend
-        // on the buyer's WebRTC publish rights.
-        void sendRoomData(stream.livekitRoomName, {
-          id: String(message._id),
-          userId: String(sender.dbUser._id),
-          username: sender.dbUser.username,
-          avatar: sender.dbUser.avatar,
-          content: message.content,
-          type: "tip",
-          tipAmount: message.tipAmount,
-          tipCurrency: "USD",
-          emoji: body.emoji,
-          platform: body.platform,
-        });
+        // on the buyer's WebRTC publish rights. The sender's standing rides
+        // along, as it does on a chat line.
+        const fan = await fanStatus(stream.streamerId, sender.dbUser._id).catch(() => null);
+        void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
 
         // The goal bar and the heat meter move with it. Neither may fail the gift.
         await bumpGoal(stream._id, "gifts", grossUsdMinor).catch((err) =>

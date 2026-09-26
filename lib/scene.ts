@@ -75,7 +75,7 @@ export function readFeatured(raw: unknown): FeaturedItem | null {
   if (!str(r.id) || !str(r.username) || Number.isNaN(Date.parse(str(r.at)))) return null;
   return {
     id: str(r.id),
-    kind: r.kind === "gift" ? "gift" : "chat",
+    kind: r.kind === "gift" || r.kind === "request" ? r.kind : "chat",
     userId: str(r.userId),
     username: str(r.username),
     avatar: str(r.avatar),
@@ -86,6 +86,7 @@ export function readFeatured(raw: unknown): FeaturedItem | null {
     at: str(r.at),
     until: orNull(r.until),
     auto: r.auto === true,
+    ...(typeof r.note === "string" && r.note ? { note: r.note.slice(0, 120) } : {}),
   };
 }
 

@@ -24,7 +24,7 @@ import {
   StreamLike,
   User,
 } from "../models.js";
-import { checkMessage, HELD_REASON_LABELS } from "../safety/filter.js";
+import { checkMessage, HELD_REASON_LABELS, NEW_ACCOUNT_MS } from "../safety/filter.js";
 import { moderatorIdentities, roleIn } from "../safety/roles.js";
 import {
   markStreamEnded,
@@ -40,9 +40,6 @@ import { fanStatus, fanStatuses } from "../fans.js";
  * SLOW_MODE_SECONDS in components/app/live-chat.tsx — keep the two in step
  * so the countdown matches what the server enforces.
  */
-
-/** An account younger than this is held while Shield is up. */
-const NEW_ACCOUNT_MS = 24 * 60 * 60 * 1000;
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -486,7 +483,15 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         const fan = standing.get(String(m.userId));
         return fan && (fan.level > 0 || fan.badge > 0) ? { ...m, fan } : m;
       });
-      return { success: true, data: { messages: withFans } };
+      // The first page also carries every Shout still pinned, however far
+      // back it was sent — an hour's pin outlives the page it's on.
+      const shouts = request.query.before
+        ? []
+        : await ChatMessage.find({ streamId: stream._id, shoutUntil: { $gt: new Date() }, status: { $ne: "held" } })
+            .sort({ createdAt: 1 })
+            .limit(20)
+            .lean();
+      return { success: true, data: { messages: withFans, shouts } };
     },
   );
 

@@ -100,14 +100,22 @@ export function FeaturedPanel({
       {showing ? (
         <div className="mt-2.5 rounded-[12px] bg-white/[0.07] p-3">
           <div className="flex items-start gap-2.5">
-            {showing.kind === "gift" ? (
+            {showing.kind !== "chat" ? (
               <GiftArt emoji={showing.emoji ?? "🎁"} size={36} className="shrink-0" />
             ) : (
               <UserAvatar src={showing.avatar} name={showing.username} size={36} className="shrink-0" />
             )}
             <p className="min-w-0 flex-1 text-[13px] leading-snug">
               <span className="block truncate text-[12px] font-semibold text-muted-foreground">{showing.username}</span>
-              {showing.kind === "gift" ? (
+              {showing.kind === "request" || giftByEmoji(showing.emoji)?.id === "shout" ? (
+                <span className="font-semibold">
+                  <span className="line-clamp-2 break-words">
+                    {showing.kind === "request" && "Request · "}
+                    {showing.text}
+                  </span>
+                  {showing.amount && <span className="font-money text-value">{centsToDollars(Math.round(parseFloat(showing.amount) * 100))}</span>}
+                </span>
+              ) : showing.kind === "gift" ? (
                 <span className="font-semibold">
                   {giftByEmoji(showing.emoji)?.verb ?? showing.text}
                   {showing.amount && (

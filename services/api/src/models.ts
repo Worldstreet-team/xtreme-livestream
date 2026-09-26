@@ -54,6 +54,8 @@ export interface IUser extends Document {
         createdAt: Date;
       }
     | undefined;
+  /** The creator's priced requests menu (Phase 2, paid requests). */
+  requestsMenu?: Array<{ id: string; title: string; priceUsdMinor: number; prompt: string }>;
   /**
    * Lifetime gift earnings (net of commission), USD cents. Display/stats only —
    * the money itself is credited straight to the streamer's central wallet by
@@ -157,6 +159,20 @@ const userSchema = new Schema<IUser>(
         { _id: false },
       ),
       default: undefined,
+    },
+    requestsMenu: {
+      type: [
+        new Schema(
+          {
+            id: { type: String, required: true },
+            title: { type: String, required: true, maxlength: 40 },
+            priceUsdMinor: { type: Number, required: true, min: 100 },
+            prompt: { type: String, default: "", maxlength: 60 },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
     },
     whipIngress: {
       type: new Schema(
@@ -350,6 +366,8 @@ export interface IStream extends Document {
   } | null;
   /** The heat meter as of the last gift. */
   heat: { level: number; at: Date } | null;
+  /** The host is taking paid requests on this broadcast. */
+  requestsOpen: boolean;
   /** The studio's 30-second health summaries, for the report afterwards (capped at six hours). */
   health: Array<{
     at: number;
@@ -475,6 +493,7 @@ const streamSchema = new Schema<IStream>(
     takenDownAt: { type: Date, default: null },
     goal: { type: Schema.Types.Mixed, default: null },
     heat: { type: Schema.Types.Mixed, default: null },
+    requestsOpen: { type: Boolean, default: false },
     // Kept out of every read unless asked for (+health): only the report wants it.
     health: { type: Schema.Types.Mixed, default: () => [], select: false },
     featureQueue: {
@@ -538,6 +557,8 @@ export interface IChatMessage extends Document {
   status: "visible" | "held";
   /** Which filter category held it. */
   heldReason: string;
+  /** A Shout: pinned over the chat until then. */
+  shoutUntil?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -571,11 +592,14 @@ const chatMessageSchema = new Schema<IChatMessage>(
     emoji: { type: String, default: null },
     status: { type: String, enum: ["visible", "held"], default: "visible" },
     heldReason: { type: String, default: "" },
+    shoutUntil: { type: Date, default: null },
   },
   { timestamps: true },
 );
 
 chatMessageSchema.index({ streamId: 1, createdAt: -1 });
+// Pinned Shouts, for the first history page; only lines that ever had a pin.
+chatMessageSchema.index({ streamId: 1, shoutUntil: 1 }, { partialFilterExpression: { shoutUntil: { $type: "date" } } });
 // "What has this person chatted in" — an engagement signal for the rows
 // engine that was a collection scan before this index existed.
 chatMessageSchema.index({ userId: 1, createdAt: -1 });
@@ -635,9 +659,10 @@ export interface INotification extends Document {
    * live = someone you follow went live; reminder = a stream you asked
    * about started; mod_added = a creator made you a moderator; report = a
    * report reached the review queue (platform admins only); takedown = your
-   * stream was taken down after a report.
+   * stream was taken down after a report; request_refunded = a paid
+   * request wasn't done, and the money went back.
    */
-  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown";
+  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown" | "request_refunded";
   /** Who did the thing (the streamer who went live). */
   actorId: mongoose.Types.ObjectId;
   actorName: string;
@@ -660,7 +685,7 @@ const notificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown"],
+      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown", "request_refunded"],
       default: "live",
     },
     actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -1266,7 +1291,7 @@ export const GameEntry = mongoose.model<IGameEntry>("GameEntry", gameEntrySchema
 /* Payouts and audit                                                   */
 /* ------------------------------------------------------------------ */
 
-export type PayoutKind = "points_redemption" | "battle_bonus";
+export type PayoutKind = "points_redemption" | "battle_bonus" | "request";
 export type PayoutStatus = "pending" | "paid" | "failed";
 
 /**
@@ -1292,7 +1317,7 @@ export interface IPayout extends Document {
 const payoutSchema = new Schema<IPayout>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    kind: { type: String, enum: ["points_redemption", "battle_bonus"], required: true },
+    kind: { type: String, enum: ["points_redemption", "battle_bonus", "request"], required: true },
     points: { type: Number, default: 0 },
     usdMinor: { type: Number, required: true, min: 1 },
     status: { type: String, enum: ["pending", "paid", "failed"], default: "pending" },
@@ -1308,6 +1333,57 @@ payoutSchema.index({ userId: 1, createdAt: -1 });
 payoutSchema.index({ status: 1, createdAt: 1 });
 
 export const Payout = mongoose.model<IPayout>("Payout", payoutSchema);
+
+/**
+ * A paid request (Phase 2): the viewer's money sits in the treasury while
+ * it's pending; done pays the creator (less commission) and books it as a
+ * gift; skipped or expired refunds the viewer in full.
+ */
+export interface IRequestOrder extends Document {
+  streamId: mongoose.Types.ObjectId;
+  streamerId: mongoose.Types.ObjectId;
+  viewerId: mongoose.Types.ObjectId;
+  viewerUsername: string;
+  viewerAvatar: string;
+  itemId: string;
+  title: string;
+  note: string;
+  priceUsdMinor: number;
+  status: "pending" | "done" | "skipped" | "expired";
+  /** The charge that moved the money into the treasury. */
+  walletChargeId: string;
+  idempotencyKey: string;
+  refund: { status: "none" | "refunded" | "failed"; attempts: number; lastError: string };
+  decidedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+const requestOrderSchema = new Schema<IRequestOrder>(
+  {
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    streamerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    viewerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    viewerUsername: { type: String, default: "" },
+    viewerAvatar: { type: String, default: "" },
+    itemId: { type: String, required: true },
+    title: { type: String, required: true },
+    note: { type: String, default: "" },
+    priceUsdMinor: { type: Number, required: true, min: 1 },
+    status: { type: String, enum: ["pending", "done", "skipped", "expired"], default: "pending" },
+    walletChargeId: { type: String, default: "" },
+    idempotencyKey: { type: String, required: true, unique: true },
+    refund: {
+      status: { type: String, enum: ["none", "refunded", "failed"], default: "none" },
+      attempts: { type: Number, default: 0 },
+      lastError: { type: String, default: "" },
+    },
+    decidedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+requestOrderSchema.index({ streamId: 1, status: 1, createdAt: 1 });
+requestOrderSchema.index({ status: 1, "refund.status": 1 });
+export const RequestOrder = mongoose.model<IRequestOrder>("RequestOrder", requestOrderSchema);
 
 /** Who did what to which thing — every settlement, payout and cancellation. */
 export interface IAuditLog extends Document {

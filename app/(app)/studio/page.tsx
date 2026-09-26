@@ -37,6 +37,7 @@ import {
   DotsThree,
   CellSignalLow,
   LayoutIcon,
+  Ticket,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -59,6 +60,8 @@ import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import { GoalPanel } from "@/components/app/goal-panel";
+import { RequestsPanel } from "@/components/app/requests-panel";
+import { useRequestQueue } from "@/lib/requests";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
@@ -103,7 +106,7 @@ type SourceType = "camera" | "screen" | "obs";
 type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
-type Panel = "chat" | "stage" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more";
+type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -367,6 +370,8 @@ export default function StudioPage() {
     setGoal(null);
     setHeat(null);
   }
+  // Paid requests: the menu is the account's, the queue this broadcast's.
+  const requestQueue = useRequestQueue(isLive ? streamId : null, liveRoom);
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
@@ -2330,6 +2335,7 @@ export default function StudioPage() {
   const roomTabs: CapsuleTab<Panel>[] = [
     { id: "chat", label: "Chat", icon: ChatText },
     { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length },
+    { id: "requests", label: "Requests", icon: Ticket, badge: requestQueue.pending.length },
     { id: "scenes", label: "Scenes", icon: LayoutIcon },
     { id: "battle", label: "Battle", icon: Sword },
     { id: "games", label: "Games", icon: Sparkle },
@@ -2385,7 +2391,7 @@ export default function StudioPage() {
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className={SETUP_LABEL}>Requests</h3>
+          <h3 className={SETUP_LABEL}>Asking to join</h3>
           <span className="text-[11px] text-muted-foreground/60">{liveGuests.length}/{MAX_STAGE_GUESTS} slots used</span>
         </div>
         {stageRequests.length === 0 ? (
@@ -2813,6 +2819,14 @@ export default function StudioPage() {
     <>
       <div className={cn("min-h-0 flex-1", panel !== "stage" && "hidden")}>
         <div className="h-full overflow-y-auto">{stagePanel}</div>
+      </div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "requests" && "hidden")}>
+        <RequestsPanel
+          queue={requestQueue}
+          live={isLive}
+          onScreenId={scene.featured?.kind === "request" ? scene.featured.id : null}
+          onScene={takeScene}
+        />
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "scenes" && "hidden")}>{scenesPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "viewers" && "hidden")}>{viewersPanel}</div>

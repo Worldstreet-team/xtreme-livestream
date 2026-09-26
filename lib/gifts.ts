@@ -47,6 +47,15 @@ export const GIFT_CATALOG: readonly GiftDef[] = [
   { id: "bank", name: "Bank", emoji: "💸", art: "1f4b8", usdMinor: 1_000_000, verb: "sent the bank" },
 ] as const;
 
+/**
+ * Two gifts with screens of their own rather than a sticker in the grid: a
+ * Shout (words, pinned over the chat for longer the more it costs) and a
+ * request off the host's menu. They're here so their chat lines and
+ * on-screen cards wear the same animated faces.
+ */
+export const SHOUT_GIFT: GiftDef = { id: "shout", name: "Shout", emoji: "📣", art: "1f4e3", usdMinor: 200, verb: "shouted" };
+export const REQUEST_GIFT: GiftDef = { id: "request", name: "Request", emoji: "🎟️", art: "1f39f_fe0f", usdMinor: 100, verb: "requested" };
+
 /** The API's bounds, in cents. */
 export const GIFT_MIN_MINOR = 50;
 export const GIFT_MAX_MINOR = 1_000_000;
@@ -60,7 +69,7 @@ export function giftArtUrl(art: string) {
 /** The catalog entry behind an emoji seen in a chat payload, if any. */
 export function giftByEmoji(emoji: string | null | undefined) {
   if (!emoji) return null;
-  return GIFT_CATALOG.find((g) => g.emoji === emoji) ?? null;
+  return GIFT_CATALOG.find((g) => g.emoji === emoji) ?? [SHOUT_GIFT, REQUEST_GIFT].find((g) => g.emoji === emoji) ?? null;
 }
 
 export function centsToDollars(minor: number) {

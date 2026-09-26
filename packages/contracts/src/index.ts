@@ -284,7 +284,8 @@ export const featureBodySchema = z.object({
 export const featuredItemSchema = z.object({
   /** The chat row's id. */
   id: z.string(),
-  kind: z.enum(["chat", "gift"]),
+  /** A request is a paid order off the host's menu, up while they do it. */
+  kind: z.enum(["chat", "gift", "request"]),
   userId: z.string(),
   username: z.string(),
   avatar: z.string(),
@@ -298,6 +299,8 @@ export const featuredItemSchema = z.object({
   until: z.string().nullable(),
   /** Put up by the gift tier rather than by the host's hand. */
   auto: z.boolean(),
+  /** A request's note from the viewer ("Last Last, please"). */
+  note: z.string().optional(),
 });
 
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
@@ -390,14 +393,75 @@ export interface StreamHeat {
 }
 
 /**
- * Stream health (Phase 1): the studio sends a 30-second summary of its
- * sender stats — averages and the worst of it — and the API keeps the
- * broadcast's run of them (six hours at most) for the report afterwards.
+ * Paid requests (Phase 2): a menu each creator writes and prices — a song,
+ * a chart read, a shout-out. The money waits in the platform's treasury
+ * until the creator does it (then it's theirs, less the commission) or
+ * skips it (then it goes back to the viewer, in full — the owner's call).
  */
+export const MAX_REQUEST_ITEMS = 8;
+export const REQUEST_PRICE_MIN_MINOR = 100;
+export const REQUEST_PRICE_MAX_MINOR = 100_000;
+export const requestItemSchema = z.object({
+  /** Kept when editing; a new item gets one from the API. */
+  id: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
+  title: z.string().trim().min(1).max(40),
+  priceUsdMinor: z.number().int().min(REQUEST_PRICE_MIN_MINOR).max(REQUEST_PRICE_MAX_MINOR),
+  /** What to ask the viewer ("Which song?"); "" asks nothing. */
+  prompt: z.string().trim().max(60).default(""),
+});
+export const requestsMenuBodySchema = z.object({ items: z.array(requestItemSchema).max(MAX_REQUEST_ITEMS) });
+export const requestsOpenBodySchema = z.object({ open: z.boolean() });
+export const orderRequestBodySchema = z.object({
+  itemId: z.string().regex(/^[a-z0-9-]{1,32}$/),
+  note: z.string().trim().max(120).default(""),
+});
+export const requestOrderParamsSchema = z.object({ id: objectIdSchema, orderId: objectIdSchema });
+export const REQUEST_STATUSES = ["pending", "done", "skipped", "expired"] as const;
+export type RequestItem = Required<z.infer<typeof requestItemSchema>>;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+export interface RequestOrderView {
+  id: string;
+  itemId: string;
+  title: string;
+  note: string;
+  priceUsdMinor: number;
+  status: RequestStatus;
+  /** Whether the money is back with the viewer (skipped or expired). */
+  refunded: boolean;
+  viewer: { userId: string; username: string; avatar: string };
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+/**
+ * A Shout: a gift with words, pinned over the chat for longer the more it
+ * costs — from a minute at $2 to an hour at $100.
+ */
+export const SHOUT_MIN_MINOR = 200;
+export const SHOUT_TIERS = [
+  { fromMinor: 200, seconds: 60 },
+  { fromMinor: 500, seconds: 120 },
+  { fromMinor: 1_000, seconds: 300 },
+  { fromMinor: 2_000, seconds: 600 },
+  { fromMinor: 5_000, seconds: 1_200 },
+  { fromMinor: 10_000, seconds: 3_600 },
+] as const;
+export function shoutSeconds(amountMinor: number) {
+  let seconds = 0;
+  for (const tier of SHOUT_TIERS) if (amountMinor >= tier.fromMinor) seconds = tier.seconds;
+  return seconds;
+}
+export const SHOUT_MAX_LENGTH = 120;
+
 /** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
 export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
 export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });
 
+/**
+ * Stream health (Phase 1): the studio sends a 30-second summary of its
+ * sender stats — averages and the worst of it — and the API keeps the
+ * broadcast's run of them (six hours at most) for the report afterwards.
+ */
 export const HEALTH_LIMITATIONS = ["none", "cpu", "bandwidth", "other"] as const;
 export const HEALTH_LEVELS = ["good", "fair", "poor"] as const;
 export const MAX_HEALTH_WINDOWS = 720;

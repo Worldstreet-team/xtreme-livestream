@@ -9,6 +9,7 @@ import { startBattleSweep } from "./battles.js";
 import { startDropSweep, startGameSweep } from "./games.js";
 import { startWatchDrip } from "./points.js";
 import { startPayoutSweep } from "./rewards.js";
+import { startRequestSweep } from "./requests.js";
 
 const app = await buildApp();
 let shuttingDown = false;
@@ -44,6 +45,7 @@ try {
   startSocialsRelaySweep();
   startVelocitySweep();
   startBattleSweep();
+  startRequestSweep();
   startGameSweep();
   startDropSweep();
   startPayoutSweep();
