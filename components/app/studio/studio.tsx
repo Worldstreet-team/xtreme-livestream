@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import Link from "next/link";
 import { registerStudioBridge, registerVividContext, type StudioAction } from "@/lib/vivid/page-context";
 import {
@@ -53,6 +53,8 @@ import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
 import { GamesPanel } from "@/components/app/games-panel";
 import { LivePreview } from "@/components/app/live-preview";
+import { MiniLive } from "@/components/app/studio/mini-live";
+import { publishLiveSession, type LiveActions } from "@/lib/live-session";
 import { sideOf, type BattleView } from "@/lib/battles";
 import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
@@ -242,7 +244,12 @@ function captureResolution(o: Orientation) {
     : { width: 1280, height: 720, frameRate: 30 };
 }
 
-export default function StudioPage() {
+/**
+ * The studio. It lives in the app shell (studio-host.tsx), so once you're
+ * live it stays mounted wherever you go: `minimized`, its console is out of
+ * sight and the broadcast rides in a corner (MiniLive) and in the rail.
+ */
+export function Studio({ minimized = false }: { minimized?: boolean }) {
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<Category>("Just Chatting");
@@ -458,7 +465,8 @@ export default function StudioPage() {
   // Start preview on mount and whenever the source, shape or camera
   // changes (only if not live) — a new shape is a new capture.
   useEffect(() => {
-    if (!isLive && source === "camera") {
+    // Minimized, the studio is only carrying a broadcast — no preview camera.
+    if (!isLive && source === "camera" && !minimizedRef.current) {
       startPreview();
     }
     return () => {
@@ -538,14 +546,20 @@ export default function StudioPage() {
   }, []);
 
   // Live on a tablet or desktop, the console owns the screen: the app's rail
-  // and top bar step aside (the rule is in globals.css, keyed on this).
+  // and top bar step aside (the rule is in globals.css, keyed on this) —
+  // until you minimize it to browse, when the app comes back.
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || minimized) return;
     document.documentElement.dataset.studioLive = "1";
     return () => {
       delete document.documentElement.dataset.studioLive;
     };
-  }, [isLive]);
+  }, [isLive, minimized]);
+
+  // Minimizing mid-question: the question goes; the broadcast carries on.
+  useEffect(() => {
+    if (minimized) setConfirmDialog(null);
+  }, [minimized]);
 
   // Elapsed timer
   useEffect(() => {
@@ -1293,8 +1307,9 @@ export default function StudioPage() {
     guestAudioElsRef.current.forEach((el) => el.remove());
     guestAudioElsRef.current.clear();
 
-    // Restart preview
-    startPreview();
+    // Back to the camera preview — unless the studio is minimized, when it
+    // closes instead and the camera goes off.
+    if (!minimizedRef.current) startPreview();
   };
 
   const toggleMic = async () => {
@@ -1549,6 +1564,20 @@ export default function StudioPage() {
     }
   };
 
+  // "Resume" in the rail (or the phone's on-hold pill) arrives as
+  // /studio?resume=1: pick the stream straight back up rather than asking again.
+  const [wantsResume] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("resume") === "1"
+  );
+  const autoResumedRef = useRef(false);
+  useEffect(() => {
+    if (!wantsResume || !orphan || autoResumedRef.current) return;
+    autoResumedRef.current = true;
+    window.history.replaceState(window.history.state, "", "/studio");
+    void resumeStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the stream to resume is known
+  }, [wantsResume, orphan]);
+
   const endOrphan = async () => {
     if (!orphan) return;
     setEndingOrphan(true);
@@ -1658,6 +1687,91 @@ export default function StudioPage() {
     attemptRejoinRef.current = attemptRejoin;
   });
 
+  /** Skip the rest of the backoff: try getting back on air now. */
+  const reconnectNow = () => {
+    const state = rejoinRef.current;
+    if (!state?.timer) return;
+    clearTimeout(state.timer);
+    state.timer = null;
+    void attemptRejoinRef.current();
+  };
+
+  // ---- Minimized: the broadcast, for the app outside the studio ----
+
+  const minimizedRef = useRef(minimized);
+  /** The latest handlers, for the actions the rail and the mini player call. */
+  const handlersRef = useRef({ toggleMic, toggleCam, reconnectNow, endStream });
+  useEffect(() => {
+    minimizedRef.current = minimized;
+    handlersRef.current = { toggleMic, toggleCam, reconnectNow, endStream };
+  });
+  const [liveActions] = useState<LiveActions>(() => ({
+    toggleMic: () => void handlersRef.current.toggleMic(),
+    toggleCam: () => void handlersRef.current.toggleCam(),
+    reconnect: () => handlersRef.current.reconnectNow(),
+    end: () => handlersRef.current.endStream(),
+  }));
+  // What's on air here, for the rail's live card and the mini player
+  // (lib/live-session.ts) — and it's what keeps this studio mounted while
+  // you browse. Null once it's over.
+  // A studio only ever clears a broadcast it put there.
+  const publishedRef = useRef(false);
+  useEffect(() => {
+    const live = Boolean(isLive && streamId);
+    if (!live && !publishedRef.current) return;
+    publishedRef.current = live;
+    publishLiveSession(
+      live
+        ? {
+            state: conn,
+            streamId: streamId!,
+            title,
+            startedAt: (startTimeRef.current ?? new Date()).getTime(),
+            viewers: viewerCount,
+            micOn: micEnabled,
+            camOn: camEnabled,
+            source,
+          }
+        : null,
+      live ? liveActions : null
+    );
+  }, [isLive, streamId, conn, title, viewerCount, micEnabled, camEnabled, source, liveActions]);
+  useEffect(
+    () => () => {
+      if (publishedRef.current) publishLiveSession(null, null);
+    },
+    []
+  );
+
+  // Where the stage's picture is, so minimizing grows the mini player out
+  // of it — and where the mini player sat, so opening the studio grows the
+  // picture back out of that.
+  const pictureRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pictureRectRef = useRef<DOMRect | null>(null);
+  const miniRectRef = useRef<DOMRect | null>(null);
+  const wasMinimizedRef = useRef(minimized);
+  useLayoutEffect(() => {
+    const was = wasMinimizedRef.current;
+    wasMinimizedRef.current = minimized;
+    const picture = pictureRef.current;
+    if (minimized || !picture) return;
+    const to = picture.getBoundingClientRect();
+    // Only a picture at rest is a place to grow the mini player from.
+    if (picture.getAnimations().length === 0) pictureRectRef.current = to;
+    const from = miniRectRef.current;
+    if (!was || !from || !to.width || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const s = from.width / to.width;
+    picture.animate(
+      [
+        { transformOrigin: "top left", transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${s})` },
+        { transformOrigin: "top left", transform: "none" },
+      ],
+      { duration: 520, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+    );
+    rootRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: "ease-out" });
+  });
+
   // Back online: don't sit out the rest of the backoff.
   useEffect(() => {
     const online = () => {
@@ -1765,30 +1879,8 @@ export default function StudioPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isLive, source]);
 
-  // Warn before in-app navigation while live (the browser is the publisher,
-  // so leaving the studio page takes the stream off the air until you're
-  // back, and ends it after the grace window). OBS streams survive it.
-  useEffect(() => {
-    if (!isLive || source === "obs") return;
-    const handler = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]");
-      if (!anchor) return;
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#")) return;
-      const url = new URL(href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname) return;
-      const leave = window.confirm(
-        `You're live! If you leave the studio, viewers see "Be right back" and the stream ends in ${Math.round(graceMs / 60_000)} minutes unless you come back to it. Leave anyway?`
-      );
-      if (!leave) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener("click", handler, true);
-    return () => document.removeEventListener("click", handler, true);
-  }, [isLive, source, graceMs]);
+  // Moving around the app while live is fine now: the studio stays mounted
+  // in the shell and minimizes (MiniLive), so the broadcast carries on.
 
   // Host share: share/copy the public stream link
   const shareStream = async () => {
@@ -2754,7 +2846,18 @@ export default function StudioPage() {
   const dockHidden = mode === "side" && !controlsVisible;
 
   return (
-    <div className={cn("relative w-full overflow-hidden text-white", mode === "phone" ? "h-[100dvh] bg-black" : cn("bg-background", isLive ? "h-[100dvh]" : "h-[calc(100dvh-4rem)]"))}>
+    <>
+    <div
+      ref={rootRef}
+      // Minimized, the console is out of sight and out of the keyboard's way
+      // while the broadcast carries on in the corner.
+      inert={minimized}
+      className={cn(
+        "relative w-full overflow-hidden text-white",
+        mode === "phone" ? "h-[100dvh] bg-black" : cn("bg-background", isLive ? "h-[100dvh]" : "h-[calc(100dvh-4rem)]"),
+        minimized && "hidden"
+      )}
+    >
       {/* ---- The stage ---- */}
       <div
         className={cn(
@@ -2769,6 +2872,7 @@ export default function StudioPage() {
       >
         <div className="absolute inset-0 flex items-center justify-center">
           <div
+            ref={pictureRef}
             className={cn(
               "relative overflow-hidden",
               // Contained, never cropped: a portrait broadcast fills a phone and
@@ -3145,5 +3249,30 @@ export default function StudioPage() {
         </div>
       )}
     </div>
+    {minimized && isLive && (
+      <MiniLive
+        getTrack={() => localScreen ?? videoTrackRef.current}
+        trackKey={`${source}|${localScreen ? "screen" : "main"}|${camEnabled}|${conn}`}
+        getOrigin={() => pictureRectRef.current}
+        onPlaced={(rect) => {
+          miniRectRef.current = rect;
+        }}
+        mirrored={source === "camera" && facing === "user" && !localScreen}
+        portrait={orientation === "portrait"}
+        source={source}
+        elapsed={elapsed}
+        viewers={viewerCount}
+        conn={conn}
+        micOn={micEnabled}
+        camOn={camEnabled}
+        host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
+        tip={tipAlerts[tipAlerts.length - 1] ?? null}
+        onToggleMic={() => void toggleMic()}
+        onToggleCam={() => void toggleCam()}
+        onReconnect={reconnectNow}
+        onEnd={() => void endStream()}
+      />
+    )}
+    </>
   );
 }

@@ -41,6 +41,9 @@ export function VanishingPlaceholder({ texts, className, holdMs = 2600 }: { text
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d", { willReadFrequently: true });
     if (!canvas || !ctx) return;
+    // Out of sight (a hidden or collapsed parent) there's nothing to paint or
+    // read — and reading a zero-size canvas throws, which took the page down.
+    if (!canvas.offsetWidth || !canvas.offsetHeight) return;
     const dpr = 2;
     canvas.width = canvas.offsetWidth * dpr;
     canvas.height = canvas.offsetHeight * dpr;

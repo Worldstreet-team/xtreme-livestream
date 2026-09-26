@@ -42,6 +42,8 @@ import { PhoneDrawer } from "@/components/app/phone-drawer";
 import { BalancePills } from "@/components/app/balance-pills";
 import { TopBar } from "@/components/app/topbar";
 import { RightRail } from "@/components/app/right-rail";
+import { StudioHost } from "@/components/app/studio/studio-host";
+import { HeldStreamPill, LiveSessionCard } from "@/components/app/studio/live-session-card";
 import {
   GlassPopover,
   insideGlassPopover,
@@ -154,7 +156,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <TopBar onMenu={() => setMobileOpen(true)} />
         </div>
         <div className="flex min-h-0 flex-1 items-start">
-          <div className="min-w-0 flex-1">{children}</div>
+          <div className="min-w-0 flex-1">
+            {/* The studio lives here, beside every page: it's the page on
+                /studio, and once you're live it stays mounted — minimized —
+                wherever you go, so browsing never takes you off the air. */}
+            <StudioHost />
+            {children}
+          </div>
           {/* The right rail rides beside browsing pages on wide screens. The
               watch page has chat there, the feed and studio own the screen. */}
           {!NO_RAIL.some((p) => pathname.startsWith(p)) && <RightRail />}
@@ -164,6 +172,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <>
           <MobileTabBar />
           <PhoneDrawer open={mobileOpen} onOpenChange={setMobileOpen} />
+          <HeldStreamPill />
         </>
       )}
     </div>
@@ -355,6 +364,9 @@ export function Sidebar({
         </div>
 
         <div className={cn("flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10", narrow ? "px-2" : "px-3")}>
+          {/* Your broadcast, while you browse — or, after a reload, the
+              stream waiting for you to pick it back up. */}
+          <LiveSessionCard collapsed={narrow} />
           <nav className="flex flex-col gap-px" aria-label="Main">
             {mainItems.map((item, i) => renderItem(item, i, 60))}
 
