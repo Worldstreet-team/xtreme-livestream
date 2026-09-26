@@ -4,6 +4,13 @@
 @import "./design-system.css";
 
 @custom-variant dark (&:is(.dark *));
+/* Room for a picture beside a panel: wide screens, and tablets (or big
+   phones) held sideways. The producer console's side-by-side layout. */
+@custom-variant desk {
+  @media (min-width: 64rem), (min-width: 48rem) and (orientation: landscape) {
+    @slot;
+  }
+}
 
 @theme inline {
   /* ---- Reds are the chili (owner, 2026-09-22: "the logo should set the

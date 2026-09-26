@@ -10,6 +10,7 @@ import { ApiError } from "../errors.js";
 import { sendRoomData, setParticipantPublishPermission } from "../livekit.js";
 import { Stream, type IStream } from "../models.js";
 import { reconcileStream } from "../stream-service.js";
+import { requireChannelRole } from "../safety/roles.js";
 import { assertNotBanned } from "./moderation.js";
 
 /**
@@ -41,12 +42,6 @@ async function loadLiveStream(id: string) {
     throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
   }
   return stream;
-}
-
-function requireHost(stream: IStream, userId: unknown) {
-  if (!stream.streamerId.equals(String(userId))) {
-    throw new ApiError(403, "Only the host manages the stage", "FORBIDDEN");
-  }
 }
 
 const publicGuest = (g: IStream["guests"][number]) => ({
@@ -211,7 +206,8 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadLiveStream(request.params.id);
-      requireHost(stream, dbUser._id);
+      // The host, or a producer running the stage from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
 
       const liveCount = stream.guests.filter(
         (g) => g.status === "live",
@@ -312,7 +308,8 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      requireHost(stream, dbUser._id);
+      // The host, or a producer running the stage from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
 
       await Stream.updateOne(
         { _id: stream._id },
@@ -349,7 +346,8 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      requireHost(stream, dbUser._id);
+      // The host, or a producer running the stage from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
 
       const guest = stream.guests.find(
         (g) => String(g.userId) === request.params.userId,

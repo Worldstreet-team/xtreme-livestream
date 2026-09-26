@@ -14,6 +14,8 @@ import { ensureUserIngress,
   createToken, sendRoomData, setRoomScene } from "../livekit.js";
 import { Stream, User, type IStream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
+import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
+import { requireChannelRole } from "../safety/roles.js";
 import {
   notifyFollowersOfLive,
   notifyRemindersOfLive,
@@ -253,6 +255,11 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         // kick the ingress — killing the feed the moment the streamer looked
         // at their own stream.
         ingress = await ensureUserIngress(dbUser, roomName);
+        // A WHIP key set up too: point it here as well, so whichever the
+        // encoder speaks lands in this room. Never fails the go-live.
+        if (dbUser.whipIngress?.ingressId) {
+          await ensureUserIngress(dbUser, roomName, "whip").catch(() => {});
+        }
       }
 
       const livekitToken = await createToken(
@@ -277,13 +284,22 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           card: scene?.card ?? null,
           cardNote: scene?.cardNote ?? "",
           chart: scene?.chart ?? null,
-          layers: scene?.layers ?? [],
+          // A sponsor card goes up through the scene route, where it's
+          // checked and its on-screen time starts counting.
+          layers: (scene?.layers ?? []).filter((l) => l.kind !== "sponsor"),
           featured: null,
           version: scene ? 1 : 0,
         },
-        // Each broadcast starts with Shield down and no suggestions waiting.
+        // Each broadcast starts with Shield down and no suggestions waiting,
+        // no goal and a cold meter.
         shield: { on: false, at: null, by: null },
         featureQueue: [],
+        goal: null,
+        heat: null,
+        health: [],
+        requestsOpen: false,
+        // A fresh show: the rundown starts from the top.
+        rundown: null,
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,
@@ -494,18 +510,24 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      if (!stream.streamerId.equals(dbUser._id)) {
-        throw new ApiError(403, "Only the host changes the scene", "NOT_HOST");
-      }
+      // The host, or a producer running the show from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
       if (!stream.isLive) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
+      const now = new Date();
+      // A sponsor card is drawn from our records, never from what was sent —
+      // and it's always the host's sponsor, whoever is producing.
+      const layers = await resolveSceneLayers(request.body.layers, stream.streamerId, stream, now);
+      const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
       const scene = {
         layout: request.body.layout,
         card: request.body.card,
         cardNote: request.body.cardNote,
         chart: request.body.chart,
-        layers: request.body.layers,
+        layers,
+        gains: request.body.gains,
+        spotlight: request.body.spotlight,
         // Not the host's to set here: the feature routes own it (featured.ts).
         featured: stream.scene?.featured ?? null,
         version: (stream.scene?.version ?? 0) + 1,
@@ -514,6 +536,11 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       await stream.save();
       await setRoomScene(stream.livekitRoomName, scene);
       void sendRoomData(stream.livekitRoomName, { __evt: "scene", scene });
+      // The sponsor's on-screen time: what campaigns pay on, and what
+      // sponsored quests count against.
+      await trackSponsorExposure(stream, sponsorBefore, sponsorLayerOf(layers), now).catch((e) =>
+        request.log.error({ err: e }, "sponsor exposure tracking failed"),
+      );
       return { success: true, data: { scene } };
     },
   );

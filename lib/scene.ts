@@ -6,6 +6,7 @@ import {
   LOWER_THIRD_STYLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
+  MAX_SCENE_GAINS,
   type BrandAccent,
   type BrandFont,
   type BrandPreset,
@@ -31,7 +32,7 @@ import { apiUrl } from "@/lib/api-client";
 
 export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
-export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], featured: null, version: 0 };
+export const DEFAULT_SCENE: Scene = { layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, featured: null, version: 0 };
 
 /** What Chart + face shows until the host picks a market. */
 export const DEFAULT_CHART: SceneChart = { symbol: "BTC-USD", interval: "5m" };
@@ -61,9 +62,26 @@ export function readScene(raw: unknown): Scene | null {
     cardNote: typeof r.cardNote === "string" ? r.cardNote.slice(0, 80) : "",
     chart: readChart(r.chart),
     layers: readLayers(r.layers),
+    gains: readGains(r.gains),
+    spotlight: typeof r.spotlight === "string" && /^[\w.:-]{1,64}$/.test(r.spotlight) ? r.spotlight : null,
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };
+}
+
+/** The guest faders, as far as they make sense: identities to a level 0–1, eight at most. */
+export function readGains(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [identity, level] of Object.entries(raw as Record<string, unknown>).slice(0, MAX_SCENE_GAINS)) {
+    if (typeof level === "number" && Number.isFinite(level) && /^[\w.:-]{1,64}$/.test(identity)) out[identity] = Math.min(1, Math.max(0, level));
+  }
+  return out;
+}
+
+/** How loud one person on stage plays, by the host's fader (1 when there isn't one). */
+export function gainFor(gains: Record<string, number> | undefined, identity: string | undefined) {
+  return identity && gains && typeof gains[identity] === "number" ? gains[identity] : 1;
 }
 
 /** The comment or gift on screen, if what came is one we can draw. */
@@ -75,7 +93,7 @@ export function readFeatured(raw: unknown): FeaturedItem | null {
   if (!str(r.id) || !str(r.username) || Number.isNaN(Date.parse(str(r.at)))) return null;
   return {
     id: str(r.id),
-    kind: r.kind === "gift" ? "gift" : "chat",
+    kind: r.kind === "gift" || r.kind === "request" ? r.kind : "chat",
     userId: str(r.userId),
     username: str(r.username),
     avatar: str(r.avatar),
@@ -86,6 +104,7 @@ export function readFeatured(raw: unknown): FeaturedItem | null {
     at: str(r.at),
     until: orNull(r.until),
     auto: r.auto === true,
+    ...(typeof r.note === "string" && r.note ? { note: r.note.slice(0, 120) } : {}),
   };
 }
 
@@ -184,6 +203,16 @@ function readLayer(raw: unknown): SceneLayer | null {
       const title = text(r.title, 40);
       const url = typeof r.url === "string" && /^https?:\/\//i.test(r.url.trim()) ? r.url.trim().slice(0, 300) : "";
       return title && url ? { kind: "cta", title, url } : null;
+    }
+    case "sponsor": {
+      const source = r.source === "own" || r.source === "campaign" ? r.source : null;
+      const sponsorId = typeof r.sponsorId === "string" && /^[a-f\d]{24}$/i.test(r.sponsorId) ? r.sponsorId : "";
+      const name = text(r.name, 40);
+      if (!source || !sponsorId || !name) return null;
+      const url = typeof r.url === "string" && /^https?:\/\//i.test(r.url.trim()) ? r.url.trim().slice(0, 300) : "";
+      // Only our own logo route: the card never loads an image from elsewhere.
+      const logoUrl = typeof r.logoUrl === "string" && r.logoUrl.startsWith("/api/") ? r.logoUrl.slice(0, 300) : null;
+      return { kind: "sponsor", source, sponsorId, name, line: text(r.line, 80), url, code: text(r.code, 24), logoUrl, restricted: r.restricted === true };
     }
     default:
       return null;

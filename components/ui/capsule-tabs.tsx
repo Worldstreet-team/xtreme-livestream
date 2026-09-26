@@ -19,10 +19,11 @@ export interface CapsuleTab<T extends string> {
  * tab that's on is a white pill.
  *
  * With icons, the tabs that are off are just their icon and the one that's
- * on grows to say its name, so six destinations fit a phone drawer without
- * scrolling and the choice reads at a glance. Without icons it's a
- * segmented control: every label shows and a white thumb slides between
- * them. `onDark` lays the track as a glass object for use over video.
+ * on grows to say its name, so six destinations (seven, a little tighter)
+ * fit a phone drawer without scrolling and the choice reads at a glance.
+ * Without icons it's a segmented control: every label shows and a white
+ * thumb slides between them. `onDark` lays the track as a glass object for
+ * use over video.
  */
 export function CapsuleTabs<T extends string>({
   items,
@@ -42,6 +43,9 @@ export function CapsuleTabs<T extends string>({
   className?: string;
 }) {
   const expanding = items.every((i) => i.icon);
+  // Seven destinations (the studio, with Requests): the one that's on takes
+  // a larger share, so it still says its name across a phone drawer.
+  const crowded = items.length > 6;
   const trackRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
 
@@ -91,7 +95,9 @@ export function CapsuleTabs<T extends string>({
               expanding
                 ? cn(
                     "transition-[flex-grow,background-color,color,box-shadow] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none",
-                    on ? "flex-[2.6] gap-2 bg-white px-3.5 text-[#0b0708]" : "flex-1 text-white/55 hover:bg-white/[0.07] hover:text-white",
+                    on
+                      ? cn("gap-2 bg-white text-[#0b0708]", crowded ? "flex-[3.4] px-3" : "flex-[2.6] px-3.5")
+                      : "flex-1 text-white/55 hover:bg-white/[0.07] hover:text-white",
                   )
                 : cn("flex-1 px-4 transition-colors duration-200", on ? "text-[#0b0708]" : "text-white/60 hover:text-white"),
             )}
@@ -103,7 +109,13 @@ export function CapsuleTabs<T extends string>({
               t.label
             )}
             {t.badge ? (
-              <span className="absolute top-0 left-1/2 ml-1.5 min-w-[17px] rounded-full bg-chili px-1 text-center text-[10px] leading-[17px] font-bold text-white tabular-nums ring-2 ring-surface">
+              // Over the icon while it's off; on the open pill, its corner — clear of the name.
+              <span
+                className={cn(
+                  "absolute top-0 min-w-[17px] rounded-full bg-chili px-1 text-center text-[10px] leading-[17px] font-bold text-white tabular-nums ring-2 ring-surface",
+                  on && expanding ? "-top-1 right-0" : "left-1/2 ml-1.5",
+                )}
+              >
                 {t.badge}
               </span>
             ) : null}

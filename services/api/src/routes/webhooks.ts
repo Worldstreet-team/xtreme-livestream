@@ -36,7 +36,9 @@ async function updateViewerCounts(
       (p) =>
         p.identity !== bid &&
         p.identity !== `obs-${bid}` &&
-        p.identity !== `mon-${bid}`,
+        p.identity !== `mon-${bid}` &&
+        // A producer's console (producer mode) is crew, not audience.
+        !p.identity.startsWith("prod-"),
     ).length;
   } catch {
     viewers =
@@ -122,7 +124,8 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           identity &&
           identity !== bid &&
           identity !== `obs-${bid}` &&
-          identity !== `mon-${bid}`
+          identity !== `mon-${bid}` &&
+          !identity.startsWith("prod-")
         ) {
           // The identity is the viewer's user id. Recording it is what turns
           // "how many are watching" into "who watches what", which every

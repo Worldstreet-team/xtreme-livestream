@@ -311,7 +311,8 @@ describe("the safety kit", () => {
   const chat = (content: string) => app.inject({ method: "POST", url: `/v1/streams/${STREAM}/chat`, payload: { content, type: "text" } });
   const post = (url: string, payload: Record<string, unknown> = {}) => app.inject({ method: "POST", url: `/v1${url}`, payload });
   const del = (url: string) => app.inject({ method: "DELETE", url: `/v1${url}` });
-  const moderators = [HOST, `mon-${HOST}`, LEAD, MOD];
+  // Each also as a producer-mode console (prod-<id>).
+  const moderators = [HOST, `mon-${HOST}`, `prod-${HOST}`, LEAD, MOD, `prod-${LEAD}`, `prod-${MOD}`];
 
   describe("held and blocked lines", () => {
     it("holds a filtered line for the host and moderators only, and tells its writer", async () => {

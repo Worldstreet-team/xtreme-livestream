@@ -361,7 +361,8 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(400, "Drops can't go on screen", "NOT_FEATURABLE");
       }
 
-      if (role !== "host") {
+      // The host and their producers put lines up directly; moderators as the host allows.
+      if (role !== "host" && role !== "producer") {
         const mode = streamer.safety?.modsCanFeature ?? "suggest";
         if (mode === "off") {
           throw new ApiError(403, "The host hasn't let moderators put lines on screen", "FORBIDDEN");
@@ -423,7 +424,7 @@ export const moderationRoutes: FastifyPluginAsync = async (fastify) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
       const { streamer, role } = await requireChannelRole(stream, dbUser._id, "mod");
-      if (role !== "host" && (streamer.safety?.modsCanFeature ?? "suggest") !== "on") {
+      if (role !== "host" && role !== "producer" && (streamer.safety?.modsCanFeature ?? "suggest") !== "on") {
         throw new ApiError(403, "Only the host takes lines off screen here", "FORBIDDEN");
       }
 

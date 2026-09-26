@@ -49,8 +49,9 @@ export function FeaturedPanel({
   giftsFrom: number;
   /** A card is up, so what's featured is waiting underneath it. */
   carded: boolean;
-  onSeconds: (seconds: (typeof FEATURE_LENGTHS)[number]["seconds"]) => void;
-  onGiftsFrom: (minor: (typeof FEATURE_GIFT_TIERS)[number]["minor"]) => void;
+  /** The channel's settings are the host's: a producer's console leaves these out, and the choices with them. */
+  onSeconds?: (seconds: (typeof FEATURE_LENGTHS)[number]["seconds"]) => void;
+  onGiftsFrom?: (minor: (typeof FEATURE_GIFT_TIERS)[number]["minor"]) => void;
   onTakeDown: () => void;
 }) {
   const showing = useFeaturedShowing(featured);
@@ -63,7 +64,7 @@ export function FeaturedPanel({
         <div className="mt-2.5 rounded-[12px] bg-ember/[0.08] p-2">
           <p className="flex items-center gap-2 px-1.5 pt-0.5 pb-1.5 text-[12px] font-semibold text-ember-hi">
             <span className="rounded-full bg-ember px-1.5 font-mono text-[10.5px] font-bold text-on-ember tabular-nums">{queue.length}</span>
-            Suggested by your moderators
+            Suggested by moderators
           </p>
           <ul className="flex flex-col gap-1">
             {queue.map((q) => (
@@ -100,14 +101,22 @@ export function FeaturedPanel({
       {showing ? (
         <div className="mt-2.5 rounded-[12px] bg-white/[0.07] p-3">
           <div className="flex items-start gap-2.5">
-            {showing.kind === "gift" ? (
+            {showing.kind !== "chat" ? (
               <GiftArt emoji={showing.emoji ?? "🎁"} size={36} className="shrink-0" />
             ) : (
               <UserAvatar src={showing.avatar} name={showing.username} size={36} className="shrink-0" />
             )}
             <p className="min-w-0 flex-1 text-[13px] leading-snug">
               <span className="block truncate text-[12px] font-semibold text-muted-foreground">{showing.username}</span>
-              {showing.kind === "gift" ? (
+              {showing.kind === "request" || giftByEmoji(showing.emoji)?.id === "shout" ? (
+                <span className="font-semibold">
+                  <span className="line-clamp-2 break-words">
+                    {showing.kind === "request" && "Request · "}
+                    {showing.text}
+                  </span>
+                  {showing.amount && <span className="font-money text-value">{centsToDollars(Math.round(parseFloat(showing.amount) * 100))}</span>}
+                </span>
+              ) : showing.kind === "gift" ? (
                 <span className="font-semibold">
                   {giftByEmoji(showing.emoji)?.verb ?? showing.text}
                   {showing.amount && (
@@ -138,28 +147,32 @@ export function FeaturedPanel({
         </p>
       )}
 
-      <p className="mt-4 text-[13px] font-medium text-foreground/85">Comments stay up</p>
-      <div role="radiogroup" aria-label="Comments stay up" className="mt-2 flex flex-wrap gap-1.5">
-        {FEATURE_LENGTHS.map((l) => (
-          <Choice key={l.seconds} on={seconds === l.seconds} onClick={() => onSeconds(l.seconds)}>
-            {l.label}
-          </Choice>
-        ))}
-      </div>
+      {onSeconds && onGiftsFrom && (
+        <>
+          <p className="mt-4 text-[13px] font-medium text-foreground/85">Comments stay up</p>
+          <div role="radiogroup" aria-label="Comments stay up" className="mt-2 flex flex-wrap gap-1.5">
+            {FEATURE_LENGTHS.map((l) => (
+              <Choice key={l.seconds} on={seconds === l.seconds} onClick={() => onSeconds(l.seconds)}>
+                {l.label}
+              </Choice>
+            ))}
+          </div>
 
-      <p className="mt-4 text-[13px] font-medium text-foreground/85">Gifts go up by themselves</p>
-      <div role="radiogroup" aria-label="Gifts go up by themselves" className="mt-2 flex flex-wrap gap-1.5">
-        {FEATURE_GIFT_TIERS.map((t) => (
-          <Choice key={t.minor} on={giftsFrom === t.minor} onClick={() => onGiftsFrom(t.minor)}>
-            {t.label}
-          </Choice>
-        ))}
-      </div>
-      <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
-        {giftsFrom
-          ? `Gifts of ${centsToDollars(giftsFrom)} or more go up for ${seconds ? `${seconds < 60 ? `${seconds} seconds` : "a minute"}` : "20 seconds"} — never over a line you put up yourself.`
-          : "Saved to your channel, for every stream."}
-      </p>
+          <p className="mt-4 text-[13px] font-medium text-foreground/85">Gifts go up by themselves</p>
+          <div role="radiogroup" aria-label="Gifts go up by themselves" className="mt-2 flex flex-wrap gap-1.5">
+            {FEATURE_GIFT_TIERS.map((t) => (
+              <Choice key={t.minor} on={giftsFrom === t.minor} onClick={() => onGiftsFrom(t.minor)}>
+                {t.label}
+              </Choice>
+            ))}
+          </div>
+          <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
+            {giftsFrom
+              ? `Gifts of ${centsToDollars(giftsFrom)} or more go up for ${seconds ? `${seconds < 60 ? `${seconds} seconds` : "a minute"}` : "20 seconds"} — never over a line you put up yourself.`
+              : "Saved to your channel, for every stream."}
+          </p>
+        </>
+      )}
     </section>
   );
 }

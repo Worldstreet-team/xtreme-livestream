@@ -4,6 +4,15 @@
  */
 
 export type BattleStatus = "scheduled" | "invited" | "live" | "overtime" | "ended" | "cancelled";
+/** 1v1, or 2v2: each side is its stream and the partner on its stage. */
+export type BattleMode = "1v1" | "2v2";
+
+export interface BattlePartner {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+}
 
 export interface BattleSide {
   userId: string;
@@ -13,6 +22,10 @@ export interface BattleSide {
   streamId: string;
   /** Score: gross gift value counted for this side, in USD cents. */
   usdMinor: number;
+  /** The side's biggest backers, by what their gifts scored. */
+  top?: Array<{ userId: string; username: string; displayName: string; avatar: string; usdMinor: number }>;
+  /** A 2v2's partner on this side's stage (null in a 1v1). */
+  partner?: BattlePartner | null;
 }
 
 export interface BattleView {
@@ -29,7 +42,17 @@ export interface BattleView {
   winnerId: string | null;
   bonusUsdMinor: number;
   overtimeUsed: boolean;
+  /** A counting gift in the last seconds reset the clock (once a battle). */
+  lateResetUsed?: boolean;
+  /** What the loser does on the victory lap ("sings a song"); "" for none. */
+  forfeit?: string;
+  mode?: BattleMode;
   endedReason: string | null;
+}
+
+/** A side as people say it: "Ada", or a pair, "Ada & Tolu". */
+export function teamName(side: BattleSide) {
+  return side.partner ? `${side.displayName} & ${side.partner.displayName}` : side.displayName;
 }
 
 /** Whole seconds left on the clock, never negative. */

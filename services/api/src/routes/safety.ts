@@ -21,6 +21,7 @@ import { sendRoomData, sendRoomDataTo } from "../livekit.js";
 import { ChatMessage, Notification, Stream, User, type IStream, type IUser } from "../models.js";
 import { HELD_REASON_LABELS, type FilterVerdict } from "../safety/filter.js";
 import { atLeast, moderatorIdentities, requireChannelRole, roleIn } from "../safety/roles.js";
+import { fanStatus } from "../fans.js";
 
 /**
  * The safety kit's routes: who you are in a room, the channel's filter and
@@ -212,7 +213,9 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
       const role = roleIn(channel, dbUser._id);
       const { username, role: newRole } = request.body;
       if (!atLeast(role, "lead")) throw new ApiError(403, "Only the host and lead moderators can add moderators", "FORBIDDEN");
-      if (role === "lead" && newRole === "lead") throw new ApiError(403, "Only the host appoints lead moderators", "FORBIDDEN");
+      if (role !== "host" && newRole !== "mod") {
+        throw new ApiError(403, newRole === "producer" ? "Only the host appoints producers" : "Only the host appoints lead moderators", "FORBIDDEN");
+      }
 
       const person = await User.findOne({ username }).select("username displayName");
       if (!person) throw new ApiError(404, `There's nobody called @${username}`, "USER_NOT_FOUND");
@@ -220,8 +223,11 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
 
       const mods = channel.safety?.mods ?? [];
       const existing = mods.find((m) => m.userId.equals(person._id));
+      const was = existing?.role ?? null;
       if (existing) {
-        if (role === "lead" && existing.role === "lead") throw new ApiError(403, "Only the host changes a lead moderator", "FORBIDDEN");
+        if (role !== "host" && existing.role !== "mod") {
+          throw new ApiError(403, existing.role === "producer" ? "Only the host changes a producer" : "Only the host changes a lead moderator", "FORBIDDEN");
+        }
         existing.role = newRole;
       } else {
         if (mods.length >= MAX_MODS) throw new ApiError(400, `A channel can have up to ${MAX_MODS} moderators`, "TOO_MANY_MODS");
@@ -231,15 +237,17 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
       await channel.save();
 
       await audit(dbUser._id, existing ? "mods.role" : "mods.add", "user", channel._id, { userId: String(person._id), role: newRole });
-      if (!existing) {
+      // Told when they join the team, and when they're made a producer —
+      // who gets the way into the channel's console.
+      if (!existing || (newRole === "producer" && was !== "producer")) {
         await Notification.create({
           userId: person._id,
           type: "mod_added",
           actorId: channel._id,
           actorName: channel.displayName || channel.username,
           streamId: null,
-          streamTitle: newRole === "lead" ? "lead moderator" : "moderator",
-          link: `/c/${channel.username}`,
+          streamTitle: newRole === "producer" ? "producer" : newRole === "lead" ? "lead moderator" : "moderator",
+          link: newRole === "producer" ? `/produce/${channel.username}` : `/c/${channel.username}`,
         }).catch(() => {});
       }
       // Live now? Their chat grows the tools at once.
@@ -378,7 +386,8 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
       ).lean();
       if (!message) throw new ApiError(404, "That line isn't waiting any more", "NOT_HELD");
 
-      void sendRoomData(stream.livekitRoomName, chatPayload(message));
+      const fan = await fanStatus(stream.streamerId, message.userId).catch(() => null);
+      void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
       void sendRoomDataTo(stream.livekitRoomName, [...moderatorIdentities(streamer), String(message.userId)], {
         __evt: "held_resolved",
         messageId: String(message._id),
@@ -414,7 +423,7 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Safety"],
-        summary: "Host: turn down a suggested line",
+        summary: "Host or producer: turn down a suggested line",
         security: [{ bearerAuth: [] }],
         params: chatMessageParamsSchema,
       },
@@ -422,7 +431,7 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadStream(request.params.id);
-      const { streamer } = await requireChannelRole(stream, dbUser._id, "host");
+      const { streamer } = await requireChannelRole(stream, dbUser._id, "producer");
       const updated = await Stream.findByIdAndUpdate(
         stream._id,
         { $pull: { featureQueue: { messageId: oid(request.params.messageId) } } },

@@ -104,6 +104,9 @@ const SHIELD_FLOOR: Record<FilterCategory, FilterLevel> = {
   scams: "block",
 };
 
+/** An account younger than this is held while Shield is up. */
+export const NEW_ACCOUNT_MS = 24 * 60 * 60 * 1000;
+
 /**
  * The verdict on a message, or null to let it through. `options.shield`
  * raises every category to Shield's floor; `options.newAccount` holds

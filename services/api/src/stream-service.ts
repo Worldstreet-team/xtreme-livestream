@@ -1,7 +1,9 @@
+import type mongoose from "mongoose";
 import { isBroadcasterConnected, sendRoomData } from "./livekit.js";
 import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
+import { closeStreamRuns } from "./sponsors.js";
 import { closeAllWatchSessions } from "./watch-sessions.js";
 
 export const STREAM_GRACE_MS = 90_000;
@@ -165,6 +167,10 @@ export async function markStreamEnded(stream: IStream) {
   if (stream.postToWorldSpace) void relayLiveEvent("ended", stream);
   void closeAllWatchSessions(stream._id).catch((error) =>
     console.error("watch session close-all failed:", error),
+  );
+  // A sponsor card up at the end stops counting at the end.
+  void closeStreamRuns(stream._id as mongoose.Types.ObjectId, endedAt).catch((error) =>
+    console.error("sponsor runs close failed:", error),
   );
 }
 

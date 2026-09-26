@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState, type ReactNode } from "react";
-import { ImageSquare, Trash, X } from "@/components/icons";
+import { ArrowUpRight, ImageSquare, Trash, Warning, X } from "@/components/icons";
 import { QrCode } from "@/components/app/qr-code";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api-client";
 import { compressImage } from "@/lib/image-utils";
 import { useNow } from "@/lib/use-now";
 import { serverNow, serverOffset } from "@/lib/server-clock";
@@ -26,6 +28,8 @@ import {
   type SceneLayer,
 } from "@/lib/scene";
 import { MAX_BRAND_PRESETS } from "@xtreme/contracts";
+import { centsToDollars } from "@/lib/gifts";
+import type { CampaignView, SponsorView } from "@/lib/sponsors";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 const FIELD =
@@ -70,6 +74,8 @@ export function SceneGraphicsPanel({
   people = [],
   carded,
   battle,
+  sponsors = null,
+  brandKit = true,
   onLayers,
   onBrand,
 }: {
@@ -83,6 +89,10 @@ export function SceneGraphicsPanel({
   carded: boolean;
   /** A battle has the top of the picture. */
   battle: boolean;
+  /** The creator's own sponsors and the campaigns they've joined; null while loading. */
+  sponsors?: { own: SponsorView[]; campaigns: CampaignView[] } | null;
+  /** The brand kit under the graphics — the creator's own; a producer uses it as it is. */
+  brandKit?: boolean;
   /** Put a new set of graphics on air. */
   onLayers: (layers: SceneLayer[]) => void;
   /** Save part of the brand kit; rejects with a message worth showing. */
@@ -94,6 +104,7 @@ export function SceneGraphicsPanel({
   const countdown = layerOf(layers, "countdown");
   const logo = layerOf(layers, "logo");
   const cta = layerOf(layers, "cta");
+  const sponsorUp = layerOf(layers, "sponsor");
 
   // Drafts: null until typed in, so they follow what's on air (a resumed
   // stream's graphics) and the defaults until then.
@@ -106,6 +117,7 @@ export function SceneGraphicsPanel({
   const [corner, setCorner] = useState<LogoCorner | null>(null);
   const [ctaTitle, setCtaTitle] = useState<string | null>(null);
   const [ctaUrl, setCtaUrl] = useState<string | null>(null);
+  const [sponsorPick, setSponsorPick] = useState<string | null>(null);
 
   const title = (ltTitle ?? lowerThird?.title ?? hostName).slice(0, 48);
   const subtitle = (ltSubtitle ?? lowerThird?.subtitle ?? streamTitle).slice(0, 72);
@@ -126,6 +138,29 @@ export function SceneGraphicsPanel({
     void onBrand({ presets: [...presets, preset] }).catch(() => {});
   };
   const dropPreset = (preset: BrandPreset) => void onBrand({ presets: presets.filter((p) => !samePreset(p, preset)) }).catch(() => {});
+
+  // Sponsors: your own deals and the campaigns you're in, one list to pick from.
+  const sponsorOptions: SponsorOption[] = [
+    ...(sponsors?.campaigns ?? [])
+      .filter((c) => c.joined && c.status === "live")
+      .map((c): SponsorOption => ({ key: `campaign:${c.id}`, source: "campaign", id: c.id, name: c.name, line: c.line, url: c.url, code: c.code, logoUrl: c.logoUrl, restricted: c.restricted, campaign: c })),
+    ...(sponsors?.own ?? []).map((o): SponsorOption => ({ key: `own:${o.id}`, source: "own", id: o.id, name: o.name, line: o.line, url: o.url, code: o.code, logoUrl: o.logoUrl, restricted: o.restricted, campaign: null })),
+  ];
+  const upKey = sponsorUp ? `${sponsorUp.source}:${sponsorUp.sponsorId}` : null;
+  const pickedKey = sponsorPick ?? upKey ?? sponsorOptions[0]?.key ?? null;
+  const picked = sponsorOptions.find((o) => o.key === pickedKey) ?? null;
+  const sponsorLayer = (o: SponsorOption): SceneLayer => ({
+    kind: "sponsor",
+    source: o.source,
+    sponsorId: o.id,
+    // Drawn at once in the preview; the API fills the card in from its own records.
+    name: o.name,
+    line: o.line,
+    url: o.url,
+    code: o.code,
+    logoUrl: o.logoUrl,
+    restricted: o.restricted,
+  });
 
   const put = (layer: SceneLayer) => onLayers(withLayer(layers, layer.kind, layer));
   const take = (kind: SceneLayer["kind"]) => onLayers(withLayer(layers, kind, null));
@@ -333,6 +368,80 @@ export function SceneGraphicsPanel({
           </GraphicCard>
 
           <GraphicCard
+            title="Sponsor"
+            on={Boolean(sponsorUp)}
+            canShow={Boolean(picked)}
+            status={sponsorUp ? `${sponsorUp.name} · Paid promotion` : undefined}
+            dirty={Boolean(sponsorUp && picked && picked.key !== upKey)}
+            onShow={() => picked && put(sponsorLayer(picked))}
+            onHide={() => take("sponsor")}
+          >
+            {sponsors === null ? (
+              <div className="h-8 w-40 animate-pulse rounded-full bg-white/[0.06]" />
+            ) : sponsorOptions.length === 0 ? (
+              <p className="text-[12px] leading-snug text-muted-foreground">
+                Add a brand you&apos;ve made a deal with, or join an Xtream campaign that pays you to run its card.{" "}
+                {/* A new tab: leaving the studio mid-broadcast would drop the feed. */}
+                <Link href="/sponsorships" target="_blank" rel="noopener" className="font-semibold text-ember-hi hover:underline">
+                  Set up sponsors
+                </Link>
+              </p>
+            ) : (
+              <>
+                <div role="radiogroup" aria-label="Which sponsor" className="flex flex-wrap gap-1.5">
+                  {sponsorOptions.map((o) => {
+                    const on = o.key === pickedKey;
+                    return (
+                      <button
+                        key={o.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setSponsorPick(o.key)}
+                        className={cn(
+                          "press flex h-8 max-w-full items-center gap-1.5 rounded-full pr-3 pl-1 text-[12px] font-semibold transition-colors",
+                          on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                        )}
+                      >
+                        <SponsorMark name={o.name} logoUrl={o.logoUrl} />
+                        <span className="truncate">{o.name}</span>
+                        {o.campaign && (
+                          <span className={cn("shrink-0 font-mono text-[10.5px] font-bold tabular-nums", on ? "text-[#0b0708]/60" : "text-value")}>
+                            {centsToDollars(o.campaign.payPerStreamUsdMinor)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {picked && (
+                  <p className="text-[12px] leading-snug text-muted-foreground">
+                    {picked.campaign
+                      ? `Xtream campaign: pays ${centsToDollars(picked.campaign.payPerStreamUsdMinor)} once it's been up ${picked.campaign.minMinutes} min while you're live · ${picked.campaign.paidStreams} of ${picked.campaign.maxStreamsPerCreator} streams paid.`
+                      : "Your own deal — the brand pays you directly."}{" "}
+                    The card always says &ldquo;Paid promotion&rdquo;.
+                  </p>
+                )}
+                {picked?.restricted && (
+                  <p className="flex items-start gap-1.5 text-[12px] leading-snug text-warning">
+                    <Warning size={13} weight="fill" className="mt-px shrink-0" />
+                    Viewers in Nigeria won&apos;t see this card — crypto, betting and alcohol promotions aren&apos;t allowed there.
+                  </p>
+                )}
+                <Link
+                  href="/sponsorships"
+                  target="_blank"
+                  rel="noopener"
+                  className="flex w-fit items-center gap-1 text-[12px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Manage sponsors
+                  <ArrowUpRight size={12} weight="bold" />
+                </Link>
+              </>
+            )}
+          </GraphicCard>
+
+          <GraphicCard
             title="Logo"
             on={Boolean(logo)}
             canShow={Boolean(brand.logoUrl)}
@@ -368,12 +477,35 @@ export function SceneGraphicsPanel({
         </p>
       </section>
 
-      <BrandKit
-        brand={brand}
-        onBrand={onBrand}
-        onLogoRemoved={() => logo && take("logo")}
-      />
+      {brandKit && <BrandKit brand={brand} onBrand={onBrand} onLogoRemoved={() => logo && take("logo")} />}
     </div>
+  );
+}
+
+interface SponsorOption {
+  key: string;
+  source: "own" | "campaign";
+  id: string;
+  name: string;
+  line: string;
+  url: string;
+  code: string;
+  logoUrl: string | null;
+  restricted: boolean;
+  campaign: CampaignView | null;
+}
+
+/** A sponsor's mark, small: its logo on white, or its initial. */
+function SponsorMark({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+  return logoUrl ? (
+    <span className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-0.5">
+      {/* eslint-disable-next-line @next/next/no-img-element -- the sponsor's logo, served versioned by the API */}
+      <img src={apiUrl(logoUrl)} alt="" className="max-h-full max-w-full object-contain" />
+    </span>
+  ) : (
+    <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-ember text-[11px] font-bold text-on-ember">
+      {name.trim().charAt(0).toUpperCase()}
+    </span>
   );
 }
 

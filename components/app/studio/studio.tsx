@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react";
 import Link from "next/link";
-import { registerStudioBridge, registerVividContext, type StudioAction } from "@/lib/vivid/page-context";
+import { registerProductionBridge, registerStudioBridge, registerVividContext, type ProductionRequest, type StudioAction } from "@/lib/vivid/page-context";
 import {
   VideoCamera,
   Monitor,
@@ -37,6 +37,11 @@ import {
   DotsThree,
   CellSignalLow,
   LayoutIcon,
+  Ticket,
+  Faders,
+  Playlist,
+  ClapperboardText,
+  CaretRight,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -52,7 +57,7 @@ import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
 import { GamesPanel } from "@/components/app/games-panel";
-import { LivePreview } from "@/components/app/live-preview";
+import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { MiniLive } from "@/components/app/studio/mini-live";
 import { publishLiveSession, type LiveActions } from "@/lib/live-session";
 import { sideOf, type BattleView } from "@/lib/battles";
@@ -60,10 +65,29 @@ import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
+import { GoalPanel } from "@/components/app/goal-panel";
+import { RequestsPanel } from "@/components/app/requests-panel";
+import { ObsConnect } from "@/components/app/obs-connect";
+import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
+import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
+import { useRequestQueue } from "@/lib/requests";
+import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
+import { ConsoleLink } from "@/components/app/console-link";
+import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
+import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
+import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
+import { Teleprompter } from "@/components/app/teleprompter";
+import { DirectorSwitch } from "@/components/app/director-switch";
+import { LayoutAndCards } from "@/components/app/scene-controls";
+import { useSiraVivid } from "@/components/vivid/sira-provider";
+import { setPushToTalk, setTalkHeld, usePushToTalk } from "@/lib/vivid/ptt";
+import { HealthChip, HealthSection } from "@/components/app/stream-health";
+import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
+import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
+import { gainFor, withLayer } from "@/lib/scene";
+import { serverNow } from "@/lib/server-clock";
 import {
   CARDS,
-  CHART_INTERVAL_LABELS,
-  CHART_MARKETS,
   DEFAULT_BRAND,
   DEFAULT_CHART,
   DEFAULT_SCENE,
@@ -74,10 +98,7 @@ import {
   readScene,
   sceneFromMetadata,
   type Brand,
-  type ChartInterval,
   type Scene,
-  type SceneChart,
-  type SceneLayout,
   type SuggestedLine,
 } from "@/lib/scene";
 import { useAuth } from "@/lib/auth-context";
@@ -86,6 +107,7 @@ import { captureVideoFrame, compressImage } from "@/lib/image-utils";
 import { LiveChat } from "@/components/app/live-chat";
 import { DragSheet } from "@/components/app/drag-sheet";
 import {
+  AwayTile,
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
@@ -101,7 +123,7 @@ type SourceType = "camera" | "screen" | "obs";
 type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
-type Panel = "chat" | "stage" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more";
+type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio" | "show";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -119,129 +141,16 @@ interface StageUser {
 }
 
 /** 720p either way round — the same pixels, turned to match the shape. */
-/** A layout drawn small: where the people go, the way the scene will place them. */
-function LayoutThumb({ layout }: { layout: SceneLayout }) {
-  const cell = "rounded-[3px] bg-current opacity-35";
-  return (
-    <span aria-hidden className="relative block aspect-video w-full overflow-hidden rounded-[6px] bg-current/[0.08] p-[3px]">
-      {layout === "auto" ? (
-        <span className="flex size-full items-center justify-center font-mono text-[10px] font-bold opacity-70">AUTO</span>
-      ) : layout === "solo" ? (
-        <span className={cn("block size-full", cell)} />
-      ) : layout === "split" ? (
-        <span className="grid size-full grid-cols-2 gap-[3px]">
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "trio" ? (
-        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
-          <span className={cn("row-span-2", cell)} />
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "grid" ? (
-        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
-          <span className={cell} />
-          <span className={cell} />
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "chart-face" ? (
-        // A little rising chart, the face in the corner.
-        <span className="relative block size-full">
-          <svg viewBox="0 0 40 22" preserveAspectRatio="none" className="absolute inset-0 size-full opacity-60">
-            <polyline points="1,18 8,15 14,16 20,10 26,12 32,6 39,8" fill="none" stroke="currentColor" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-          </svg>
-          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
-        </span>
-      ) : (
-        <span className="relative block size-full">
-          <span className={cn("absolute inset-0", cell)} />
-          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
-        </span>
-      )}
-    </span>
-  );
-}
-
 /**
- * Chart + face's market: the usual ones a tap away, any other pair typed
- * ("ADA-USD"), and the candle size. Changes go straight to the room.
+ * What the camera captures: 720p, or 540p when the creator saves data —
+ * about half the upload, steadier on a weak connection (Phase 1).
  */
-function MarketPicker({ chart, onChart }: { chart: SceneChart; onChart: (chart: SceneChart) => void }) {
-  const [draft, setDraft] = useState("");
-  const typed = draft.trim().toUpperCase();
-  const valid = /^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(typed);
-  return (
-    <div className="mt-3 rounded-[12px] bg-white/[0.04] p-3">
-      <p className="text-[12.5px] font-semibold">Market</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {CHART_MARKETS.map((m) => (
-          <button
-            key={m}
-            type="button"
-            aria-pressed={chart.symbol === m}
-            onClick={() => chart.symbol !== m && onChart({ ...chart, symbol: m })}
-            className={cn(
-              "press h-8 rounded-full px-3 font-mono text-[11.5px] font-semibold transition-colors",
-              chart.symbol === m ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
-            )}
-          >
-            {m.replace("-", "/")}
-          </button>
-        ))}
-      </div>
-      <form
-        className="mt-2 flex gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!valid) return;
-          onChart({ ...chart, symbol: typed });
-          setDraft("");
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={CHART_MARKETS.includes(chart.symbol as (typeof CHART_MARKETS)[number]) ? "Another pair, like ADA-USD" : chart.symbol}
-          aria-label="Another market"
-          maxLength={15}
-          className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-white/[0.09]"
-        />
-        <button
-          type="submit"
-          disabled={!valid}
-          className="press h-9 shrink-0 rounded-full bg-white px-3.5 text-[12px] font-bold text-[#0b0708] disabled:opacity-40"
-        >
-          Chart it
-        </button>
-      </form>
-      <div role="radiogroup" aria-label="Candle size" className="mt-3 flex items-center gap-1.5">
-        <span className="mr-1 text-[12px] text-muted-foreground">Candles</span>
-        {(Object.keys(CHART_INTERVAL_LABELS) as ChartInterval[]).map((iv) => (
-          <button
-            key={iv}
-            type="button"
-            role="radio"
-            aria-checked={chart.interval === iv}
-            onClick={() => chart.interval !== iv && onChart({ ...chart, interval: iv })}
-            className={cn(
-              "press h-7 rounded-full px-2.5 font-mono text-[11.5px] font-semibold transition-colors",
-              chart.interval === iv ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
-            )}
-          >
-            {CHART_INTERVAL_LABELS[iv]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+/** The shot a scene frames — what a hand on the controls changes, as opposed to its graphics. */
+const framing = (s: Scene) => `${s.layout}|${s.card ?? ""}|${s.spotlight ?? ""}`;
 
-function captureResolution(o: Orientation) {
-  return o === "portrait"
-    ? { width: 720, height: 1280, frameRate: 30 }
-    : { width: 1280, height: 720, frameRate: 30 };
+function captureResolution(o: Orientation, saveData = false) {
+  const [long, short] = saveData ? [960, 540] : [1280, 720];
+  return o === "portrait" ? { width: short, height: long, frameRate: 30 } : { width: long, height: short, frameRate: 30 };
 }
 
 /**
@@ -317,6 +226,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * OBS/vMix can be set up once and never touched again.
    */
   const [streamKey, setStreamKey] = useState<{ url: string; streamKey: string } | null>(null);
+  // WHIP (OBS 30+, lower delay) has its own server and bearer token beside RTMP's.
+  const [ingestProtocol, setIngestProtocol] = useState<"rtmp" | "whip">("rtmp");
+  const [whipKey, setWhipKey] = useState<{ url: string; streamKey: string } | null>(null);
   const [rotatingKey, setRotatingKey] = useState(false);
 
   // ---- Staying on air through drops ----
@@ -337,6 +249,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [cardNote, setCardNote] = useState("");
   /** Go live on "Starting soon" rather than straight into the camera. */
   const [openOnCard, setOpenOnCard] = useState(false);
+  // Send 540p with voice-tuned sound, for creators on a weak uplink.
+  const [saveData, setSaveData] = useState(false);
   /** The screen being shared alongside the camera — the preview's main picture while it is. */
   const [localScreen, setLocalScreen] = useState<LocalVideoTrack | null>(null);
   /** The brand kit the graphics wear, saved to the channel. */
@@ -346,6 +260,68 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
   /** Lines moderators suggested for the screen, waiting on me. */
   const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
+  // Stream health: what's being sent — the shared screen, else the camera —
+  // read every 2 s while live from the browser; from an encoder, what
+  // LiveKit's ingress is receiving, asked every 5 s.
+  const measuredTrack = useCallback(() => localScreen ?? (camEnabled ? videoTrackRef.current : null), [localScreen, camEnabled]);
+  const browserHealth = useStreamHealth(measuredTrack, {
+    active: isLive && source !== "obs" && (camEnabled || Boolean(localScreen)),
+    streamId,
+  });
+  const encoderHealth = useEncoderHealth({ active: isLive && source === "obs", streamId });
+  const health = source === "obs" ? encoderHealth : browserHealth;
+  // The goal bar and heat meter: each broadcast starts without them.
+  const [goal, setGoal] = useState<StreamGoal | null>(null);
+  const [heat, setHeat] = useState<StreamHeat | null>(null);
+  const [goalsFor, setGoalsFor] = useState(streamId);
+  if (goalsFor !== streamId) {
+    setGoalsFor(streamId);
+    setGoal(null);
+    setHeat(null);
+  }
+  // Paid requests: the menu is the account's, the queue this broadcast's.
+  const requestQueue = useRequestQueue(isLive ? streamId : null, liveRoom);
+  // Sponsors for the Scenes panel: your own deals and the campaigns you're in.
+  const sponsorships = useSponsorships(Boolean(user?.id));
+  const reloadSponsorships = sponsorships.reload;
+  // Run of show: the rundown (saved as it's edited), where the show is, and the prompter.
+  const rundown = useRundown(Boolean(user?.id));
+  const show = useRundownPosition(isLive ? streamId : null, isLive);
+  // The room's event handler is set up once; it reaches the latest `take` through this.
+  const rundownTakeRef = useRef(show.take);
+  useEffect(() => {
+    rundownTakeRef.current = show.take;
+  }, [show.take]);
+  const [prompterOn, setPrompterOn] = useState(false);
+  const [focusSegment, setFocusSegment] = useState<string | null>(null);
+  const [segmentBusy, setSegmentBusy] = useState(false);
+  const [showPlanner, setShowPlanner] = useState(false);
+  /** What Vivid reads about the show on air (kept current below, read by the studio's Vivid context). */
+  const vividShowRef = useRef<Record<string, unknown>>({});
+  // Joined a campaign in another tab? Opening Scenes picks it up.
+  useEffect(() => {
+    if (panel !== "scenes") return;
+    const t = setTimeout(() => void reloadSponsorships(), 0);
+    return () => clearTimeout(t);
+  }, [panel, reloadSponsorships]);
+  // The audio desk: the mic's way out while it's on (lib/audio-desk.ts).
+  // Its levels and the moments it plays for are this device's.
+  const deskRef = useRef<AudioDesk | null>(null);
+  const deskCtxRef = useRef<AudioContext | null>(null);
+  const deskOnRef = useRef(false);
+  const [deskOn, setDeskOn] = useState(false);
+  const [deskStarting, setDeskStarting] = useState(false);
+  const [deskSettings, setDeskSettings] = useState<DeskSettings>(readDeskSettings);
+  const [deskMoments, setDeskMoments] = useState<DeskMoments>({ giftFromMinor: 500, battleWin: true });
+  const deskMomentsRef = useRef(deskMoments);
+  deskMomentsRef.current = deskMoments;
+  /** Battles the airhorn has already played for. */
+  const hornedRef = useRef<Set<string>>(new Set());
+  const meRef = useRef<string | undefined>(undefined);
+  meRef.current = user?.id;
+  /** The guest faders as the scene has them — for audio that arrives later. */
+  const gainsRef = useRef<Record<string, number>>({});
+  const gainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
@@ -378,6 +354,144 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   >([]);
   const guestTracksRef = useRef<Map<string, AttachableVideoTrack>>(new Map());
   const guestAudioElsRef = useRef<Map<object, HTMLAudioElement>>(new Map());
+  // A 2v2's other pair, a tile each, over one connection to their room.
+  const pairOpponent =
+    battle && battle.mode === "2v2" && streamId ? (sideOf(battle, streamId) === "host" ? battle.challenger : battle.host) : null;
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
+
+  // The auto-director: the layout follows whoever's talking (lib/director.ts).
+  // Off until the host turns it on; remembered on this device.
+  const [directorOn, setDirectorOn] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        setDirectorOn(localStorage.getItem("xtream:director") === "on");
+      } catch {
+        // No storage: it starts off.
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const hostIdentities = useMemo(() => (user?.id ? [user.id, `obs-${user.id}`] : []), [user?.id]);
+  const guestIdentities = useMemo(() => guestTiles.map((t) => t.identity), [guestTiles]);
+  const directorBlocked: DirectorBlock =
+    guestIdentities.length === 0
+      ? "alone"
+      : scene.card
+        ? "card"
+        : battle
+          ? "battle"
+          : scene.layout === "screen-face" || scene.layout === "chart-face"
+            ? "content"
+            : null;
+  const director = useAutoDirector({
+    on: directorOn && isLive,
+    room: liveRoom,
+    host: hostIdentities,
+    guests: guestIdentities,
+    current: shotOf(scene),
+    blocked: directorBlocked,
+    // Its own cuts, marked as its own, so they don't pause it.
+    onCut: (shot) => void applyScene({ layout: shot.layout, spotlight: shot.spotlight }, "director"),
+  });
+  /** Who framed the shot that paused the director: the host here, or a producer at their console. */
+  const [framedBy, setFramedBy] = useState<"you" | "producer">("you");
+  // The room's handlers are set up once; they reach the latest scene and the director through these.
+  const sceneNowRef = useRef(scene);
+  const framedElsewhereRef = useRef(() => {});
+  useEffect(() => {
+    sceneNowRef.current = scene;
+    framedElsewhereRef.current = () => {
+      setFramedBy("producer");
+      director.pause();
+    };
+  });
+  // Vivid on air (Phase 3, Vivid as producer): while live, Vivid hears the
+  // host only while they hold the talk key — the room is who they're talking
+  // to. And while Vivid speaks, viewers are told it's an AI voice, in case
+  // it's heard on air (desktop audio in OBS, a speaker near the mic).
+  const vivid = useSiraVivid();
+  const vividOnAir = isLive && Boolean(vivid?.isConnected);
+  const ptt = usePushToTalk();
+  useEffect(() => {
+    setPushToTalk(vividOnAir);
+    return () => setPushToTalk(false);
+  }, [vividOnAir]);
+  useEffect(() => {
+    if (!vividOnAir) return;
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return Boolean(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "v" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !typing(e)) setTalkHeld(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "v") setTalkHeld(false);
+    };
+    const letGo = () => setTalkHeld(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", letGo);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", letGo);
+      setTalkHeld(false);
+    };
+  }, [vividOnAir]);
+  const vividSpeaking = isLive && vivid?.state === "speaking";
+  useEffect(() => {
+    if (!liveRoom || !isLive) return;
+    const say = (on: boolean) =>
+      void liveRoom.localParticipant
+        .publishData(new TextEncoder().encode(JSON.stringify({ __evt: "ai_voice", on })), { reliable: true })
+        .catch(() => {});
+    say(vividSpeaking);
+    if (!vividSpeaking) return;
+    // Kept fresh for anyone who joins mid-sentence; viewers let it lapse on their own.
+    const t = setInterval(() => say(true), 10_000);
+    return () => clearInterval(t);
+  }, [vividSpeaking, liveRoom, isLive]);
+  const talkHold = (props: { phone?: boolean }) => (
+    <button
+      type="button"
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setTalkHeld(true);
+      }}
+      onPointerUp={() => setTalkHeld(false)}
+      onPointerCancel={() => setTalkHeld(false)}
+      onLostPointerCapture={() => setTalkHeld(false)}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-pressed={ptt.held}
+      aria-label="Hold to talk to Vivid"
+      title="Hold to talk to Vivid — or hold V"
+      className={cn(
+        "press flex touch-none items-center justify-center gap-2 rounded-full font-semibold transition-colors select-none",
+        props.phone ? "size-11" : "h-11 px-4 text-[13px]",
+        ptt.held ? "bg-white text-[#0b0708]" : props.phone ? "obj text-white" : "text-white hover:bg-white/[0.12]"
+      )}
+    >
+      <span className={cn("size-2 shrink-0 rounded-full", ptt.held ? "animate-pulse bg-ember" : "bg-white/45")} />
+      {!props.phone && (ptt.held ? "Vivid's listening" : "Hold for Vivid")}
+    </button>
+  );
+
+  // The gift handler lives in the room's event callback; it reaches the director through this.
+  const directorReactRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    directorReactRef.current = directorOn ? director.react : () => {};
+  }, [directorOn, director.react]);
+  const setDirector = (on: boolean) => {
+    setDirectorOn(on);
+    if (on) director.resume();
+    try {
+      localStorage.setItem("xtream:director", on ? "on" : "off");
+    } catch {
+      // It's on for this visit.
+    }
+  };
 
   // ---- Co-live ----
   /** An open invite from another live host, shown in the Stage tab. */
@@ -447,7 +561,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       if (source === "camera") {
         const { createLocalVideoTrack } = await import("livekit-client");
         const track = await createLocalVideoTrack({
-          resolution: captureResolution(orientation),
+          resolution: captureResolution(orientation, saveData),
           facingMode: facing,
         });
         setPreviewTrack(track);
@@ -661,8 +775,34 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         };
         // A platform admin took the stream down after a report; the room
         // closes next, and the host is told why.
+        // A battle won: the airhorn, once, if the desk is on and it's wanted.
+        // A producer moved the show on from their console: the prompter follows.
+        if (data.__evt === "rundown") {
+          const next = readPosition((data as { position?: unknown }).position);
+          if (next) rundownTakeRef.current(next);
+          return;
+        }
+        if (data.__evt === "battle") {
+          const b = (data as { battle?: BattleView }).battle;
+          if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
+            hornedRef.current.add(b.id);
+            void deskRef.current?.playPad("airhorn");
+          }
+          return;
+        }
         if (data.__evt === "takedown") {
           takenDownRef.current = true;
+          return;
+        }
+        // A gift, a like or an ally moved the goal; a gift warmed the meter.
+        if (data.__evt === "goal") {
+          const next = readGoal((data as { goal?: unknown }).goal);
+          if (next) setGoal((g) => newerGoal(g, next));
+          return;
+        }
+        if (data.__evt === "heat") {
+          const next = readHeat((data as { heat?: unknown }).heat);
+          if (next) setHeat((h) => newerHeat(h, next));
           return;
         }
         // The encoder dropped or came back — the API decides, we display.
@@ -749,6 +889,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           const id = String(data.id ?? `tip-${Date.now()}-${Math.random()}`);
           const cents = Math.round(parseFloat(amountStr) * 100) || 0;
           setSessionTipsMinor((t) => t + cents);
+          // A big gift: the desk's ka-ching, for everyone.
+          const from = deskMomentsRef.current.giftFromMinor;
+          if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
+          // …and, with the auto-director on, the host alone for their reaction.
+          if (cents >= 2000) directorReactRef.current();
           playTipChime();
           setTipAlerts((prev) => [
             ...prev.slice(-2),
@@ -936,12 +1081,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * reload, and by the rejoin loop after a drop (`rejoin`).
    */
   const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
-    const { Room: LKRoom, RoomEvent, Track, VideoPresets, DisconnectReason } = await import("livekit-client");
+    const { Room: LKRoom, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason } = await import("livekit-client");
     const room = new LKRoom({
       // Pause simulcast layers no subscriber is consuming.
       dynacast: true,
       videoCaptureDefaults: {
-        resolution: captureResolution(orientation),
+        resolution: captureResolution(orientation, saveData),
         facingMode: facing,
       },
       publishDefaults: {
@@ -951,6 +1096,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         // instead of the full feed or nothing.
         simulcast: true,
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+        // Saving data: sound tuned for a voice, at a lower bitrate.
+        ...(saveData ? { audioPreset: AudioPresets.speech } : {}),
       },
     });
 
@@ -959,7 +1106,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       let n = 0;
       room.remoteParticipants.forEach((p) => {
         // Neither the RTMP encoder nor the host's own monitor tab counts.
-        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-"))
+        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-") && !p.identity.startsWith("prod-"))
           n += 1;
       });
       return n;
@@ -968,7 +1115,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       setViewerCount(countViewers());
       if (
         participant.identity.startsWith("obs-") ||
-        participant.identity.startsWith("mon-")
+        participant.identity.startsWith("mon-") ||
+        // A producer's console joins hidden, but never counts as a viewer either way.
+        participant.identity.startsWith("prod-")
       )
         return;
       setConnectedViewers((prev) => [
@@ -1024,6 +1173,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
       if (track.kind === Track.Kind.Audio) {
         const el = track.attach() as HTMLAudioElement;
+        // At the level the desk's guest fader has them.
+        el.dataset.identity = participant.identity;
+        el.volume = gainFor(gainsRef.current, participant.identity);
         document.body.appendChild(el);
         guestAudioElsRef.current.set(track, el);
         el.play().catch(() => {});
@@ -1068,7 +1220,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
       if (roomRef.current !== room) return;
       const next = sceneFromMetadata(metadata);
-      if (next) setScene((cur) => (next.version >= cur.version ? next : cur));
+      if (!next) return;
+      // Framed from a producer's console rather than here: the auto-director
+      // steps back for a minute, as it does for the host's own hand.
+      const cur = sceneNowRef.current;
+      if (next.version > cur.version && framing(next) !== framing(cur)) framedElsewhereRef.current();
+      setScene((c) => (next.version >= c.version ? next : c));
     });
     // Sharing stopped from the browser's own bar: the preview goes back to the camera.
     room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
@@ -1120,6 +1277,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           audioTrackRef.current = pub.track as LocalAudioTrack;
         }
       });
+      // A rejoin publishes a new mic track: the desk goes back in its path.
+      if (deskOnRef.current) void startDesk();
     }
     return room;
   };
@@ -1206,7 +1365,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       if (!resume) {
         setScene(
           openOnCard
-            ? { layout: "auto", card: "starting-soon", cardNote: cardNote.trim(), chart: null, layers: [], version: 1 }
+            ? { ...DEFAULT_SCENE, card: "starting-soon", cardNote: cardNote.trim(), version: 1 }
             : DEFAULT_SCENE
         );
       }
@@ -1278,6 +1437,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   /** Back to setup after a broadcast, however it ended. */
   const resetAfterLive = () => {
     stopRejoin();
+    // The mic track went with the room, and the desk with it.
+    deskRef.current = null;
+    deskOnRef.current = false;
+    setDeskOn(false);
     setConn("live");
     setNeedsReshare(false);
     setScene(DEFAULT_SCENE);
@@ -1423,6 +1586,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         cameraOn: v.camEnabled,
         screenSharing: v.screenShareActive,
         ...(v.isLive ? { viewers: v.viewerCount, liveFor: v.elapsed, streamId: v.streamId } : {}),
+        ...vividShowRef.current,
         openDialog: v.confirmDialog === "golive" ? "go live confirmation" : v.confirmDialog === "end" ? "end stream confirmation" : null,
       };
     });
@@ -1507,12 +1671,29 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     };
   }, [user, isLive, source, streamKey]);
 
+  // The WHIP key, when that's the way the encoder sends.
+  useEffect(() => {
+    if (!user || source !== "obs" || ingestProtocol !== "whip" || whipKey) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key?protocol=whip")
+      .then((r) => !cancelled && setWhipKey({ url: r.data.url, streamKey: r.data.streamKey }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, source, ingestProtocol, whipKey]);
+
   const rotateKey = async () => {
     if (rotatingKey) return;
     if (!window.confirm("Replace your stream key? The current one stops working immediately and OBS/vMix will need the new one.")) return;
     setRotatingKey(true);
     try {
-      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key/rotate", { method: "POST" });
+      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>(`/api/users/me/stream-key/rotate?protocol=${ingestProtocol}`, { method: "POST" });
+      if (ingestProtocol === "whip") {
+        setWhipKey({ url: r.data.url, streamKey: r.data.streamKey });
+        setKeyVisible(true);
+        return;
+      }
       setStreamKey({ url: r.data.url, streamKey: r.data.streamKey });
       setKeyVisible(true);
     } catch (err) {
@@ -1974,8 +2155,37 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         ? battle.challenger.streamId
         : battle.host.streamId
       : null;
+  /** The other side's picture, named on it. */
+  const opponentTile = (key: string, name: string, picture: React.ReactNode): SceneCell => ({
+    key,
+    node: (
+      <div className="relative size-full bg-black">
+        {picture}
+        <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
+          {name} · opponent
+        </span>
+      </div>
+    ),
+  });
+  // A 2v2 is a 2×2, as viewers see it: our pair down the left, theirs down
+  // the right — so after us come their host, our partner, their partner.
+  const pairCells = (): SceneCell[] => {
+    if (!pairOpponent || !battle || !streamId) return [];
+    const mate = (sideOf(battle, streamId) === "host" ? battle.host : battle.challenger).partner ?? null;
+    const mateTile = mate ? guestTiles.find((t) => t.identity === mate.userId) : undefined;
+    const theirMate = pairOpponent.partner ?? null;
+    return [
+      opponentTile("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+      mateTile
+        ? { key: mateTile.identity, node: <StageTile fill track={guestTracksRef.current.get(mateTile.identity)} label={mateTile.name} /> }
+        : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Your partner"} /> },
+      theirMate
+        ? opponentTile("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+        : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
+    ];
+  };
   // The others on stage, in the order the scene brings them in.
-  const stageOthers: SceneCell[] = [
+  const stageOthers: SceneCell[] = pairOpponent ? pairCells() : [
     ...(opponentStreamId && battle && streamId
       ? [
           {
@@ -1997,7 +2207,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
 
   /** The permanent key before a stream exists, the ingress once it does. */
-  const keyRows = isLive && ingressInfo ? ingressInfo : streamKey;
+  const keyRows = ingestProtocol === "whip" ? whipKey : isLive && ingressInfo ? ingressInfo : streamKey;
 
   const encoderBlock = (
     <div className="rounded-[12px] bg-white/[0.04] p-4">
@@ -2012,10 +2222,28 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             <span className="flex items-center gap-1.5 text-xs text-amber-400"><span className="size-1.5 animate-pulse rounded-full bg-amber-400" />Waiting</span>
           )
         ) : (
-          <button type="button" onClick={rotateKey} disabled={rotatingKey || !streamKey} className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
+          <button type="button" onClick={rotateKey} disabled={rotatingKey || !keyRows} className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
             {rotatingKey ? "Replacing…" : "Replace key"}
           </button>
         )}
+      </div>
+      {/* RTMP for any encoder; WHIP for OBS 30+ (lower delay). */}
+      <div role="tablist" aria-label="Protocol" className="mt-3 inline-flex rounded-full bg-white/[0.05] p-0.5">
+        {(["rtmp", "whip"] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            role="tab"
+            aria-selected={ingestProtocol === p}
+            onClick={() => setIngestProtocol(p)}
+            className={cn(
+              "press h-7 rounded-full px-3 text-[11.5px] font-semibold transition-colors",
+              ingestProtocol === p ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {p === "rtmp" ? "RTMP" : "WHIP · OBS 30+"}
+          </button>
+        ))}
       </div>
       {keyRows ? (
         <div className="mt-3 space-y-2">
@@ -2027,7 +2255,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-16 shrink-0 text-xs text-muted-foreground">Key</span>
+            <span className="w-16 shrink-0 text-xs text-muted-foreground">{ingestProtocol === "whip" ? "Token" : "Key"}</span>
             <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? keyRows.streamKey : "••••••••••••••••••••••••"}</code>
             <button onClick={() => setKeyVisible((v) => !v)} title={keyVisible ? "Hide key" : "Reveal key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
               {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
@@ -2041,8 +2269,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         <div className="mt-3 h-[76px] animate-pulse rounded-[8px] bg-white/[0.04]" />
       )}
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">
-        Set it once in OBS or vMix — it never changes. If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
+        {ingestProtocol === "whip"
+          ? "In OBS 30 or later (32.1+ is best — it sends lighter qualities for weak connections): Settings → Stream → Service: WHIP, then paste the server and the bearer token. "
+          : "Set it once in OBS or vMix — it never changes. "}
+        If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
       </p>
+      {/* Or skip the copy and paste: OBS on this computer, over its WebSocket. */}
+      <ObsConnect protocol={ingestProtocol} server={keyRows?.url ?? null} secret={keyRows?.streamKey ?? null} live={isLive} />
     </div>
   );
 
@@ -2073,6 +2306,66 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   );
 
   // One column in the side panel; two once the console is wide enough (tablets).
+  // Sponsors a rundown cue can put up: your own, and the campaigns you're running.
+  const cueSponsors: CueSponsor[] = cueSponsorsOf(sponsorships.data ? { own: sponsorships.data.sponsors, campaigns: sponsorships.data.campaigns } : null);
+  const segments = rundown.segments ?? [];
+  const onAirIndex = show.position?.segmentId ? segments.findIndex((x) => x.id === show.position?.segmentId) : -1;
+  const onAirSegment = onAirIndex >= 0 ? segments[onAirIndex]! : null;
+  const nextSegment = onAirIndex >= 0 ? (segments[onAirIndex + 1] ?? null) : (segments[0] ?? null);
+  // What the prompter reads: the segment on air, or — before a show — the one being prepared.
+  const prompterSegment = onAirSegment ?? segments.find((x) => x.id === focusSegment) ?? segments[0] ?? null;
+
+  /**
+   * Put a segment on air: its clock starts on the server, then its cues go
+   * to the picture through the scene route, the same way a hand-made
+   * change does. Null stops the run of show.
+   */
+  const goSegment = async (segment: RundownSegment | null) => {
+    setSegmentBusy(true);
+    try {
+      await show.go(segment?.id ?? null);
+      const patch = segment ? applyCues(scene, segment, serverNow(), cueSponsors) : null;
+      if (patch) await applyScene(patch);
+    } finally {
+      setSegmentBusy(false);
+    }
+  };
+  useEffect(() => {
+    vividShowRef.current = {
+      layout: scene.layout,
+      card: scene.card,
+      graphicsUp: scene.layers.map((l) => l.kind),
+      guestsOnStage: guestTiles.map((t) => t.name),
+      besideHost: guestTiles.find((t) => t.identity === scene.spotlight)?.name ?? null,
+      sponsors: cueSponsors.map((x) => x.name),
+      show:
+        segments.length > 0
+          ? {
+              onAir: onAirSegment?.title ?? null,
+              next: nextSegment?.title ?? null,
+              segments: segments.map((x) => `${x.title} (${formatLength(x.seconds)})`),
+            }
+          : null,
+      prompter: prompterOn,
+      autoDirector: directorOn,
+    };
+  });
+
+  const runOfShow = (
+    <RunOfShow
+      segments={rundown.segments}
+      status={rundown.status}
+      onChange={rundown.update}
+      live={isLive}
+      position={show.position}
+      onGo={goSegment}
+      sponsors={cueSponsors}
+      prompterOn={prompterOn}
+      onPrompter={() => setPrompterOn((on) => !on)}
+      onFocus={setFocusSegment}
+    />
+  );
+
   const setupFields = (
     <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
       {orphan && (() => {
@@ -2292,6 +2585,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         />
       </div>
 
+      {/* A weak uplink: send less, steadily. */}
+      {source !== "obs" && (
+        <div className="border-t border-white/[0.06] pt-3">
+          <SwitchField
+            label="Save data — 540p"
+            description={
+              saveData
+                ? "Sends 540p with voice-tuned sound: about half the upload, steadier on a weak connection."
+                : "Sends up to 720p. Turn this on if your connection struggles."
+            }
+            checked={saveData}
+            onCheckedChange={setSaveData}
+          />
+        </div>
+      )}
+
       {/* Where it goes — the same switch as Settings and Schedule. */}
       <div className="border-t border-white/[0.06] pt-3">
         <SwitchField
@@ -2301,6 +2610,32 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           onCheckedChange={toggleWorldSpace}
         />
       </div>
+      </div>
+
+      {/* The run of show: segments, the prompter's script, and what each puts on screen. */}
+      <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
+        {showPlanner ? (
+          runOfShow
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowPlanner(true)}
+            className="press flex w-full items-center gap-3 rounded-[14px] bg-white/[0.04] p-3.5 text-left transition-colors hover:bg-white/[0.06]"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.07]">
+              <Playlist size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-semibold">Run of show</span>
+              <span className="block truncate text-[12.5px] text-muted-foreground">
+                {segments.length > 0
+                  ? `${segments.length} ${segments.length === 1 ? "segment" : "segments"} · ${formatLength(totalSeconds(segments))} · the prompter reads your script`
+                  : "Plan segments, a script for the prompter, and what goes on screen"}
+              </span>
+            </span>
+            <CaretRight size={16} className="shrink-0 text-muted-foreground" />
+          </button>
+        )}
       </div>
 
       {source === "obs" && <div className="@[620px]:col-span-2">{encoderBlock}</div>}
@@ -2327,6 +2662,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const roomTabs: CapsuleTab<Panel>[] = [
     { id: "chat", label: "Chat", icon: ChatText },
     { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length },
+    { id: "requests", label: "Requests", icon: Ticket, badge: requestQueue.pending.length },
     { id: "scenes", label: "Scenes", icon: LayoutIcon },
     { id: "battle", label: "Battle", icon: Sword },
     { id: "games", label: "Games", icon: Sparkle },
@@ -2382,7 +2718,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className={SETUP_LABEL}>Requests</h3>
+          <h3 className={SETUP_LABEL}>Asking to join</h3>
           <span className="text-[11px] text-muted-foreground/60">{liveGuests.length}/{MAX_STAGE_GUESTS} slots used</span>
         </div>
         {stageRequests.length === 0 ? (
@@ -2455,8 +2791,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * Change the scene. Shown at once here, then saved and broadcast by the
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
-  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart">>) => {
-    if (!streamId) return;
+  const applyScene = async (
+    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight">>,
+    /** The auto-director's own cuts don't pause it; anyone else's framing does. */
+    by: "host" | "director" = "host",
+  ): Promise<string | null> => {
+    if (!streamId) return "Go live first";
+    if (by === "host" && ("layout" in patch || "card" in patch || "spotlight" in patch)) {
+      setFramedBy("you");
+      director.pause();
+    }
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
     setScene(next);
@@ -2464,14 +2808,140 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
         method: "PUT",
         // The whole scene every time: what's left out goes back to its default.
-        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, chart: next.chart ?? null, layers: next.layers }),
+        body: JSON.stringify({
+          layout: next.layout,
+          card: next.card,
+          cardNote: next.cardNote,
+          chart: next.chart ?? null,
+          layers: next.layers,
+          gains: next.gains ?? {},
+          spotlight: next.spotlight ?? null,
+        }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
+      return null;
     } catch (err) {
       setScene(before);
-      setError(err instanceof Error ? err.message : "Couldn't change the scene");
+      const message = err instanceof Error ? err.message : "Couldn't change the scene";
+      setError(message);
+      return message;
     }
   };
+
+  /**
+   * Vivid as producer: a voice request becomes exactly the tap it names —
+   * the same scene writes, run-of-show steps and room calls as the panels
+   * make (lib/vivid/page-context.ts). Answers in words Vivid can say.
+   */
+  const produce = async (req: ProductionRequest): Promise<Record<string, unknown>> => {
+    const ok = (said: Record<string, unknown> = {}) => ({ success: true, ...said });
+    if (req.do !== "prompter" && req.do !== "director" && (!isLive || !streamId)) {
+      return { error: "Go live first — that changes what viewers see." };
+    }
+    const scenery = async (patch: Parameters<typeof applyScene>[0], said: Record<string, unknown>) => {
+      const failed = await applyScene(patch);
+      return failed ? { error: failed } : ok(said);
+    };
+    const byName = <T extends { name: string }>(list: T[], name: string) => {
+      const q = name.trim().toLowerCase();
+      return list.find((x) => x.name.toLowerCase() === q) ?? list.find((x) => x.name.toLowerCase().includes(q));
+    };
+    switch (req.do) {
+      case "layout": {
+        const layout = LAYOUTS.find((l) => l.id === req.layout);
+        if (!layout) return { error: `There's no layout called ${req.layout}.`, layouts: LAYOUTS.map((l) => l.id) };
+        if (battle) return { error: "A battle keeps both sides on screen until it ends." };
+        return scenery(layout.id === "chart-face" && !scene.chart ? { layout: layout.id, chart: DEFAULT_CHART } : { layout: layout.id }, { layout: layout.label });
+      }
+      case "card": {
+        if (req.card === null) return scenery({ card: null }, { card: "taken down" });
+        const card = CARDS.find((c) => c.id === req.card);
+        return card ? scenery({ card: card.id }, { card: card.title }) : { error: `There's no card called ${req.card}.` };
+      }
+      case "spotlight": {
+        const guest = byName(guestTiles, req.guest);
+        if (!guest) return { error: guestTiles.length ? `No one called ${req.guest} is on stage.` : "No guests are on stage.", onStage: guestTiles.map((t) => t.name) };
+        const keep = scene.layout === "split" || scene.layout === "trio";
+        return scenery({ spotlight: guest.identity, ...(keep ? {} : { layout: "split" as const }) }, { beside: guest.name });
+      }
+      case "chart": {
+        const raw = req.market.trim().toUpperCase().replace(/[\s/]+/g, "-");
+        const symbol = raw.includes("-") ? raw : `${raw}-USD`;
+        if (!/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(symbol)) return { error: `I can't chart ${req.market}.` };
+        return scenery({ layout: "chart-face", chart: { symbol, interval: scene.chart?.interval ?? "5m" } }, { chart: symbol });
+      }
+      case "lower_third":
+        return scenery(
+          { layers: withLayer(scene.layers, "lower-third", { kind: "lower-third", title: req.title.slice(0, 48), subtitle: (req.subtitle ?? "").slice(0, 72) }) },
+          { lowerThird: req.title },
+        );
+      case "banner":
+        return scenery({ layers: withLayer(scene.layers, "banner", { kind: "banner", text: req.text.slice(0, 100) }) }, { banner: req.text });
+      case "countdown": {
+        const minutes = Math.min(120, Math.max(1, Math.round(req.minutes)));
+        const endsAt = new Date(serverNow() + minutes * 60_000).toISOString();
+        return scenery({ layers: withLayer(scene.layers, "countdown", { kind: "countdown", label: (req.label ?? "").slice(0, 40), endsAt }) }, { countdownMinutes: minutes });
+      }
+      case "sponsor": {
+        const s = byName(cueSponsors, req.name);
+        if (!s) return { error: `There's no sponsor called ${req.name}.`, sponsors: cueSponsors.map((x) => x.name) };
+        const layer = { kind: "sponsor" as const, source: s.source, sponsorId: s.id, name: s.name, line: s.line, url: s.url, code: s.code, logoUrl: s.logoUrl, restricted: s.restricted };
+        return scenery({ layers: withLayer(scene.layers, "sponsor", layer) }, { sponsor: s.name, label: "Paid promotion" });
+      }
+      case "hide": {
+        const kind = ({ lower_third: "lower-third", banner: "banner", countdown: "countdown", sponsor: "sponsor", ticker: "ticker", qr: "cta" } as const)[req.graphic];
+        if (!scene.layers.some((l) => l.kind === kind)) return ok({ note: "It wasn't up." });
+        return scenery({ layers: withLayer(scene.layers, kind, null) }, { hidden: req.graphic });
+      }
+      case "show": {
+        if (segments.length === 0) return { error: "There's no run of show yet — it's written in the studio's Run of show panel." };
+        const target = req.step === "start" ? segments[0]! : req.step === "next" ? nextSegment : null;
+        if (req.step === "next" && !target) return { error: "That was the last segment." };
+        await goSegment(target);
+        return ok(target ? { onAir: target.title, next: segments[segments.indexOf(target) + 1]?.title ?? null } : { stopped: true });
+      }
+      case "prompter":
+        setPrompterOn(req.on);
+        return ok({ prompter: req.on ? "on" : "off" });
+      case "director":
+        setDirector(req.on);
+        return ok({ director: req.on ? "on" : "off", ...(req.on && directorBlocked ? { standingBy: directorBlocked } : {}) });
+      case "shield":
+        await apiFetch(`/api/streams/${streamId}/shield`, { method: "POST", body: JSON.stringify({ on: req.on }) });
+        return ok({ shield: req.on ? "up" : "down" });
+      case "prediction": {
+        const r = await apiFetch<{ success: boolean; data: { game: { question: string } } }>(`/api/streams/${streamId}/games`, {
+          method: "POST",
+          body: JSON.stringify({
+            type: "prediction",
+            question: req.question.slice(0, 140),
+            outcomes: req.outcomes.map((o) => o.slice(0, 40)),
+            durationSec: Math.min(600, Math.max(30, Math.round(req.seconds ?? 120))),
+          }),
+        });
+        return ok({ question: r.data.game.question });
+      }
+      case "sound": {
+        const pad = PADS.find((p) => p.id === req.pad);
+        if (!pad) return { error: `There's no sound called ${req.pad}.` };
+        if (!deskOnRef.current || !deskRef.current) return { error: "Turn the audio desk on first — Sound, in the dock." };
+        await deskRef.current.playPad(pad.id);
+        return ok({ played: pad.label });
+      }
+      case "ban": {
+        const found = await apiFetch<{ success: boolean; data: { channels: { id: string; username: string }[] } }>(`/api/users/search?q=${encodeURIComponent(req.username)}&limit=5`);
+        const who = found.data.channels.find((c) => c.username.toLowerCase() === req.username.toLowerCase());
+        if (!who) return { error: `There's no one called ${req.username}.` };
+        await apiFetch(`/api/streams/${streamId}/ban/${who.id}`, { method: "POST", body: JSON.stringify(req.minutes ? { minutes: Math.round(req.minutes) } : {}) });
+        return ok({ banned: who.username, ...(req.minutes ? { minutes: Math.round(req.minutes) } : {}) });
+      }
+    }
+  };
+  const produceRef = useRef(produce);
+  useEffect(() => {
+    produceRef.current = produce;
+  });
+  useEffect(() => registerProductionBridge((req) => produceRef.current(req)), []);
 
   // The brand kit, for the preview and the Scenes panel.
   useEffect(() => {
@@ -2512,6 +2982,71 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
   };
 
+  /**
+   * Put the audio desk in the mic's path. The audio context has to start
+   * from a click, and if it ever stops running, the desk steps out so the
+   * mic goes out as it is — a silent broadcast is the one thing it must
+   * never cause.
+   */
+  async function startDesk() {
+    const track = audioTrackRef.current;
+    if (!track) {
+      setError("Turn your mic on first.");
+      return;
+    }
+    setDeskStarting(true);
+    try {
+      const ctx = deskCtxRef.current ?? new AudioContext({ latencyHint: "interactive" });
+      deskCtxRef.current = ctx;
+      await ctx.resume();
+      if (ctx.state !== "running") throw new Error("audio context not running");
+      ctx.onstatechange = () => {
+        if (deskOnRef.current && ctx.state !== "running") void stopDesk();
+      };
+      track.setAudioContext(ctx);
+      const desk = new AudioDesk(deskSettings);
+      await track.setProcessor(desk);
+      deskRef.current = desk;
+      deskOnRef.current = true;
+      setDeskOn(true);
+    } catch {
+      await track.stopProcessor().catch(() => {});
+      deskRef.current = null;
+      deskOnRef.current = false;
+      setDeskOn(false);
+      setError("The audio desk couldn't start, so your mic goes out as it is.");
+    } finally {
+      setDeskStarting(false);
+    }
+  }
+  async function stopDesk() {
+    deskOnRef.current = false;
+    setDeskOn(false);
+    deskRef.current = null;
+    await audioTrackRef.current?.stopProcessor().catch(() => {});
+  }
+  // The scene's guest faders, however they arrive (a reload picks them up
+  // from the room): guests the host hears play at those levels too.
+  const sceneGains = scene.gains;
+  useEffect(() => {
+    gainsRef.current = sceneGains ?? {};
+    guestAudioElsRef.current.forEach((el) => {
+      el.volume = gainFor(gainsRef.current, el.dataset.identity);
+    });
+  }, [sceneGains]);
+
+  /** A guest's fader: heard here at once, and by every viewer once the scene carries it. */
+  const setGuestGain = (identity: string, level: number) => {
+    const gains = { ...(scene.gains ?? {}), [identity]: Math.round(level * 100) / 100 };
+    gainsRef.current = gains;
+    setScene((cur) => ({ ...cur, gains }));
+    guestAudioElsRef.current.forEach((el) => {
+      if (el.dataset.identity === identity) el.volume = level;
+    });
+    if (gainTimerRef.current) clearTimeout(gainTimerRef.current);
+    gainTimerRef.current = setTimeout(() => void applyScene({ gains }), 300);
+  };
+
   /** The scene an API call answered with — the newer version wins, as everywhere. */
   const takeScene = (raw: unknown) => {
     const next = readScene(raw);
@@ -2533,6 +3068,25 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     apiFetch<{ success: boolean; data: { queue: unknown } }>(`/api/streams/${streamId}/feature-queue`)
       .then((r) => {
         if (!cancelled) setFeatureQueue(readFeatureQueue(r.data.queue));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId, isLive]);
+
+  // A resumed broadcast's goal and meter, as the API has them; room events
+  // carry them on from here.
+  useEffect(() => {
+    if (!streamId || !isLive) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { stream: { goal?: unknown; heat?: unknown } } }>(`/api/streams/${streamId}`)
+      .then((r) => {
+        if (cancelled) return;
+        const loadedGoal = readGoal(r.data.stream.goal);
+        const loadedHeat = readHeat(r.data.stream.heat);
+        setGoal((g) => newerGoal(g, loadedGoal));
+        setHeat((h) => newerHeat(h, loadedHeat));
       })
       .catch(() => {});
     return () => {
@@ -2593,85 +3147,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   const scenesPanel = (
     <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
-      <section aria-labelledby="scenes-layout">
-        <p id="scenes-layout" className={SETUP_LABEL}>Layout</p>
-        <div className="mt-2.5 grid grid-cols-3 gap-2">
-          {LAYOUTS.map((l) => {
-            const on = scene.layout === l.id;
-            return (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => void applyScene(l.id === "chart-face" && !scene.chart ? { layout: l.id, chart: DEFAULT_CHART } : { layout: l.id })}
-                aria-pressed={on}
-                title={l.hint}
-                className={cn(
-                  "press flex flex-col items-stretch gap-2 rounded-[12px] p-2 text-[12px] font-semibold transition-colors",
-                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.05] text-foreground/85 hover:bg-white/[0.08]"
-                )}
-              >
-                <LayoutThumb layout={l.id} />
-                <span className="truncate text-center">{l.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
-          {LAYOUTS.find((l) => l.id === scene.layout)?.hint}.{" "}
-          {battle ? "A battle keeps its split until it ends." : "Viewers see the change at once."}
-        </p>
-        {scene.layout === "chart-face" && (
-          <MarketPicker chart={scene.chart ?? DEFAULT_CHART} onChart={(chart) => void applyScene({ chart })} />
-        )}
-      </section>
+      <DirectorSwitch
+        on={directorOn}
+        onToggle={setDirector}
+        live={isLive}
+        blocked={directorBlocked}
+        pausedUntil={director.pausedUntil}
+        pausedBy={framedBy}
+        onResume={director.resume}
+        shot={shotOf(scene)}
+        names={guestTiles}
+      />
 
-      <section aria-labelledby="scenes-cards">
-        <p id="scenes-cards" className={SETUP_LABEL}>Cards</p>
-        <div className="mt-2.5 flex flex-col gap-2">
-          {CARDS.map((c) => {
-            const on = scene.card === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => void applyScene({ card: on ? null : c.id, cardNote: cardNote.trim() })}
-                aria-pressed={on}
-                className={cn(
-                  "press flex items-center justify-between gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors",
-                  on ? "bg-ember text-on-ember" : "bg-white/[0.05] text-foreground hover:bg-white/[0.08]"
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block text-[13.5px] font-semibold">{c.title}</span>
-                  <span className={cn("mt-0.5 block text-[12px] leading-snug", on ? "text-on-ember/75" : "text-muted-foreground")}>
-                    {on ? "On screen now — tap to take it down" : c.body}
-                  </span>
-                </span>
-                <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", on ? "bg-on-ember/[0.14]" : "bg-white/[0.08]")}>
-                  {on ? "Showing" : "Show"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <label className="mt-3 block">
-          <span className="sr-only">A line under the card</span>
-          <input
-            value={cardNote}
-            onChange={(e) => setCardNote(e.target.value)}
-            onBlur={() => {
-              // A card already up takes the new line.
-              if (scene.card && cardNote.trim() !== scene.cardNote) void applyScene({ cardNote: cardNote.trim() });
-            }}
-            maxLength={80}
-            placeholder="Add a line under the card (optional)"
-            className="h-10 w-full rounded-full bg-white/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-white/[0.09]"
-          />
-        </label>
-        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
-          A card covers the picture; the room still hears you.
-        </p>
-      </section>
+      <LayoutAndCards
+        scene={scene}
+        battle={Boolean(battle)}
+        guests={guestTiles}
+        cardNote={cardNote}
+        onCardNote={setCardNote}
+        onScene={(patch) => void applyScene(patch)}
+      />
 
       <FeaturedPanel
         queue={featureQueue}
@@ -2692,6 +3187,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         onTakeDown={() => void takeDownFeatured()}
       />
 
+      <GoalPanel streamId={isLive ? streamId : null} goal={goal} onGoal={(g) => setGoal((cur) => newerGoal(cur, g))} />
+
       <SceneGraphicsPanel
         layers={scene.layers}
         brand={brand}
@@ -2703,6 +3200,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         }))}
         carded={Boolean(scene.card)}
         battle={Boolean(opponentStreamId)}
+        sponsors={sponsorships.data ? { own: sponsorships.data.sponsors, campaigns: sponsorships.data.campaigns } : null}
         onLayers={(layers) => void applyScene({ layers })}
         onBrand={saveBrand}
       />
@@ -2738,6 +3236,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   const statsPanel = (
     <div className="px-4 pb-4">
+      {health.verdict && (
+        <div className="pt-4">
+          <HealthSection samples={health.samples} verdict={health.verdict} encoder={source === "obs" ? encoderHealth.reading : null} />
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 pt-4">
         <div className="col-span-2 rounded-[12px] bg-white/[0.04] p-4">
           <p className={SETUP_LABEL}>Watching now</p>
@@ -2773,6 +3276,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </button>
       )}
       {source === "obs" && <div className="mt-1">{encoderBlock}</div>}
+      {user?.username && (
+        <div className="mt-1">
+          <ConsoleLink username={user.username} />
+        </div>
+      )}
       <button onClick={() => setConfirmDialog("end")} className="press mt-2 flex h-11 items-center justify-center gap-2 rounded-full bg-chili/15 text-[14px] font-semibold text-chili-hi transition-colors hover:bg-chili/25">
         <Stop size={14} weight="fill" />
         End stream
@@ -2785,16 +3293,51 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       <div className={cn("min-h-0 flex-1", panel !== "stage" && "hidden")}>
         <div className="h-full overflow-y-auto">{stagePanel}</div>
       </div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "audio" && "hidden")}>
+        <AudioDeskPanel
+          desk={deskRef.current}
+          on={deskOn}
+          starting={deskStarting}
+          encoder={source === "obs"}
+          settings={deskSettings}
+          onToggle={(on) => void (on ? startDesk() : stopDesk())}
+          onSettings={(next) => {
+            setDeskSettings(next);
+            saveDeskSettings(next);
+          }}
+          moments={deskMoments}
+          onMoments={setDeskMoments}
+          guests={liveGuests}
+          gains={scene.gains ?? {}}
+          onGain={setGuestGain}
+        />
+      </div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "requests" && "hidden")}>
+        <RequestsPanel
+          queue={requestQueue}
+          live={isLive}
+          onScreenId={scene.featured?.kind === "request" ? scene.featured.id : null}
+          onScene={takeScene}
+        />
+      </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "scenes" && "hidden")}>{scenesPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "viewers" && "hidden")}>{viewersPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "stats" && "hidden")}>{statsPanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "battle" && "hidden")}>
-        {streamId && <BattlePanel inline streamId={streamId} onBattle={setBattle} />}
+        {streamId && (
+          <BattlePanel
+            inline
+            streamId={streamId}
+            onBattle={setBattle}
+            partner={liveGuests[0] ? { userId: liveGuests[0].userId, username: liveGuests[0].username, avatar: liveGuests[0].avatar } : null}
+          />
+        )}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "games" && "hidden")}>
         {streamId && <GamesPanel inline streamId={streamId} />}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "more" && "hidden")}>{morePanel}</div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-5", panel !== "show" && "hidden")}>{runOfShow}</div>
     </>
   );
 
@@ -2908,6 +3451,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
               guests={stageOthers}
               brand={brand}
+              goal={goal}
+              heat={heat}
               // Full-bleed on a phone: graphics keep between the live row and the room's drawer.
               insets={
                 mode === "phone" && orientation === "portrait"
@@ -2996,7 +3541,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
         {/* Tip alerts — the on-air moment */}
         {tipAlerts.length > 0 && (
-          <div className="pointer-events-none absolute top-[4.5rem] left-4 z-30 flex flex-col items-start gap-2 md:top-16">
+          <div
+            className={cn(
+              "pointer-events-none absolute z-30 flex items-start gap-2",
+              // Clear of the run of show: under the segment chip, or — while
+              // the prompter is up — down by the dock, off the script.
+              prompterOn
+                ? mode === "phone"
+                  ? "bottom-[calc(46dvh+0.75rem)] left-3 flex-col-reverse"
+                  : "bottom-24 left-4 flex-col-reverse"
+                : onAirSegment && isLive
+                  ? mode === "phone"
+                    ? "top-[calc(max(env(safe-area-inset-top),12px)+6rem)] left-3 flex-col"
+                    : "top-28 left-4 flex-col"
+                  : "top-[4.5rem] left-4 flex-col md:top-16"
+            )}
+          >
             {tipAlerts.map((t) => (
               <div key={t.id} className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1 pr-3.5 pl-1.5 slide-in-from-left-4">
                 <GiftArt emoji={t.emoji} size={30} />
@@ -3056,6 +3616,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   {viewerCount}
                 </button>
               </span>
+              {conn === "live" && health.verdict && <HealthChip verdict={health.verdict} onOpen={() => openPanel("stats")} />}
               {conn !== "live" && (
                 <span className="obj flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-ember-hi">
                   <span className="size-1.5 animate-pulse rounded-full bg-ember" />
@@ -3099,15 +3660,62 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           </div>
         )}
 
+        {/* Run of show on the stage (host-only, never in the program): the
+            segment on air with its clock and Next, and the prompter. */}
+        {isLive && onAirSegment && show.position && (
+          <div
+            className={cn(
+              "absolute z-20",
+              mode === "phone" ? "top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 max-w-[calc(100%-5rem)]" : "top-16 left-4 max-w-[calc(100%-2rem)]"
+            )}
+          >
+            <SegmentChip
+              segment={onAirSegment}
+              index={onAirIndex}
+              count={segments.length}
+              position={show.position}
+              next={nextSegment}
+              busy={segmentBusy}
+              compact={mode === "phone"}
+              onOpen={() => setPanel("show")}
+              onNext={() => void goSegment(nextSegment).catch((err) => setError(err instanceof Error ? err.message : "Couldn't move the show on"))}
+            />
+          </div>
+        )}
+        {prompterOn && (
+          <div
+            className={cn(
+              "pointer-events-none absolute z-20 flex justify-center",
+              mode === "phone"
+                ? cn("top-[calc(max(env(safe-area-inset-top),12px)+6.25rem)] right-[4.25rem] left-3", isLive ? "h-[36dvh]" : "h-[26dvh]")
+                : "inset-x-4 top-28 h-[min(46cqh,420px)]"
+            )}
+          >
+            <Teleprompter
+              className="size-full max-w-[820px]"
+              segment={prompterSegment}
+              next={onAirSegment ? (nextSegment?.title ?? null) : null}
+              compact={mode === "phone"}
+              onClose={() => setPrompterOn(false)}
+              onOpenRundown={() => (isLive ? setPanel("show") : setShowPlanner(true))}
+            />
+          </div>
+        )}
+
         {/* ---- Tablet & desktop live: the dock — the camera's keys, the link, End ---- */}
         {isLive && mode !== "phone" && (
           <div className={cn("absolute inset-x-0 bottom-5 z-20 flex justify-center px-4 transition-[opacity,transform] duration-300", dockHidden && "pointer-events-none translate-y-2 opacity-0")}>
             <div className="obj flex items-center gap-1 rounded-full p-1.5">
               {source !== "obs" && dockButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", off: !micEnabled, children: micEnabled ? <Microphone size={21} /> : <MicrophoneSlash size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", on: panel === "audio", children: <Faders size={20} /> })}
               {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
               {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
               {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
+              {vividOnAir && talkHold({})}
+              {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", on: panel === "show", children: <Playlist size={20} /> })}
+              {dockButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", on: prompterOn, children: <ClapperboardText size={20} /> })}
+              <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />
               {dockButton({ onClick: shareStream, label: shareCopied ? "Link copied" : "Share the stream", on: shareCopied, children: shareCopied ? <Check size={19} weight="bold" /> : <ShareNetwork size={20} /> })}
               <button
                 type="button"
@@ -3125,10 +3733,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         {isLive && mode === "phone" && source !== "obs" && (
           <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] right-3 z-20 flex flex-col items-center gap-2.5">
             {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", active: panel === "audio", children: <Faders size={22} /> })}
             {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
             {source === "camera"
               ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
               : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", active: panel === "show", children: <Playlist size={21} /> })}
+            {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
+            {vividOnAir && talkHold({ phone: true })}
           </div>
         )}
 

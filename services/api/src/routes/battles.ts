@@ -9,25 +9,43 @@ import { Battle, Stream, User } from "../models.js";
 import {
   currentBattleForStream,
   fanOutBattle,
+  inQuickMatch,
   inviteToBattle,
+  leaveQuickMatch,
+  quickMatch,
   recentResultForStream,
   scheduleBattle,
   settleBattle,
+  stagePartner,
   startBattle,
   toBattleView,
   upcomingBattles,
 } from "../battles.js";
 
 // Candidates for @xtreme/contracts once the client SDK adopts battles.
+/** What the loser does on the victory lap ("sings a song"), if anything. */
+const forfeitSchema = z.string().trim().max(60).default("");
+/** 1v1, or 2v2: each side is its stream and the partner on its stage. */
+const modeSchema = z.enum(["1v1", "2v2"]).default("1v1");
 const inviteBodySchema = z.object({
   /** The creator to challenge — must be live right now. */
   challengerUsername: z.string().trim().min(1).max(60),
+  forfeit: forfeitSchema,
+  mode: modeSchema,
 });
 const scheduleBodySchema = z.object({
   challengerUsername: z.string().trim().min(1).max(60),
   /** ISO time; at least five minutes out, at most two weeks. */
   scheduledAt: z.string().min(10).max(40),
+  forfeit: forfeitSchema,
+  mode: modeSchema,
 });
+const quickBodySchema = z.object({ mode: modeSchema }).optional();
+
+/** A 2v2 needs a partner on this stream's stage — a guest, or a creator brought over by co-live. */
+async function requirePartner(streamId: mongoose.Types.ObjectId, message: string) {
+  if (!(await stagePartner(streamId))) throw new ApiError(409, message, "PARTNER_MISSING");
+}
 const battleIdParamsSchema = z.object({
   id: z.string().regex(/^[a-f\d]{24}$/i, "Invalid battle id"),
 });
@@ -66,13 +84,59 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         ],
       });
       if (busy) throw new ApiError(409, "One of you is already in a battle or has an open invite", "BATTLE_BUSY");
+      if (request.body.mode === "2v2") {
+        await requirePartner(hostStream._id as mongoose.Types.ObjectId, "Bring your partner on stage first — a 2v2 is you and a guest against another pair");
+      }
 
       const battle = await inviteToBattle(
         { _id: dbUser._id, username: dbUser.username, displayName: dbUser.displayName },
         hostStream,
         challengerStream,
+        request.body.forfeit,
+        request.body.mode,
       );
+      // An invite out means not waiting for a stranger any more.
+      await leaveQuickMatch(dbUser._id);
       return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/quick",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "Quick match: battle whoever else is waiting for the same kind of battle, or wait for the next to ask",
+        security: [{ bearerAuth: [] }],
+        body: quickBodySchema,
+      },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const myStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      if (!myStream) throw new ApiError(400, "Go live before you look for a battle", "NOT_LIVE");
+      const busy = await Battle.exists({
+        status: { $in: ["invited", "live", "overtime"] },
+        $or: [{ hostStreamId: myStream._id }, { challengerStreamId: myStream._id }],
+      });
+      if (busy) throw new ApiError(409, "You're already in a battle or have an open invite", "BATTLE_BUSY");
+      const mode = request.body?.mode ?? "1v1";
+      if (mode === "2v2") {
+        await requirePartner(myStream._id as mongoose.Types.ObjectId, "Bring your partner on stage first — a 2v2 is you and a guest against another pair");
+      }
+      const { battle, queued } = await quickMatch({ _id: dbUser._id }, myStream, mode);
+      return { success: true, data: { battle: battle ? await toBattleView(battle) : null, queued } };
+    },
+  );
+
+  app.delete(
+    "/battles/quick",
+    { schema: { tags: ["Battles"], summary: "Stop waiting for a quick match", security: [{ bearerAuth: [] }] } },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      await leaveQuickMatch(dbUser._id);
+      return { success: true, data: { queued: false } };
     },
   );
 
@@ -87,6 +151,10 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       if (battle.status !== "invited") throw new ApiError(409, "This invite is no longer open", "BATTLE_NOT_OPEN");
       const live = await Stream.countDocuments({ _id: { $in: [battle.hostStreamId, battle.challengerStreamId] }, isLive: true });
       if (live !== 2) throw new ApiError(409, "One of the streams has ended", "STREAM_OFFLINE");
+      if (battle.mode === "2v2") {
+        await requirePartner(battle.challengerStreamId, "Bring a partner on stage to take on a 2v2");
+        await requirePartner(battle.hostStreamId, "Their partner has left the stage — ask them to bring one back");
+      }
       await startBattle(battle);
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
@@ -147,6 +215,8 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         { _id: dbUser._id, username: dbUser.username, displayName: dbUser.displayName },
         { _id: challenger._id, username: challenger.username, displayName: challenger.displayName },
         at,
+        request.body.forfeit,
+        request.body.mode,
       );
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
@@ -178,7 +248,10 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         status: { $in: ["scheduled", "invited", "live", "overtime"] },
         $or: [{ hostId: dbUser._id }, { challengerId: dbUser._id }],
       }).sort({ invitedAt: -1 });
-      return { success: true, data: { battles: await Promise.all(battles.map(toBattleView)) } };
+      return {
+        success: true,
+        data: { battles: await Promise.all(battles.map(toBattleView)), queued: await inQuickMatch(dbUser._id) },
+      };
     },
   );
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api-client";
 import { stageLayout } from "@/lib/stage-layout";
 import { useNow } from "@/lib/use-now";
 import { serverNow, serverOffset } from "@/lib/server-clock";
@@ -10,6 +11,17 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { QrCode } from "@/components/app/qr-code";
 import { MarketChart } from "@/components/app/market-chart";
+import { Fire } from "@/components/icons";
+import {
+  goalAmount,
+  goalShowing,
+  goalUnit,
+  heatNow,
+  HEAT_NAMES,
+  nextMilestone,
+  type StreamGoal,
+  type StreamHeat,
+} from "@/lib/goals";
 import {
   ACCENTS,
   BRAND_FONT_CLASS,
@@ -185,6 +197,8 @@ function useLinger<T>(value: T | null, ms: number): { value: T; leaving: boolean
 export interface SceneCell {
   key: string;
   node: ReactNode;
+  /** Whose tile it is, when that isn't its key (a viewer's own tile is "me"): what a spotlight matches. */
+  identity?: string;
 }
 
 /**
@@ -212,6 +226,9 @@ export function SceneRenderer({
   brand = DEFAULT_BRAND,
   insets,
   stage,
+  goal = null,
+  heat = null,
+  hideRestricted = false,
 }: {
   scene: Scene;
   /** Is the frame taller than it is wide? Splits follow the long axis. */
@@ -245,9 +262,24 @@ export function SceneRenderer({
    * when unset. The frame itself doesn't move, so tiles glide in and out.
    */
   stage?: { top: string; height: string };
+  /** The host's goal and how far it's got (goals.ts on the API). */
+  goal?: StreamGoal | null;
+  /** The heat meter as of the last gift. */
+  heat?: StreamHeat | null;
+  /**
+   * This viewer is where crypto, betting and alcohol sponsors stay off
+   * screen unless cleared (lib/sponsors.ts): such a card isn't drawn.
+   */
+  hideRestricted?: boolean;
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
-  const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
+  // The guest in the spotlight comes first, so a Split shows them beside the
+  // host. A battle keeps its own order: its sides are never reshuffled.
+  const ordered =
+    scene.spotlight && !forceAuto
+      ? [...guests].sort((a, b) => Number((b.identity ?? b.key) === scene.spotlight) - Number((a.identity ?? a.key) === scene.spotlight))
+      : guests;
+  const shown = ordered.slice(0, guestsShown(layout, ordered.length, forceAuto));
   const grid = stageLayout(1 + shown.length, portrait);
   // Chart + face: the chart has the frame and the host's face the corner.
   const chartMode = layout === "chart-face";
@@ -351,6 +383,9 @@ export function SceneRenderer({
         battle={forceAuto}
         pipShown={showPip || chartMode}
         insets={insets}
+        goal={goal}
+        heat={heat}
+        hideRestricted={hideRestricted}
       />
     </div>
   );
@@ -374,6 +409,9 @@ function SceneGraphics({
   battle,
   pipShown,
   insets,
+  goal,
+  heat,
+  hideRestricted,
 }: {
   layers: SceneLayer[];
   featured: FeaturedItem | null;
@@ -382,11 +420,22 @@ function SceneGraphics({
   battle: boolean;
   pipShown: boolean;
   insets?: { top?: string; bottom?: string };
+  goal: StreamGoal | null;
+  heat: StreamHeat | null;
+  hideRestricted: boolean;
 }) {
   const accent = ACCENTS[brand.accent];
+  // The goal and the meter keep to the top with the banner: under a card
+  // they wait, and a battle has the top to itself.
+  const goalUp = !carded && !battle && goalShowing(goal) ? goal : null;
+  const heatUp = !carded && !battle ? heat : null;
   const fontClass = BRAND_FONT_CLASS[brand.font] ?? "font-wide";
   const lowerThird = carded ? undefined : layerOf(layers, "lower-third");
   const cta = carded ? undefined : layerOf(layers, "cta");
+  // A sponsor's card stays over a card too ("brought to you by"), unless
+  // this viewer is somewhere it may not be shown.
+  const sponsorCard = layerOf(layers, "sponsor");
+  const sponsor = sponsorCard && !(sponsorCard.restricted && hideRestricted) ? sponsorCard : undefined;
   const banner = carded || battle ? undefined : layerOf(layers, "banner");
   const countdown = carded || battle ? undefined : layerOf(layers, "countdown");
   const ticker = layerOf(layers, "ticker");
@@ -437,7 +486,7 @@ function SceneGraphics({
       <div className="relative size-full">
         {topLogo && logoImg(cn("absolute top-[var(--g-m)]", topLogo === "top-left" ? "left-[var(--g-m)]" : "right-[var(--g-m)]"))}
 
-        {(banner || countdown) && (
+        {(banner || countdown || goalUp || heatUp) && (
           <div
             className={cn(
               "absolute top-[var(--g-m)] flex flex-col items-center gap-[calc(var(--g-m)/2)]",
@@ -457,10 +506,17 @@ function SceneGraphics({
               </p>
             )}
             {countdown && <CountdownGraphic key={countdown.endsAt} label={countdown.label} endsAt={countdown.endsAt} />}
+            {(goalUp || heatUp) && (
+              <div className="flex max-w-full flex-wrap items-center justify-center gap-[calc(var(--g-m)/2)]">
+                {/* A new goal, or this one reached, enters afresh. */}
+                {goalUp && <GoalBar key={`${goalUp.id}:${goalUp.reachedAt ? "reached" : "going"}`} goal={goalUp} fontClass={fontClass} />}
+                {heatUp && <HeatMeter heat={heatUp} />}
+              </div>
+            )}
           </div>
         )}
 
-        {(lowerThird || ticker || bottomLogo || card || cta) && (
+        {(lowerThird || ticker || bottomLogo || card || cta || sponsor) && (
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-[calc(var(--g-m)/2)]">
             {card && (
               <div className={cn("flex px-[var(--g-m)]", !lowerThird && !bottomLogo && !ticker && "pb-[var(--g-m)]")}>
@@ -469,7 +525,7 @@ function SceneGraphics({
             )}
             {/* The lower third's row: a bottom logo stacks above it on the
                 left, or shares its baseline on the right. */}
-            {(lowerThird || bottomLogo || cta) && (
+            {(lowerThird || bottomLogo || cta || sponsor) && (
               // Side by side on a wide frame; on a narrow one (a phone) the
               // right-hand column stacks above, so the name keeps its width.
               <div
@@ -491,10 +547,11 @@ function SceneGraphics({
                     />
                   )}
                 </div>
-                {/* Right: the call to action, a bottom-right logo above it. */}
-                {(bottomLogo === "bottom-right" || cta) && (
+                {/* Right: the sponsor and the call to action, a bottom-right logo above them. */}
+                {(bottomLogo === "bottom-right" || cta || sponsor) && (
                   <div className="flex shrink-0 flex-col items-end gap-[calc(var(--g-m)/2)] self-end @lg:self-auto">
                     {bottomLogo === "bottom-right" && logoImg()}
+                    {sponsor && <SponsorGraphic key={`${sponsor.source}:${sponsor.sponsorId}`} sponsor={sponsor} fontClass={fontClass} />}
                     {cta && <CtaGraphic key={`${cta.title}|${cta.url}`} title={cta.title} url={cta.url} fontClass={fontClass} />}
                   </div>
                 )}
@@ -542,8 +599,11 @@ function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: 
   }, [leaving, onGone]);
 
   if (phase === "gone") return null;
-  const gift = item.kind === "gift";
+  const request = item.kind === "request";
+  const gift = item.kind === "gift" || request;
   const def = gift ? giftByEmoji(item.emoji) : null;
+  // A Shout's card is its words; a request's, what was asked for.
+  const said = request || def?.id === "shout";
   const amount = gift && item.amount ? centsToDollars(Math.round(parseFloat(item.amount) * 100)) : null;
 
   return (
@@ -565,8 +625,18 @@ function FeaturedCard({ item, leaving, onGone }: { item: FeaturedItem; leaving: 
           )}
         </span>
         <p className="min-w-0">
-          <span className="block truncate text-[0.7em] font-semibold text-white/65">{item.username}</span>
-          {gift ? (
+          <span className="block truncate text-[0.7em] font-semibold text-white/65">
+            {request ? `Request from ${item.username}` : item.username}
+          </span>
+          {said ? (
+            <>
+              <span className="mt-[0.1em] line-clamp-3 leading-snug font-semibold break-words text-white">
+                {item.text}
+                {amount && <span className="ml-[0.4em] font-money text-value tabular-nums">{amount}</span>}
+              </span>
+              {item.note && <span className="mt-[0.2em] line-clamp-2 block text-[0.8em] leading-snug break-words text-white/80">{item.note}</span>}
+            </>
+          ) : gift ? (
             <span className="mt-[0.1em] block leading-snug font-semibold text-white">
               {def?.verb ?? item.text}
               {amount && <span className="ml-[0.4em] font-money text-value tabular-nums">{amount}</span>}
@@ -656,6 +726,66 @@ function CtaGraphic({ title, url, fontClass }: { title: string; url: string; fon
 }
 
 /**
+ * A sponsor's card: "Paid promotion" on it, always — the label isn't the
+ * creator's to turn off — then the brand's mark, name and line, and a
+ * promo code in the creator's accent. On a viewer's own screen it's a link
+ * to the brand (marked sponsored, so it passes nothing on to them).
+ */
+function SponsorGraphic({ sponsor, fontClass }: { sponsor: Extract<SceneLayer, { kind: "sponsor" }>; fontClass: string }) {
+  const body = (
+    <>
+      <span aria-hidden className="w-[clamp(3px,0.45cqw,6px)] shrink-0 bg-[var(--g-fill)]" />
+      <span className="flex min-w-0 flex-col gap-[0.45em] py-[0.55em] pr-[0.9em] pl-[0.6em]">
+        <span className="flex items-center gap-[0.4em] text-[max(10px,0.6em)] leading-none font-bold tracking-[0.1em] text-white/70 uppercase">
+          <span aria-hidden className="size-[0.5em] min-h-[5px] min-w-[5px] rounded-full bg-white/70" />
+          Paid promotion
+        </span>
+        <span className="flex min-w-0 items-center gap-[0.6em]">
+          {sponsor.logoUrl ? (
+            <span className="flex size-[2.3em] shrink-0 items-center justify-center overflow-hidden rounded-[0.45em] bg-white p-[0.2em]">
+              {/* eslint-disable-next-line @next/next/no-img-element -- the sponsor's logo, served versioned by the API */}
+              <img src={apiUrl(sponsor.logoUrl)} alt="" draggable={false} className="max-h-full max-w-full object-contain" />
+            </span>
+          ) : (
+            <span aria-hidden className={cn("flex size-[2.3em] shrink-0 items-center justify-center rounded-[0.45em] bg-[var(--g-fill)] text-[1.05em] font-bold text-[var(--g-ink)]", fontClass)}>
+              {sponsor.name.trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className={cn("block truncate leading-tight font-bold text-white", fontClass)}>{sponsor.name}</span>
+            {sponsor.line && <span className="mt-[0.15em] line-clamp-2 block text-[0.8em] leading-snug text-white/75">{sponsor.line}</span>}
+          </span>
+        </span>
+        {sponsor.code && (
+          <span className="self-start rounded-[0.35em] bg-[var(--g-fill)] px-[0.55em] py-[0.2em] font-mono text-[0.76em] font-bold tracking-[0.02em] text-[var(--g-ink)]">
+            Code {sponsor.code}
+          </span>
+        )}
+      </span>
+    </>
+  );
+  const cls =
+    "pointer-events-auto flex max-w-[min(18em,100%)] items-stretch overflow-hidden rounded-[clamp(8px,1cqw,14px)] bg-black/80 text-[clamp(12px,1.5cqw,18px)] motion-safe:animate-[graphic-in-left_460ms_var(--ease-spring)_both]";
+  return sponsor.url ? (
+    <a
+      href={sponsor.url}
+      target="_blank"
+      rel="sponsored noopener noreferrer"
+      aria-label={`${sponsor.name} — paid promotion`}
+      // The tap is the link's, not the player's underneath.
+      onClick={(e) => e.stopPropagation()}
+      className={cls}
+    >
+      {body}
+    </a>
+  ) : (
+    <div role="note" aria-label={`${sponsor.name} — paid promotion`} className={cn(cls, "pointer-events-none")}>
+      {body}
+    </div>
+  );
+}
+
+/**
  * A crawl along the bottom. The track holds the text twice (repeated until
  * each half is long enough to fill a wide frame), so the loop is seamless at
  * -50%; the speed follows the length. With reduced motion it holds still.
@@ -688,6 +818,99 @@ function TickerGraphic({ text }: { text: string }) {
           {half(1)}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The goal bar: what the host is going for, how far it's got and the next
+ * stop on the way, in their accent. Reaching it is a gift moment, so the
+ * bar goes heat and says so — and keeps counting past the line.
+ */
+function GoalBar({ goal, fontClass }: { goal: StreamGoal; fontClass: string }) {
+  const reached = Boolean(goal.reachedAt);
+  const share = Math.min(1, goal.progress / goal.target);
+  const next = reached ? null : nextMilestone(goal);
+  const unit = goalUnit(goal.kind, goal.target);
+  return (
+    <div
+      className={cn(
+        "w-[min(100%,28em)] rounded-[clamp(6px,0.8cqw,12px)] bg-black/75 px-[0.85em] pt-[0.55em] pb-[0.65em] text-[clamp(12px,1.6cqw,19px)] text-white",
+        reached
+          ? "motion-safe:animate-[pop-in_520ms_var(--ease-spring)_both]"
+          : "motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-[0.8em]">
+        <p className="min-w-0 truncate">
+          <span className={cn("mr-[0.5em] font-mono text-[0.7em] font-bold tracking-[0.1em] uppercase", reached ? "text-ember-hi" : "text-white/55")}>
+            {reached ? "Goal reached" : "Goal"}
+          </span>
+          <span className={cn("font-bold", fontClass)}>{goal.title}</span>
+        </p>
+        <p className="shrink-0 font-mono text-[0.88em] font-bold tabular-nums">
+          {goalAmount(goal.kind, goal.progress)}
+          <span className="font-medium text-white/50">
+            {" "}/ {goalAmount(goal.kind, goal.target)}
+            {unit && ` ${unit}`}
+          </span>
+        </p>
+      </div>
+      <div className="relative mt-[0.5em] h-[0.45em] rounded-full bg-white/15">
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]",
+            reached ? "bg-heat" : "bg-[var(--g-fill)]"
+          )}
+          style={{ width: `${Math.max(share * 100, 2.5)}%` }}
+        />
+        {/* The stops on the way: white once passed. */}
+        {goal.milestones.map((m) => (
+          <span
+            key={m.at}
+            aria-hidden
+            className={cn(
+              "absolute top-1/2 h-[1.35em] w-[2px] -translate-x-1/2 -translate-y-1/2 rounded-full",
+              m.at <= goal.progress ? "bg-white" : "bg-white/40"
+            )}
+            style={{ left: `${(m.at / goal.target) * 100}%` }}
+          />
+        ))}
+      </div>
+      {next && (
+        <p className="mt-[0.45em] truncate text-[0.78em] text-white/70">
+          Next at <span className="font-mono font-bold text-white tabular-nums">{goalAmount(goal.kind, next.at)}</span> · {next.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The heat meter: five steps from Warm to Inferno as the minute's gifts add
+ * up, cooling a step every 20 s after the last one (on the server's clock,
+ * so every screen agrees). A gift moment — the only place it wears heat.
+ */
+function HeatMeter({ heat }: { heat: StreamHeat }) {
+  const now = useNow() + serverOffset();
+  const level = heatNow(heat, now);
+  if (level === 0) return null;
+  return (
+    <div
+      role="img"
+      aria-label={`Heat: ${HEAT_NAMES[level]}`}
+      className="flex items-center gap-[0.5em] rounded-full bg-black/75 py-[0.4em] pr-[0.85em] pl-[0.6em] text-[clamp(11px,1.35cqw,17px)] font-bold text-white motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+    >
+      <Fire weight="fill" className="size-[1.1em] shrink-0 text-ember-hi" />
+      <span className="flex items-center gap-[0.18em]">
+        {[1, 2, 3, 4, 5].map((step) => (
+          <span
+            key={step}
+            className={cn("h-[0.85em] w-[0.42em] rounded-[2px] transition-colors duration-500", step <= level ? "bg-heat" : "bg-white/15")}
+          />
+        ))}
+      </span>
+      <span className="whitespace-nowrap">{HEAT_NAMES[level]}</span>
     </div>
   );
 }

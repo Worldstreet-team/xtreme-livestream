@@ -38,6 +38,7 @@ import {
 } from "react"
 import type { VividAgentState } from "@/lib/vivid/types"
 import type { VoiceFunctionConfig } from "@/lib/vivid/types"
+import { vividHears } from "@/lib/vivid/ptt"
 
 export interface VividUserLite {
   id: string
@@ -425,6 +426,12 @@ export function SiraVividProvider({
 
       capture.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
         if (!live() || !readyRef.current || socket.readyState !== WebSocket.OPEN) return
+        // On air with push-to-talk and the key up: Vivid hears silence, not
+        // the host talking to their audience (lib/vivid/ptt.ts).
+        if (!vividHears()) {
+          socket.send(new ArrayBuffer(e.data.byteLength))
+          return
+        }
         const pcm = new Int16Array(e.data)
         let sum = 0
         for (const s of pcm) sum += (s / 32768) ** 2

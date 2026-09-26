@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import { useState, useEffect, useRef, useCallback, type CSSProperties, type ReactNode } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -26,6 +26,7 @@ import {
   Check,
   Info,
   ShieldStar,
+  Ticket,
 } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { MessageButton } from "@/components/app/message-button";
@@ -38,7 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
-import { LivePreview } from "@/components/app/live-preview";
+import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
@@ -53,18 +54,27 @@ import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
-import { DEFAULT_SCENE, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
+import type { TopFan } from "@/components/app/chat/chat-lines";
+import { readFan, type FanStanding } from "@/components/app/chat/lines";
+import { DEFAULT_SCENE, gainFor, guestsShown, layerOf, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { useRestrictedRegion, useSponsoredQuest } from "@/lib/sponsors";
+import { SponsorPanel } from "@/components/app/sponsor-panel";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, apiUrl, ApiError } from "@/lib/api-client";
 import type { Room, DisconnectReason as DisconnectReasonType } from "livekit-client";
+import { VideoQuality } from "livekit-client";
+import { setDataMode, useDataMode, type PictureMode } from "@/lib/data-mode";
+import { PictureIcon, PictureMenu, RadioCard } from "@/components/app/picture-menu";
 import {
   GiftOverlay,
   type GiftOverlayHandle,
 } from "@/components/app/gift-overlay";
 import {
+  AwayTile,
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
@@ -111,6 +121,19 @@ function runTime(duration: string) {
  * the same object the live feed's column uses. Chili for the stage's
  * warnings (a muted mic, leaving), Ember while a request is waiting.
  */
+/** Said while the host's AI assistant speaks, in case its voice is on air. */
+function AiVoiceBadge() {
+  return (
+    <span
+      title="The host's AI assistant is speaking"
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-2.5 text-xs font-semibold text-white motion-safe:animate-[fade-in_200ms_ease-out_both]"
+    >
+      <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-white/80" />
+      AI voice
+    </span>
+  );
+}
+
 function RailButton({
   icon,
   label,
@@ -180,6 +203,9 @@ interface StreamData {
   feedDroppedAt?: string | null;
   /** How the program is laid out: layout and card (see lib/scene.ts). */
   scene?: Scene;
+  /** The goal bar and the heat meter, as the API last had them (lib/goals.ts reads them). */
+  goal?: unknown;
+  heat?: unknown;
   streamerId: {
     _id: string;
     username: string;
@@ -217,6 +243,15 @@ export default function StreamPage({
   /** Phones: the top gifters list, opened from their faces in the top bar. */
   const [showGifters, setShowGifters] = useState(false);
   const [elapsed, setElapsed] = useState("0:00");
+  // The sponsor on screen, if this viewer may see it — crypto, betting and
+  // alcohol promotions stay off screens in Nigeria unless cleared — and,
+  // for an Xtream campaign, its sponsored quest.
+  const restrictedRegion = useRestrictedRegion();
+  const sponsorOnAir = layerOf(stream?.scene?.layers ?? [], "sponsor") ?? null;
+  const sponsorShown = sponsorOnAir && !(sponsorOnAir.restricted && restrictedRegion !== false) ? sponsorOnAir : null;
+  const sponsoredQuest = useSponsoredQuest(sponsorShown?.source === "campaign" ? sponsorShown.sponsorId : null, Boolean(user));
+  /** Phones: the sponsored quest's sheet, from its chip under the header. */
+  const [showQuest, setShowQuest] = useState(false);
 
   // LiveKit
   const roomRef = useRef<Room | null>(null);
@@ -226,6 +261,9 @@ export default function StreamPage({
   // OBS stream is flagged live the moment the key is issued, long before the
   // encoder pushes. Track them apart so the player can say which it is.
   const [hasVideo, setHasVideo] = useState(false);
+  /** The host's AI assistant is speaking (and may be heard on air). */
+  const [aiVoice, setAiVoice] = useState(false);
+  const aiVoiceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** How long the stream holds for a dropped feed — from the API's "feed" event. */
   const [graceMs, setGraceMs] = useState(300_000);
   /** Bumped to rejoin the room after this viewer's own connection gave out. */
@@ -280,6 +318,8 @@ export default function StreamPage({
   const volumeRef = useRef(1);
   /** Every attached remote audio element, keyed by its track object. */
   const audioElsRef = useRef<Map<object, HTMLAudioElement>>(new Map());
+  /** The host's guest faders (the scene's gains): each guest plays at the player's volume times theirs. */
+  const gainsRef = useRef<Record<string, number>>({});
 
   // ---- Stage (guests broadcasting alongside the host) ----
   const [stageState, setStageState] = useState<"idle" | "requested" | "live">(
@@ -444,6 +484,64 @@ export default function StreamPage({
   // The prediction running in this stream, if any — same feed: room events
   // plus a slow poll.
   const [game, setGame] = useState<GameView | null>(null);
+  // The goal bar and the heat meter: room events move them the moment a
+  // gift lands, the stream's poll covers a dropped frame. They belong to
+  // this stream — another one starts them afresh.
+  const [goal, setGoal] = useState<StreamGoal | null>(null);
+  const [heat, setHeat] = useState<StreamHeat | null>(null);
+  const [goalsFor, setGoalsFor] = useState(id);
+  if (goalsFor !== id) {
+    setGoalsFor(id);
+    setGoal(null);
+    setHeat(null);
+  }
+  // How much picture to take: the viewer's data setting (it stays with
+  // them), or Radio — the sound without the picture — for this stream only.
+  const dataMode = useDataMode();
+  const [radio, setRadio] = useState(false);
+  const [showPicture, setShowPicture] = useState(false);
+  const pictureMode: PictureMode = radio ? "radio" : dataMode;
+  const pictureModeRef = useRef<PictureMode>(pictureMode);
+  useEffect(() => {
+    pictureModeRef.current = pictureMode;
+  }, [pictureMode]);
+  // A 2v2's other pair: their host and partner over one connection to their
+  // room, a tile each. (A 1v1's other side is one LivePreview.)
+  const pairOpponent =
+    battle && isBattleActive(battle) && battle.mode === "2v2" ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, !radio);
+  // The host's guest faders: every guest plays at the level the scene carries.
+  const sceneGains = stream?.scene?.gains;
+  useEffect(() => {
+    gainsRef.current = sceneGains ?? {};
+    audioElsRef.current.forEach((el) => {
+      el.volume = volumeRef.current * gainFor(gainsRef.current, el.dataset.identity);
+    });
+  }, [sceneGains]);
+  const pickPicture = (mode: PictureMode) => {
+    setShowPicture(false);
+    if (mode === "radio") {
+      setRadio(true);
+      return;
+    }
+    setRadio(false);
+    setDataMode(mode);
+  };
+  // Every video in the room follows the setting as it changes.
+  useEffect(() => {
+    const room = roomRef.current;
+    if (!room || !connected) return;
+    room.remoteParticipants.forEach((participant) =>
+      participant.videoTrackPublications.forEach((pub) => {
+        if (pictureMode === "radio") {
+          pub.setSubscribed(false);
+          return;
+        }
+        pub.setSubscribed(true);
+        pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : VideoQuality.HIGH);
+      })
+    );
+  }, [pictureMode, connected]);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -492,6 +590,11 @@ export default function StreamPage({
         }>(`/api/streams/${id}`);
         setStream(res.data.stream);
         setLikeCount(res.data.stream.likes ?? 0);
+        // A poll a beat behind a room event never rolls the goal or meter back.
+        const polledGoal = readGoal(res.data.stream.goal);
+        const polledHeat = readHeat(res.data.stream.heat);
+        setGoal((g) => newerGoal(g, polledGoal));
+        setHeat((h) => newerHeat(h, polledHeat));
       } catch (err) {
         if (err instanceof ApiError && err.status === 410) setRemoved(true);
         if (!opts.quiet) {
@@ -693,14 +796,23 @@ export default function StreamPage({
           // Muted start — see the audio state block. Unmuting flips these
           // elements directly inside the user's click.
           audioEl.muted = mutedRef.current;
-          audioEl.volume = volumeRef.current;
+          audioEl.dataset.identity = participant.identity;
+          audioEl.volume = volumeRef.current * gainFor(gainsRef.current, participant.identity);
           document.body.appendChild(audioEl);
           audioElsRef.current.set(track, audioEl);
         }
       };
 
-      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (!track) return;
+        // Radio takes no picture; Data saver takes the smallest.
+        if (track.kind === Track.Kind.Video) {
+          if (pictureModeRef.current === "radio") {
+            publication.setSubscribed(false);
+            return;
+          }
+          if (pictureModeRef.current === "saver") publication.setVideoQuality(VideoQuality.LOW);
+        }
         addTrack(track, participant);
       });
 
@@ -791,7 +903,7 @@ export default function StreamPage({
       // The event carries the authoritative post-write count — client-sent
       // deltas could drift (drops, replays) and never reached viewers whose
       // sender had no data-publish rights (cross-platform, guests).
-      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }) => {
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as {
             __evt?: string;
@@ -812,6 +924,17 @@ export default function StreamPage({
             state?: string;
             graceMs?: number;
           };
+          // The host's assistant is talking — said by the host's own studio,
+          // so it only counts from them. It lapses by itself if the "off" is lost.
+          if (data.__evt === "ai_voice") {
+            if (from && from.identity === streamerIdRef.current) {
+              const on = (data as { on?: boolean }).on === true;
+              setAiVoice(on);
+              if (aiVoiceTimer.current) clearTimeout(aiVoiceTimer.current);
+              if (on) aiVoiceTimer.current = setTimeout(() => setAiVoice(false), 20_000);
+            }
+            return;
+          }
           // The host changed the scene: the newer version wins.
           if (data.__evt === "scene") {
             const next = readScene((data as { scene?: unknown }).scene);
@@ -860,6 +983,17 @@ export default function StreamPage({
           }
           if (data.__evt === "battle" && data.battle) {
             setBattle(data.battle);
+            return;
+          }
+          // A gift, a like or an ally moved the goal, or the host changed it.
+          if (data.__evt === "goal") {
+            const next = readGoal((data as { goal?: unknown }).goal);
+            if (next) setGoal((g) => newerGoal(g, next));
+            return;
+          }
+          if (data.__evt === "heat") {
+            const next = readHeat((data as { heat?: unknown }).heat);
+            if (next) setHeat((h) => newerHeat(h, next));
             return;
           }
           if (data.__evt === "like") {
@@ -1113,7 +1247,7 @@ export default function StreamPage({
     volumeRef.current = nextVolume;
     audioElsRef.current.forEach((el) => {
       el.muted = nextMuted;
-      el.volume = nextVolume;
+      el.volume = nextVolume * gainFor(gainsRef.current, el.dataset.identity);
       if (!nextMuted) {
         // Runs inside the user's gesture, so autoplay policy allows it.
         el.play().catch(() => {});
@@ -1528,6 +1662,29 @@ export default function StreamPage({
       cancelled = true;
     };
   }, [id]);
+
+  // The fans board: watch time and chat count as well as gifts, so it
+  // moves while nobody gifts — a slow poll (the API works it out once per
+  // 15 s for everyone). Signed in, it also says where I stand.
+  const [topFans, setTopFans] = useState<TopFan[]>([]);
+  const [myFan, setMyFan] = useState<FanStanding | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      apiFetch<{ success: boolean; data: { fans: TopFan[]; me: unknown } }>(`/api/streams/${id}/fans`)
+        .then((r) => {
+          if (cancelled) return;
+          setTopFans(r.data.fans);
+          setMyFan(readFan(r.data.me) ?? null);
+        })
+        .catch(() => {});
+    void load();
+    const poll = setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, [id, user?.id]);
 
   // When the stream ends, offer what's live *now* instead of ejecting the
   // viewer — the session should roll on, not stop. The auto-redirect only
@@ -2008,39 +2165,65 @@ export default function StreamPage({
   // our stage — the same tile on a phone and on the desktop player.
   const opponent =
     battle && isBattleActive(battle) ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
-  const opponentCell = (o: BattleView["host"]): SceneCell => ({
-    key: "opponent",
+  /** The other side's picture, named on it: "Ada · muted". */
+  const previewCell = (key: string, name: string, picture: ReactNode): SceneCell => ({
+    key,
     node: (
       <div className="relative size-full bg-black">
-        <LivePreview
-          streamId={o.streamId}
-          className="absolute inset-0"
-          poster={<div className="absolute inset-0 bg-black" />}
-          fallbackSrc={null}
-        />
+        {picture}
         <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
           <span className="block truncate text-xs font-semibold text-white">
-            {o.displayName}
+            {name}
             <span className="font-medium text-white/60"> · muted</span>
           </span>
         </div>
       </div>
     ),
   });
+  const opponentCell = (o: BattleView["host"]): SceneCell =>
+    previewCell(
+      "opponent",
+      o.displayName,
+      <LivePreview streamId={o.streamId} enabled={!radio} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+    );
+  /**
+   * Everyone else in the picture, in the order the scene brings them in: a
+   * battle's other side, the guests, you. A 2v2 is a 2×2 — our pair down
+   * the left, theirs down the right, so after our host the grid takes their
+   * host, our partner, their partner. Other guests sit the battle out.
+   */
+  const stageCells = (): SceneCell[] => {
+    const me: SceneCell | null =
+      stageState === "live" && localStageTrack
+        ? { key: "me", identity: user?.id, node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }
+        : null;
+    const guestCell = (g: (typeof guestVideos)[number]): SceneCell => ({
+      key: g.identity,
+      node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
+    });
+    if (pairOpponent && battle) {
+      const mate = (sideOf(battle, id) === "host" ? battle.host : battle.challenger).partner ?? null;
+      const mateGuest = mate ? guestVideos.find((g) => g.identity === mate.userId) : undefined;
+      const theirMate = pairOpponent.partner ?? null;
+      return [
+        previewCell("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+        mateGuest
+          ? guestCell(mateGuest)
+          : me && mate && user?.id === mate.userId
+            ? me
+            : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Their partner"} /> },
+        theirMate
+          ? previewCell("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+          : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
+      ];
+    }
+    return [...(opponent ? [opponentCell(opponent)] : []), ...guestVideos.map(guestCell), ...(me ? [me] : [])];
+  };
 
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
     const scene = stream.scene ?? DEFAULT_SCENE;
-    const others: SceneCell[] = [
-      ...(opponent ? [opponentCell(opponent)] : []),
-      ...guestVideos.map((g) => ({
-        key: g.identity,
-        node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
-      })),
-      ...(stageState === "live" && localStageTrack
-        ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
-        : []),
-    ];
+    const others = stageCells();
     const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
     // A battle on an upright phone, TikTok's way: the two sides side by side
     // in a band under the header, the scoreboard and "Back" right under
@@ -2083,7 +2266,10 @@ export default function StreamPage({
             }
             pipClassName="top-[132px] right-3"
             guests={others}
+            goal={goal}
+            heat={heat}
             brand={brand}
+            hideRestricted={restrictedRegion !== false}
             // Graphics keep between the header and the chat lane — or, in a
             // battle's band, to the band.
             insets={
@@ -2094,6 +2280,8 @@ export default function StreamPage({
           />
         </div>
 
+        {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
+
         {/* Light falls off at the bottom, so the chat lane reads on any picture. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
         {/* Gift banners ride above the chat lane, not over it. */}
@@ -2103,7 +2291,7 @@ export default function StreamPage({
         {/* Status overlays */}
         {hostAway
           ? brbCard
-          : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
+          : stream.isLive && (connected || rejoining) && !hasVideo && !radio && !playbackError && !stream.scene?.card && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-8 text-center">
                   <Spinner className="mx-auto size-7 text-white/70" />
@@ -2155,17 +2343,18 @@ export default function StreamPage({
             actionsEnd={
               band ? (
                 <>
+                  {/* Icon-only: with Back and Their side, the row has to fit a 375px screen. */}
                   <button
                     type="button"
                     onClick={() => {
                       heartsRef.current?.push();
                       if (user && !liked) void toggleLike();
                     }}
-                    aria-label={liked ? "Liked" : "Like"}
-                    className="press flex h-8 items-center gap-1.5 rounded-full bg-control px-3 text-[12px] font-semibold text-white tabular-nums hover:bg-control-hover"
+                    aria-label={`${liked ? "Liked" : "Like"} · ${formatNumber(likeCount)}`}
+                    title={`${formatNumber(likeCount)} likes`}
+                    className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
                   >
                     <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
-                    {likeCount > 0 ? formatNumber(likeCount) : "Like"}
                   </button>
                   <button
                     type="button"
@@ -2209,6 +2398,16 @@ export default function StreamPage({
               {!isFollowing && allyButton("sm")}
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              {stream.isLive && (
+                <button
+                  type="button"
+                  onClick={() => setShowPicture(true)}
+                  aria-label="Picture and data"
+                  className={cn("obj press flex size-9 items-center justify-center rounded-full", pictureMode === "auto" ? "text-white" : "text-ember-hi")}
+                >
+                  <PictureIcon mode={pictureMode} size={17} />
+                </button>
+              )}
               <Badge variant="glass" size="md" icon={<Eye size={13} />}>
                 {formatNumber(connected ? viewerCount : stream.viewers)}
               </Badge>
@@ -2223,28 +2422,30 @@ export default function StreamPage({
           </div>
           <div className="mt-2 flex items-center gap-1.5">
             {stream.isLive && <LiveBadge size="md" />}
+            {stream.isLive && aiVoice && <AiVoiceBadge />}
             <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
               <Badge variant="glass" size="md" className="max-w-[44vw] truncate">
                 {stream.category}
               </Badge>
             </Link>
-            {/* The room's top gifters, TikTok-style: their faces up top,
-                ranked, and the list a tap away. */}
-            {topGifters.length > 0 && (
+            {/* The room's leaders, TikTok-style: their faces up top, ranked,
+                and the lists a tap away — gifters, and fans (watch time and
+                chat count too). */}
+            {(topGifters.length > 0 || topFans.length > 0) && (
               <button
                 type="button"
                 onClick={() => setShowGifters((v) => !v)}
                 aria-expanded={showGifters}
-                aria-label="Top gifters"
+                aria-label={topGifters.length > 0 ? "Top gifters and fans" : "Top fans"}
                 className="press ml-auto flex shrink-0 -space-x-2 pb-1"
               >
-                {topGifters.slice(0, 3).map((g, i) => (
+                {(topGifters.length > 0 ? topGifters : topFans).slice(0, 3).map((g, i) => (
                   <span key={g.userId ?? g.username} className="relative">
                     <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7 ring-2 ring-black" />
                     <span
                       className={cn(
                         "absolute -bottom-1 left-1/2 flex h-3.5 min-w-3.5 -translate-x-1/2 items-center justify-center rounded-full px-0.5 font-mono text-[8.5px] font-bold ring-2 ring-black",
-                        i === 0 ? "bg-value text-[#1b1406]" : "bg-white text-[#0b0708]"
+                        i === 0 ? (topGifters.length > 0 ? "bg-value text-[#1b1406]" : "bg-ember text-on-ember") : "bg-white text-[#0b0708]"
                       )}
                     >
                       {i + 1}
@@ -2254,24 +2455,73 @@ export default function StreamPage({
               </button>
             )}
           </div>
-          {showGifters && topGifters.length > 0 && (
-            <div className="mt-2 ml-auto w-[min(270px,calc(100vw-24px))] animate-in rounded-[16px] bg-black/80 p-1.5 duration-200 fade-in slide-in-from-top-1">
-              <p className="flex items-center gap-1.5 px-2 pt-1.5 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase">
-                <Crown size={12} weight="fill" className="text-value" />
-                Top gifters
-              </p>
-              {topGifters.slice(0, 5).map((g, i) => (
-                <Link
-                  key={g.userId ?? g.username}
-                  href={`/c/${g.username}`}
-                  className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
-                >
-                  <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-value" : "text-white/55")}>{i + 1}</span>
-                  <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{g.displayName || g.username}</span>
-                  <span className="font-mono text-[12px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
-                </Link>
-              ))}
+          {showGifters && (topGifters.length > 0 || topFans.length > 0) && (
+            <div className="mt-2 ml-auto max-h-[60dvh] w-[min(270px,calc(100vw-24px))] animate-in overflow-y-auto rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-top-1">
+              {topGifters.length > 0 && (
+                <>
+                  <p className="flex items-center gap-1.5 px-2 pt-1.5 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase">
+                    <Crown size={12} weight="fill" className="text-value" />
+                    Top gifters
+                  </p>
+                  {topGifters.slice(0, 5).map((g, i) => (
+                    <Link
+                      key={g.userId ?? g.username}
+                      href={`/c/${g.username}`}
+                      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
+                    >
+                      <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-value" : "text-white/55")}>{i + 1}</span>
+                      <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{g.displayName || g.username}</span>
+                      <span className="font-mono text-[12px] font-semibold text-value tabular-nums">{centsToDollars(g.totalUsdMinor)}</span>
+                    </Link>
+                  ))}
+                </>
+              )}
+              {topFans.length > 0 && (
+                <>
+                  <p
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 pb-2 text-[11px] font-semibold tracking-wide text-white/60 uppercase",
+                      topGifters.length > 0 ? "mt-1.5 border-t border-white/10 pt-2.5" : "pt-1.5"
+                    )}
+                  >
+                    <Heart size={11} weight="fill" className="text-ember-hi" />
+                    Top fans
+                    <span className="ml-auto font-medium tracking-normal normal-case">watching, chatting, gifting</span>
+                  </p>
+                  {topFans.slice(0, 5).map((f, i) => (
+                    <Link
+                      key={f.userId}
+                      href={`/c/${f.username}`}
+                      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-white/10"
+                    >
+                      <span className={cn("w-3 text-center font-mono text-[11px] font-bold", i === 0 ? "text-ember-hi" : "text-white/55")}>{i + 1}</span>
+                      <UserAvatar src={f.avatar} name={f.displayName} size={28} className="size-7" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-white">{f.displayName}</span>
+                        <span className="block truncate text-[11px] text-white/55 tabular-nums">
+                          {[
+                            f.minutes > 0 && (f.minutes >= 60 ? `${Math.floor(f.minutes / 60)}h ${String(f.minutes % 60).padStart(2, "0")}m watched` : `${f.minutes}m watched`),
+                            f.chats > 0 && `${f.chats} ${f.chats === 1 ? "message" : "messages"}`,
+                            f.giftsMinor > 0 && `${centsToDollars(f.giftsMinor)} gifted`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-0.5 font-mono text-[12px] font-semibold text-ember-hi tabular-nums">
+                        <Heart size={9} weight="fill" aria-hidden />
+                        {f.score.toLocaleString("en-US")}
+                      </span>
+                    </Link>
+                  ))}
+                  {myFan && myFan.level > 0 && (
+                    <p className="mx-1 mt-1.5 rounded-[10px] bg-ember/15 px-2.5 py-2 text-[12px] font-semibold text-ember-hi">
+                      You&apos;re level {myFan.level} with {hostName} · {myFan.hours}h watched
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -2290,6 +2540,24 @@ export default function StreamPage({
         {/* Right action rail — above the chat layer, which is painted after
             it and would otherwise sit over these buttons. */}
         <div className="absolute right-2.5 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-3.5">
+          {/* A sponsored quest on the card that's up: your minutes, a tap from the prize. */}
+          {sponsorShown && sponsoredQuest.quest && (
+            <RailButton
+              title={`${sponsorShown.name} sponsored quest`}
+              label={
+                !user
+                  ? "Quest"
+                  : sponsoredQuest.quest.voucher
+                    ? "Won"
+                    : sponsoredQuest.quest.progress >= sponsoredQuest.quest.minutes
+                      ? "Claim"
+                      : `${sponsoredQuest.quest.progress}/${sponsoredQuest.quest.minutes}`
+              }
+              tone={!sponsoredQuest.quest.voucher && sponsoredQuest.quest.progress >= sponsoredQuest.quest.minutes ? "ember" : "obj"}
+              onClick={() => setShowQuest(true)}
+              icon={<Ticket size={22} weight="fill" />}
+            />
+          )}
           {/* In a battle's band these two ride in the scoreboard instead. */}
           {!band && (
             <>
@@ -2379,11 +2647,56 @@ export default function StreamPage({
               isHost={isOwner}
               initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
               variant="overlay"
             />
           </div>
         </div>
+
+        {/* The sponsor and its quest: a sheet from the bottom. */}
+        {showQuest && sponsorShown && (
+          <div className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70" onClick={() => setShowQuest(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${sponsorShown.name} — paid promotion`}
+              className="sheet-obj w-full rounded-t-[24px] px-3 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              <SponsorPanel
+                sponsor={sponsorShown}
+                quest={sponsoredQuest.quest}
+                signedIn={Boolean(user)}
+                claiming={sponsoredQuest.claiming}
+                error={sponsoredQuest.error}
+                onClaim={() => void sponsoredQuest.claim()}
+                className="bg-transparent p-2"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Picture and data: a sheet from the bottom. */}
+        {showPicture && (
+          <div className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70" onClick={() => setShowPicture(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="picture-sheet-title"
+              className="sheet-obj w-full rounded-t-[24px] px-3 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              <h3 id="picture-sheet-title" className="mb-2 px-3 font-wide text-[18px] font-bold tracking-[-0.02em] text-foreground">
+                Picture
+              </h3>
+              <PictureMenu mode={pictureMode} onPick={pickPicture} />
+            </div>
+          </div>
+        )}
 
         {/* Host stage sheet */}
         {showStageSheet && (
@@ -2522,16 +2835,7 @@ export default function StreamPage({
                 layout changes, so the track never re-attaches. */}
             {(() => {
               const scene = stream.scene ?? DEFAULT_SCENE;
-              const others: SceneCell[] = [
-                ...(opponent ? [opponentCell(opponent)] : []),
-                ...guestVideos.map((g) => ({
-                  key: g.identity,
-                  node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
-                })),
-                ...(stageState === "live" && localStageTrack
-                  ? [{ key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }]
-                  : []),
-              ];
+              const others = stageCells();
               const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
               return (
                 <SceneRenderer
@@ -2556,7 +2860,13 @@ export default function StreamPage({
                   }
                   pipClassName="top-14 right-3"
                   guests={others}
+                  // A 2v2's four tiles start under the scoreboard's strip,
+                  // so the top two keep their faces.
+                  stage={pairOpponent ? { top: "92px", height: "calc(100% - 92px)" } : undefined}
+                  goal={goal}
+                  heat={heat}
                   brand={brand}
+                  hideRestricted={restrictedRegion !== false}
                   // Clear of the badges and controls while they show (and of
                   // "Turn sound on", which never hides); the frame's own
                   // edges once they fade.
@@ -2567,6 +2877,9 @@ export default function StreamPage({
                 />
               );
             })()}
+
+            {/* Radio: the sound without the picture. */}
+            {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
 
             {/* Gift spectacle layer */}
             <GiftOverlay onReady={handleGiftOverlayReady} />
@@ -2608,7 +2921,7 @@ export default function StreamPage({
                 viewer is on the way back in after their own drop. */}
             {hostAway
               ? brbCard
-              : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
+              : stream.isLive && (connected || rejoining) && !hasVideo && !radio && !playbackError && !stream.scene?.card && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                     <div className="px-6 text-center">
                       <Spinner className="mx-auto size-7 text-white/70" />
@@ -2651,6 +2964,7 @@ export default function StreamPage({
               )}
             >
               {stream.isLive && <LiveBadge size="md" />}
+              {stream.isLive && aiVoice && <AiVoiceBadge />}
               <Badge variant="glass" size="md" icon={<Eye size={14} />}>
                 {stream.isLive
                   ? // Prefer the room roster once we're actually in the room;
@@ -2701,13 +3015,32 @@ export default function StreamPage({
               />
             </div>
 
-            {/* Player buttons: PiP, theater, fullscreen */}
+            {/* Player buttons: picture and data, PiP, theater, fullscreen */}
             <div
               className={cn(
                 "absolute right-4 bottom-4 flex items-center gap-2 transition-all duration-300",
-                !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
+                !controlsVisible && stream.isLive && !showPicture && "pointer-events-none opacity-0"
               )}
             >
+              {stream.isLive && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowPicture((v) => !v)}
+                    aria-expanded={showPicture}
+                    className={playerButton(pictureMode !== "auto")}
+                    title="Picture and data"
+                    aria-label="Picture and data"
+                  >
+                    <PictureIcon mode={pictureMode} />
+                  </button>
+                  {showPicture && (
+                    <div className="absolute right-0 bottom-full z-30 mb-2 w-[320px] animate-in rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-bottom-1">
+                      <p className="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wide text-white/60 uppercase">Picture</p>
+                      <PictureMenu mode={pictureMode} onPick={pickPicture} />
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 onClick={() => void togglePiP()}
                 className={playerButton()}
@@ -2757,6 +3090,8 @@ export default function StreamPage({
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
                 />
               </aside>
@@ -2772,6 +3107,8 @@ export default function StreamPage({
                 isLive={stream.isLive}
                 initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
               />
             </div>
@@ -2790,6 +3127,16 @@ export default function StreamPage({
                   {stream.category}
                 </Badge>
               </Link>
+              {sponsorOnAir && (
+                // The disclosure stands even where the card itself can't be shown.
+                <span
+                  title={`${hostName} is paid to promote ${sponsorOnAir.name}`}
+                  className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 text-xs font-semibold text-foreground/85"
+                >
+                  <Info size={13} className="text-muted-foreground" />
+                  Includes paid promotion
+                </span>
+              )}
               {stream.tags.map((tag) => (
                 <Link
                   key={tag}
@@ -2919,6 +3266,18 @@ export default function StreamPage({
             {followError && <p className="mt-3 text-xs text-chili-hi">{followError}</p>}
             {stageError && <p className="mt-3 text-xs text-ember-hi">{stageError}</p>}
 
+            {sponsorShown && (
+              <SponsorPanel
+                sponsor={sponsorShown}
+                quest={sponsoredQuest.quest}
+                signedIn={Boolean(user)}
+                claiming={sponsoredQuest.claiming}
+                error={sponsoredQuest.error}
+                onClaim={() => void sponsoredQuest.claim()}
+                className="mt-6"
+              />
+            )}
+
             <p className="mt-6 flex max-w-[72ch] gap-2 text-[12px] leading-relaxed text-muted-foreground/65">
               <Info size={14} className="mt-[3px] shrink-0" />
               <span>
@@ -2985,6 +3344,8 @@ export default function StreamPage({
                   isLive={stream.isLive}
                   initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
+                  topFans={topFans}
+                  myFan={myFan}
                   hostUsername={streamer.username}
                 />
               </div>

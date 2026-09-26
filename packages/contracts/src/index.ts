@@ -190,8 +190,10 @@ export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
  * each at most. They render as DOM on every screen — crisp at any quality
  * layer — in the creator's brand accent.
  */
-export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta"] as const;
+export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta", "sponsor"] as const;
 export const LOGO_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+/** Whose sponsor a card is: the creator's own deal, or an Xtream campaign they joined. */
+export const SPONSOR_SOURCES = ["own", "campaign"] as const;
 
 export const sceneLayerSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -218,8 +220,27 @@ export const sceneLayerSchema = z.discriminatedUnion("kind", [
       .url()
       .refine((u) => /^https?:\/\//i.test(u), "Use a web address (http or https)"),
   }),
+  /**
+   * A sponsor's card, always drawn with "Paid promotion" on it. The client
+   * names the sponsor; the API fills in what's drawn from its own records on
+   * every write, so whatever else a client sends here is replaced.
+   */
+  z.object({
+    kind: z.literal("sponsor"),
+    source: z.enum(SPONSOR_SOURCES),
+    sponsorId: objectIdSchema,
+    name: z.string().max(40).default(""),
+    line: z.string().max(80).default(""),
+    url: z.string().max(300).default(""),
+    code: z.string().max(24).default(""),
+    logoUrl: z.string().max(300).nullable().default(null),
+    /** Kept from viewers in Nigeria: a restricted category nobody has cleared. */
+    restricted: z.boolean().default(false),
+  }),
 ]);
 
+/** Guest faders a scene can carry. */
+export const MAX_SCENE_GAINS = 8;
 export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
@@ -231,6 +252,21 @@ export const sceneBodySchema = z.object({
     .max(SCENE_LAYER_KINDS.length)
     .default([])
     .refine((layers) => new Set(layers.map((l) => l.kind)).size === layers.length, "One of each graphic at most"),
+  /**
+   * The audio desk's guest faders: how loud each person on stage is, by
+   * their room identity, 0–1 (1 when unset) — so every viewer hears the
+   * mix the host set.
+   */
+  gains: z
+    .record(z.string().regex(/^[\w.:-]{1,64}$/), z.number().min(0).max(1))
+    .default({})
+    .refine((g) => Object.keys(g).length <= MAX_SCENE_GAINS, "Eight faders at most"),
+  /**
+   * Who's beside the host: the room identity of the guest a Split (or the
+   * first of a Trio) shows — picked by hand, or by the auto-director when
+   * they're the one talking. Null keeps the stage's own order.
+   */
+  spotlight: z.string().regex(/^[\w.:-]{1,64}$/).nullable().default(null),
 });
 
 /**
@@ -284,7 +320,8 @@ export const featureBodySchema = z.object({
 export const featuredItemSchema = z.object({
   /** The chat row's id. */
   id: z.string(),
-  kind: z.enum(["chat", "gift"]),
+  /** A request is a paid order off the host's menu, up while they do it. */
+  kind: z.enum(["chat", "gift", "request"]),
   userId: z.string(),
   username: z.string(),
   avatar: z.string(),
@@ -298,6 +335,8 @@ export const featuredItemSchema = z.object({
   until: z.string().nullable(),
   /** Put up by the gift tier rather than by the host's hand. */
   auto: z.boolean(),
+  /** A request's note from the viewer ("Last Last, please"). */
+  note: z.string().optional(),
 });
 
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
@@ -315,6 +354,435 @@ export type FeaturedItem = z.infer<typeof featuredItemSchema>;
 export type FeatureSeconds = (typeof FEATURE_SECONDS)[number];
 /** The scene as stored and broadcast: the body, what's featured, and a version that only goes up. */
 export type Scene = z.infer<typeof sceneBodySchema> & { version: number; featured?: FeaturedItem | null };
+
+/**
+ * Goals (Phase 2, goals and status): one goal bar at a time. Gifts count
+ * their dollars (in US cents); likes and allies count one each. Milestones
+ * are stops on the way, each with what the host promises there ("Shots at
+ * $50"). Progress is the API's — gifts, likes and follows move it — so the
+ * body is only what the host decides, and setting a goal starts it at zero.
+ */
+export const GOAL_KINDS = ["gifts", "likes", "allies"] as const;
+export const MAX_GOAL_MILESTONES = 3;
+/** Targets per kind: $1–$100,000 of gifts, 10 likes to ten million, 5 allies to a million. */
+export const GOAL_TARGET_LIMITS = {
+  gifts: { min: 100, max: 10_000_000 },
+  likes: { min: 10, max: 10_000_000 },
+  allies: { min: 5, max: 1_000_000 },
+} as const;
+
+export const goalMilestoneSchema = z.object({
+  at: z.number().int().min(1),
+  label: z.string().trim().min(1).max(40),
+});
+
+export const goalBodySchema = z
+  .object({
+    kind: z.enum(GOAL_KINDS),
+    title: z.string().trim().min(1).max(40),
+    target: z.number().int().min(1),
+    milestones: z.array(goalMilestoneSchema).max(MAX_GOAL_MILESTONES).default([]),
+  })
+  .superRefine((goal, ctx) => {
+    const { min, max } = GOAL_TARGET_LIMITS[goal.kind];
+    if (goal.target < min || goal.target > max) {
+      ctx.addIssue({ code: "custom", path: ["target"], message: "That target is out of range for this kind of goal" });
+    }
+    goal.milestones.forEach((m, i) => {
+      if (m.at >= goal.target) {
+        ctx.addIssue({ code: "custom", path: ["milestones", i, "at"], message: "A milestone comes before the goal" });
+      }
+      const before = goal.milestones[i - 1];
+      if (before && m.at <= before.at) {
+        ctx.addIssue({ code: "custom", path: ["milestones", i, "at"], message: "Milestones go up in order" });
+      }
+    });
+  });
+
+/**
+ * The heat meter: the dollars gifted over the last minute, as a level from
+ * 1 to 5 — $5, $20, $50, $100, $250. It cools a level every HEAT_COOL_MS
+ * after the last gift, on the server's clock, so every screen agrees.
+ */
+export const HEAT_STEPS_MINOR = [500, 2_000, 5_000, 10_000, 25_000] as const;
+export const HEAT_WINDOW_MS = 60_000;
+export const HEAT_COOL_MS = 20_000;
+
+export type GoalKind = (typeof GOAL_KINDS)[number];
+export type GoalMilestone = z.infer<typeof goalMilestoneSchema>;
+export type GoalBody = z.infer<typeof goalBodySchema>;
+/** A goal as stored and broadcast: what the host set, how far it's got, when it got there. */
+export interface StreamGoal extends GoalBody {
+  id: string;
+  progress: number;
+  startedAt: string;
+  reachedAt: string | null;
+  /** The host took it down; it stays stored so `rev` keeps climbing into the next goal. */
+  endedAt: string | null;
+  /** Goes up with every change, so a late event never rolls the bar back. */
+  rev: number;
+}
+/** The meter as of the last gift: its level then, and when that was. */
+export interface StreamHeat {
+  level: number;
+  at: string;
+}
+
+/**
+ * Paid requests (Phase 2): a menu each creator writes and prices — a song,
+ * a chart read, a shout-out. The money waits in the platform's treasury
+ * until the creator does it (then it's theirs, less the commission) or
+ * skips it (then it goes back to the viewer, in full — the owner's call).
+ */
+export const MAX_REQUEST_ITEMS = 8;
+export const REQUEST_PRICE_MIN_MINOR = 100;
+export const REQUEST_PRICE_MAX_MINOR = 100_000;
+export const requestItemSchema = z.object({
+  /** Kept when editing; a new item gets one from the API. */
+  id: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
+  title: z.string().trim().min(1).max(40),
+  priceUsdMinor: z.number().int().min(REQUEST_PRICE_MIN_MINOR).max(REQUEST_PRICE_MAX_MINOR),
+  /** What to ask the viewer ("Which song?"); "" asks nothing. */
+  prompt: z.string().trim().max(60).default(""),
+});
+export const requestsMenuBodySchema = z.object({ items: z.array(requestItemSchema).max(MAX_REQUEST_ITEMS) });
+export const requestsOpenBodySchema = z.object({ open: z.boolean() });
+export const orderRequestBodySchema = z.object({
+  itemId: z.string().regex(/^[a-z0-9-]{1,32}$/),
+  note: z.string().trim().max(120).default(""),
+});
+export const requestOrderParamsSchema = z.object({ id: objectIdSchema, orderId: objectIdSchema });
+export const REQUEST_STATUSES = ["pending", "done", "skipped", "expired"] as const;
+export type RequestItem = Required<z.infer<typeof requestItemSchema>>;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+export interface RequestOrderView {
+  id: string;
+  itemId: string;
+  title: string;
+  note: string;
+  priceUsdMinor: number;
+  status: RequestStatus;
+  /** Whether the money is back with the viewer (skipped or expired). */
+  refunded: boolean;
+  viewer: { userId: string; username: string; avatar: string };
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+/**
+ * A Shout: a gift with words, pinned over the chat for longer the more it
+ * costs — from a minute at $2 to an hour at $100.
+ */
+export const SHOUT_MIN_MINOR = 200;
+export const SHOUT_TIERS = [
+  { fromMinor: 200, seconds: 60 },
+  { fromMinor: 500, seconds: 120 },
+  { fromMinor: 1_000, seconds: 300 },
+  { fromMinor: 2_000, seconds: 600 },
+  { fromMinor: 5_000, seconds: 1_200 },
+  { fromMinor: 10_000, seconds: 3_600 },
+] as const;
+export function shoutSeconds(amountMinor: number) {
+  let seconds = 0;
+  for (const tier of SHOUT_TIERS) if (amountMinor >= tier.fromMinor) seconds = tier.seconds;
+  return seconds;
+}
+export const SHOUT_MAX_LENGTH = 120;
+
+/**
+ * Sponsorships (Phase 2, sponsor slots) — two tracks, one label:
+ *
+ * - A creator's own deal: a sponsor they add themselves. The deal and the
+ *   money stay between them and the brand; Xtream draws the card, always
+ *   with "Paid promotion" on it.
+ * - An Xtream campaign: set up by the platform's team, prepaid by the
+ *   brand, joined by creators, who are paid from its budget for each stream
+ *   that keeps the card up long enough. A campaign can carry a sponsored
+ *   quest that pays viewers in the brand's own vouchers — never in points.
+ *
+ * Crypto-token, betting and alcohol sponsors aren't shown to viewers in
+ * Nigeria unless the platform has cleared the campaign (SEC and ARCON rules
+ * on promoting them), and a creator's own deal can't be cleared at all.
+ */
+export const SPONSOR_CATEGORIES = ["everyday", "finance", "crypto", "betting", "alcohol"] as const;
+export const RESTRICTED_SPONSOR_CATEGORIES = ["crypto", "betting", "alcohol"] as const;
+/** Where restricted sponsors stay off screen unless cleared. */
+export const SPONSOR_RESTRICTED_COUNTRIES = ["NG"] as const;
+export const MAX_SPONSORS = 8;
+
+export function isRestrictedSponsorCategory(category: string) {
+  return (RESTRICTED_SPONSOR_CATEGORIES as readonly string[]).includes(category);
+}
+
+/**
+ * Whether restricted sponsors stay off a viewer's screen. The country the
+ * edge reports decides when there is one; without it, a clock set to Lagos
+ * time does — erring toward hiding them, since most of Xtream watches from
+ * there.
+ */
+export function inRestrictedSponsorRegion(country: string | null | undefined, timeZone: string | null | undefined) {
+  if (country) return (SPONSOR_RESTRICTED_COUNTRIES as readonly string[]).includes(country.toUpperCase());
+  return timeZone === "Africa/Lagos";
+}
+
+/** A promo code viewers type at the brand's checkout. */
+const promoCodeSchema = z
+  .string()
+  .trim()
+  .max(24)
+  .regex(/^[A-Za-z0-9_-]*$/, "Letters, numbers, - and _ only")
+  .default("");
+function isWebAddress(u: string) {
+  if (!/^https?:\/\/\S+\.\S+/i.test(u)) return false;
+  try {
+    return Boolean(new URL(u).hostname);
+  } catch {
+    return false;
+  }
+}
+const sponsorUrlSchema = z
+  .string()
+  .trim()
+  .max(300)
+  .refine((u) => u === "" || isWebAddress(u), "Use a web address (http or https)")
+  .default("");
+
+/** A creator's own sponsor. `logo` absent keeps the one they have; "" removes it. */
+export const sponsorBodySchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  line: z.string().trim().max(80).default(""),
+  url: sponsorUrlSchema,
+  code: promoCodeSchema,
+  category: z.enum(SPONSOR_CATEGORIES).default("everyday"),
+  logo: imageSourceSchema.optional(),
+});
+
+export const CAMPAIGN_STATUSES = ["draft", "live", "paused", "ended"] as const;
+/**
+ * An Xtream campaign, as the platform's team writes it. The creators' pool
+ * is what the brand prepaid less the platform's margin — the API works it
+ * out, so the budget is never typed twice.
+ */
+export const campaignBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(40),
+    line: z.string().trim().max(80).default(""),
+    url: sponsorUrlSchema,
+    code: promoCodeSchema,
+    category: z.enum(SPONSOR_CATEGORIES).default("everyday"),
+    logo: imageSourceSchema.optional(),
+    /** What the brand asks of creators, in a few lines. */
+    brief: z.string().trim().max(500).default(""),
+    /** A restricted category the team has cleared for viewers in Nigeria. */
+    cleared: z.boolean().default(false),
+    /** Stream categories that can run it; empty is any. */
+    streamCategories: z.array(categorySchema).max(20).default([]),
+    /** What a creator is paid for each qualifying stream, US cents. */
+    payPerStreamUsdMinor: z.number().int().min(100).max(1_000_000),
+    /** Minutes the card must be on screen while live for a stream to qualify. */
+    minMinutes: z.number().int().min(1).max(240).default(10),
+    /** The stream's peak audience must reach this for it to qualify. */
+    minViewers: z.number().int().min(0).max(1_000_000).default(0),
+    maxStreamsPerCreator: z.number().int().min(1).max(100).default(4),
+    /** What the brand prepaid, US cents. */
+    brandPaidUsdMinor: z.number().int().min(0).max(1_000_000_000),
+    /** The platform's cut of the prepayment, in percent. */
+    marginPercent: z.number().int().min(0).max(90).default(25),
+    startsAt: z.string().datetime().nullable().default(null),
+    endsAt: z.string().datetime().nullable().default(null),
+    /** The sponsored quest: watch this many minutes while the card is up, win one of the brand's vouchers. */
+    quest: z
+      .object({
+        minutes: z.number().int().min(1).max(600),
+        reward: z.string().trim().min(1).max(80),
+      })
+      .nullable()
+      .default(null),
+  })
+  .refine((c) => !c.startsAt || !c.endsAt || Date.parse(c.endsAt) > Date.parse(c.startsAt), {
+    message: "The end has to come after the start",
+    path: ["endsAt"],
+  });
+export const campaignStatusBodySchema = z.object({ status: z.enum(["live", "paused", "ended"]) });
+export const campaignVouchersBodySchema = z.object({
+  codes: z.array(z.string().trim().min(1).max(64)).min(1).max(5_000),
+});
+/** The viewer's region hint for sponsored quests: their clock's time zone. */
+export const sponsorRegionQuerySchema = z.object({ tz: z.string().max(64).optional() });
+
+/** The creators' pool: the brand's prepayment less the platform's margin. */
+export function campaignBudgetMinor(brandPaidUsdMinor: number, marginPercent: number) {
+  return Math.floor((brandPaidUsdMinor * (100 - marginPercent)) / 100);
+}
+
+export type SponsorCategory = (typeof SPONSOR_CATEGORIES)[number];
+export type SponsorSource = (typeof SPONSOR_SOURCES)[number];
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+export interface SponsorView {
+  id: string;
+  name: string;
+  line: string;
+  url: string;
+  code: string;
+  category: SponsorCategory;
+  logoUrl: string | null;
+  /** Kept from viewers in Nigeria (a restricted category). */
+  restricted: boolean;
+}
+
+/** A campaign as a creator sees it. */
+export interface CampaignView {
+  id: string;
+  name: string;
+  line: string;
+  url: string;
+  code: string;
+  category: SponsorCategory;
+  logoUrl: string | null;
+  brief: string;
+  restricted: boolean;
+  status: CampaignStatus;
+  startsAt: string | null;
+  endsAt: string | null;
+  streamCategories: string[];
+  payPerStreamUsdMinor: number;
+  minMinutes: number;
+  minViewers: number;
+  maxStreamsPerCreator: number;
+  /** Enough budget left for this many more paid streams. */
+  streamsLeft: number;
+  quest: { minutes: number; reward: string } | null;
+  joined: boolean;
+  /** This creator's paid streams and earnings on it. */
+  paidStreams: number;
+  earnedUsdMinor: number;
+}
+
+/** One sponsor on one broadcast: how long its card was up and what it paid. */
+export interface SponsorRunView {
+  id: string;
+  source: SponsorSource;
+  sponsorId: string;
+  name: string;
+  streamId: string;
+  streamTitle: string;
+  seconds: number;
+  /** "none" for a creator's own deal (paid by the brand, not through us). */
+  status: "none" | "counting" | "paying" | "paid" | "unpaid";
+  unpaidReason: "" | "short" | "viewers" | "cap" | "budget" | "left" | "ended";
+  payUsdMinor: number;
+  minMinutes: number | null;
+  at: string;
+}
+
+/** A sponsored quest as a viewer sees it. */
+export interface SponsoredQuestView {
+  campaignId: string;
+  name: string;
+  line: string;
+  url: string;
+  logoUrl: string | null;
+  reward: string;
+  minutes: number;
+  /** Minutes watched while the brand's card was up. */
+  progress: number;
+  voucher: { code: string; claimedAt: string } | null;
+  vouchersLeft: boolean;
+  status: CampaignStatus;
+}
+
+/**
+ * Run of show (Phase 3): a creator's rundown — segments in order, each
+ * with a planned length, a script the host-only teleprompter reads, and
+ * what it puts on screen when it starts (its cues). The rundown is kept
+ * with the channel, so it's ready on whichever device goes live; the live
+ * stream only keeps where the show is (which segment, since when). Viewers
+ * never see a script — only the scene changes its cues make.
+ */
+export const MAX_SEGMENTS = 20;
+export const MAX_SEGMENT_SCRIPT = 4_000;
+/** The prompter's whole script, across every segment. */
+export const MAX_RUNDOWN_SCRIPT = 10_000;
+export const MAX_SEGMENT_CUES = 6;
+export const segmentIdSchema = z.string().regex(/^[a-z0-9]{6,16}$/, "Invalid segment id");
+
+/**
+ * One thing a segment does to the picture as it starts. Each is either
+ * "put this up" or "take that down"; anything a segment doesn't mention
+ * stays as it was.
+ */
+export const rundownCueSchema = z.discriminatedUnion("do", [
+  z.object({ do: z.literal("layout"), layout: z.enum(SCENE_LAYOUTS) }),
+  z.object({ do: z.literal("card"), card: z.enum(SCENE_CARDS) }),
+  z.object({ do: z.literal("clear-card") }),
+  z.object({ do: z.literal("lower-third"), title: z.string().trim().min(1).max(48), subtitle: z.string().trim().max(72).default("") }),
+  z.object({ do: z.literal("hide-lower-third") }),
+  z.object({ do: z.literal("banner"), text: z.string().trim().min(1).max(100) }),
+  z.object({ do: z.literal("hide-banner") }),
+  z.object({ do: z.literal("sponsor"), source: z.enum(SPONSOR_SOURCES), sponsorId: objectIdSchema }),
+  z.object({ do: z.literal("hide-sponsor") }),
+  /** A countdown to the segment's planned end, labelled with its title. */
+  z.object({ do: z.literal("countdown") }),
+]);
+
+export const rundownSegmentSchema = z.object({
+  id: segmentIdSchema,
+  title: z.string().trim().min(1).max(60),
+  /** Planned length: ten seconds to four hours. */
+  seconds: z.number().int().min(10).max(4 * 3600),
+  script: z.string().max(MAX_SEGMENT_SCRIPT).default(""),
+  cues: z
+    .array(rundownCueSchema)
+    .max(MAX_SEGMENT_CUES)
+    .default([])
+    .refine((cues) => new Set(cues.map((c) => c.do.replace(/^(hide|clear)-/, ""))).size === cues.length, "One change of each kind per segment"),
+});
+
+export const rundownBodySchema = z
+  .object({ segments: z.array(rundownSegmentSchema).max(MAX_SEGMENTS) })
+  .refine((r) => new Set(r.segments.map((s) => s.id)).size === r.segments.length, "Segment ids must be unique")
+  .refine((r) => r.segments.reduce((n, s) => n + s.script.length, 0) <= MAX_RUNDOWN_SCRIPT, {
+    message: `Scripts add up to ${MAX_RUNDOWN_SCRIPT.toLocaleString("en-US")} characters at most`,
+  });
+
+/** Where the show is: a segment on air (null: the rundown isn't running). */
+export const rundownPositionBodySchema = z.object({ segmentId: segmentIdSchema.nullable() });
+
+export type RundownCue = z.infer<typeof rundownCueSchema>;
+export type RundownSegment = z.infer<typeof rundownSegmentSchema>;
+export interface RundownPosition {
+  segmentId: string | null;
+  /** When this segment went on air (server time, ISO). */
+  startedAt: string | null;
+  /** When the first segment went on air — the show's own clock. */
+  showStartedAt: string | null;
+}
+
+/** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
+export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
+export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });
+
+/**
+ * Stream health (Phase 1): the studio sends a 30-second summary of its
+ * sender stats — averages and the worst of it — and the API keeps the
+ * broadcast's run of them (six hours at most) for the report afterwards.
+ */
+export const HEALTH_LIMITATIONS = ["none", "cpu", "bandwidth", "other"] as const;
+export const HEALTH_LEVELS = ["good", "fair", "poor"] as const;
+export const MAX_HEALTH_WINDOWS = 720;
+export const healthWindowSchema = z.object({
+  at: z.number().int().min(0),
+  kbps: z.number().int().min(0).max(1_000_000),
+  fps: z.number().int().min(0).max(240),
+  height: z.number().int().min(0).max(4_320),
+  rttMs: z.number().int().min(0).max(60_000).nullable(),
+  lossPct: z.number().min(0).max(100),
+  limitation: z.enum(HEALTH_LIMITATIONS),
+  level: z.enum(HEALTH_LEVELS),
+});
+export const healthBodySchema = z.object({ window: healthWindowSchema });
+export type HealthWindowBody = z.infer<typeof healthWindowSchema>;
 
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -462,8 +930,14 @@ export const DEFAULT_FILTER_LEVELS: Record<FilterCategory, FilterLevel> = {
   scams: "hold",
 };
 
-/** A lead moderator also manages the other moderators and can raise Shield. */
-export const MOD_ROLES = ["lead", "mod"] as const;
+/**
+ * A lead moderator also manages the other moderators and can raise Shield.
+ * A producer (Phase 3, producer mode) does all a lead can and runs the show
+ * — scenes, graphics, the run of show and the stage — from their own device,
+ * without appearing on air. The host can be their own producer on a second
+ * device too.
+ */
+export const MOD_ROLES = ["lead", "mod", "producer"] as const;
 export type ModRole = (typeof MOD_ROLES)[number];
 /** Who someone is in a channel's room. */
 export type ChannelRole = "host" | ModRole;

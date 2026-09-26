@@ -24,13 +24,15 @@ import {
   StreamLike,
   User,
 } from "../models.js";
-import { checkMessage, HELD_REASON_LABELS } from "../safety/filter.js";
+import { checkMessage, HELD_REASON_LABELS, NEW_ACCOUNT_MS } from "../safety/filter.js";
 import { moderatorIdentities, roleIn } from "../safety/roles.js";
 import {
   markStreamEnded,
   parseImageDataUri,
   reconcileStream,
 } from "../stream-service.js";
+import { bumpGoal } from "../goals.js";
+import { fanStatus, fanStatuses } from "../fans.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -38,9 +40,6 @@ import {
  * SLOW_MODE_SECONDS in components/app/live-chat.tsx — keep the two in step
  * so the countdown matches what the server enforces.
  */
-
-/** An account younger than this is held while Shield is up. */
-const NEW_ACCOUNT_MS = 24 * 60 * 60 * 1000;
 
 export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -305,6 +304,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           likes,
           username: dbUser.username,
         });
+        // A likes goal counts it too; never fails the like.
+        await bumpGoal(stream._id, "likes", 1).catch((err) => request.log.error({ err }, "moving the goal failed"));
       }
 
       return { success: true, data: { likes, liked: true } };
@@ -457,7 +458,7 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const stream = await Stream.findById(request.params.id).select("_id");
+      const stream = await Stream.findById(request.params.id).select("_id streamerId");
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
@@ -474,7 +475,23 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         .lean();
 
       messages.reverse();
-      return { success: true, data: { messages } };
+      // Each author's standing with the channel, read once for the page.
+      // Never fails the history.
+      const authors = [...new Map(messages.map((m) => [String(m.userId), m.userId])).values()];
+      const standing = await fanStatuses(stream.streamerId, authors).catch(() => new Map());
+      const withFans = messages.map((m) => {
+        const fan = standing.get(String(m.userId));
+        return fan && (fan.level > 0 || fan.badge > 0) ? { ...m, fan } : m;
+      });
+      // The first page also carries every Shout still pinned, however far
+      // back it was sent — an hour's pin outlives the page it's on.
+      const shouts = request.query.before
+        ? []
+        : await ChatMessage.find({ streamId: stream._id, shoutUntil: { $gt: new Date() }, status: { $ne: "held" } })
+            .sort({ createdAt: 1 })
+            .limit(20)
+            .lean();
+      return { success: true, data: { messages: withFans, shouts } };
     },
   );
 
@@ -612,9 +629,11 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // depend on the sender's own client republishing over WebRTC, which
       // was silence for anyone whose token lacked canPublishData — the
       // usual state of cross-platform viewers. Clients dedupe on `id`.
-      void sendRoomData(stream.livekitRoomName, chatPayload(message));
+      // The author's fan level and watch-time badge ride along. Never fails the line.
+      const fan = await fanStatus(stream.streamerId, dbUser._id).catch(() => null);
+      void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
 
-      return { success: true, data: { message } };
+      return { success: true, data: { message, fan } };
     },
   );
 };
