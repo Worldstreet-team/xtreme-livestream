@@ -129,6 +129,33 @@
 .msg-dots.msg-wave > span:nth-child(2) { animation-delay: 0.14s; }
 .msg-dots.msg-wave > span:nth-child(3) { animation-delay: 0.28s; }
 
+/* Reacting: the strip springs out of the bubble, its emoji arriving 18ms apart. */
+@keyframes msg-bar-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.55); }
+  to { opacity: 1; transform: none; }
+}
+.msg-bar-in { animation: msg-bar-in 0.28s var(--ease-spring) both; }
+@keyframes msg-emoji-in {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: none; }
+}
+.msg-emoji-in { animation: msg-emoji-in 0.24s var(--ease-spring) both; animation-delay: calc(20ms + var(--i, 0) * 18ms); }
+
+/* Recording: bars rise from the right; the lock slides up beside the orb. */
+@keyframes rec-bar-in {
+  from { transform: scaleY(0); }
+  to { transform: none; }
+}
+.rec-bar-in { animation: rec-bar-in 0.12s var(--ease-out) both; }
+@keyframes msg-lock-in {
+  from { opacity: 0; translate: 0 12px; }
+  to { opacity: 1; translate: 0 0; }
+}
+.msg-lock-in { animation: msg-lock-in 0.28s var(--ease-out) 0.12s both; }
+/* The mic, held: it swells into a Chili orb on the spring. */
+.msg-press.msg-orb { transition: transform 0.28s var(--ease-spring), background-color 0.2s var(--ease-standard), color 0.2s var(--ease-standard); }
+.msg-orb[data-held], .msg-orb[data-held]:active:not(:disabled) { transform: scale(1.45); background-color: var(--chili); color: #fff; }
+
 /* "Sent" pops once the words have landed; her face pops in when she reads. */
 @keyframes msg-sent-pop {
   0% { opacity: 0; transform: scale(0.4); }
@@ -168,11 +195,11 @@
   .msg-pop, .msg-rise, .msg-drop, .msg-lift, .msg-fade, .msg-flash,
   .msg-dots > span, .call-breathe, .call-ripple, .rec-blink,
   .msg-roll-out, .msg-roll-in, .msg-badge-pop, .msg-typing-in, .msg-typing-out,
-  .msg-sent-pop, .msg-face-pop {
+  .msg-sent-pop, .msg-face-pop, .msg-bar-in, .msg-emoji-in, .rec-bar-in, .msg-lock-in {
     animation: none !important;
   }
   .msg-roll-out { display: none; }
   .msg-pending { animation: none !important; opacity: 0.6; }
-  .msg-corners { transition: none; }
+  .msg-corners, .msg-orb { transition: none; }
   .msg-press:active:not(:disabled) { transform: none; }
 }

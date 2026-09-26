@@ -1,10 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowBendUpLeft, Check, Microphone, PaperPlaneRight, PencilSimple, Plus, WarningCircle, X } from "@/components/icons";
-import { RecorderBar, useVoiceRecorder, type VoiceClip } from "./voice-recorder";
-import { handOff } from "./motion";
-import { COMPOSER_LAUNCH, type Launch } from "./thread-motion";
+import { cn } from "@/lib/utils";
+import {
+  CANCEL_PX,
+  HoldRecorder,
+  LOCK_PX,
+  LockHint,
+  RecorderBar,
+  useVoiceRecorder,
+  type Level as VoiceLevel,
+  type VoiceClip,
+} from "./voice-recorder";
+import { EASE, done, ghost, handOff, play, receive, reducedMotion } from "./motion";
+import { COMPOSER_LAUNCH, REPLY_QUOTE, type Launch } from "./thread-motion";
+import type { Quote } from "./message-bubble";
 
 /**
  * The thread's foot.
@@ -12,9 +23,10 @@ import { COMPOSER_LAUNCH, type Launch } from "./thread-motion";
  * One row: add, the field, and one button that is a mic until there is
  * something to send and a send button once there is — the grammar every
  * chat app has taught. Photos and clips go several at a time (they arrive
- * as one album); a reply or an edit sits above the field; while you record
- * a voice note the recorder takes the row. Enter sends, Shift+Enter breaks
- * the line, Escape backs out of a reply or an edit.
+ * as one album); a reply or an edit sits above the field. Hold the mic to
+ * talk (slide left to cancel, up to lock), or tap it to record hands-free,
+ * when the recorder takes the row. Enter sends, Shift+Enter breaks the
+ * line, Escape backs out of a reply or an edit.
  */
 
 export interface Attachment {
@@ -31,6 +43,38 @@ export interface Attachment {
 }
 
 export const MAX_ATTACHMENTS = 10;
+
+/**
+ * The quoted words' trip into the reply bar: a copy leaves the message (from
+ * where the swipe let go), shrinks to the bar's size and quiets to its
+ * colour on the way down. A paragraph doesn't travel; the bar says it.
+ */
+function landQuote(quote: Quote, target: HTMLElement) {
+  if (reducedMotion() || !quote.el.isConnected) return;
+  const from = getComputedStyle(quote.el);
+  const line = parseFloat(from.lineHeight) || 20;
+  if (quote.box.height > line * 2.2) return;
+  const scale = (parseFloat(getComputedStyle(target).fontSize) || 13) / (parseFloat(from.fontSize) || 15);
+  const to = target.getBoundingClientRect();
+  const copy = ghost(quote.el, { left: quote.box.left, top: quote.box.top, width: Math.min(quote.box.width, to.width / scale), height: line });
+  Object.assign(copy.style, { overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" });
+  target.style.visibility = "hidden";
+  const flight = play(
+    copy,
+    [
+      { transform: "none", color: from.color },
+      { transform: `translate(${to.left - quote.box.left}px, ${to.top - quote.box.top}px) scale(${scale})`, color: getComputedStyle(target).color },
+    ],
+    360,
+    EASE.glide,
+    0,
+    { fill: "forwards" },
+  );
+  void done(flight).then(() => {
+    target.style.visibility = "";
+    copy.remove();
+  });
+}
 
 export function Composer({
   draft,
@@ -83,13 +127,110 @@ export function Composer({
   // At the five-minute limit the note sends itself; the recorder calls this.
   const onLimitRef = useRef<() => void>(() => {});
   const voice = useVoiceRecorder(useCallback(() => onLimitRef.current(), []));
-  const finishVoice = async (keep: boolean) => {
+
+  /**
+   * The mic, in hand: held down (with how far the thumb has slid), hands-free
+   * once locked or tapped, or on its way out — into the bin, or folding back
+   * into the mic as the note sends.
+   */
+  const [rec, setRec] = useState<"idle" | "hold" | "locked" | "cancel" | "send">("idle");
+  const [slide, setSlide] = useState({ dx: 0, dy: 0 });
+  // The take as it was when you let go or threw it away, for its way out.
+  const [take, setTake] = useState<{ levels: VoiceLevel[]; elapsed: number }>({ levels: [], elapsed: 0 });
+  const press = useRef<{ id: number; x: number; y: number; at: number; up: boolean; take: number } | null>(null);
+  const takes = useRef(0);
+
+  const stopAndSend = async (keep: boolean) => {
     const clip = await voice.stop(keep);
     onRecording(false);
     if (clip) onSendVoice(clip);
   };
+  const finishVoice = (keep: boolean) => {
+    setRec("idle");
+    void stopAndSend(keep);
+  };
+  const startHandsFree = async () => {
+    if (await voice.start()) {
+      onRecording(true);
+      setRec("locked");
+    }
+  };
+  const beginHold = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0 || disabled || rec !== "idle") return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const take = ++takes.current;
+    press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, at: performance.now(), up: false, take };
+    setSlide({ dx: 0, dy: 0 });
+    setRec("hold");
+    void voice.start().then((ok) => {
+      // Thrown away before the mic even opened: close it again.
+      if (takes.current !== take) return void (ok && voice.stop(false));
+      if (!ok) {
+        press.current = null;
+        return setRec("idle");
+      }
+      onRecording(true);
+      // Let go already — a tap, or a permission prompt took the press: hands-free.
+      if (!press.current || press.current.up) {
+        press.current = null;
+        setRec("locked");
+      }
+    });
+  };
+  const moveHold = (e: React.PointerEvent) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId || p.up) return;
+    const dx = Math.min(0, e.clientX - p.x);
+    const dy = Math.min(0, e.clientY - p.y);
+    if (dx <= -CANCEL_PX) {
+      // Slid away: into the bin.
+      press.current = null;
+      takes.current++;
+      navigator.vibrate?.(8);
+      setTake({ levels: voice.levels, elapsed: voice.elapsed });
+      setRec("cancel");
+      void voice.stop(false).then(() => onRecording(false));
+      return;
+    }
+    if (dy <= -LOCK_PX && voice.recording) {
+      press.current = null;
+      navigator.vibrate?.(8);
+      setRec("locked");
+      return;
+    }
+    setSlide({ dx, dy });
+  };
+  const endHold = (e: React.PointerEvent) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
+    p.up = true;
+    if (!voice.recording) return; // still opening the mic: it goes hands-free once it has
+    press.current = null;
+    if (performance.now() - p.at < 300) return setRec("locked"); // a tap
+    setTake({ levels: voice.levels, elapsed: voice.elapsed });
+    setRec("send");
+    void stopAndSend(true);
+  };
+  // The browser took the gesture: keep the take, hands-free, rather than send it.
+  const loseHold = (e: React.PointerEvent) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
+    p.up = true;
+    if (!voice.recording) return;
+    press.current = null;
+    setRec("locked");
+  };
+
   useEffect(() => {
-    onLimitRef.current = () => void finishVoice(true);
+    onLimitRef.current = () => {
+      if (rec === "hold") {
+        press.current = null;
+        setTake({ levels: voice.levels, elapsed: voice.elapsed });
+        setRec("send");
+        void stopAndSend(true);
+      } else finishVoice(true);
+    };
   });
 
   // Grow with the text, up to five lines.
@@ -104,6 +245,29 @@ export function Composer({
   useEffect(() => {
     if (replyingTo || editing) fieldRef.current?.focus();
   }, [replyingTo, editing]);
+
+  // A reply's words travel down from the message into the bar (measured
+  // where the bar will rest, before it starts to grow)...
+  const replyKey = replyingTo ? `${replyingTo.name}|${replyingTo.snippet}` : null;
+  const snippetRef = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const quote = replyKey ? receive<Quote>(REPLY_QUOTE) : null;
+    if (quote && snippetRef.current) landQuote(quote, snippetRef.current);
+  }, [replyKey]);
+
+  // ...and the bar grows up out of the field, pushing the thread up with it
+  // rather than cutting its last lines off at once (the owner's pick, reply C).
+  const barOpen = Boolean(replyingTo || editing);
+  const barRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const shell = barRef.current;
+    if (!barOpen || !shell) return;
+    const height = shell.offsetHeight;
+    shell.style.overflow = "hidden";
+    const grow = play(shell, [{ height: "0px" }, { height: `${height}px` }], 280, EASE.out);
+    play(shell.firstElementChild, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], 280, EASE.out);
+    void done(grow).then(() => (shell.style.overflow = ""));
+  }, [barOpen]);
 
   /** Send, and tell the thread where the words sat so they can fly from here. */
   const submit = () => {
@@ -136,23 +300,29 @@ export function Composer({
   return (
     <div className="px-3 pt-2 pb-[max(env(safe-area-inset-bottom),12px)] md:px-5 md:pb-5">
       {(replyingTo || editing) && (
-        <div className="msg-lift mb-2 flex items-center gap-3 rounded-[18px] bg-white/[0.04] py-2 pr-1.5 pl-3.5">
-          <span aria-hidden className="h-8 w-[3px] shrink-0 rounded-full bg-ember" />
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ember-hi">
-              {editing ? <PencilSimple size={13} aria-hidden /> : <ArrowBendUpLeft size={13} aria-hidden />}
-              {editing ? "Editing your message" : `Replying to ${replyingTo?.name}`}
-            </p>
-            {!editing && replyingTo && <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{replyingTo.snippet}</p>}
+        <div ref={barRef} className="pb-2">
+          <div className="flex items-center gap-3 rounded-[18px] bg-white/[0.04] py-2 pr-1.5 pl-3.5">
+            <span aria-hidden className="h-8 w-[3px] shrink-0 rounded-full bg-ember" />
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ember-hi">
+                {editing ? <PencilSimple size={13} aria-hidden /> : <ArrowBendUpLeft size={13} aria-hidden />}
+                {editing ? "Editing your message" : `Replying to ${replyingTo?.name}`}
+              </p>
+              {!editing && replyingTo && (
+                <p ref={snippetRef} className="mt-0.5 truncate text-[13px] text-muted-foreground">
+                  {replyingTo.snippet}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={editing ? onCancelEdit : onCancelReply}
+              aria-label={editing ? "Cancel edit" : "Cancel reply"}
+              className="msg-press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+            >
+              <X size={15} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={editing ? onCancelEdit : onCancelReply}
-            aria-label={editing ? "Cancel edit" : "Cancel reply"}
-            className="msg-press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
-          >
-            <X size={15} />
-          </button>
         </div>
       )}
 
@@ -224,20 +394,15 @@ export function Composer({
         }}
       />
 
-      {voice.recording ? (
-        <RecorderBar
-          elapsed={voice.elapsed}
-          levels={voice.levels}
-          onCancel={() => void finishVoice(false)}
-          onSend={() => void finishVoice(true)}
-        />
+      {rec === "locked" && voice.recording ? (
+        <RecorderBar elapsed={voice.elapsed} levels={voice.levels} onCancel={() => finishVoice(false)} onSend={() => finishVoice(true)} />
       ) : (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             if (canSend) submit();
           }}
-          className="flex items-end gap-2"
+          className="relative flex items-end gap-2"
         >
           {!editing && (
             <button
@@ -245,7 +410,10 @@ export function Composer({
               onClick={() => fileRef.current?.click()}
               disabled={disabled || attachments.length >= MAX_ATTACHMENTS}
               aria-label="Add photos or clips"
-              className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-foreground hover:bg-control-hover disabled:opacity-40"
+              className={cn(
+                "msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-foreground hover:bg-control-hover disabled:opacity-40",
+                rec !== "idle" && "pointer-events-none opacity-0",
+              )}
             >
               <Plus size={20} />
             </button>
@@ -290,19 +458,45 @@ export function Composer({
               )}
             </button>
           ) : (
-            <button
+            // Held, it follows the thumb a little as it slides toward the bin.
+            <span
               key="mic"
-              type="button"
-              disabled={disabled}
-              onClick={async () => {
-                if (await voice.start()) onRecording(true);
+              className="relative shrink-0"
+              style={{
+                transform: rec === "hold" ? `translateX(${Math.max(-40, slide.dx * 0.35)}px)` : undefined,
+                transition: rec === "hold" ? "none" : "transform 0.3s var(--ease-spring)",
               }}
-              aria-label="Record a voice note"
-              className="msg-press msg-pop flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-foreground hover:bg-control-hover disabled:opacity-40"
             >
-              <Microphone size={20} />
-            </button>
+              <button
+                type="button"
+                disabled={disabled}
+                data-held={rec === "hold" ? "" : undefined}
+                onPointerDown={beginHold}
+                onPointerMove={moveHold}
+                onPointerUp={endHold}
+                onPointerCancel={loseHold}
+                onContextMenu={(e) => e.preventDefault()}
+                // Enter or Space: record hands-free.
+                onClick={(e) => e.detail === 0 && rec === "idle" && void startHandsFree()}
+                aria-label="Record a voice note"
+                title="Hold to talk, or tap to record"
+                className="msg-press msg-orb msg-pop flex size-11 touch-none items-center justify-center rounded-full bg-control text-foreground select-none hover:bg-control-hover disabled:opacity-40"
+              >
+                <Microphone size={20} />
+              </button>
+            </span>
           )}
+
+          {(rec === "hold" || rec === "cancel" || rec === "send") && (
+            <HoldRecorder
+              phase={rec}
+              elapsed={rec === "hold" ? voice.elapsed : take.elapsed}
+              levels={rec === "hold" ? voice.levels : take.levels}
+              dx={slide.dx}
+              onDone={() => setRec("idle")}
+            />
+          )}
+          {rec === "hold" && <LockHint dy={slide.dy} />}
         </form>
       )}
     </div>

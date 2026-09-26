@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
-import { EASE, done, ghost, play, receive, reducedMotion, type Box } from "./motion";
+import { EASE, done, ghost, play, receive, reducedMotion, settle, type Box } from "./motion";
 
 /**
  * The thread's choreography, run after every change to the list:
@@ -31,6 +31,21 @@ export const launchKey = (clientKey: string) => `launch:${clientKey}`;
 
 /** How long the next change's slides take (unsend closes its gap faster). */
 export const SLIDE_MS_KEY = "thread:slide-ms";
+
+/** A reaction you just picked, and where it left from. */
+export interface ReactionFlight {
+  messageId: string;
+  emoji: string;
+  from: Box;
+  /** The emoji's font size where it was tapped. */
+  size: number;
+  /** Tapped on the chip itself: no flight, just the landing. */
+  onChip: boolean;
+}
+export const REACTION_FLIGHT = "thread:reaction";
+
+/** The words a reply quotes, on their way to the reply bar (the composer lands them). */
+export const REPLY_QUOTE = "thread:quote";
 
 /** When a launched message lands, so "Sent" can wait for it. */
 const landings = new Map<string, number>();
@@ -125,6 +140,62 @@ function launchInto(row: HTMLElement, launch: Launch, clientKey: string, drift: 
     g.remove();
   });
   return true;
+}
+
+/**
+ * Your reaction's trip (the owner's pick, react B): it swells where you
+ * tapped it, flies an arc down to its chip under the bubble and lands with
+ * a squash. `drift` is a glide still carrying the thread: aim for where the
+ * chip will rest.
+ */
+function flyReaction(f: ReactionFlight, drift: number) {
+  const chip = document.getElementById(`m-${f.messageId}`)?.querySelector<HTMLElement>(`[data-reaction="${CSS.escape(f.emoji)}"]`);
+  if (!chip || reducedMotion()) return;
+  const squash = () => play(chip, [{ transform: "scale(1.25, 0.8)" }, { transform: "scale(0.92, 1.1)", offset: 0.45 }, { transform: "none" }], 240, EASE.out);
+  if (f.onChip) return void squash();
+
+  const glyph = chip.querySelector<HTMLElement>("[data-reaction-glyph]") ?? chip;
+  const seen = glyph.getBoundingClientRect();
+  const to = { x: seen.left + seen.width / 2, y: seen.top - drift + seen.height / 2 };
+  const from = { x: f.from.left + f.from.width / 2, y: f.from.top + f.from.height / 2 };
+  const end = (parseFloat(getComputedStyle(glyph).fontSize) || 14) / f.size;
+
+  const flier = document.createElement("span");
+  flier.textContent = f.emoji;
+  flier.setAttribute("aria-hidden", "true");
+  Object.assign(flier.style, {
+    position: "fixed",
+    left: `${from.x - f.size / 2}px`,
+    top: `${from.y - f.size / 2}px`,
+    width: `${f.size}px`,
+    height: `${f.size}px`,
+    fontSize: `${f.size}px`,
+    lineHeight: `${f.size}px`,
+    textAlign: "center",
+    zIndex: "90",
+    pointerEvents: "none",
+  });
+  document.body.append(flier);
+  // The chip waits for its emoji.
+  settle(chip);
+  chip.style.visibility = "hidden";
+
+  const swell = play(flier, [{ transform: "none" }, { transform: "translateY(-5px) scale(1.35)" }], 120, EASE.out, 0, { fill: "forwards" });
+  const dx = to.x - from.x;
+  const dy = to.y - from.y + 5;
+  const frames: Keyframe[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    frames.push({ offset: t, transform: `translate(${dx * t}px, ${-5 + dy * t - 34 * 4 * t * (1 - t)}px) scale(${1.35 + (end - 1.35) * t})` });
+  }
+  void done(swell).then(() => {
+    const flight = play(flier, frames, 380, EASE.glide, 0, { fill: "forwards" });
+    void done(flight).then(() => {
+      flier.remove();
+      chip.style.visibility = "";
+      squash();
+    });
+  });
 }
 
 /** Their dots bubble becomes their message: the dots fade, the bubble stretches to fit, the words fade in. */
@@ -268,6 +339,10 @@ export function useThreadMotion({
     const ms = receive<number>(SLIDE_MS_KEY) ?? 240;
     // A glide from the last change may still be carrying the thread.
     const drift = heldOffset(content);
+
+    // A reaction you just picked, measured before anything below moves.
+    const reaction = receive<ReactionFlight>(REACTION_FLIGHT);
+    if (reaction) flyReaction(reaction, drift);
 
     // Older history went in above: the scroll held your place, nothing below slides.
     const fromTop = !rows.length || rows[0].dataset.row !== m.firstRow || rows[0].offsetTop !== m.firstTop;

@@ -31,7 +31,7 @@ import {
 import type { CallPeer } from "@/lib/call-manager";
 import { useCall } from "@/components/app/calls/call-provider";
 import { useMessages } from "@/components/app/messages/messages-context";
-import { MessageBubble, TypingBubble, type ThreadMessage } from "@/components/app/messages/message-bubble";
+import { MessageBubble, TypingBubble, type Quote, type ThreadMessage } from "@/components/app/messages/message-bubble";
 import { ActionSheet, type MessageAction } from "@/components/app/messages/message-actions";
 import { Composer, MAX_ATTACHMENTS, type Attachment } from "@/components/app/messages/composer";
 import { ThreadMenu, type MuteChoice } from "@/components/app/messages/thread-menu";
@@ -43,14 +43,17 @@ import { MediaViewer, type ViewerItem } from "@/components/app/messages/media-vi
 import type { VoiceClip } from "@/components/app/messages/voice-recorder";
 import {
   COMPOSER_LAUNCH,
+  REACTION_FLIGHT,
+  REPLY_QUOTE,
   SLIDE_MS_KEY,
   glideContent,
   launchKey,
   shrinkAway,
   useThreadMotion,
   type Launch,
+  type ReactionFlight,
 } from "@/components/app/messages/thread-motion";
-import { handOff, reducedMotion, receive, settle } from "@/components/app/messages/motion";
+import { boxOf, handOff, reducedMotion, receive, settle } from "@/components/app/messages/motion";
 import { beginBack } from "@/components/app/messages/push";
 
 /**
@@ -197,7 +200,8 @@ function Thread({ id }: { id: string }) {
    *  `at` is when it opened — the edit and unsend windows are measured from
    *  that tap, which keeps render free of the clock. */
   const [active, setActive] = useState<{ id: string; kind: "react" | "menu" | "sheet"; below: boolean; at: number } | null>(null);
-  const [viewer, setViewer] = useState<{ items: ViewerItem[]; index: number } | null>(null);
+  /** The photo viewer; `fromTile` when a picture in the thread was tapped (it grows out of it). */
+  const [viewer, setViewer] = useState<{ items: ViewerItem[]; index: number; fromTile?: boolean } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -504,8 +508,9 @@ function Thread({ id }: { id: string }) {
   }, [typingRow]);
 
   // Pictures and clips size themselves after they load; at the bottom, stay
-  // there. When the thread itself gets shorter (a reply bar, the keyboard)
-  // it glides up to keep the last word in view.
+  // there. When the thread itself gets shorter at a stroke (the keyboard)
+  // it glides up to keep the last word in view; a reply bar growing a few
+  // pixels a frame is followed as it goes.
   useEffect(() => {
     const list = listRef.current;
     const content = contentRef.current;
@@ -514,7 +519,7 @@ function Thread({ id }: { id: string }) {
     const observer = new ResizeObserver(() => {
       const before = list.scrollTop;
       if (pinned.current) list.scrollTop = list.scrollHeight;
-      if (list.clientHeight !== height && initialScrollDone.current) glideContent(content, list.scrollTop - before);
+      if (Math.abs(list.clientHeight - height) >= 24 && initialScrollDone.current) glideContent(content, list.scrollTop - before);
       height = list.clientHeight;
       lastTop.current = list.scrollTop;
       remember();
@@ -789,13 +794,30 @@ function Thread({ id }: { id: string }) {
     }
   };
 
-  const react = async (m: ThreadMessage, emoji: string) => {
+  /** Reply to `m`; its words travel into the reply bar from where they are. */
+  const startReply = (m: ThreadMessage, quote?: Quote | null) => {
+    const words = quote ?? document.getElementById(`m-${m._id}`)?.querySelector<HTMLElement>("[data-words]");
+    if (words) handOff<Quote>(REPLY_QUOTE, "box" in words ? words : { el: words, box: boxOf(words) });
+    setEditingId(null);
+    setReplyTo(m);
+  };
+
+  const react = async (m: ThreadMessage, emoji: string, from?: HTMLElement) => {
+    if (!meId) return;
+    // It shows at once — one reaction each, the same one again takes it
+    // back — so your pick has a chip to fly to; the server's answer settles it.
+    const before = m.reactions ?? [];
+    const had = before.some((r) => senderIdOf(r.profile) === meId && r.emoji === emoji);
+    const next = [...before.filter((r) => senderIdOf(r.profile) !== meId), ...(had ? [] : [{ profile: meId, emoji }])];
+    if (from && !had) handOff<ReactionFlight>(REACTION_FLIGHT, { messageId: m._id, emoji, from: boxOf(from), size: parseFloat(getComputedStyle(from).fontSize) || 20, onChip: Boolean(from.closest("[data-reaction]")) });
+    setMessages((cur) => cur.map((x) => (x._id === m._id ? { ...x, reactions: next } : x)));
     try {
       const res = await messaging.messages.react(m._id, emoji);
       setMessages((cur) => cur.map((x) => (x._id === m._id ? { ...x, reactions: res.reactions } : x)));
       // Reactions travel on the thread channel so the other side updates live.
       void threadRef.current?.send("reaction", { messageId: m._id, reactions: res.reactions });
     } catch {
+      setMessages((cur) => cur.map((x) => (x._id === m._id ? { ...x, reactions: before } : x)));
       say("Couldn't add that reaction", "danger");
     }
   };
@@ -840,7 +862,7 @@ function Thread({ id }: { id: string }) {
     const mine = Boolean(meId) && senderIdOf(m.sender) === meId;
     const age = at - new Date(m.createdAt).getTime();
     const scope: "everyone" | "me" = mine && age < UNSEND_WINDOW_MS ? "everyone" : "me";
-    const out: MessageAction[] = [{ key: "reply", label: "Reply", icon: ArrowBendUpLeft, onSelect: () => (setEditingId(null), setReplyTo(m)) }];
+    const out: MessageAction[] = [{ key: "reply", label: "Reply", icon: ArrowBendUpLeft, onSelect: () => startReply(m) }];
     if (m.content && m.type !== "poll") out.push({ key: "copy", label: "Copy text", icon: Copy, onSelect: () => void copy(m) });
     if (mine && m.type === "text" && age < EDIT_WINDOW_MS) out.push({ key: "edit", label: "Edit", icon: PencilSimple, onSelect: () => startEdit(m) });
     out.push({
@@ -871,7 +893,7 @@ function Thread({ id }: { id: string }) {
   );
   const openMedia = (messageId: string) => {
     const index = mediaItems.findIndex((it) => it.id === messageId);
-    if (index >= 0) setViewer({ items: mediaItems, index });
+    if (index >= 0) setViewer({ items: mediaItems, index, fromTile: true });
   };
 
   /* ---------------- The thread itself ---------------- */
@@ -1256,11 +1278,8 @@ function Thread({ id }: { id: string }) {
                             actions={active?.id === m._id ? actionsFor(m, active.at) : []}
                             onOpen={(kind, below) => setActive({ id: m._id, kind, below, at: Date.now() })}
                             onClose={() => setActive((a) => (a?.id === m._id ? null : a))}
-                            onReact={(emoji) => void react(m, emoji)}
-                            onReply={() => {
-                              setEditingId(null);
-                              setReplyTo(m);
-                            }}
+                            onReact={(emoji, from) => void react(m, emoji, from)}
+                            onReply={(quote) => startReply(m, quote)}
                             onRetry={() => retry(m)}
                             onJumpTo={(mid) => void jumpTo(mid)}
                             onVote={(ids) => void vote(m, ids)}
@@ -1385,7 +1404,7 @@ function Thread({ id }: { id: string }) {
             text: describeMessage(activeMessage),
           }}
           mineEmoji={activeMessage.reactions?.find((r) => senderIdOf(r.profile) === meId)?.emoji ?? null}
-          onReact={(emoji) => void react(activeMessage, emoji)}
+          onReact={(emoji, from) => void react(activeMessage, emoji, from)}
           items={actionsFor(activeMessage, active.at)}
           onClose={() => setActive(null)}
         />
@@ -1397,6 +1416,7 @@ function Thread({ id }: { id: string }) {
           index={viewer.index}
           onIndex={(index) => setViewer((v) => (v ? { ...v, index } : v))}
           onClose={() => setViewer(null)}
+          fromTile={viewer.fromTile}
         />
       )}
 

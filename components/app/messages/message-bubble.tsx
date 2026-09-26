@@ -15,6 +15,7 @@ import { UserAvatar, formatUsd } from "@/components/xtream";
 import { cn } from "@/lib/utils";
 import { clockTime, describeMessage, personName, pollFootnote, senderIdOf } from "@/lib/messaging";
 import { FloatingMenu, FloatingReactions, type MessageAction } from "./message-actions";
+import { EASE, boxOf, play, type Box } from "./motion";
 import { VoiceNote } from "./voice-note";
 import { ViaTag } from "./via-tag";
 
@@ -30,9 +31,14 @@ import { ViaTag } from "./via-tag";
  *
  * Wide screens: hover shows a quiet toolbar beside the bubble (react,
  * reply, more). Touch: long-press opens the actions sheet, and a swipe to
- * the right replies — the bubble follows your finger and a reply glyph
- * fills in as you cross the line.
+ * the right replies — the bubble follows your finger on a rubber band, the
+ * reply glyph grows and pops as you cross the line, and on release the
+ * bubble springs home while its words travel down into the reply bar
+ * (the owner's pick, reply C).
  */
+
+/** The words a reply quotes, where they were when you replied. */
+export type Quote = { el: HTMLElement; box: Box };
 
 /** A message as the thread holds it: the wire shape plus send state. */
 export type ThreadMessage = Message & {
@@ -129,8 +135,10 @@ export function MessageBubble({
   actions: MessageAction[];
   onOpen: (kind: "react" | "menu" | "sheet", placeBelow: boolean) => void;
   onClose: () => void;
-  onReact: (emoji: string) => void;
-  onReply: () => void;
+  /** `from` is what was tapped (a strip's emoji, a chip): the reaction flies from there. */
+  onReact: (emoji: string, from?: HTMLElement) => void;
+  /** With the words it quotes, so they can travel into the reply bar. */
+  onReply: (quote: Quote | null) => void;
   onRetry: () => void;
   onJumpTo: (messageId: string) => void;
   onVote: (optionIds: string[]) => void;
@@ -152,7 +160,21 @@ export function MessageBubble({
   const rowRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const glyphRef = useRef<HTMLSpanElement>(null);
-  const gesture = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> | null; swiping: boolean; fired: boolean } | null>(null);
+  const gesture = useRef<{
+    x: number;
+    y: number;
+    timer: ReturnType<typeof setTimeout> | null;
+    swiping: boolean;
+    fired: boolean;
+    /** Past the reply line: the glyph has popped. */
+    armed: boolean;
+  } | null>(null);
+
+  /** The words, where they are right now. */
+  const quote = (): Quote | null => {
+    const el = bubbleRef.current?.querySelector<HTMLElement>("[data-words]");
+    return el ? { el, box: boxOf(el) } : null;
+  };
 
   // A long-press timer never outlives the bubble.
   useEffect(() => () => {
@@ -183,6 +205,7 @@ export function MessageBubble({
       ...start,
       swiping: false,
       fired: false,
+      armed: false,
       timer: setTimeout(() => {
         if (!gesture.current || gesture.current.swiping) return;
         gesture.current.fired = true;
@@ -212,6 +235,13 @@ export function MessageBubble({
       // Resistance past the line, so it feels tethered.
       const eased = dx < SWIPE_REPLY_PX ? dx : SWIPE_REPLY_PX + (dx - SWIPE_REPLY_PX) * 0.35;
       setSwipe(Math.max(0, Math.min(SWIPE_MAX_PX, eased)));
+      // Crossing the line: the glyph pops once and the phone ticks.
+      const armed = dx >= SWIPE_REPLY_PX;
+      if (armed && !g.armed) {
+        navigator.vibrate?.(6);
+        play(glyphRef.current, [{ transform: "scale(1)" }, { transform: "scale(1.2)", offset: 0.5 }, { transform: "scale(1)" }], 140, EASE.out);
+      }
+      g.armed = armed;
     }
   };
   const endGesture = (e: React.PointerEvent) => {
@@ -221,12 +251,11 @@ export function MessageBubble({
     if (g.timer) clearTimeout(g.timer);
     if (g.swiping) {
       const dx = e.clientX - g.x;
-      if (bubbleRef.current) bubbleRef.current.style.transition = "transform 0.28s var(--ease-spring)";
+      // The words leave from where the swipe let them go.
+      const words = dx >= SWIPE_REPLY_PX ? quote() : null;
+      if (bubbleRef.current) bubbleRef.current.style.transition = "transform 0.42s var(--ease-spring), border-radius 0.18s var(--ease-out)";
       setSwipe(0);
-      if (dx >= SWIPE_REPLY_PX) {
-        navigator.vibrate?.(6);
-        onReply();
-      }
+      if (dx >= SWIPE_REPLY_PX) onReply(words);
     }
   };
 
@@ -255,7 +284,7 @@ export function MessageBubble({
       >
         <Smiley size={16} />
       </button>
-      <button type="button" onClick={onReply} aria-label="Reply" title="Reply" className={toolButton}>
+      <button type="button" onClick={() => onReply(quote())} aria-label="Reply" title="Reply" className={toolButton}>
         <ArrowBendUpLeft size={16} />
       </button>
       <button
@@ -385,7 +414,7 @@ export function MessageBubble({
           {open === "react" && (
             <FloatingReactions
               mineEmoji={mineEmoji}
-              onReact={(e) => (onReact(e), onClose())}
+              onReact={(e, from) => (onReact(e, from), onClose())}
               onClose={onClose}
               align={mine ? "end" : "start"}
               below={placeBelow}
@@ -462,6 +491,7 @@ function MediaBody({ m, framed, onOpen }: { m: Message; framed: boolean; onOpen:
         onOpen();
       }}
       aria-label={m.type === "video" ? "Open clip" : "Open photo"}
+      data-media-id={m._id}
       className={cn("relative block max-h-[420px] w-[min(18.5rem,64vw)] overflow-hidden bg-black/40", framed && "rounded-[18px]")}
       style={{ aspectRatio: ratio ?? (m.type === "video" ? "9 / 12" : "4 / 5") }}
     >
@@ -501,6 +531,7 @@ function Album({ items, onOpen, framed }: { items: ThreadMessage[]; onOpen: (id:
             onOpen(it._id);
           }}
           aria-label={`Open photo ${i + 1} of ${items.length}`}
+          data-media-id={it._id}
           className={cn("relative overflow-hidden bg-black/40", shown.length === 3 && i === 0 ? "aspect-[1/2]" : "aspect-square")}
         >
           {it.type === "video" ? (
@@ -599,7 +630,7 @@ function Reactions({
 }: {
   reactions: NonNullable<Message["reactions"]>;
   meId: string | null;
-  onReact: (emoji: string) => void;
+  onReact: (emoji: string, from?: HTMLElement) => void;
   alignEnd: boolean;
 }) {
   const byEmoji = new Map<string, { count: number; mine: boolean }>();
@@ -615,7 +646,8 @@ function Reactions({
         <button
           key={emoji}
           type="button"
-          onClick={() => onReact(emoji)}
+          data-reaction={emoji}
+          onClick={(e) => onReact(emoji, e.currentTarget)}
           aria-pressed={mine}
           aria-label={`${emoji} ${count}${mine ? ", yours — tap to remove" : ""}`}
           className={cn(
@@ -623,7 +655,9 @@ function Reactions({
             mine ? "bg-ember/25" : "bg-surface-raised",
           )}
         >
-          <span aria-hidden>{emoji}</span>
+          <span data-reaction-glyph aria-hidden>
+            {emoji}
+          </span>
           {count > 1 && (
             <span key={count} className="msg-pop text-[11.5px] font-semibold text-foreground/80 tabular-nums">
               {count}
