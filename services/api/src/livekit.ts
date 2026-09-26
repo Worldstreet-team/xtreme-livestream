@@ -6,6 +6,7 @@ import {
   WebhookReceiver,
 } from "livekit-server-sdk";
 import { config } from "./config.js";
+import { publishFeed } from "./control-feed.js";
 import type { IUser } from "./models.js";
 
 const livekitHost = config.LIVEKIT_URL.replace(/^wss:/, "https:").replace(
@@ -301,6 +302,12 @@ export async function sendRoomDataTo(
   payload: Record<string, unknown>,
 ) {
   if (!roomName || identities.length === 0) return;
+  // The control feed hears every room payload first — and never stops a send.
+  try {
+    publishFeed(roomName, payload);
+  } catch {
+    // Its trouble is its own.
+  }
   try {
     await roomService.sendData(
       roomName,
@@ -333,6 +340,12 @@ export async function sendRoomData(
   roomName: string,
   payload: Record<string, unknown>,
 ) {
+  // The control feed hears every room payload first — and never stops a send.
+  try {
+    publishFeed(roomName, payload);
+  } catch {
+    // Its trouble is its own.
+  }
   try {
     await roomService.sendData(
       roomName,

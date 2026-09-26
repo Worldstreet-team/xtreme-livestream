@@ -20,13 +20,29 @@ const SCOPE_LABELS: Record<ControlScope, { label: string; hint: string }> = {
 };
 
 /** What a few buttons send — copied straight into Companion or a script. */
-const EXAMPLES: { label: string; method: "POST" | "GET"; path: string; body?: string }[] = [
+const EXAMPLES: { label: string; method: "POST" | "GET"; path: string; body?: string; stream?: boolean; note?: string }[] = [
   { label: "Be right back", method: "POST", path: "/control/do", body: '{"actions":[{"do":"card","card":"brb"}]}' },
   { label: "Back from the break", method: "POST", path: "/control/do", body: '{"actions":[{"do":"card","card":null}]}' },
   { label: "Next segment", method: "POST", path: "/control/show", body: '{"step":"next"}' },
   { label: "Airhorn", method: "POST", path: "/control/do", body: '{"actions":[{"do":"sound","pad":"airhorn"}]}' },
   { label: "What's on", method: "GET", path: "/control/state" },
+  {
+    label: "Events, as they happen",
+    method: "GET",
+    path: "/control/events",
+    stream: true,
+    note: "Server-sent events: whether you're live first, then each scene change, rule firing, gift or guest as event: and its JSON. Chat isn't in it.",
+  },
 ];
+
+/** A curl for an example — `-N` for the feed, so nothing waits on a buffer. */
+const curlFor = (base: string, e: (typeof EXAMPLES)[number]) =>
+  e.stream
+    ? `curl -N ${base}${e.path} -H "Authorization: Bearer xck_…"`
+    : `curl -X ${e.method} ${base}${e.path} -H "Authorization: Bearer xck_…"${e.body ? ` -H "Content-Type: application/json" -d '${e.body}'` : ""}`;
+
+/** The MCP server (packages/control-mcp), added to Claude Code in one line; the API base rides along so it needn't be localhost. */
+const mcpAddFor = (base: string) => `claude mcp add xtream -e XTREAM_CONTROL_KEY=xck_… -e XTREAM_API_URL=${base} -- node packages/control-mcp/dist/index.js`;
 
 function ago(iso: string | null) {
   if (!iso) return "never used";
@@ -201,12 +217,13 @@ export function ControlKeys() {
             <li key={e.label} className="rounded-[12px] bg-white/[0.045] p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[13px] font-semibold">{e.label}</p>
-                <CopyButton text={`curl -X ${e.method} ${base}${e.path} -H "Authorization: Bearer xck_…"${e.body ? ` -H "Content-Type: application/json" -d '${e.body}'` : ""}`} label="curl" />
+                <CopyButton text={curlFor(base, e)} label="curl" />
               </div>
               <p className="mt-1.5 truncate font-mono text-[11.5px] text-muted-foreground">
                 {e.method} {e.path}
               </p>
               {e.body && <p className="mt-0.5 truncate font-mono text-[11.5px] text-foreground/75">{e.body}</p>}
+              {e.note && <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">{e.note}</p>}
             </li>
           ))}
         </ul>
@@ -214,6 +231,22 @@ export function ControlKeys() {
           Actions are the show rules&apos; — lower_third, banner, card, layout, countdown, hide, sound. Next puts up a segment&apos;s cues, its sponsor
           card included, from the host&apos;s own sponsors.
         </p>
+
+        <div className="mt-5 border-t border-white/[0.06] pt-5">
+          <p className={EYEBROW}>Claude and other assistants</p>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+            An MCP server puts the same buttons in Claude Code, Claude Desktop or any MCP client. It signs in with a key, so it can only do what the key
+            can.
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-full bg-black/30 px-3.5 py-2 font-mono text-[11.5px] text-foreground/85">{mcpAddFor(base)}</code>
+            <CopyButton text={mcpAddFor(base)} />
+          </div>
+          <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+            Build it once with <code className="font-mono text-[11.5px] text-foreground/85">npm run build -w @xtreme/control-mcp</code>; the package&apos;s README
+            has the Claude Desktop config.
+          </p>
+        </div>
       </aside>
     </div>
   );

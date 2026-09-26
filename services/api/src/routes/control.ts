@@ -13,6 +13,7 @@ import {
   type SceneLayer,
 } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
+import { openControlFeed } from "../control-feed.js";
 import { authenticateControl, newControlKey } from "../control-keys.js";
 import { ApiError } from "../errors.js";
 import { ControlKey, Rundown, ShowRule, Stream, type IControlKey } from "../models.js";
@@ -121,6 +122,22 @@ export const controlRoutes: FastifyPluginAsync = async (fastify) => {
           rules: rules.map((r) => ({ id: String(r._id), name: r.name, on: r.on, when: (r.when as { kind: string }).kind })),
         },
       };
+    },
+  );
+
+  app.get(
+    "/control/events",
+    {
+      schema: { tags: ["Control API"], summary: "What happens on the stream, as it happens — server-sent events (curl -N)" },
+      config: PRESS_LIMIT,
+    },
+    async (request, reply) => {
+      // Any key may listen. Authenticating touches its lastUsedAt — once, on connect.
+      const { owner } = await authenticateControl(request, null);
+      const feed = await openControlFeed(owner._id);
+      // From here the reply is the feed's to write and to end: Fastify steps aside.
+      reply.hijack();
+      feed.serve(request.raw, reply.raw, reply.getHeaders());
     },
   );
 
