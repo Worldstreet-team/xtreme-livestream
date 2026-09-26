@@ -87,6 +87,7 @@ function Linkified({ text, mine }: { text: string; mine: boolean }) {
 }
 
 export function MessageBubble({
+  rowKey,
   m,
   album,
   mine,
@@ -108,6 +109,8 @@ export function MessageBubble({
   onVote,
   onOpenMedia,
 }: {
+  /** The row's key in the thread; the motion reads it. */
+  rowKey: string;
   m: ThreadMessage;
   /** Pictures sent together: this row paints all of them. */
   album?: ThreadMessage[];
@@ -272,6 +275,11 @@ export function MessageBubble({
     <div
       ref={rowRef}
       id={`m-${m._id}`}
+      data-row={rowKey}
+      data-msg="1"
+      data-from={senderIdOf(m.sender)}
+      data-mine={mine ? "1" : undefined}
+      data-client-key={m.clientKey}
       className={cn(
         "group/msg relative flex items-end gap-2 [touch-action:pan-y]",
         mine ? "justify-end" : "justify-start",
@@ -281,7 +289,12 @@ export function MessageBubble({
     >
       {!mine && (
         <span className="w-7 shrink-0 self-end">
-          {!groupedBelow && sender && <UserAvatar src={sender.avatar ?? ""} name={personName(sender)} size={28} className="size-7" />}
+          {!groupedBelow && sender && (
+            // Their face sits at the foot of their run and follows it down.
+            <span data-face={sender._id} className="block">
+              <UserAvatar src={sender.avatar ?? ""} name={personName(sender)} size={28} className="size-7" />
+            </span>
+          )}
         </span>
       )}
 
@@ -300,12 +313,13 @@ export function MessageBubble({
 
           {removed ? (
             // An admin took it down for everyone: the row stays, the words don't.
-            <p className={cn("rounded-[22px] bg-white/[0.03] px-4 py-2.5 text-[14px] text-muted-foreground italic", corners)}>
+            <p data-bubble className={cn("rounded-[22px] bg-white/[0.03] px-4 py-2.5 text-[14px] text-muted-foreground italic", corners)}>
               Message removed by an admin
             </p>
           ) : (
             <div
               ref={bubbleRef}
+              data-bubble
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={endGesture}
@@ -326,8 +340,8 @@ export function MessageBubble({
                       mediaFramed ? "p-1" : isVoice ? "px-2.5 py-2" : "px-4 py-2.5",
                       mine ? "bg-ember text-on-ember" : "bg-control text-foreground",
                     ),
-                !emojiOnly && corners,
-                m.pending && "opacity-60",
+                !emojiOnly && cn("msg-corners", corners),
+                m.pending && "msg-pending",
               )}
             >
               {via && !unframed && (
@@ -349,12 +363,14 @@ export function MessageBubble({
                 </p>
               )}
               {emojiOnly ? (
-                <p className="px-1 text-[44px] leading-[1.15] select-text">{m.content}</p>
+                <p data-words className="px-1 text-[44px] leading-[1.15] select-text">
+                  {m.content}
+                </p>
               ) : (
                 m.content &&
                 !isPoll &&
                 m.type !== "payment" && (
-                  <p className={cn(mediaFramed && "px-2.5 pt-1.5 pb-1")}>
+                  <p data-words className={cn(mediaFramed && "px-2.5 pt-1.5 pb-1")}>
                     <Linkified text={m.content} mine={mine} />
                   </p>
                 )
@@ -619,15 +635,51 @@ function Reactions({
   );
 }
 
-/** Three dots while they type; a mic while they record. */
-export function TypingBubble({ recording }: { recording?: boolean }) {
+/**
+ * Three dots while they type; a mic while they record. The bubble grows out
+ * of their corner on the spring and the dots wave; when their words arrive
+ * this same bubble stretches into the message (thread-motion.ts). If they
+ * stop instead, it shrinks back into its corner and goes.
+ */
+export function TypingBubble({
+  recording,
+  leaving,
+  joins,
+  face,
+}: {
+  recording?: boolean;
+  /** They stopped: shrinking away. */
+  leaving?: boolean;
+  /** It continues their run: tighter corner, and it carries their face. */
+  joins?: boolean;
+  face?: { id: string; src: string; name: string } | null;
+}) {
   return (
-    <div className="msg-lift mt-3 flex items-end gap-2" aria-live="polite">
-      <span className="w-7 shrink-0" />
-      <div className="flex h-10 items-center gap-2 rounded-[22px] bg-control px-4 text-muted-foreground">
+    <div
+      data-row="typing"
+      data-from={face?.id}
+      data-leaving={leaving ? "1" : undefined}
+      className={cn("flex items-end gap-2", joins ? "mt-[3px]" : "mt-3")}
+      aria-live="polite"
+    >
+      <span className="w-7 shrink-0 self-end">
+        {face && (
+          <span data-face={face.id} className="block">
+            <UserAvatar src={face.src} name={face.name} size={28} className="size-7" />
+          </span>
+        )}
+      </span>
+      <div
+        data-typing-bubble
+        className={cn(
+          "flex h-10 items-center gap-2 rounded-[22px] bg-control px-4 text-muted-foreground",
+          joins && "rounded-tl-md",
+          leaving ? "msg-typing-out" : "msg-typing-in",
+        )}
+      >
         <span className="sr-only">{recording ? "Recording a voice note" : "Typing"}</span>
         {recording && <span aria-hidden className="rec-blink size-2 rounded-full bg-chili" />}
-        <span aria-hidden className="msg-dots">
+        <span aria-hidden className="msg-dots msg-wave">
           <span />
           <span />
           <span />

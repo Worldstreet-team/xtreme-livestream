@@ -84,6 +84,79 @@
 .call-ripple { animation: call-ripple 2.2s var(--ease-out) infinite; }
 .rec-blink { animation: rec-blink 1.1s ease-in-out infinite; }
 
+/* ---- Messages in motion: the owner's picks (2026-09-26) ------------------
+   The choreography that needs JavaScript lives in motion.ts; what CSS can
+   carry alone lives here. */
+
+/* A line that changes rolls: the old words up and out, the new up and in. */
+@keyframes msg-roll-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-100%); }
+}
+@keyframes msg-roll-in {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: none; }
+}
+.msg-roll { display: inline-grid; grid-template-columns: minmax(0, 1fr); max-width: 100%; min-width: 0; overflow: clip; }
+.msg-roll > * { grid-area: 1 / 1; min-width: 0; }
+.msg-roll-out { animation: msg-roll-out 0.12s var(--ease-in) both; }
+.msg-roll-in { animation: msg-roll-in 0.18s var(--ease-out) 0.04s both; }
+
+/* The unread count arrives on the spring, once; after that it only rolls. */
+@keyframes msg-badge-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.msg-badge-pop { animation: msg-badge-pop 0.34s var(--ease-spring) both; }
+
+/* They're typing: the bubble grows out of their corner, the dots wave. */
+@keyframes msg-typing-in {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msg-typing-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.6); }
+}
+.msg-typing-in { transform-origin: 0 100%; animation: msg-typing-in 0.3s var(--ease-spring) both; }
+.msg-typing-out { transform-origin: 0 100%; animation: msg-typing-out 0.16s var(--ease-in) both; }
+@keyframes msg-wave {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.7); }
+  30% { opacity: 1; transform: scale(1.05); }
+}
+.msg-dots.msg-wave > span { width: 6px; height: 6px; animation: msg-wave 1.1s ease-in-out infinite; }
+.msg-dots.msg-wave > span:nth-child(2) { animation-delay: 0.14s; }
+.msg-dots.msg-wave > span:nth-child(3) { animation-delay: 0.28s; }
+
+/* "Sent" pops once the words have landed; her face pops in when she reads. */
+@keyframes msg-sent-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  60% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 1; transform: none; }
+}
+.msg-sent-pop { transform-origin: 100% 50%; animation: msg-sent-pop 0.28s var(--ease-spring) both; }
+@keyframes msg-face-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.2); }
+  100% { transform: none; }
+}
+.msg-face-pop { animation: msg-face-pop 0.42s var(--ease-spring) both; }
+
+/* The field's placeholder waits while your words lift off it. */
+.msg-field::placeholder { transition: opacity 0.2s var(--ease-out); }
+.msg-field[data-launching]::placeholder { opacity: 0; transition: none; }
+
+/* A bubble still on its way dims only when the send is slow. */
+@keyframes msg-pending {
+  from { opacity: 1; }
+  to { opacity: 0.6; }
+}
+.msg-pending { animation: msg-pending 0.3s var(--ease-standard) 0.8s both; }
+
+/* A run's corners re-form when a neighbour leaves or arrives. */
+.msg-corners { transition: border-radius 0.18s var(--ease-out); }
+
 /* Press feedback everywhere in messaging: a quick settle, no bounce. */
 .msg-press { transition: transform 0.16s var(--ease-out), background-color 0.2s var(--ease-standard), color 0.2s var(--ease-standard), opacity 0.2s var(--ease-standard); }
 .msg-press:active:not(:disabled) { transform: scale(0.95); }
@@ -93,8 +166,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .msg-pop, .msg-rise, .msg-drop, .msg-lift, .msg-fade, .msg-flash,
-  .msg-dots > span, .call-breathe, .call-ripple, .rec-blink {
+  .msg-dots > span, .call-breathe, .call-ripple, .rec-blink,
+  .msg-roll-out, .msg-roll-in, .msg-badge-pop, .msg-typing-in, .msg-typing-out,
+  .msg-sent-pop, .msg-face-pop {
     animation: none !important;
   }
+  .msg-roll-out { display: none; }
+  .msg-pending { animation: none !important; opacity: 0.6; }
+  .msg-corners { transition: none; }
   .msg-press:active:not(:disabled) { transform: none; }
 }

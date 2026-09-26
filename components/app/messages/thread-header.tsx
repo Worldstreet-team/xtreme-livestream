@@ -7,6 +7,7 @@ import { UserAvatar } from "@/components/xtream";
 import { cn } from "@/lib/utils";
 import { contextHref } from "@/lib/messaging";
 import { formatCallClock } from "@/lib/call-manager";
+import { Roll } from "./roll";
 
 /**
  * The thread's top bar — sticky glass, the one place glass belongs off the
@@ -79,21 +80,9 @@ export function ThreadHeader({
           </span>
           <span className="min-w-0 leading-tight">
             <span className="block truncate text-[15.5px] font-semibold text-foreground">{title}</span>
-            <span
-              aria-live="polite"
-              className={cn(
-                "flex items-center gap-1.5 truncate text-[12.5px]",
-                statusTone === "typing" ? "text-ember-hi" : statusTone === "active" ? "text-success" : "text-muted-foreground",
-              )}
-            >
-              <span className="truncate">{status}</span>
-              {statusTone === "typing" && (
-                <span aria-hidden className="msg-dots">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              )}
+            {/* "Active now" rolls to "typing" and back. */}
+            <span aria-live="polite" className="flex text-[12.5px]">
+              <Roll value={`${statusTone}|${status}`} render={statusLine} />
             </span>
           </span>
         </button>
@@ -144,6 +133,28 @@ export function ThreadHeader({
         {menu}
       </div>
     </header>
+  );
+}
+
+function statusLine(value: string) {
+  const bar = value.indexOf("|");
+  const tone = value.slice(0, bar);
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-1.5",
+        tone === "typing" ? "text-ember-hi" : tone === "active" ? "text-success" : "text-muted-foreground",
+      )}
+    >
+      <span className="truncate">{value.slice(bar + 1)}</span>
+      {tone === "typing" && (
+        <span aria-hidden className="msg-dots">
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
+    </span>
   );
 }
 

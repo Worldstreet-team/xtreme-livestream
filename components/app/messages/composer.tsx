@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowBendUpLeft, Check, Microphone, PaperPlaneRight, PencilSimple, Plus, WarningCircle, X } from "@/components/icons";
 import { RecorderBar, useVoiceRecorder, type VoiceClip } from "./voice-recorder";
+import { handOff } from "./motion";
+import { COMPOSER_LAUNCH, type Launch } from "./thread-motion";
 
 /**
  * The thread's foot.
@@ -70,6 +72,13 @@ export function Composer({
 }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Just sent: the placeholder waits until the words have lifted off the field.
+  const [launching, setLaunching] = useState(false);
+  useEffect(() => {
+    if (!launching) return;
+    const t = setTimeout(() => setLaunching(false), 280);
+    return () => clearTimeout(t);
+  }, [launching]);
 
   // At the five-minute limit the note sends itself; the recorder calls this.
   const onLimitRef = useRef<() => void>(() => {});
@@ -95,6 +104,21 @@ export function Composer({
   useEffect(() => {
     if (replyingTo || editing) fieldRef.current?.focus();
   }, [replyingTo, editing]);
+
+  /** Send, and tell the thread where the words sat so they can fly from here. */
+  const submit = () => {
+    const el = fieldRef.current;
+    const text = draft.trim();
+    if (el && text && !editing && !attachments.length) {
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const left = r.left + (parseFloat(cs.paddingLeft) || 0);
+      const top = r.top + (parseFloat(cs.paddingTop) || 0) - el.scrollTop;
+      handOff<Launch>(COMPOSER_LAUNCH, { text, from: { left, top, width: r.right - left, height: r.bottom - top } });
+      setLaunching(true);
+    }
+    onSend();
+  };
 
   const uploading = attachments.some((a) => !a.key && !a.failed);
   const ready = attachments.filter((a) => a.key);
@@ -211,7 +235,7 @@ export function Composer({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (canSend) onSend();
+            if (canSend) submit();
           }}
           className="flex items-end gap-2"
         >
@@ -234,18 +258,19 @@ export function Composer({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                if (canSend) onSend();
+                if (canSend) submit();
               } else if (e.key === "Escape") {
                 if (editing) onCancelEdit();
                 else if (replyingTo) onCancelReply();
               }
             }}
             rows={1}
+            data-launching={launching ? "" : undefined}
             disabled={disabled}
             placeholder={placeholder}
             aria-label="Message"
             maxLength={4000}
-            className="min-h-11 flex-1 resize-none rounded-[24px] bg-white/[0.06] px-4 py-[11px] text-[15px] leading-[22px] text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-white/[0.08] focus-visible:bg-white/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="msg-field min-h-11 flex-1 resize-none rounded-[24px] bg-white/[0.06] px-4 py-[11px] text-[15px] leading-[22px] text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-white/[0.08] focus-visible:bg-white/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] disabled:cursor-not-allowed disabled:opacity-50"
           />
 
           {hasContent || editing ? (
