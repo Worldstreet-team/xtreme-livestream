@@ -37,6 +37,8 @@ export interface ConsoleStream {
   category: string;
   source: string;
   startedAt: string | null;
+  /** A practice run: private, with simulated chat and gifts. */
+  practice?: boolean;
   scene: unknown;
   guests: { userId: string; username: string; avatar: string; status: string; standing?: unknown }[];
   goal: unknown;
@@ -147,8 +149,12 @@ export function useConsoleRoom({
   listen: boolean;
   onMetadata: (metadata: string | undefined) => void;
   onData: (data: Record<string, unknown>) => void;
-  /** The room closed (the stream ended) or let us go: look again. */
-  onClosed: (ended: boolean) => void;
+  /**
+   * The room let us go: it closed (the stream ended), it dropped (look
+   * again in a moment), or this console opened on another device under the
+   * same identity (stop, and say so — retrying would kick that one out).
+   */
+  onClosed: (why: "ended" | "dropped" | "elsewhere") => void;
 }): ConsoleRoom {
   const [room, setRoom] = useState<Room | null>(null);
   const [connected, setConnected] = useState(false);
@@ -206,7 +212,13 @@ export function useConsoleRoom({
         setConnected(false);
         setSeen(EMPTY);
         if (reason === DisconnectReason.CLIENT_INITIATED) return;
-        handlers.current.onClosed(reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.ROOM_CLOSED);
+        handlers.current.onClosed(
+          reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.ROOM_CLOSED
+            ? "ended"
+            : reason === DisconnectReason.DUPLICATE_IDENTITY
+              ? "elsewhere"
+              : "dropped",
+        );
       });
 
     void r
@@ -219,7 +231,7 @@ export function useConsoleRoom({
         sync();
       })
       .catch(() => {
-        if (alive) handlers.current.onClosed(false);
+        if (alive) handlers.current.onClosed("dropped");
       });
 
     return () => {

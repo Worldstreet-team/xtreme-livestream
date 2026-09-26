@@ -97,12 +97,16 @@ import {
   newerScene,
   readBrand,
   readFeatureQueue,
+  layerOf,
   readScene,
   sceneFromMetadata,
   type Brand,
   type Scene,
   type SuggestedLine,
 } from "@/lib/scene";
+import { MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
+import { readTickers, type Trending } from "@/lib/market";
+import { TickerChips } from "@/components/app/ticker-chips";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -132,6 +136,8 @@ const WORLDSPACE_KEY = "xtreme-studio-worldspace";
 
 /** Mirrors MAX_STAGE_GUESTS in @xtreme/contracts — the API enforces it. */
 const MAX_STAGE_GUESTS = 3;
+/** The API's own limit on who can wait backstage at once (guests.ts). */
+const MAX_BACKSTAGE = 4;
 /** Cycled in the empty title, WorldSpace-style — same voice as Schedule. */
 const TITLE_PROMPTS = ["Friday night set", "Ranked to Immortal", "Charts & coffee", "Market open, live", "Weekend League grind", "Ask me anything"];
 const SETUP_LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
@@ -253,6 +259,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [cardNote, setCardNote] = useState("");
   /** Go live on "Starting soon" rather than straight into the camera. */
   const [openOnCard, setOpenOnCard] = useState(false);
+  /** A practice run: a private room with simulated chat and gifts — nothing announced, listed or paid. */
+  const [practice, setPractice] = useState(false);
   // Send 540p with voice-tuned sound, for creators on a weak uplink.
   const [saveData, setSaveData] = useState(false);
   /** The screen being shared alongside the camera — the preview's main picture while it is. */
@@ -352,6 +360,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // splits to show the opponent the way viewers see it.
   const [battle, setBattle] = useState<BattleView | null>(null);
   const [liveGuests, setLiveGuests] = useState<StageUser[]>([]);
+  /** Accepted, but not on yet: in the room checking their devices, seen only by the crew (producer mode). */
+  const [backstageGuests, setBackstageGuests] = useState<StageUser[]>([]);
+  // The room's handler is set up once; it reaches the lists as they stand through these.
+  const stageRequestsRef = useRef(stageRequests);
+  stageRequestsRef.current = stageRequests;
+  const backstageRef = useRef(backstageGuests);
+  backstageRef.current = backstageGuests;
+  /** What chat's talking about ($cashtags), for a chart in one tap (market layer). */
+  const [tickers, setTickers] = useState<Trending[]>([]);
   /** userId currently being approved/denied/removed, for per-row spinners. */
   const [stageBusyId, setStageBusyId] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
@@ -382,7 +399,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const hostIdentities = useMemo(() => (user?.id ? [user.id, `obs-${user.id}`] : []), [user?.id]);
   // The auto-director cuts between the people on stage — never to the interpreter, who stays in their corner.
   const interpreterId = scene.interpreter ?? null;
-  const guestIdentities = useMemo(() => guestTiles.filter((t) => t.identity !== interpreterId).map((t) => t.identity), [guestTiles, interpreterId]);
+  // Backstage guests are in the room, not on the stage: the picture, the
+  // director and the panels all leave them out until they're put on.
+  const backstageIds = useMemo(() => new Set(backstageGuests.map((g) => g.userId)), [backstageGuests]);
+  const stageTiles = useMemo(() => guestTiles.filter((t) => !backstageIds.has(t.identity)), [guestTiles, backstageIds]);
+  const guestIdentities = useMemo(() => stageTiles.filter((t) => t.identity !== interpreterId).map((t) => t.identity), [stageTiles, interpreterId]);
   const directorBlocked: DirectorBlock =
     guestIdentities.length === 0
       ? "alone"
@@ -404,14 +425,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     onCut: (shot) => void applyScene({ layout: shot.layout, spotlight: shot.spotlight }, "director"),
   });
   /** Who framed the shot that paused the director: the host here, or a producer at their console. */
-  const [framedBy, setFramedBy] = useState<"you" | "producer">("you");
+  const [framedBy, setFramedBy] = useState<"you" | "elsewhere">("you");
   // The room's handlers are set up once; they reach the latest scene and the director through these.
   const sceneNowRef = useRef(scene);
   const framedElsewhereRef = useRef(() => {});
   useEffect(() => {
     sceneNowRef.current = scene;
     framedElsewhereRef.current = () => {
-      setFramedBy("producer");
+      setFramedBy("elsewhere");
       director.pause();
     };
   });
@@ -872,34 +893,33 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         }
         if (data.__evt === "guest_update" && data.userId) {
           const uid = data.userId;
+          const drop = (list: StageUser[]) => list.filter((g) => g.userId !== uid);
+          const add = (list: StageUser[], row: StageUser | null) => (!row || list.some((g) => g.userId === uid) ? list : [...list, row]);
+          // Whoever they are: the row we already had, or the event's own name.
+          const known = () =>
+            stageRequestsRef.current.find((r) => r.userId === uid) ??
+            backstageRef.current.find((g) => g.userId === uid) ??
+            (data.username ? { userId: uid, username: data.username, avatar: data.avatar ?? "" } : null);
           if (data.action === "cancelled" || data.action === "denied") {
-            setStageRequests((prev) => prev.filter((r) => r.userId !== uid));
+            setStageRequests(drop);
+          } else if (data.action === "backstage") {
+            const row = known();
+            setStageRequests(drop);
+            setBackstageGuests((b) => add(b, row));
           } else if (data.action === "approved") {
-            setStageRequests((prev) => {
-              const row = prev.find((r) => r.userId === uid);
-              if (row) {
-                setLiveGuests((live) =>
-                  live.some((g) => g.userId === uid) ? live : [...live, row]
-                );
-              } else if (data.username) {
-                setLiveGuests((live) =>
-                  live.some((g) => g.userId === uid)
-                    ? live
-                    : [
-                        ...live,
-                        {
-                          userId: uid,
-                          username: data.username!,
-                          avatar: data.avatar ?? "",
-                        },
-                      ]
-                );
-              }
-              return prev.filter((r) => r.userId !== uid);
-            });
+            const row = known();
+            setStageRequests(drop);
+            setBackstageGuests(drop);
+            setLiveGuests((live) => add(live, row));
           } else if (data.action === "removed" || data.action === "left") {
-            setLiveGuests((prev) => prev.filter((g) => g.userId !== uid));
+            setLiveGuests(drop);
+            setBackstageGuests(drop);
           }
+          return;
+        }
+        // What chat's talking about, for the Scenes panel's chips (market layer).
+        if (data.__evt === "tickers") {
+          setTickers(readTickers((data as { tickers?: unknown }).tickers));
           return;
         }
         if (!data.__evt && data.type === "tip" && data.username) {
@@ -951,15 +971,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       });
       // The guest_update event moves the row too; doing it here as well keeps
       // the UI honest if our own event delivery hiccups.
-      setStageRequests((prev) => {
-        const row = prev.find((r) => r.userId === userId);
-        if (row) {
-          setLiveGuests((live) =>
-            live.some((g) => g.userId === userId) ? live : [...live, row]
-          );
-        }
-        return prev.filter((r) => r.userId !== userId);
-      });
+      const row = stageRequestsRef.current.find((r) => r.userId === userId) ?? backstageRef.current.find((g) => g.userId === userId);
+      setStageRequests((prev) => prev.filter((r) => r.userId !== userId));
+      setBackstageGuests((prev) => prev.filter((g) => g.userId !== userId));
+      if (row) setLiveGuests((live) => (live.some((g) => g.userId === userId) ? live : [...live, row]));
     } catch (err) {
       setStageError(
         err instanceof Error ? err.message : "Couldn't approve that request."
@@ -987,6 +1002,23 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
   };
 
+  /** Accept someone into the room without putting them on: they check their devices where only the crew sees them. */
+  const backstageGuest = async (userId: string) => {
+    if (!streamId || stageBusyId) return;
+    setStageBusyId(userId);
+    setStageError(null);
+    try {
+      await apiFetch(`/api/streams/${streamId}/guests/${userId}/backstage`, { method: "POST" });
+      const row = stageRequestsRef.current.find((r) => r.userId === userId);
+      setStageRequests((prev) => prev.filter((r) => r.userId !== userId));
+      if (row) setBackstageGuests((b) => (b.some((g) => g.userId === userId) ? b : [...b, row]));
+    } catch (err) {
+      setStageError(err instanceof Error ? err.message : "Couldn't bring them backstage.");
+    } finally {
+      setStageBusyId(null);
+    }
+  };
+
   const removeGuest = async (userId: string) => {
     if (!streamId || stageBusyId) return;
     setStageBusyId(userId);
@@ -996,6 +1028,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         method: "POST",
       });
       setLiveGuests((prev) => prev.filter((g) => g.userId !== userId));
+      setBackstageGuests((prev) => prev.filter((g) => g.userId !== userId));
     } catch (err) {
       setStageError(
         err instanceof Error ? err.message : "Couldn't remove that guest."
@@ -1025,14 +1058,19 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     if (!streamId || !isLive) return;
     let alive = true;
     type Row = { userId: string; username: string; avatar: string; standing?: unknown };
-    apiFetch<{ success: boolean; data: { live: Row[]; requests: Row[] } }>(`/api/streams/${streamId}/guests`)
+    apiFetch<{ success: boolean; data: { live: Row[]; requests: Row[]; backstage?: Row[] } }>(`/api/streams/${streamId}/guests`)
       .then((r) => {
         if (!alive) return;
         const row = (g: Row): StageUser => ({ userId: g.userId, username: g.username, avatar: g.avatar, standing: readStanding(g.standing) });
         const merge = (prev: StageUser[], rows: Row[]) => [...prev, ...rows.filter((g) => !prev.some((p) => p.userId === g.userId)).map(row)];
         setStageRequests((prev) => merge(prev, r.data.requests));
         setLiveGuests((prev) => merge(prev, r.data.live));
+        setBackstageGuests((prev) => merge(prev, r.data.backstage ?? []));
       })
+      .catch(() => {});
+    // …and what chat's been talking about (market layer).
+    apiFetch<{ success: boolean; data: { tickers: unknown } }>(`/api/streams/${streamId}/tickers`)
+      .then((r) => alive && setTickers(readTickers(r.data.tickers)))
       .catch(() => {});
     return () => {
       alive = false;
@@ -1394,7 +1432,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             tags: tagList,
             thumbnail,
             source: src,
-            postToWorldSpace,
+            // A practice run stays on Xtream, and out of sight.
+            practice,
+            postToWorldSpace: postToWorldSpace && !practice,
             ...(openOnCard ? { scene: { layout: "auto", card: "starting-soon", cardNote: cardNote.trim() } } : {}),
             ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
           }),
@@ -1492,6 +1532,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   /** Back to setup after a broadcast, however it ended. */
   const resetAfterLive = () => {
     stopRejoin();
+    // The next stream is real unless they say otherwise again.
+    setPractice(false);
     // The mic track went with the room, and the desk with it.
     deskRef.current = null;
     deskOnRef.current = false;
@@ -2227,7 +2269,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const pairCells = (): SceneCell[] => {
     if (!pairOpponent || !battle || !streamId) return [];
     const mate = (sideOf(battle, streamId) === "host" ? battle.host : battle.challenger).partner ?? null;
-    const mateTile = mate ? guestTiles.find((t) => t.identity === mate.userId) : undefined;
+    const mateTile = mate ? stageTiles.find((t) => t.identity === mate.userId) : undefined;
     const theirMate = pairOpponent.partner ?? null;
     return [
       opponentTile("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
@@ -2256,7 +2298,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           },
         ]
       : []),
-    ...guestTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
+    ...stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
   ];
   const idle = !isLive && (source !== "camera" || !previewTrack);
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
@@ -2390,8 +2432,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       layout: scene.layout,
       card: scene.card,
       graphicsUp: scene.layers.map((l) => l.kind),
-      guestsOnStage: guestTiles.map((t) => t.name),
-      besideHost: guestTiles.find((t) => t.identity === scene.spotlight)?.name ?? null,
+      guestsOnStage: stageTiles.map((t) => t.name),
+      besideHost: stageTiles.find((t) => t.identity === scene.spotlight)?.name ?? null,
       sponsors: cueSponsors.map((x) => x.name),
       show:
         segments.length > 0
@@ -2640,6 +2682,20 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         />
       </div>
 
+      {/* A practice run: the same studio, a private room, simulated chat and gifts. */}
+      <div className="border-t border-white/[0.06] pt-3">
+        <SwitchField
+          label="Practice run"
+          description={
+            practice
+              ? "Private. Nobody's told, nothing's listed, and chat and gifts are simulated. Your producers can still join."
+              : "Rehearse in a private room with simulated chat and gifts before the real thing."
+          }
+          checked={practice}
+          onCheckedChange={setPractice}
+        />
+      </div>
+
       {/* A weak uplink: send less, steadily. */}
       {source !== "obs" && (
         <div className="border-t border-white/[0.06] pt-3">
@@ -2705,10 +2761,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         disabled={!ready.title || isConnecting}
         className="h-13 w-full gap-2 text-[16px]"
       >
-        {isConnecting ? (<><div className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Connecting…</>) : (<><Lightning size={18} weight="fill" />Go live</>)}
+        {isConnecting ? (<><div className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Connecting…</>) : practice ? (<><Lightning size={18} weight="fill" />Start practice</>) : (<><Lightning size={18} weight="fill" />Go live</>)}
       </Button>
       <p className="mt-2.5 text-center text-[12px] text-muted-foreground/60">
-        {!ready.title ? "Give the stream a title to go live." : booking ? "Everyone with a reminder hears it the second you start." : "Your followers hear about it the second you start."}
+        {!ready.title ? "Give the stream a title to go live." : practice ? "Nobody's told. End it whenever you like." : booking ? "Everyone with a reminder hears it the second you start." : "Your followers hear about it the second you start."}
       </p>
     </div>
   );
@@ -2789,6 +2845,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   <p className="truncate text-sm font-medium text-foreground/90">{r.username}</p>
                   <StandingLine standing={r.standing} />
                 </div>
+                <button onClick={() => backstageGuest(r.userId)} disabled={stageBusyId !== null || backstageGuests.length >= MAX_BACKSTAGE} title={backstageGuests.length >= MAX_BACKSTAGE ? "Backstage is full" : "Let them in to check their camera and mic first — viewers won't see them yet"} className="h-8 shrink-0 rounded-full bg-white/[0.07] px-2.5 text-[12.5px] font-medium text-foreground/85 transition-colors hover:bg-white/[0.12] disabled:opacity-50">Backstage</button>
                 <button onClick={() => approveGuest(r.userId)} disabled={stageBusyId !== null || liveGuests.length >= MAX_STAGE_GUESTS} title={liveGuests.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Bring them on"} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[12.5px] font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50">
                   {stageBusyId === r.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Approve
@@ -2799,6 +2856,29 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           </div>
         )}
       </div>
+
+      {backstageGuests.length > 0 && (
+        <div>
+          <h3 className={cn(SETUP_LABEL, "mb-2")}>Backstage</h3>
+          <div className="space-y-1.5">
+            {backstageGuests.map((g) => (
+              <div key={g.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
+                {/* Their picture, small: are they framed, is the light right. */}
+                <span className="relative aspect-video w-14 shrink-0 overflow-hidden rounded-[8px] bg-black">
+                  <StageTile fill track={guestTracksRef.current.get(g.userId)} label="" />
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{g.username}</p>
+                <button onClick={() => approveGuest(g.userId)} disabled={stageBusyId !== null || liveGuests.length >= MAX_STAGE_GUESTS} title={liveGuests.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Put them on stage"} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[12.5px] font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50">
+                  {stageBusyId === g.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
+                  Put on
+                </button>
+                <button onClick={() => removeGuest(g.userId)} disabled={stageBusyId !== null} title="Send them back to the room" className="flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground/50">Camera and mic on, seen and heard by you and your producers only, until you put them on.</p>
+        </div>
+      )}
 
       <div>
         <h3 className={cn(SETUP_LABEL, "mb-2")}>On stage now</h3>
@@ -2921,8 +3001,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         return card ? scenery({ card: card.id }, { card: card.title }) : { error: `There's no card called ${req.card}.` };
       }
       case "spotlight": {
-        const guest = byName(guestTiles, req.guest);
-        if (!guest) return { error: guestTiles.length ? `No one called ${req.guest} is on stage.` : "No guests are on stage.", onStage: guestTiles.map((t) => t.name) };
+        const guest = byName(stageTiles, req.guest);
+        if (!guest) return { error: stageTiles.length ? `No one called ${req.guest} is on stage.` : "No guests are on stage.", onStage: stageTiles.map((t) => t.name) };
         const keep = scene.layout === "split" || scene.layout === "trio";
         return scenery({ spotlight: guest.identity, ...(keep ? {} : { layout: "split" as const }) }, { beside: guest.name });
       }
@@ -3208,6 +3288,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     track?.attach(el);
   }, [localScreen, isLive, source]);
 
+  const priceStrip = layerOf(scene.layers, "prices")?.symbols ?? [];
   const scenesPanel = (
     <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
       <DirectorSwitch
@@ -3219,13 +3300,24 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         pausedBy={framedBy}
         onResume={director.resume}
         shot={shotOf(scene)}
-        names={guestTiles}
+        names={stageTiles}
+      />
+
+      <TickerChips
+        tickers={tickers}
+        strip={priceStrip}
+        onChart={(symbol) => void applyScene({ layout: "chart-face", chart: { symbol, interval: scene.chart?.interval ?? "5m" } })}
+        onStrip={(symbol) =>
+          void applyScene({
+            layers: withLayer(scene.layers, "prices", { kind: "prices", symbols: [...priceStrip.filter((x) => x !== symbol), symbol].slice(-MAX_PRICE_SYMBOLS) }),
+          })
+        }
       />
 
       <LayoutAndCards
         scene={scene}
         battle={Boolean(battle)}
-        guests={guestTiles.filter((t) => t.identity !== interpreterId)}
+        guests={stageTiles.filter((t) => t.identity !== interpreterId)}
         cardNote={cardNote}
         onCardNote={setCardNote}
         onScene={(patch) => void applyScene(patch)}
@@ -3344,10 +3436,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   const morePanel = (
     <div className="flex flex-col gap-2.5 px-4 pt-4 pb-4">
-      <button onClick={shareStream} className="press flex h-11 items-center justify-center gap-2 rounded-full bg-white/[0.07] text-[14px] font-semibold text-foreground transition-colors hover:bg-white/[0.11]">
-        {shareCopied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />}
-        {shareCopied ? "Link copied" : "Share the stream"}
-      </button>
+      {practice ? (
+        <p className="rounded-[12px] bg-ember/[0.1] px-3.5 py-3 text-[12.5px] leading-snug text-foreground/85">
+          A practice run has no link — nobody but your producers can join, and nothing here is announced or paid.
+        </p>
+      ) : (
+        <button onClick={shareStream} className="press flex h-11 items-center justify-center gap-2 rounded-full bg-white/[0.07] text-[14px] font-semibold text-foreground transition-colors hover:bg-white/[0.11]">
+          {shareCopied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />}
+          {shareCopied ? "Link copied" : "Share the stream"}
+        </button>
+      )}
       {source !== "obs" && (
         <button onClick={toggleScreenShare} className={cn("press flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold transition-colors", screenShareActive ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]")}>
           <MonitorArrowUp size={16} />
@@ -3685,10 +3783,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             <>
               {/* LIVE, the clock and the room in one capsule — the three numbers a host glances at. */}
               <span className="obj flex h-8 items-center overflow-hidden rounded-full">
-                <span className="flex h-full items-center gap-1.5 bg-chili px-2.5 text-[12px] font-bold tracking-[0.06em]">
-                  <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
-                  LIVE
-                </span>
+                {practice ? (
+                  // A rehearsal isn't on air: ember, and it says so.
+                  <span className="flex h-full items-center gap-1.5 bg-ember px-2.5 text-[12px] font-bold tracking-[0.06em] text-on-ember" title="A practice run — nobody can find or join this room">
+                    PRACTICE
+                  </span>
+                ) : (
+                  <span className="flex h-full items-center gap-1.5 bg-chili px-2.5 text-[12px] font-bold tracking-[0.06em]">
+                    <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
+                    LIVE
+                  </span>
+                )}
                 <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>
                 <button type="button" onClick={() => openPanel("viewers")} className="flex h-full items-center gap-1.5 pr-3 font-mono text-[12px] font-semibold tabular-nums transition-colors hover:text-white/80">
                   <Eye size={14} weight="bold" />
@@ -3914,13 +4019,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-chili" : "bg-chili/15")}>
               {confirmDialog === "golive" ? <Lightning size={22} weight="fill" className="text-white" /> : <Warning size={22} className="text-chili-hi" />}
             </div>
-            <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{confirmDialog === "golive" ? "Ready to go live?" : "End the stream?"}</h2>
+            <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{confirmDialog === "golive" ? (practice ? "Start a practice run?" : "Ready to go live?") : practice ? "End the practice run?" : "End the stream?"}</h2>
             <p className="mt-2 text-[14px] leading-relaxed text-muted-foreground">
               {confirmDialog === "golive"
-                ? source === "obs"
-                  ? `This creates "${title}" and hands you the RTMP details for your encoder.`
-                  : `You're about to broadcast "${title}" to everyone on Xtream.`
-                : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
+                ? practice
+                  ? `"${title}" opens in a private room only you and your producers can join. Chat and gifts are simulated; nothing is announced or paid.`
+                  : source === "obs"
+                    ? `This creates "${title}" and hands you the RTMP details for your encoder.`
+                    : `You're about to broadcast "${title}" to everyone on Xtream.`
+                : practice
+                  ? "The rehearsal ends and can't be resumed. Nothing was recorded or announced."
+                  : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
             </p>
             <div className="mt-6 flex gap-2">
               <button onClick={() => setConfirmDialog(null)} className="press h-11 flex-1 rounded-full bg-control text-sm font-semibold text-foreground transition-colors hover:bg-control-hover">{confirmDialog === "golive" ? "Not yet" : "Keep going"}</button>
@@ -3933,7 +4042,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                 }}
                 className={cn("press h-11 flex-1 rounded-full text-sm font-semibold transition-[filter,background-color]", confirmDialog === "golive" ? "bg-chili text-white hover:brightness-110" : "bg-white text-[#0b0708] hover:bg-white/90")}
               >
-                {confirmDialog === "golive" ? "Go live" : "End stream"}
+                {confirmDialog === "golive" ? (practice ? "Start practice" : "Go live") : practice ? "End practice" : "End stream"}
               </button>
             </div>
           </div>

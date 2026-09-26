@@ -35,7 +35,7 @@ export function DirectorSwitch({
   blocked: DirectorBlock;
   pausedUntil: number;
   /** Whose hand paused it: the host's, or a producer's at their console. */
-  pausedBy?: "you" | "producer";
+  pausedBy?: "you" | "elsewhere";
   onResume: () => void;
   shot: Shot;
   /** Guests on stage, for saying who's on screen. */
@@ -63,7 +63,7 @@ export function DirectorSwitch({
       {paused ? (
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] leading-snug text-muted-foreground">
           <span>
-            Paused — {pausedBy === "producer" ? "your producer" : "you"} framed a shot. Back in{" "}
+            Paused — {pausedBy === "elsewhere" ? "the shot was framed from elsewhere (a producer, a rule or a Stream Deck)" : "you framed a shot"}. Back in{" "}
             <span className="font-mono tabular-nums">{formatClock((pausedUntil - now) / 1000)}</span>
           </span>
           <button type="button" onClick={onResume} className="font-semibold text-ember-hi hover:underline">

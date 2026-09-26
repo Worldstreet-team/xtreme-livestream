@@ -18,12 +18,49 @@ const id = (v: unknown) => ({
   equals: (o: unknown) => String(o) === String(v),
 });
 
+type GuestStatus = "requested" | "backstage" | "live";
+
 interface GuestRow {
   userId: ReturnType<typeof id>;
   username: string;
   avatar: string;
-  status: "requested" | "live";
+  status: GuestStatus;
   requestedAt: Date;
+  standing?: { ally: boolean; level: number; hours: number };
+}
+
+/** A guest row as the seeded document holds it. */
+const row = (userId: string, username: string, status: GuestStatus): GuestRow => ({
+  userId: id(userId),
+  username,
+  avatar: "",
+  status,
+  requestedAt: new Date(),
+});
+
+/**
+ * The status flip both routes write: `{ guests: { $elemMatch: { userId,
+ * status } } }` with `$set: { "guests.$.status": next }`, where the matched
+ * status is one value or a `$in` list. Returns the row it changed, if any.
+ */
+function flipStatus(
+  filter: Record<string, unknown>,
+  update: Record<string, Record<string, unknown>>,
+): GuestRow | null {
+  const next = update.$set?.["guests.$.status"] as GuestStatus | undefined;
+  if (!next) return null;
+  const match = (
+    filter.guests as {
+      $elemMatch: { userId: unknown; status: GuestStatus | { $in: GuestStatus[] } };
+    }
+  ).$elemMatch;
+  const from = typeof match.status === "string" ? [match.status] : match.status.$in;
+  const guest = streamDoc.guests.find(
+    (g) => g.userId.equals(match.userId) && from.includes(g.status),
+  );
+  if (!guest) return null;
+  guest.status = next;
+  return guest;
 }
 
 /** The single in-memory stream document the mocked model serves. */
@@ -45,13 +82,18 @@ let allied = false;
 let fanLevel = 0;
 
 const permissionCalls: Array<{ identity: string; canPublish: boolean }> = [];
+/** What the whole room was sent. */
 const dataEvents: Array<Record<string, unknown>> = [];
+/** What only some identities were sent (the crew's copies). */
+const targetedEvents: Array<{ to: string[]; payload: Record<string, unknown> }> = [];
 /** When set, the LiveKit permission update throws (participant gone). */
 let permissionShouldFail = false;
+/** Whether the caller carries a session at all — off for the public GET. */
+let signedIn = true;
 
 vi.mock("../src/auth.js", () => ({
   authenticate: async () => ({ authUserId: "clerk_x", dbUser: caller }),
-  getOptionalAuthUserId: () => "clerk_x",
+  getOptionalAuthUserId: () => (signedIn ? "clerk_x" : null),
 }));
 
 vi.mock("../src/livekit.js", () => ({
@@ -64,6 +106,9 @@ vi.mock("../src/livekit.js", () => ({
   isBroadcasterConnected: async () => true,
   sendRoomData: async (_room: string, payload: Record<string, unknown>) => {
     dataEvents.push(payload);
+  },
+  sendRoomDataTo: async (_room: string, to: string[], payload: Record<string, unknown>) => {
+    targetedEvents.push({ to, payload });
   },
   setParticipantPublishPermission: async (
     _room: string,
@@ -110,21 +155,11 @@ vi.mock("../src/models.js", () => ({
         streamDoc.guests.push({ ...push, userId: id(String(push.userId)) });
         return streamDoc;
       }
-      if (update.$set?.["guests.$.status"] === "live") {
-        const match = (
-          filter.guests as { $elemMatch: { userId: string; status: string } }
-        ).$elemMatch;
-        const guest = streamDoc.guests.find(
-          (g) => g.userId.equals(match.userId) && g.status === match.status,
-        );
-        if (!guest) return null;
-        guest.status = "live";
-        return streamDoc;
-      }
-      return null;
+      // approve / backstage: requested (or backstage) → the next status.
+      return flipStatus(filter, update) ? streamDoc : null;
     },
     updateOne: async (
-      _filter: unknown,
+      filter: Record<string, unknown>,
       update: Record<string, Record<string, unknown>>,
     ) => {
       const pull = update.$pull?.guests as
@@ -139,6 +174,8 @@ vi.mock("../src/models.js", () => ({
             ),
         );
       }
+      // The backstage rollback: backstage → requested when the grant failed.
+      flipStatus(filter, update);
       return {};
     },
   },
@@ -175,7 +212,9 @@ function reset() {
   fanLevel = 0;
   permissionCalls.length = 0;
   dataEvents.length = 0;
+  targetedEvents.length = 0;
   permissionShouldFail = false;
+  signedIn = true;
 }
 
 describe("stage guest endpoints", () => {
@@ -267,20 +306,8 @@ describe("stage guest endpoints", () => {
   });
 
   it("caps the stage at MAX_STAGE_GUESTS live guests", async () => {
-    streamDoc.guests = ["1", "2", "3"].map((n) => ({
-      userId: id(n.repeat(24)),
-      username: `g${n}`,
-      avatar: "",
-      status: "live" as const,
-      requestedAt: new Date(),
-    }));
-    streamDoc.guests.push({
-      userId: id(VIEWER_ID),
-      username: "viewer",
-      avatar: "",
-      status: "requested",
-      requestedAt: new Date(),
-    });
+    streamDoc.guests = ["1", "2", "3"].map((n) => row(n.repeat(24), `g${n}`, "live"));
+    streamDoc.guests.push(row(VIEWER_ID, "viewer", "requested"));
     asHost();
     const res = await approve();
 
@@ -289,15 +316,7 @@ describe("stage guest endpoints", () => {
   });
 
   it("leaving the stage revokes publish and frees the slot", async () => {
-    streamDoc.guests = [
-      {
-        userId: id(VIEWER_ID),
-        username: "viewer",
-        avatar: "",
-        status: "live",
-        requestedAt: new Date(),
-      },
-    ];
+    streamDoc.guests = [row(VIEWER_ID, "viewer", "live")];
     const res = await app.inject({
       method: "POST",
       url: `/api/streams/${STREAM_ID}/guests/leave`,
@@ -308,6 +327,183 @@ describe("stage guest endpoints", () => {
     expect(permissionCalls).toEqual([
       { identity: VIEWER_ID, canPublish: false },
     ]);
+  });
+});
+
+describe("backstage", () => {
+  // Its own app: the request route's rate limit counts per app.
+  let app: FastifyInstance;
+  beforeAll(async () => {
+    const { buildApp } = await import("../src/app.js");
+    app = await buildApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  beforeEach(reset);
+
+  const asHost = () => {
+    caller = { _id: id(HOST_ID), username: "host", avatar: "" };
+  };
+  const request = () => app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/request` });
+  const backstage = (userId = VIEWER_ID) =>
+    app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/${userId}/backstage` });
+  const approve = (userId = VIEWER_ID) =>
+    app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/${userId}/approve` });
+  const state = async () => (await app.inject({ method: "GET", url: `/api/streams/${STREAM_ID}/guests` })).json().data;
+  const updates = () => dataEvents.filter((e) => e.__evt === "guest_update").map((e) => e.action);
+
+  it("moves a requester backstage, grants publish, and tells the room — then approve brings them on", async () => {
+    await request();
+    asHost();
+
+    const res = await backstage();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.status).toBe("backstage");
+    expect(streamDoc.guests[0].status).toBe("backstage");
+    // The grant follows the write, like approve's.
+    expect(permissionCalls).toEqual([{ identity: VIEWER_ID, canPublish: true }]);
+    const announced = dataEvents.find((e) => e.__evt === "guest_update" && e.action === "backstage");
+    expect(announced).toEqual({
+      __evt: "guest_update",
+      action: "backstage",
+      userId: VIEWER_ID,
+      username: "viewer",
+      avatar: "",
+    });
+
+    const on = await approve();
+    expect(on.statusCode).toBe(200);
+    expect(on.json().data.status).toBe("live");
+    expect(streamDoc.guests[0].status).toBe("live");
+    // Granted again on approve — harmless, and covers a lost grant.
+    expect(permissionCalls).toEqual([
+      { identity: VIEWER_ID, canPublish: true },
+      { identity: VIEWER_ID, canPublish: true },
+    ]);
+    expect(updates()).toEqual(["backstage", "approved"]);
+  });
+
+  it("is a no-op the second time, and refuses someone already on stage", async () => {
+    streamDoc.guests = [row(VIEWER_ID, "viewer", "backstage"), row(OTHER_ID, "other", "live")];
+    asHost();
+
+    expect((await backstage()).statusCode).toBe(200);
+    expect(permissionCalls).toHaveLength(0);
+    expect(dataEvents).toHaveLength(0);
+
+    const res = await backstage(OTHER_ID);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("GUEST_ALREADY_LIVE");
+  });
+
+  it("needs a pending request to work from", async () => {
+    asHost();
+    const res = await backstage();
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe("GUEST_REQUEST_NOT_FOUND");
+  });
+
+  it("doesn't count toward the stage cap, and a full stage doesn't close backstage", async () => {
+    // Three on stage, one waiting backstage, one asking.
+    streamDoc.guests = ["1", "2", "3"].map((n) => row(n.repeat(24), `g${n}`, "live"));
+    streamDoc.guests.push(row(OTHER_ID, "other", "backstage"), row(VIEWER_ID, "viewer", "requested"));
+    asHost();
+
+    // The stage is full: nobody comes on, from backstage or from a request…
+    expect((await approve(OTHER_ID)).json().code).toBe("STAGE_FULL");
+    expect((await approve()).json().code).toBe("STAGE_FULL");
+    // …but the wings are open.
+    expect((await backstage()).statusCode).toBe(200);
+    expect(streamDoc.guests.filter((g) => g.status === "backstage")).toHaveLength(2);
+
+    // Two on stage and two backstage: the request cap counts the stage only.
+    streamDoc.guests = ["1", "2"].map((n) => row(n.repeat(24), `g${n}`, "live"));
+    streamDoc.guests.push(row(OTHER_ID, "other", "backstage"), row("e".repeat(24), "kemi", "backstage"), row(VIEWER_ID, "viewer", "requested"));
+    expect((await approve()).statusCode).toBe(200);
+    expect(streamDoc.guests.find((g) => g.userId.equals(VIEWER_ID))?.status).toBe("live");
+  });
+
+  it("holds at most MAX_BACKSTAGE people", async () => {
+    streamDoc.guests = ["1", "2", "3", "4"].map((n) => row(n.repeat(24), `g${n}`, "backstage"));
+    streamDoc.guests.push(row(VIEWER_ID, "viewer", "requested"));
+    asHost();
+
+    const res = await backstage();
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("BACKSTAGE_FULL");
+    expect(streamDoc.guests.find((g) => g.userId.equals(VIEWER_ID))?.status).toBe("requested");
+    expect(permissionCalls).toHaveLength(0);
+  });
+
+  it("puts the request back when the viewer is no longer connected", async () => {
+    await request();
+    asHost();
+    permissionShouldFail = true;
+
+    const res = await backstage();
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("GUEST_NOT_CONNECTED");
+    // Not dropped — the room webhook clears a real leaver; a blink can be retried.
+    expect(streamDoc.guests).toHaveLength(1);
+    expect(streamDoc.guests[0].status).toBe("requested");
+    expect(dataEvents.some((e) => e.__evt === "guest_update")).toBe(false);
+  });
+
+  it("lets someone leave backstage themselves, revoking publish", async () => {
+    streamDoc.guests = [row(VIEWER_ID, "viewer", "backstage")];
+    const res = await app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/leave` });
+
+    expect(res.statusCode).toBe(200);
+    expect(streamDoc.guests).toHaveLength(0);
+    expect(permissionCalls).toEqual([{ identity: VIEWER_ID, canPublish: false }]);
+    expect(updates()).toEqual(["left"]);
+  });
+
+  it("lets the host remove someone from backstage", async () => {
+    streamDoc.guests = [row(VIEWER_ID, "viewer", "backstage")];
+    asHost();
+    const res = await app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/${VIEWER_ID}/remove` });
+
+    expect(res.statusCode).toBe(200);
+    expect(streamDoc.guests).toHaveLength(0);
+    expect(permissionCalls).toEqual([{ identity: VIEWER_ID, canPublish: false }]);
+    expect(updates()).toEqual(["removed"]);
+  });
+
+  it("re-arms a backstage slot on claim (a reload), and says which it was", async () => {
+    streamDoc.guests = [row(VIEWER_ID, "viewer", "backstage")];
+    const res = await app.inject({ method: "POST", url: `/api/streams/${STREAM_ID}/guests/claim` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.status).toBe("backstage");
+    expect(permissionCalls).toEqual([{ identity: VIEWER_ID, canPublish: true }]);
+  });
+
+  it("lists who's backstage beside the stage and the requests", async () => {
+    streamDoc.guests = [row(OTHER_ID, "tolu", "live"), row(VIEWER_ID, "ada_k", "backstage"), row("e".repeat(24), "kemi", "requested")];
+    const data = await state();
+
+    expect(data.live.map((g: { username: string }) => g.username)).toEqual(["tolu"]);
+    expect(data.backstage).toEqual([{ userId: VIEWER_ID, username: "ada_k", avatar: "", status: "backstage", standing: null }]);
+    expect(data.requests.map((g: { username: string }) => g.username)).toEqual(["kemi"]);
+    expect(data.maxBackstage).toBe(4);
+  });
+
+  it("a producer can send someone backstage; a moderator can't", async () => {
+    await request();
+
+    hostMods = [{ userId: OTHER_ID, role: "mod" }];
+    caller = { _id: id(OTHER_ID), username: "other", avatar: "" };
+    const asMod = await backstage();
+    expect(asMod.statusCode).toBe(403);
+    expect(streamDoc.guests[0].status).toBe("requested");
+    expect(permissionCalls).toHaveLength(0);
+
+    hostMods = [{ userId: OTHER_ID, role: "producer" }];
+    const asProducer = await backstage();
+    expect(asProducer.statusCode).toBe(200);
+    expect(streamDoc.guests[0].status).toBe("backstage");
   });
 });
 
@@ -365,15 +561,54 @@ describe("the stage request line", () => {
     expect((await request()).statusCode).toBe(200);
   });
 
-  it("tells the host where someone asking stands, and viewers who can ask", async () => {
+  const standing = { ally: true, level: 4, hours: 16 };
+  const state = async () => (await app.inject({ method: "GET", url: `/api/streams/${STREAM_ID}/guests` })).json().data;
+
+  it("tells the crew where someone asking stands — the room only that they asked", async () => {
     hostSettings = { stageRequests: "allies", stageAccountDays: 1 };
+    hostMods = [{ userId: OTHER_ID, role: "mod" }];
     allied = true;
     fanLevel = 4;
     await request();
+
+    // The room's copy: who asked, nothing about them.
     const announced = dataEvents.find((e) => e.__evt === "guest_request");
-    expect(announced?.standing).toEqual({ ally: true, level: 4, hours: 16 });
-    const state = (await app.inject({ method: "GET", url: `/api/streams/${STREAM_ID}/guests` })).json().data;
-    expect(state.requests[0].standing).toEqual({ ally: true, level: 4, hours: 16 });
-    expect(state.line).toEqual({ who: "allies", accountDays: 1 });
+    expect(announced).toEqual({ __evt: "guest_request", userId: VIEWER_ID, username: "viewer", avatar: "" });
+    expect(announced).not.toHaveProperty("standing");
+    // The crew's copy — the host (and their consoles) and every moderator — carries it.
+    const crew = targetedEvents.find((t) => t.payload.__evt === "guest_request");
+    expect(crew?.payload).toEqual({ __evt: "guest_request", userId: VIEWER_ID, username: "viewer", avatar: "", standing });
+    expect(crew?.to).toEqual(expect.arrayContaining([HOST_ID, `mon-${HOST_ID}`, `prod-${HOST_ID}`, OTHER_ID, `prod-${OTHER_ID}`]));
+    expect(crew?.to).not.toContain(VIEWER_ID);
+    // Who can ask is public.
+    expect((await state()).line).toEqual({ who: "allies", accountDays: 1 });
+  });
+
+  it("shows standing on the list to the crew only", async () => {
+    hostMods = [{ userId: OTHER_ID, role: "mod" }];
+    allied = true;
+    fanLevel = 4;
+    await request();
+    streamDoc.guests.push({ ...row("e".repeat(24), "kemi", "backstage"), standing } as GuestRow);
+
+    // No session at all: the public list, without it.
+    signedIn = false;
+    let data = await state();
+    expect(data.requests[0].standing).toBeNull();
+    expect(data.backstage[0].standing).toBeNull();
+
+    // Signed in, but just another viewer: still without it.
+    signedIn = true;
+    caller = { _id: id("f".repeat(24)), username: "tolu", avatar: "" };
+    data = await state();
+    expect(data.requests[0].standing).toBeNull();
+
+    // The host sees it, and so does a moderator.
+    caller = { _id: id(HOST_ID), username: "host", avatar: "" };
+    data = await state();
+    expect(data.requests[0].standing).toEqual(standing);
+    expect(data.backstage[0].standing).toEqual(standing);
+    caller = { _id: id(OTHER_ID), username: "other", avatar: "" };
+    expect((await state()).requests[0].standing).toEqual(standing);
   });
 });

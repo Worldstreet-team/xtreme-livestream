@@ -34,8 +34,11 @@ import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { newerGoal, newerHeat, readGoal, readHeat } from "@/lib/goals";
 import { useConsole, useConsoleRoom, type ConsoleData, type ConsoleStream } from "@/lib/producer";
 import { applyCues, formatClock, readPosition, readSegments, type RundownPosition, type RundownSegment } from "@/lib/rundown";
-import { CARDS, DEFAULT_SCENE, guestsShown, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { CARDS, DEFAULT_SCENE, guestsShown, layerOf, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, withLayer, type Scene } from "@/lib/scene";
 import { serverNow, serverOffset } from "@/lib/server-clock";
+import { MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
+import { readTickers, type Trending } from "@/lib/market";
+import { TickerChips } from "@/components/app/ticker-chips";
 import { cueSponsorsOf } from "@/lib/sponsors";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -43,8 +46,9 @@ import { cn } from "@/lib/utils";
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 /** The cards as the bar under the picture names them — three to a phone's width. */
 const CARD_SHORT: Record<(typeof CARDS)[number]["id"], string> = { "starting-soon": "Starting soon", brb: "Be right back", ending: "Thanks" };
-/** The API's own limit (guests.ts): three guests beside the host. */
+/** The API's own limits (guests.ts): three guests beside the host, four waiting backstage. */
 const MAX_STAGE_GUESTS = 3;
+const MAX_BACKSTAGE = 4;
 
 type Tab = "scenes" | "show" | "stage" | "chat";
 type StageUser = { userId: string; username: string; avatar: string; standing?: StageStanding | null };
@@ -62,6 +66,8 @@ export function ProducerConsole({ username }: { username: string }) {
   const { state, reload } = useConsole(username);
   /** The room closed under us: the stream is over (or about to say so). */
   const [ended, setEnded] = useState(false);
+  /** This console was opened on another device under the same identity; that one has the room now. */
+  const [elsewhere, setElsewhere] = useState(false);
   // A room that let go for any other reason is tried again after a breath, never in a tight loop.
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -71,10 +77,15 @@ export function ProducerConsole({ username }: { username: string }) {
     []
   );
   const onClosed = useCallback(
-    (over: boolean) => {
-      if (over) setEnded(true);
+    (why: "ended" | "dropped" | "elsewhere") => {
       if (retry.current) clearTimeout(retry.current);
-      retry.current = setTimeout(reload, over ? 0 : 3000);
+      if (why === "elsewhere") {
+        // Two consoles under one identity would kick each other out forever: this one stands down.
+        setElsewhere(true);
+        return;
+      }
+      if (why === "ended") setEnded(true);
+      retry.current = setTimeout(reload, why === "ended" ? 0 : 3000);
     },
     [reload]
   );
@@ -107,6 +118,23 @@ export function ProducerConsole({ username }: { username: string }) {
   }
 
   const { data } = state;
+  if (elsewhere) {
+    return (
+      <Empty
+        icon={<UsersThree size={22} />}
+        title="This console is open somewhere else"
+        body="Another device is running it under your name — a phone in the other room, or another tab. Only one can at a time."
+        goLive={false}
+        action={{
+          label: "Use it here instead",
+          onClick: () => {
+            setElsewhere(false);
+            reload();
+          },
+        }}
+      />
+    );
+  }
   if (!data.stream || !data.token || !data.url) return <OffAir data={data} ended={ended} />;
   return <LiveConsole key={data.stream.id} data={data} stream={data.stream} token={data.token} url={data.url} onClosed={onClosed} />;
 }
@@ -126,7 +154,7 @@ function LiveConsole({
   stream: ConsoleStream;
   token: string;
   url: string;
-  onClosed: (ended: boolean) => void;
+  onClosed: (why: "ended" | "dropped" | "elsewhere") => void;
 }) {
   const { host } = data;
   const [scene, setScene] = useState<Scene>(() => readScene(stream.scene) ?? DEFAULT_SCENE);
@@ -148,6 +176,12 @@ function LiveConsole({
   const [onStage, setOnStage] = useState<StageUser[]>(() =>
     stream.guests.filter((g) => g.status === "live").map((g) => ({ userId: g.userId, username: g.username, avatar: g.avatar }))
   );
+  /** Accepted, but not on yet: in the room checking their devices, seen only by the crew. */
+  const [backstage, setBackstage] = useState<StageUser[]>(() =>
+    stream.guests.filter((g) => g.status === "backstage").map((g) => ({ userId: g.userId, username: g.username, avatar: g.avatar }))
+  );
+  /** What chat's talking about ($cashtags), for a chart in one tap (market layer). */
+  const [tickers, setTickers] = useState<Trending[]>([]);
   const [stageLine, setStageLine] = useState(() => readStageLine(host.stageLine));
   const [stageBusy, setStageBusy] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
@@ -208,16 +242,25 @@ function LiveConsole({
         const uid = evt.userId;
         if (evt.action === "cancelled" || evt.action === "denied") {
           setRequests((prev) => prev.filter((r) => r.userId !== uid));
-        } else if (evt.action === "approved") {
-          const known = requests.find((r) => r.userId === uid);
+        } else if (evt.action === "backstage" || evt.action === "approved") {
+          const known = requests.find((r) => r.userId === uid) ?? backstage.find((g) => g.userId === uid);
           const row = known ?? (evt.username ? { userId: uid, username: String(evt.username), avatar: String(evt.avatar ?? "") } : null);
           setRequests((prev) => prev.filter((r) => r.userId !== uid));
-          if (row) setOnStage((prev) => (prev.some((g) => g.userId === uid) ? prev : [...prev, row]));
+          if (evt.action === "backstage") {
+            if (row) setBackstage((prev) => (prev.some((g) => g.userId === uid) ? prev : [...prev, row]));
+          } else {
+            setBackstage((prev) => prev.filter((g) => g.userId !== uid));
+            if (row) setOnStage((prev) => (prev.some((g) => g.userId === uid) ? prev : [...prev, row]));
+          }
         } else if (evt.action === "removed" || evt.action === "left") {
           setOnStage((prev) => prev.filter((g) => g.userId !== uid));
+          setBackstage((prev) => prev.filter((g) => g.userId !== uid));
         }
         return;
       }
+      case "tickers":
+        setTickers(readTickers(evt.tickers));
+        return;
     }
   };
 
@@ -257,6 +300,9 @@ function LiveConsole({
       .catch(() => {});
     apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${stream.id}/battle`)
       .then((r) => alive && setBattle(r.data.battle))
+      .catch(() => {});
+    apiFetch<{ success: boolean; data: { tickers: unknown } }>(`/api/streams/${stream.id}/tickers`)
+      .then((r) => alive && setTickers(readTickers(r.data.tickers)))
       .catch(() => {});
     return () => {
       alive = false;
@@ -316,19 +362,19 @@ function LiveConsole({
     }
   };
 
-  const stageAction = async (userId: string, action: "approve" | "deny" | "remove") => {
+  const stageAction = async (userId: string, action: "approve" | "deny" | "remove" | "backstage") => {
     if (stageBusy) return;
     setStageBusy(userId);
     setStageError(null);
     try {
       await apiFetch(`/api/streams/${stream.id}/guests/${userId}/${action}`, { method: "POST" });
       // The room's guest_update moves the row too; doing it here keeps the list honest if that's late.
-      if (action === "approve") {
-        const row = requests.find((r) => r.userId === userId);
-        if (row) setOnStage((prev) => (prev.some((g) => g.userId === userId) ? prev : [...prev, row]));
-      }
+      const row = requests.find((r) => r.userId === userId) ?? backstage.find((g) => g.userId === userId);
+      if (action === "approve" && row) setOnStage((prev) => (prev.some((g) => g.userId === userId) ? prev : [...prev, row]));
+      if (action === "backstage" && row) setBackstage((prev) => (prev.some((g) => g.userId === userId) ? prev : [...prev, row]));
       if (action !== "remove") setRequests((prev) => prev.filter((r) => r.userId !== userId));
-      else setOnStage((prev) => prev.filter((g) => g.userId !== userId));
+      if (action === "approve" || action === "remove") setBackstage((prev) => prev.filter((g) => g.userId !== userId));
+      if (action === "remove") setOnStage((prev) => prev.filter((g) => g.userId !== userId));
     } catch (err) {
       setStageError(err instanceof Error ? err.message : "That didn't go through — try again.");
     } finally {
@@ -392,7 +438,10 @@ function LiveConsole({
   const opponent = battleOn && side ? (side === "host" ? battleOn.challenger : battleOn.host) : null;
   const pairOpponent = battleOn?.mode === "2v2" ? opponent : null;
   const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
-  const guestNames = live.guests.map((g) => ({ identity: g.identity, name: g.name }));
+  // Backstage guests are in the room, not on the stage: the picture and the panels leave them out until they're put on.
+  const backstageIds = new Set(backstage.map((g) => g.userId));
+  const stageGuests = live.guests.filter((g) => !backstageIds.has(g.identity));
+  const guestNames = stageGuests.map((g) => ({ identity: g.identity, name: g.name }));
   const guestCell = (g: (typeof live.guests)[number]): SceneCell => ({
     key: g.identity,
     identity: g.identity,
@@ -410,11 +459,11 @@ function LiveConsole({
     ),
   });
   const others: SceneCell[] = (() => {
-    if (!opponent || !battleOn || !side) return live.guests.map(guestCell);
+    if (!opponent || !battleOn || !side) return stageGuests.map(guestCell);
     if (pairOpponent) {
       // A 2v2 is a 2×2, as viewers see it: after the host, their host, our partner, their partner.
       const mate = (side === "host" ? battleOn.host : battleOn.challenger).partner ?? null;
-      const mateGuest = mate ? live.guests.find((g) => g.identity === mate.userId) : undefined;
+      const mateGuest = mate ? stageGuests.find((g) => g.identity === mate.userId) : undefined;
       const theirMate = pairOpponent.partner ?? null;
       return [
         opponentCell("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
@@ -430,7 +479,7 @@ function LiveConsole({
         opponent.displayName,
         <LivePreview streamId={opponent.streamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
       ),
-      ...live.guests.map(guestCell),
+      ...stageGuests.map(guestCell),
     ];
   })();
   const sharing = guestsShown(scene.layout, others.length, Boolean(battleOn)) > 0;
@@ -474,9 +523,20 @@ function LiveConsole({
     { id: "chat", label: "Chat", icon: ChatText },
   ];
 
+  const priceStrip = layerOf(scene.layers, "prices")?.symbols ?? [];
   const scenesPanel = (
     <div className="flex flex-col gap-6 px-4 pt-4 pb-6">
       {error && <p className="rounded-[10px] bg-chili/[0.12] px-3 py-2 text-[12.5px] text-chili-hi">{error}</p>}
+      <TickerChips
+        tickers={tickers}
+        strip={priceStrip}
+        onChart={(symbol) => void applyScene({ layout: "chart-face", chart: { symbol, interval: scene.chart?.interval ?? "5m" } })}
+        onStrip={(symbol) =>
+          void applyScene({
+            layers: withLayer(scene.layers, "prices", { kind: "prices", symbols: [...priceStrip.filter((x) => x !== symbol), symbol].slice(-MAX_PRICE_SYMBOLS) }),
+          })
+        }
+      />
       <LayoutAndCards
         crew
         scene={scene}
@@ -542,6 +602,15 @@ function LiveConsole({
                 </div>
                 <button
                   type="button"
+                  onClick={() => void stageAction(r.userId, "backstage")}
+                  disabled={stageBusy !== null || backstage.length >= MAX_BACKSTAGE}
+                  title={backstage.length >= MAX_BACKSTAGE ? "Backstage is full" : "Let them in to check their camera and mic first — viewers won't see them yet"}
+                  className="press h-8 shrink-0 rounded-full bg-white/[0.07] px-2.5 text-[12.5px] font-medium text-foreground/85 transition-colors hover:bg-white/[0.12] disabled:opacity-50"
+                >
+                  Backstage
+                </button>
+                <button
+                  type="button"
                   onClick={() => void stageAction(r.userId, "approve")}
                   disabled={stageBusy !== null || onStage.length >= MAX_STAGE_GUESTS}
                   title={onStage.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Bring them on"}
@@ -565,6 +634,43 @@ function LiveConsole({
           </div>
         )}
       </section>
+      {backstage.length > 0 && (
+        <section>
+          <h3 className={cn(LABEL, "mb-2")}>Backstage</h3>
+          <div className="flex flex-col gap-1.5">
+            {backstage.map((g) => (
+              <div key={g.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
+                {/* Their picture, small: are they framed, is the light right. */}
+                <span className="relative aspect-video w-14 shrink-0 overflow-hidden rounded-[8px] bg-black">
+                  <StageTile fill track={live.guests.find((t) => t.identity === g.userId)?.track} label="" />
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{g.username}</p>
+                <button
+                  type="button"
+                  onClick={() => void stageAction(g.userId, "approve")}
+                  disabled={stageBusy !== null || onStage.length >= MAX_STAGE_GUESTS}
+                  title={onStage.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Put them on stage"}
+                  className="press flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[12.5px] font-semibold text-[#0b0708] disabled:opacity-50"
+                >
+                  {stageBusy === g.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
+                  Put on
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void stageAction(g.userId, "remove")}
+                  disabled={stageBusy !== null}
+                  aria-label={`Send ${g.username} back to the room`}
+                  title="Send them back to the room"
+                  className="press flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[12px] leading-snug text-muted-foreground/70">Camera and mic on, seen and heard by the crew only, until they&apos;re put on.</p>
+        </section>
+      )}
       <section>
         <h3 className={cn(LABEL, "mb-2")}>On stage now</h3>
         {onStage.length === 0 ? (
@@ -724,11 +830,17 @@ function ConsoleHeader({
           {live ? live.title : "off air"}
         </p>
       </div>
-      {live && (
+      {live && live.practice ? (
+        // A rehearsal isn't on air: ember, and it says so.
+        <span className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-ember px-2.5 text-[11px] font-bold tracking-[0.06em] text-on-ember" title="A practice run — nobody can find or join this room">
+          PRACTICE
+          {uptime && <span className="font-mono font-semibold tabular-nums">{uptime}</span>}
+        </span>
+      ) : live ? (
         <LiveBadge size="sm" className="shrink-0">
           {uptime && <span className="ml-1 font-mono tabular-nums">{uptime}</span>}
         </LiveBadge>
-      )}
+      ) : null}
       {onListen && (
         <button
           type="button"

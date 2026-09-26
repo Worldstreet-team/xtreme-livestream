@@ -8,13 +8,13 @@ import {
   streamIdParamsSchema,
   type StageStanding,
 } from "@xtreme/contracts";
-import { authenticate } from "../auth.js";
+import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { fanStatus } from "../fans.js";
-import { sendRoomData, setParticipantPublishPermission } from "../livekit.js";
+import { sendRoomData, sendRoomDataTo, setParticipantPublishPermission } from "../livekit.js";
 import { Follow, Stream, User, type IStream, type IUser } from "../models.js";
 import { reconcileStream } from "../stream-service.js";
-import { requireChannelRole, roleIn } from "../safety/roles.js";
+import { atLeast, moderatorIdentities, requireChannelRole, roleIn } from "../safety/roles.js";
 import { assertNotBanned } from "./moderation.js";
 import { fireRules } from "../rules.js";
 import { recordMoment } from "../analytics.js";
@@ -27,16 +27,28 @@ import { recordMoment } from "../analytics.js";
  * a publisher. Their camera/mic then joins the room like any other track and
  * every viewer sees them — no second room, no re-tokening, no client trust.
  *
+ * Backstage (producer mode) sits between the two: the host or a producer
+ * moves a requester there, and they publish just as an approved guest does
+ * — checking their camera and mic in the room — but every viewer's client
+ * keeps them off the picture and out of the sound until they're approved.
+ * Only the host's studio and the producers' consoles show them.
+ *
  * The Stream document's `guests` array is the authority; LiveKit permission
  * changes always follow a successful write to it, so a crashed request can't
  * leave someone publishing whom the document says isn't on stage.
  *
  * Every transition fans a `guest_update` event into the room:
  *   { __evt: "guest_update", action, userId, username, avatar? }
+ * with action one of requested's "cancelled" | "denied", "backstage",
+ * "approved" (requested or backstage → live), "removed" (any status) and
+ * "left" (the guest's own leave, from backstage or the stage).
  * Clients react to actions about themselves (start/stop publishing) and
  * about others (tiles, request lists). Requests additionally fan
  * `guest_request`, which only the studio renders.
  */
+
+/** How many can wait backstage at once — a green room, not a second stage. */
+export const MAX_BACKSTAGE = 4;
 
 /** A live stream the caller may act on, or the reason they can't. */
 async function loadLiveStream(id: string) {
@@ -50,12 +62,18 @@ async function loadLiveStream(id: string) {
   return stream;
 }
 
-const publicGuest = (g: IStream["guests"][number]) => ({
+/**
+ * A guest row as clients see it. Where they stand with the channel (ally,
+ * fan level, hours watched) is the crew's to weigh, not the room's to read
+ * — it goes out only when `crew` is true.
+ */
+const publicGuest = (g: IStream["guests"][number], crew: boolean) => ({
   userId: String(g.userId),
   username: g.username,
   avatar: g.avatar,
   status: g.status,
-  standing: g.standing ? { ally: Boolean(g.standing.ally), level: g.standing.level ?? 0, hours: g.standing.hours ?? 0 } : null,
+  standing:
+    crew && g.standing ? { ally: Boolean(g.standing.ally), level: g.standing.level ?? 0, hours: g.standing.hours ?? 0 } : null,
 });
 
 const DAY_MS = 86_400_000;
@@ -106,7 +124,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Guests"],
-        summary: "Stage state: who is live on stage, and pending requests",
+        summary: "Stage state: who is live on stage, who is waiting backstage, and pending requests",
         params: streamIdParamsSchema,
       },
     },
@@ -116,15 +134,25 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
       const guests = stream.guests ?? [];
-      const streamer = await User.findById(stream.streamerId).select("settings.stageRequests settings.stageAccountDays").lean();
+      const streamer = await User.findById(stream.streamerId).select("settings.stageRequests settings.stageAccountDays safety").lean();
+      // The list is public (every viewer's client needs it), but where a
+      // requester stands with the channel is for the crew: signed in, and
+      // at least a moderator here.
+      const signedIn = getOptionalAuthUserId(request) ? await authenticate(request) : null;
+      const crew = Boolean(signedIn && streamer && atLeast(roleIn(streamer, signedIn.dbUser._id), "mod"));
+      const row = (g: (typeof guests)[number]) => publicGuest(g, crew);
       return {
         success: true,
         data: {
-          live: guests.filter((g) => g.status === "live").map(publicGuest),
+          live: guests.filter((g) => g.status === "live").map(row),
+          // Public on purpose: every viewer's client needs the list to keep
+          // backstage people off its picture and out of its sound.
+          backstage: guests.filter((g) => g.status === "backstage").map(row),
           requests: guests
             .filter((g) => g.status === "requested")
-            .map(publicGuest),
+            .map(row),
           maxGuests: MAX_STAGE_GUESTS,
+          maxBackstage: MAX_BACKSTAGE,
           // Who can ask, so a viewer knows before they try.
           line: {
             who: streamer?.settings?.stageRequests ?? "everyone",
@@ -208,13 +236,21 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      void sendRoomData(stream.livekitRoomName, {
+      // Two copies of the same announcement. The crew's carries where the
+      // requester stands with the channel — their call to make; the room's
+      // doesn't, because a viewer's fan level and hours are nobody else's
+      // business. Crew first: a studio that dedupes on userId keeps the
+      // copy it saw first, and that should be the fuller one.
+      const announcement = {
         __evt: "guest_request",
         userId: String(dbUser._id),
         username: dbUser.username,
         avatar: dbUser.avatar,
-        standing,
-      });
+      };
+      if (streamer) {
+        await sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { ...announcement, standing });
+      }
+      void sendRoomData(stream.livekitRoomName, announcement);
 
       return { success: true, data: { status: "requested" } };
     },
@@ -254,11 +290,11 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   app.post(
-    "/streams/:id/guests/:userId/approve",
+    "/streams/:id/guests/:userId/backstage",
     {
       schema: {
         tags: ["Guests"],
-        summary: "Host: bring a requester onto the stage",
+        summary: "Host or producer: move a requester backstage — publishing, seen by the crew only",
         security: [{ bearerAuth: [] }],
         params: guestUserParamsSchema,
       },
@@ -269,6 +305,84 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       // The host, or a producer running the stage from their console.
       await requireChannelRole(stream, dbUser._id, "producer");
 
+      // Backstage isn't the stage: a full stage doesn't stop anyone waiting
+      // in the wings, but the wings hold only so many.
+      const waiting = stream.guests.filter((g) => g.status === "backstage").length;
+      if (waiting >= MAX_BACKSTAGE) {
+        throw new ApiError(409, `Backstage is full (${MAX_BACKSTAGE} people)`, "BACKSTAGE_FULL");
+      }
+
+      // Flip requested → backstage in the document first; only a successful
+      // write is followed by the LiveKit grant.
+      const updated = await Stream.findOneAndUpdate(
+        {
+          _id: stream._id,
+          guests: { $elemMatch: { userId: request.params.userId, status: "requested" } },
+        },
+        { $set: { "guests.$.status": "backstage" } },
+        { new: true },
+      );
+
+      if (!updated) {
+        const already = stream.guests.find((g) => String(g.userId) === request.params.userId);
+        // Sending someone backstage twice is a no-op, not an error.
+        if (already?.status === "backstage") {
+          return { success: true, data: { status: "backstage" } };
+        }
+        if (already?.status === "live") {
+          throw new ApiError(409, "They're already on stage", "GUEST_ALREADY_LIVE");
+        }
+        throw new ApiError(404, "No pending request from that user", "GUEST_REQUEST_NOT_FOUND");
+      }
+
+      const guest = updated.guests.find((g) => String(g.userId) === request.params.userId)!;
+
+      try {
+        await setParticipantPublishPermission(stream.livekitRoomName, request.params.userId, true);
+      } catch (error) {
+        // The viewer isn't in the room right now (tab closed, or a blink).
+        // Put the request back rather than drop it: if they're really gone
+        // the room webhook clears the row; if not, the host can try again.
+        await Stream.updateOne(
+          { _id: stream._id, guests: { $elemMatch: { userId: guest.userId, status: "backstage" } } },
+          { $set: { "guests.$.status": "requested" } },
+        );
+        request.log.warn(
+          { err: error, guest: request.params.userId },
+          "backstage: participant not in room; request kept",
+        );
+        throw new ApiError(409, "That viewer is no longer connected", "GUEST_NOT_CONNECTED");
+      }
+
+      void sendRoomData(stream.livekitRoomName, {
+        __evt: "guest_update",
+        action: "backstage",
+        userId: String(guest.userId),
+        username: guest.username,
+        avatar: guest.avatar,
+      });
+
+      return { success: true, data: { status: "backstage" } };
+    },
+  );
+
+  app.post(
+    "/streams/:id/guests/:userId/approve",
+    {
+      schema: {
+        tags: ["Guests"],
+        summary: "Host: bring a requester, or someone waiting backstage, onto the stage",
+        security: [{ bearerAuth: [] }],
+        params: guestUserParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await loadLiveStream(request.params.id);
+      // The host, or a producer running the stage from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
+
+      // Only the people on the picture count: backstage is the wings.
       const liveCount = stream.guests.filter(
         (g) => g.status === "live",
       ).length;
@@ -280,15 +394,15 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      // Flip requested → live in the document first; only a successful write
-      // is followed by the LiveKit grant.
+      // Flip requested (or backstage) → live in the document first; only a
+      // successful write is followed by the LiveKit grant.
       const updated = await Stream.findOneAndUpdate(
         {
           _id: stream._id,
           guests: {
             $elemMatch: {
               userId: request.params.userId,
-              status: "requested",
+              status: { $in: ["requested", "backstage"] },
             },
           },
         },
@@ -317,6 +431,8 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       )!;
 
       try {
+        // Someone coming from backstage already holds this — granting it
+        // again is harmless, and covers a grant that got lost.
         await setParticipantPublishPermission(
           stream.livekitRoomName,
           request.params.userId,
@@ -397,7 +513,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Guests"],
-        summary: "Host: take a guest off the stage",
+        summary: "Host: take a guest off the stage, or out of backstage",
         security: [{ bearerAuth: [] }],
         params: guestUserParamsSchema,
       },
@@ -415,6 +531,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         (g) => String(g.userId) === request.params.userId,
       );
 
+      // Whatever their status — on stage, backstage, still asking.
       await Stream.updateOne(
         { _id: stream._id },
         { $pull: { guests: { userId: request.params.userId } } },
@@ -458,12 +575,13 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       const { dbUser } = await authenticate(request);
       const stream = await loadLiveStream(request.params.id);
 
-      // Only someone the document ALREADY records as live on stage may
-      // claim — this never grants a slot, it re-arms one. Used after a
-      // co-live merge (the accepter connects to the primary room after
-      // being added) and after a mid-stage reconnect.
+      // Only someone the document ALREADY records as live on stage, or
+      // waiting backstage, may claim — this never grants a slot, it re-arms
+      // one. Used after a co-live merge (the accepter connects to the
+      // primary room after being added), after a mid-stage reconnect, and
+      // when a backstage guest reloads their page.
       const mine = stream.guests.find(
-        (g) => g.userId.equals(dbUser._id) && g.status === "live",
+        (g) => g.userId.equals(dbUser._id) && (g.status === "live" || g.status === "backstage"),
       );
       if (!mine) {
         throw new ApiError(403, "You're not on this stage", "NOT_ON_STAGE");
@@ -475,7 +593,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         true,
       );
 
-      return { success: true, data: { status: "live" } };
+      return { success: true, data: { status: mine.status } };
     },
   );
 
@@ -484,7 +602,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Guests"],
-        summary: "Step off the stage yourself",
+        summary: "Step off the stage, or out of backstage, yourself",
         security: [{ bearerAuth: [] }],
         params: streamIdParamsSchema,
       },
@@ -496,6 +614,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
 
+      // From any status: the row goes, and so does the publish grant.
       await Stream.updateOne(
         { _id: stream._id },
         { $pull: { guests: { userId: dbUser._id } } },

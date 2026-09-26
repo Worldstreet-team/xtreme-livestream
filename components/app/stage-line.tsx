@@ -57,7 +57,7 @@ export function StandingLine({ standing }: { standing: StageStanding | null | un
   if (!standing) return null;
   const hours = Math.round(standing.hours);
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-none text-muted-foreground">
+    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11.5px] leading-none whitespace-nowrap text-muted-foreground">
       {standing.ally ? <span className="font-semibold text-ember-hi">Ally</span> : <span>Not an ally</span>}
       {standing.level > 0 && (
         <>

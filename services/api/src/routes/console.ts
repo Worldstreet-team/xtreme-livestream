@@ -70,7 +70,13 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
         creatorCampaigns(streamer._id as mongoose.Types.ObjectId),
         Rundown.findOne({ ownerId: streamer._id }).select("segments").lean(),
       ]);
-      const sponsors = { own: own.map(sponsorView), campaigns: campaigns.filter((c) => c.joined && c.status === "live") };
+      // What a producer needs to put a card up — never what the host is paid for it.
+      const sponsors = {
+        own: own.map(sponsorView),
+        campaigns: campaigns
+          .filter((c) => c.joined && c.status === "live")
+          .map((c) => ({ ...c, payPerStreamUsdMinor: 0, earnedUsdMinor: 0, paidStreams: 0, streamsLeft: 0 })),
+      };
       const segments = rundown?.segments ?? [];
 
       const stream = await Stream.findOne({ streamerId: streamer._id, isLive: true });
@@ -95,6 +101,8 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
             title: stream.title,
             category: stream.category,
             source: stream.source ?? "camera",
+            // A rehearsal: the console says so, since nothing here reaches anyone.
+            practice: stream.practice === true,
             startedAt: stream.startedAt,
             scene: sceneView(stream.scene),
             guests: (stream.guests ?? []).map((g) => ({

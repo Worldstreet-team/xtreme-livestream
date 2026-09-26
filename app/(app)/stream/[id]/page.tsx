@@ -78,6 +78,7 @@ import {
   StageTile,
   type AttachableVideoTrack,
 } from "@/components/app/stage-tile";
+import { BackstagePanel } from "@/components/app/backstage-panel";
 import {
   FloatingHearts,
   type FloatingHeartsHandle,
@@ -325,22 +326,43 @@ export default function StreamPage({
   const gainsRef = useRef<Record<string, number>>({});
 
   // ---- Stage (guests broadcasting alongside the host) ----
-  const [stageState, setStageState] = useState<"idle" | "requested" | "live">(
-    "idle"
-  );
-  const stageStateRef = useRef<"idle" | "requested" | "live">("idle");
+  /**
+   * Where I am with the stage: asked, waiting backstage (publishing, seen
+   * by the host and their producers only), or on it.
+   */
+  type StageState = "idle" | "requested" | "backstage" | "live";
+  const [stageState, setStageState] = useState<StageState>("idle");
+  const stageStateRef = useRef<StageState>("idle");
   stageStateRef.current = stageState;
+  /**
+   * Where the API last told me to be. The camera takes a moment to start,
+   * and "backstage" then "approved" can land inside that moment — so the
+   * publish reads its destination when it finishes, not when it began.
+   */
+  const stageTargetRef = useRef<"idle" | "backstage" | "live">("idle");
   const [stageBusy, setStageBusy] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const [stageMicOn, setStageMicOn] = useState(true);
-  /** My own published camera track while on stage. */
+  /** My own published camera track while on stage or backstage. */
   const [localStageTrack, setLocalStageTrack] =
     useState<AttachableVideoTrack | null>(null);
+  /** My own mic, for the backstage meter. */
+  const [localStageAudio, setLocalStageAudio] = useState<MediaStreamTrack | null>(null);
+  /** Backstage: the panel is up (a sheet on phones); the rail button brings it back. */
+  const [backstageOpen, setBackstageOpen] = useState(true);
   /** Remote guests currently publishing video (host excluded). */
   const [guestVideos, setGuestVideos] = useState<
     Array<{ identity: string; name: string }>
   >([]);
   const guestTracksRef = useRef<Map<string, AttachableVideoTrack>>(new Map());
+  /**
+   * Who's backstage, by room identity. They publish like any guest, but
+   * their tracks are for the host and the producers: this page never
+   * subscribes to them, so viewers neither see nor hear them. The ref is
+   * for the room's callbacks; the state re-renders the stage.
+   */
+  const backstageIdsRef = useRef<Set<string>>(new Set());
+  const [backstageIds, setBackstageIds] = useState<Set<string>>(() => new Set());
   const streamerIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
   /** Latest publish/stop functions, reachable from LiveKit callbacks. */
@@ -454,6 +476,10 @@ export default function StreamPage({
   const [hostLiveGuests, setHostLiveGuests] = useState<
     Array<{ userId: string; username: string; avatar: string }>
   >([]);
+  /** Owner: who's waiting backstage — accepted, publishing, not on the picture yet. */
+  const [hostBackstageGuests, setHostBackstageGuests] = useState<
+    Array<{ userId: string; username: string; avatar: string }>
+  >([]);
   const [showStageSheet, setShowStageSheet] = useState(false);
   const [hostStageBusy, setHostStageBusy] = useState<string | null>(null);
 
@@ -534,7 +560,9 @@ export default function StreamPage({
   useEffect(() => {
     const room = roomRef.current;
     if (!room || !connected) return;
-    room.remoteParticipants.forEach((participant) =>
+    room.remoteParticipants.forEach((participant) => {
+      // Backstage stays unsubscribed whatever the picture setting.
+      if (backstageIdsRef.current.has(participant.identity)) return;
       participant.videoTrackPublications.forEach((pub) => {
         if (pictureMode === "radio") {
           pub.setSubscribed(false);
@@ -542,8 +570,8 @@ export default function StreamPage({
         }
         pub.setSubscribed(true);
         pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : VideoQuality.HIGH);
-      })
-    );
+      });
+    });
   }, [pictureMode, connected]);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -730,6 +758,23 @@ export default function StreamPage({
     };
   }, [stream?.isLive, stream?.startedAt]);
 
+  /**
+   * Put someone backstage, or bring them out. Backstage tracks are never
+   * subscribed to — no bytes, no picture, no sound, for viewers and for the
+   * other backstage guests alike. Coming out re-subscribes, which brings
+   * their tile and their audio in through TrackSubscribed like anyone
+   * else's. The host's studio and the producers' consoles do their own thing.
+   */
+  const setBackstage = useCallback((identity: string, on: boolean) => {
+    const ids = backstageIdsRef.current;
+    if (on === ids.has(identity)) return;
+    if (on) ids.add(identity);
+    else ids.delete(identity);
+    setBackstageIds(new Set(ids));
+    const participant = roomRef.current?.remoteParticipants.get(identity);
+    participant?.trackPublications.forEach((pub) => pub.setSubscribed(!on));
+  }, []);
+
   // Connect to LiveKit as viewer
   const connectToStream = useCallback(async () => {
     if (!stream?.isLive || connected) return;
@@ -795,6 +840,9 @@ export default function StreamPage({
           }
         }
         if (track.kind === Track.Kind.Audio) {
+          // Belt and braces: a backstage track never gets this far (it's
+          // unsubscribed on publish), but if one did, it stays silent.
+          if (backstageIdsRef.current.has(participant.identity)) return;
           const audioEl = track.attach() as HTMLAudioElement;
           // Muted start — see the audio state block. Unmuting flips these
           // elements directly inside the user's click.
@@ -806,8 +854,21 @@ export default function StreamPage({
         }
       };
 
+      // Backstage publishes for the crew, not the room: drop the
+      // subscription the moment the track is announced, before any of it
+      // arrives. (The viewer token auto-subscribes; this is the opt-out.)
+      room.on(RoomEvent.TrackPublished, (publication, participant) => {
+        if (backstageIdsRef.current.has(participant.identity)) publication.setSubscribed(false);
+      });
+
       room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (!track) return;
+        // Subscribed before we knew they were backstage (a page that loaded
+        // mid-wait): let go now, and take nothing from it.
+        if (backstageIdsRef.current.has(participant.identity)) {
+          publication.setSubscribed(false);
+          return;
+        }
         // Radio takes no picture; Data saver takes the smallest.
         if (track.kind === Track.Kind.Video) {
           if (pictureModeRef.current === "radio") {
@@ -875,6 +936,8 @@ export default function StreamPage({
         guestTracksRef.current.clear();
         setGuestVideos([]);
         setLocalStageTrack(null);
+        setLocalStageAudio(null);
+        stageTargetRef.current = "idle";
         setStageState("idle");
         // Why the room let go decides what the viewer is told. This used to
         // call every disconnect the end of the stream — so a viewer whose
@@ -1032,43 +1095,78 @@ export default function StreamPage({
             return;
           }
           // Stage transitions about *me* drive publishing; everyone else's
-          // tiles follow the tracks themselves via TrackSubscribed.
+          // tiles follow the tracks themselves via TrackSubscribed — except
+          // backstage, which every page keeps off its picture and sound.
           if (data.__evt === "guest_update" && data.userId) {
             const uid = data.userId;
+            if (data.action === "backstage") setBackstage(uid, true);
+            else if (data.action === "approved" || data.action === "removed" || data.action === "left") setBackstage(uid, false);
             if (isOwnerRef.current) {
+              const known = data.username ? { userId: uid, username: data.username, avatar: data.avatar ?? "" } : null;
+              const bringOn = (row: { userId: string; username: string; avatar: string }) =>
+                setHostLiveGuests((live) => (live.some((g) => g.userId === uid) ? live : [...live, row]));
               if (data.action === "cancelled" || data.action === "denied") {
                 setHostRequests((prev) =>
                   prev.filter((r) => r.userId !== uid)
                 );
-              } else if (data.action === "approved") {
+              } else if (data.action === "backstage") {
+                // A producer sent them backstage from the console: the row
+                // moves from asking to waiting.
                 setHostRequests((prev) => {
-                  const row = prev.find((r) => r.userId === uid);
+                  const row = prev.find((r) => r.userId === uid) ?? known;
                   if (row) {
-                    setHostLiveGuests((live) =>
-                      live.some((g) => g.userId === uid) ? live : [...live, row]
+                    setHostBackstageGuests((wings) =>
+                      wings.some((g) => g.userId === uid) ? wings : [...wings, row]
                     );
                   }
+                  return prev.filter((r) => r.userId !== uid);
+                });
+              } else if (data.action === "approved") {
+                // On from a request, or from backstage.
+                setHostRequests((prev) => {
+                  const row = prev.find((r) => r.userId === uid);
+                  if (row) bringOn(row);
+                  return prev.filter((r) => r.userId !== uid);
+                });
+                setHostBackstageGuests((prev) => {
+                  const row = prev.find((r) => r.userId === uid);
+                  if (row) bringOn(row);
                   return prev.filter((r) => r.userId !== uid);
                 });
               } else if (data.action === "removed" || data.action === "left") {
                 setHostLiveGuests((prev) =>
                   prev.filter((g) => g.userId !== uid)
                 );
+                setHostBackstageGuests((prev) =>
+                  prev.filter((g) => g.userId !== uid)
+                );
               }
             }
             if (data.userId === userIdRef.current) {
-              if (data.action === "approved") {
+              if (data.action === "backstage") {
+                // Accepted into the wings: camera and mic go up exactly as
+                // an approval's do; the page shows the check, not a tile.
+                stageTargetRef.current = "backstage";
+                setBackstageOpen(true);
                 publishAsGuestRef.current();
+              } else if (data.action === "approved") {
+                stageTargetRef.current = "live";
+                // From backstage I'm already sending — just step on.
+                if (stageStateRef.current === "backstage") setStageState("live");
+                else publishAsGuestRef.current();
               } else if (
                 data.action === "removed" ||
                 data.action === "denied"
               ) {
+                const wasBackstage = stageStateRef.current === "backstage";
                 stopStagePublishRef.current();
                 setStageState("idle");
                 setStageError(
-                  data.action === "removed"
-                    ? "The host removed you from the stage."
-                    : "The host declined your request."
+                  data.action === "denied"
+                    ? "The host declined your request."
+                    : wasBackstage
+                      ? "The host took you off backstage."
+                      : "The host removed you from the stage."
                 );
               }
             }
@@ -1164,7 +1262,7 @@ export default function StreamPage({
           : "Couldn't connect to this stream. It may have ended."
       );
     }
-  }, [stream?.isLive, id, connected, fetchStream]);
+  }, [stream?.isLive, id, connected, fetchStream, setBackstage]);
 
   // Back online after a failed rejoin: go back in without waiting for a tap.
   useEffect(() => {
@@ -1387,58 +1485,84 @@ export default function StreamPage({
   /** Stop sending my camera/mic. Safe to call when not publishing. */
   const stopStagePublish = useCallback(() => {
     const room = roomRef.current;
+    stageTargetRef.current = "idle";
     setLocalStageTrack(null);
+    setLocalStageAudio(null);
     setStageMicOn(true);
     if (!room) return;
     void room.localParticipant.setCameraEnabled(false).catch(() => {});
     void room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
   }, []);
 
+  /** A start is in flight: a second call would only race it. */
+  const publishingRef = useRef(false);
+
   /**
-   * Called when the host approves me: my participant now has publish rights
-   * (granted server-side), so turning the camera on Just Works. Retried a few
-   * times because the grant and the data event race each other to my client.
+   * Called when the host approves me, or sends me backstage: my participant
+   * now has publish rights (granted server-side), so turning the camera on
+   * Just Works. Retried a few times because the grant and the data event
+   * race each other to my client. Lands wherever `stageTargetRef` says by
+   * the time the camera is up.
    */
   const publishAsGuest = useCallback(async () => {
     const room = roomRef.current;
-    if (!room || stageStateRef.current === "live") return;
+    if (!room) return;
+    // Already sending (backstage or on stage), or a start is under way: the
+    // caller set the target, and that's where it lands.
+    if (stageStateRef.current === "live" || stageStateRef.current === "backstage" || publishingRef.current) return;
+    publishingRef.current = true;
     setStageError(null);
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        await room.localParticipant.setCameraEnabled(true);
-        await room.localParticipant.setMicrophoneEnabled(true);
-        const pub = Array.from(
-          room.localParticipant.videoTrackPublications.values()
-        )[0];
-        setLocalStageTrack(
-          (pub?.track as unknown as AttachableVideoTrack) ?? null
-        );
-        setStageState("live");
-        setStageMicOn(true);
-        return;
-      } catch (err) {
-        const msg = String(err).toLowerCase();
-        if (msg.includes("permission") || msg.includes("notallowed")) {
-          // Camera denied — free the slot instead of squatting on it.
-          setStageError(
-            "Camera or microphone permission was denied, so you couldn't join."
+    try {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await room.localParticipant.setCameraEnabled(true);
+          await room.localParticipant.setMicrophoneEnabled(true);
+          // Taken off, or left, while the camera was starting: stay down.
+          if (stageTargetRef.current === "idle") {
+            stopStagePublish();
+            return;
+          }
+          const pub = Array.from(
+            room.localParticipant.videoTrackPublications.values()
+          )[0];
+          const mic = Array.from(
+            room.localParticipant.audioTrackPublications.values()
+          )[0];
+          setLocalStageTrack(
+            (pub?.track as unknown as AttachableVideoTrack) ?? null
           );
-          setStageState("idle");
-          void apiFetch(`/api/streams/${id}/guests/leave`, {
-            method: "POST",
-          }).catch(() => {});
+          setLocalStageAudio(mic?.track?.mediaStreamTrack ?? null);
+          setStageState(stageTargetRef.current);
+          setStageMicOn(true);
           return;
+        } catch (err) {
+          const msg = String(err).toLowerCase();
+          if (msg.includes("permission") || msg.includes("notallowed")) {
+            // Camera denied — free the slot instead of squatting on it.
+            setStageError(
+              "Camera or microphone permission was denied, so you couldn't join."
+            );
+            stageTargetRef.current = "idle";
+            setStageState("idle");
+            void apiFetch(`/api/streams/${id}/guests/leave`, {
+              method: "POST",
+            }).catch(() => {});
+            return;
+          }
+          // Grant may not have reached us yet — brief pause, then retry.
+          await new Promise((r) => setTimeout(r, 600));
         }
-        // Grant may not have reached us yet — brief pause, then retry.
-        await new Promise((r) => setTimeout(r, 600));
       }
+      setStageError("Couldn't start your camera. Try joining again.");
+      stageTargetRef.current = "idle";
+      setStageState("idle");
+      void apiFetch(`/api/streams/${id}/guests/leave`, { method: "POST" }).catch(
+        () => {}
+      );
+    } finally {
+      publishingRef.current = false;
     }
-    setStageError("Couldn't start your camera. Try joining again.");
-    setStageState("idle");
-    void apiFetch(`/api/streams/${id}/guests/leave`, { method: "POST" }).catch(
-      () => {}
-    );
-  }, [id]);
+  }, [id, stopStagePublish]);
 
   useEffect(() => {
     publishAsGuestRef.current = () => void publishAsGuest();
@@ -1503,12 +1627,15 @@ export default function StreamPage({
     setStageMicOn(next);
     try {
       await room.localParticipant.setMicrophoneEnabled(next);
+      // An unmute can hand out a fresh track: the backstage meter follows it.
+      const mic = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+      setLocalStageAudio(mic?.track?.mediaStreamTrack ?? null);
     } catch {
       setStageMicOn(!next);
     }
   };
 
-  // Owner: seed the stage roster (requests + who's on) once live.
+  // Owner: seed the stage roster (requests + who's on + who's waiting) once live.
   useEffect(() => {
     if (!isOwner || !stream?.isLive) return;
     let cancelled = false;
@@ -1518,6 +1645,7 @@ export default function StreamPage({
           success: boolean;
           data: {
             live: Array<{ userId: string; username: string; avatar: string }>;
+            backstage?: Array<{ userId: string; username: string; avatar: string }>;
             requests: Array<{
               userId: string;
               username: string;
@@ -1528,6 +1656,7 @@ export default function StreamPage({
         if (cancelled) return;
         setHostRequests(res.data.requests);
         setHostLiveGuests(res.data.live);
+        setHostBackstageGuests(res.data.backstage ?? []);
       } catch {
         // Sheet just starts empty; events fill it in.
       }
@@ -1537,6 +1666,25 @@ export default function StreamPage({
     };
   }, [isOwner, stream?.isLive, id]);
 
+  // Who's backstage, for everyone — signed in or not: the seed for the
+  // set that keeps them off this page's picture and out of its sound.
+  // Events keep it current from here.
+  useEffect(() => {
+    if (!stream?.isLive) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { backstage?: Array<{ userId: string }> } }>(`/api/streams/${id}/guests`)
+      .then((res) => {
+        if (cancelled) return;
+        for (const g of res.data.backstage ?? []) setBackstage(g.userId, true);
+      })
+      .catch(() => {
+        // Events still arrive; a page that loaded mid-wait may take a beat.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stream?.isLive, id, setBackstage]);
+
   const hostApprove = async (userId: string) => {
     if (hostStageBusy) return;
     setHostStageBusy(userId);
@@ -1544,11 +1692,38 @@ export default function StreamPage({
       await apiFetch(`/api/streams/${id}/guests/${userId}/approve`, {
         method: "POST",
       });
+      // From a request, or from backstage.
+      const bringOn = (row: { userId: string; username: string; avatar: string }) =>
+        setHostLiveGuests((live) => (live.some((g) => g.userId === userId) ? live : [...live, row]));
+      setHostRequests((prev) => {
+        const row = prev.find((r) => r.userId === userId);
+        if (row) bringOn(row);
+        return prev.filter((r) => r.userId !== userId);
+      });
+      setHostBackstageGuests((prev) => {
+        const row = prev.find((r) => r.userId === userId);
+        if (row) bringOn(row);
+        return prev.filter((r) => r.userId !== userId);
+      });
+    } catch {
+      // Row stays; the host can retry.
+    } finally {
+      setHostStageBusy(null);
+    }
+  };
+
+  const hostSendBackstage = async (userId: string) => {
+    if (hostStageBusy) return;
+    setHostStageBusy(userId);
+    try {
+      await apiFetch(`/api/streams/${id}/guests/${userId}/backstage`, {
+        method: "POST",
+      });
       setHostRequests((prev) => {
         const row = prev.find((r) => r.userId === userId);
         if (row) {
-          setHostLiveGuests((live) =>
-            live.some((g) => g.userId === userId) ? live : [...live, row]
+          setHostBackstageGuests((wings) =>
+            wings.some((g) => g.userId === userId) ? wings : [...wings, row]
           );
         }
         return prev.filter((r) => r.userId !== userId);
@@ -1583,6 +1758,7 @@ export default function StreamPage({
         method: "POST",
       });
       setHostLiveGuests((prev) => prev.filter((g) => g.userId !== userId));
+      setHostBackstageGuests((prev) => prev.filter((g) => g.userId !== userId));
     } catch {
       // Retryable.
     } finally {
@@ -1591,8 +1767,10 @@ export default function StreamPage({
   };
 
   // Reconcile my stage state on load: a pending request survives a refresh,
-  // but "live" can't (the refresh killed my published tracks and my publish
-  // grant) — release that slot instead of haunting the stage.
+  // and so does backstage (they're waiting on the host, not on the picture
+  // — the camera comes back up and the check shows again), but "live"
+  // can't (the refresh killed my published tracks and my publish grant) —
+  // release that slot instead of haunting the stage.
   useEffect(() => {
     if (!user || !stream?.isLive) return;
     let cancelled = false;
@@ -1602,16 +1780,24 @@ export default function StreamPage({
           success: boolean;
           data: {
             live: Array<{ userId: string }>;
+            backstage?: Array<{ userId: string }>;
             requests: Array<{ userId: string }>;
           };
         }>(`/api/streams/${id}/guests`);
         if (cancelled) return;
         if (res.data.requests.some((g) => g.userId === user.id)) {
           setStageState("requested");
+        } else if (res.data.backstage?.some((g) => g.userId === user.id)) {
+          // Still in the wings: re-arm the grant once the room is up, then
+          // the camera goes back on and the check shows again.
+          stageTargetRef.current = "backstage";
+          setBackstageOpen(true);
+          setClaimPending(true);
         } else if (res.data.live.some((g) => g.userId === user.id)) {
           if (wantStageRef.current) {
             // Co-live accept or mid-stage reconnect: the slot is mine —
             // re-arm it once the room connection is up.
+            stageTargetRef.current = "live";
             setClaimPending(true);
           } else {
             void apiFetch(`/api/streams/${id}/guests/leave`, {
@@ -2211,17 +2397,19 @@ export default function StreamPage({
    * host, our partner, their partner. Other guests sit the battle out.
    */
   const stageCells = (): SceneCell[] => {
+    // Backstage — mine or anyone's — is not on the picture.
     const me: SceneCell | null =
       stageState === "live" && localStageTrack
         ? { key: "me", identity: user?.id, node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }
         : null;
+    const onStage = guestVideos.filter((g) => !backstageIds.has(g.identity));
     const guestCell = (g: (typeof guestVideos)[number]): SceneCell => ({
       key: g.identity,
       node: <StageTile fill track={guestTracksRef.current.get(g.identity)} label={g.name} />,
     });
     if (pairOpponent && battle) {
       const mate = (sideOf(battle, id) === "host" ? battle.host : battle.challenger).partner ?? null;
-      const mateGuest = mate ? guestVideos.find((g) => g.identity === mate.userId) : undefined;
+      const mateGuest = mate ? onStage.find((g) => g.identity === mate.userId) : undefined;
       const theirMate = pairOpponent.partner ?? null;
       return [
         previewCell("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
@@ -2235,8 +2423,20 @@ export default function StreamPage({
           : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
       ];
     }
-    return [...(opponent ? [opponentCell(opponent)] : []), ...guestVideos.map(guestCell), ...(me ? [me] : [])];
+    return [...(opponent ? [opponentCell(opponent)] : []), ...onStage.map(guestCell), ...(me ? [me] : [])];
   };
+
+  /** Backstage, from my side: the mirror, the meter, the way out. */
+  const backstagePanel = (
+    <BackstagePanel
+      video={localStageTrack}
+      audio={localStageAudio}
+      micOn={stageMicOn}
+      onToggleMic={() => void toggleStageMic()}
+      onLeave={() => void leaveStage()}
+      busy={stageBusy}
+    />
+  );
 
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
@@ -2625,6 +2825,15 @@ export default function StreamPage({
                 disabled={stageBusy}
                 icon={<Clock size={22} weight="bold" />}
               />
+            ) : stageState === "backstage" ? (
+              <RailButton
+                title="You're backstage — tap to check your camera and mic"
+                label="Backstage"
+                tone="ember"
+                pulse
+                onClick={() => setBackstageOpen(true)}
+                icon={<VideoCamera size={22} weight="fill" />}
+              />
             ) : (
               <>
                 <RailButton
@@ -2726,6 +2935,23 @@ export default function StreamPage({
           </div>
         )}
 
+        {/* Backstage: my camera and mic, checked — a sheet from the bottom.
+            Closing it keeps me backstage; the rail's Backstage brings it back. */}
+        {stageState === "backstage" && backstageOpen && (
+          <div className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70" onClick={() => setBackstageOpen(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="backstage-title"
+              className="sheet-obj max-h-[85dvh] w-full overflow-y-auto rounded-t-[24px] px-4 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+              {backstagePanel}
+            </div>
+          </div>
+        )}
+
         {/* Host stage sheet */}
         {showStageSheet && (
           <div
@@ -2778,6 +3004,55 @@ export default function StreamPage({
                 </div>
               )}
 
+              {/* Accepted and publishing, seen by the crew only, until they're brought on. */}
+              {hostBackstageGuests.length > 0 && (
+                <div className="mb-5">
+                  <p className={cn(EYEBROW, "mb-2 flex items-center gap-1.5")}>
+                    <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-ember" />
+                    Backstage
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {hostBackstageGuests.map((g) => (
+                      <div
+                        key={g.userId}
+                        className="flex items-center gap-3 rounded-[14px] bg-white/[0.05] py-2 pr-2 pl-2.5"
+                      >
+                        <UserAvatar src={g.avatar} name={g.username} size={32} />
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                          {g.username}
+                        </p>
+                        <Pill
+                          size="sm"
+                          variant="primary"
+                          icon={
+                            hostStageBusy === g.userId ? (
+                              <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+                            ) : (
+                              <Check size={13} weight="bold" />
+                            )
+                          }
+                          onClick={() => hostApprove(g.userId)}
+                          disabled={hostStageBusy !== null || hostLiveGuests.length >= 3}
+                          title={hostLiveGuests.length >= 3 ? "The stage is full" : "Bring them on"}
+                        >
+                          Bring on
+                        </Pill>
+                        <Pill
+                          size="sm"
+                          variant="glass"
+                          iconOnly
+                          icon={<X size={14} weight="bold" />}
+                          aria-label={`Remove ${g.username} from backstage`}
+                          title="Remove"
+                          onClick={() => hostRemove(g.userId)}
+                          disabled={hostStageBusy !== null}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <p className={cn(EYEBROW, "mb-2")}>Asking to join</p>
               {hostRequests.length === 0 ? (
                 <p className="rounded-[14px] bg-white/[0.03] py-5 text-center text-[13px] text-muted-foreground">
@@ -2788,7 +3063,7 @@ export default function StreamPage({
                   {hostRequests.map((r) => (
                     <div
                       key={r.userId}
-                      className="flex items-center gap-3 rounded-[14px] bg-white/[0.05] py-2 pr-2 pl-2.5"
+                      className="flex items-center gap-2 rounded-[14px] bg-white/[0.05] py-2 pr-2 pl-2.5"
                     >
                       <UserAvatar src={r.avatar} name={r.username} size={32} />
                       <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
@@ -2808,6 +3083,16 @@ export default function StreamPage({
                         disabled={hostStageBusy !== null || hostLiveGuests.length >= 3}
                       >
                         Accept
+                      </Pill>
+                      {/* The wings: they set up their camera and mic where only the crew sees. */}
+                      <Pill
+                        size="sm"
+                        variant="glass"
+                        onClick={() => hostSendBackstage(r.userId)}
+                        disabled={hostStageBusy !== null || hostBackstageGuests.length >= 4}
+                        title={hostBackstageGuests.length >= 4 ? "Backstage is full" : "Let them get set up backstage first"}
+                      >
+                        Backstage
                       </Pill>
                       <Pill
                         size="sm"
@@ -3146,6 +3431,11 @@ export default function StreamPage({
               beside a wide rail at 1024 and ~730px at 1440, so the rows
               below size to it, not to the window. */}
           <div className="@container px-4 pt-5 pb-10 md:px-6">
+            {/* Backstage: my camera and mic, checked, right under the picture
+                I'm waiting to join. The Backstage pill folds it away. */}
+            {stageState === "backstage" && backstageOpen && (
+              <div className="mb-5 rounded-[12px] bg-surface p-4">{backstagePanel}</div>
+            )}
             <h1 className="font-wide text-[21px] leading-tight font-bold tracking-[-0.025em] text-balance text-foreground sm:text-[24px]">
               {stream.title}
             </h1>
@@ -3228,6 +3518,17 @@ export default function StreamPage({
                       title="Waiting for the host — click to cancel"
                     >
                       Asked to join…
+                    </Pill>
+                  ) : stageState === "backstage" ? (
+                    <Pill
+                      variant="soft"
+                      tone="ember"
+                      icon={<VideoCamera size={16} />}
+                      onClick={() => setBackstageOpen((v) => !v)}
+                      aria-expanded={backstageOpen}
+                      title="You're backstage — the host can see and hear you; viewers can't"
+                    >
+                      Backstage
                     </Pill>
                   ) : (
                     <>
