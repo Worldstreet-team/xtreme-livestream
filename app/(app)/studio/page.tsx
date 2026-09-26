@@ -61,6 +61,7 @@ import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-grap
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import { GoalPanel } from "@/components/app/goal-panel";
 import { RequestsPanel } from "@/components/app/requests-panel";
+import { ObsConnect } from "@/components/app/obs-connect";
 import { useRequestQueue } from "@/lib/requests";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
@@ -2072,6 +2073,8 @@ export default function StudioPage() {
           : "Set it once in OBS or vMix — it never changes. "}
         If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
       </p>
+      {/* Or skip the copy and paste: OBS on this computer, over its WebSocket. */}
+      <ObsConnect protocol={ingestProtocol} server={keyRows?.url ?? null} secret={keyRows?.streamKey ?? null} live={isLive} />
     </div>
   );
 
