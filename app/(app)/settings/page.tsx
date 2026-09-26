@@ -368,8 +368,18 @@ function ProfileSection() {
 
 /* ── Streaming ───────────────────────────────────────────────────────── */
 
+type Protocol = "rtmp" | "whip";
+const PROTOCOLS: { id: Protocol; label: string; server: string; key: string; hint: string }[] = [
+  { id: "rtmp", label: "RTMP · any encoder", server: "Server URL", key: "Stream key", hint: "Works with OBS, vMix, Streamlabs, ffmpeg — anything that streams RTMP." },
+  { id: "whip", label: "WHIP · OBS 30+", server: "WHIP server", key: "Bearer token", hint: "Lower delay. In OBS 30 or later: Settings → Stream → Service: WHIP, then paste the server and the bearer token." },
+];
+
 function StreamingSection() {
-  const [key, setKey] = useState<{ url: string; streamKey: string } | null>(null);
+  const [protocol, setProtocol] = useState<Protocol>("rtmp");
+  const [keys, setKeys] = useState<Record<Protocol, { url: string; streamKey: string } | null>>({ rtmp: null, whip: null });
+  const key = keys[protocol];
+  const setKey = (k: { url: string; streamKey: string }) => setKeys((all) => ({ ...all, [protocol]: k }));
+  const how = PROTOCOLS.find((p) => p.id === protocol)!;
   const [loading, setLoading] = useState(false);
   const [shown, setShown] = useState(false);
   const [copied, setCopied] = useState<"url" | "key" | null>(null);
@@ -380,7 +390,7 @@ function StreamingSection() {
   const reveal = async () => {
     setLoading(true);
     try {
-      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key");
+      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>(`/api/users/me/stream-key?protocol=${protocol}`);
       setKey(r.data);
       setShown(true);
     } catch (e) {
@@ -393,7 +403,7 @@ function StreamingSection() {
   const rotate = async () => {
     setLoading(true);
     try {
-      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key/rotate", { method: "POST" });
+      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>(`/api/users/me/stream-key/rotate?protocol=${protocol}`, { method: "POST" });
       setKey(r.data);
       setShown(true);
       setConfirm(false);
@@ -417,7 +427,7 @@ function StreamingSection() {
 
   return (
     <section id="streaming" aria-labelledby="streaming-title" className="scroll-mt-32">
-      <SectionHead id="streaming" title="Streaming" lede="Broadcast from OBS, vMix or any RTMP encoder with one server and one key that never change." />
+      <SectionHead id="streaming" title="Streaming" lede="Broadcast from OBS, vMix or any encoder — RTMP, or WHIP for lower delay — with credentials that never change." />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <div className={cn(TILE, "p-6 md:p-8 lg:col-span-8")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -431,11 +441,34 @@ function StreamingSection() {
             </Link>
           </div>
 
+          {/* Which way the encoder sends: each has its own server and key. */}
+          <div role="tablist" aria-label="Protocol" className="mt-5 inline-flex rounded-full bg-white/[0.05] p-1">
+            {PROTOCOLS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="tab"
+                aria-selected={protocol === p.id}
+                onClick={() => {
+                  setProtocol(p.id);
+                  setConfirm(false);
+                }}
+                className={cn(
+                  "press h-8 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
+                  protocol === p.id ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2.5 max-w-[62ch] text-[12.5px] leading-relaxed text-muted-foreground">{how.hint}</p>
+
           {key ? (
-            <div className="mt-6 grid gap-3">
-              <KeyRow label="Server URL" value={key.url} copied={copied === "url"} onCopy={() => copy("url", key.url)} />
+            <div className="mt-5 grid gap-3">
+              <KeyRow label={how.server} value={key.url} copied={copied === "url"} onCopy={() => copy("url", key.url)} />
               <KeyRow
-                label="Stream key"
+                label={how.key}
                 value={shown ? key.streamKey : "•".repeat(Math.min(28, key.streamKey.length))}
                 secret
                 copied={copied === "key"}
@@ -445,7 +478,7 @@ function StreamingSection() {
               />
             </div>
           ) : (
-            <div className="mt-6 flex flex-col items-start gap-3 rounded-[12px] bg-white/[0.035] p-5">
+            <div className="mt-5 flex flex-col items-start gap-3 rounded-[12px] bg-white/[0.035] p-5">
               <p className="max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
                 Keep it private — anyone with your key can broadcast on your channel. It shows here only when you ask.
               </p>
@@ -495,7 +528,9 @@ function StreamingSection() {
               </div>
             ))}
           </dl>
-          <p className="mt-auto pt-5 text-[12px] leading-relaxed text-muted-foreground/80">On a weak connection, 720p at 1,500–2,500 kbps keeps the picture steady.</p>
+          <p className="mt-auto pt-5 text-[12px] leading-relaxed text-muted-foreground/80">
+            On a weak connection, 720p at 1,500–2,500 kbps keeps the picture steady. WHIP needs OBS 30 or later.
+          </p>
         </div>
       </div>
     </section>

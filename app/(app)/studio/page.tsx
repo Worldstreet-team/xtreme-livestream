@@ -317,6 +317,9 @@ export default function StudioPage() {
    * OBS/vMix can be set up once and never touched again.
    */
   const [streamKey, setStreamKey] = useState<{ url: string; streamKey: string } | null>(null);
+  // WHIP (OBS 30+, lower delay) has its own server and bearer token beside RTMP's.
+  const [ingestProtocol, setIngestProtocol] = useState<"rtmp" | "whip">("rtmp");
+  const [whipKey, setWhipKey] = useState<{ url: string; streamKey: string } | null>(null);
   const [rotatingKey, setRotatingKey] = useState(false);
 
   // ---- Staying on air through drops ----
@@ -1530,12 +1533,29 @@ export default function StudioPage() {
     };
   }, [user, isLive, source, streamKey]);
 
+  // The WHIP key, when that's the way the encoder sends.
+  useEffect(() => {
+    if (!user || source !== "obs" || ingestProtocol !== "whip" || whipKey) return;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key?protocol=whip")
+      .then((r) => !cancelled && setWhipKey({ url: r.data.url, streamKey: r.data.streamKey }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, source, ingestProtocol, whipKey]);
+
   const rotateKey = async () => {
     if (rotatingKey) return;
     if (!window.confirm("Replace your stream key? The current one stops working immediately and OBS/vMix will need the new one.")) return;
     setRotatingKey(true);
     try {
-      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>("/api/users/me/stream-key/rotate", { method: "POST" });
+      const r = await apiFetch<{ success: boolean; data: { url: string; streamKey: string } }>(`/api/users/me/stream-key/rotate?protocol=${ingestProtocol}`, { method: "POST" });
+      if (ingestProtocol === "whip") {
+        setWhipKey({ url: r.data.url, streamKey: r.data.streamKey });
+        setKeyVisible(true);
+        return;
+      }
       setStreamKey({ url: r.data.url, streamKey: r.data.streamKey });
       setKeyVisible(true);
     } catch (err) {
@@ -1943,7 +1963,7 @@ export default function StudioPage() {
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
 
   /** The permanent key before a stream exists, the ingress once it does. */
-  const keyRows = isLive && ingressInfo ? ingressInfo : streamKey;
+  const keyRows = ingestProtocol === "whip" ? whipKey : isLive && ingressInfo ? ingressInfo : streamKey;
 
   const encoderBlock = (
     <div className="rounded-[12px] bg-white/[0.04] p-4">
@@ -1958,10 +1978,28 @@ export default function StudioPage() {
             <span className="flex items-center gap-1.5 text-xs text-amber-400"><span className="size-1.5 animate-pulse rounded-full bg-amber-400" />Waiting</span>
           )
         ) : (
-          <button type="button" onClick={rotateKey} disabled={rotatingKey || !streamKey} className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
+          <button type="button" onClick={rotateKey} disabled={rotatingKey || !keyRows} className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50">
             {rotatingKey ? "Replacing…" : "Replace key"}
           </button>
         )}
+      </div>
+      {/* RTMP for any encoder; WHIP for OBS 30+ (lower delay). */}
+      <div role="tablist" aria-label="Protocol" className="mt-3 inline-flex rounded-full bg-white/[0.05] p-0.5">
+        {(["rtmp", "whip"] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            role="tab"
+            aria-selected={ingestProtocol === p}
+            onClick={() => setIngestProtocol(p)}
+            className={cn(
+              "press h-7 rounded-full px-3 text-[11.5px] font-semibold transition-colors",
+              ingestProtocol === p ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {p === "rtmp" ? "RTMP" : "WHIP · OBS 30+"}
+          </button>
+        ))}
       </div>
       {keyRows ? (
         <div className="mt-3 space-y-2">
@@ -1973,7 +2011,7 @@ export default function StudioPage() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-16 shrink-0 text-xs text-muted-foreground">Key</span>
+            <span className="w-16 shrink-0 text-xs text-muted-foreground">{ingestProtocol === "whip" ? "Token" : "Key"}</span>
             <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? keyRows.streamKey : "••••••••••••••••••••••••"}</code>
             <button onClick={() => setKeyVisible((v) => !v)} title={keyVisible ? "Hide key" : "Reveal key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
               {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
@@ -1987,7 +2025,10 @@ export default function StudioPage() {
         <div className="mt-3 h-[76px] animate-pulse rounded-[8px] bg-white/[0.04]" />
       )}
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">
-        Set it once in OBS or vMix — it never changes. If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
+        {ingestProtocol === "whip"
+          ? "In OBS 30 or later: Settings → Stream → Service: WHIP, then paste the server and the bearer token. "
+          : "Set it once in OBS or vMix — it never changes. "}
+        If the connection drops, keep the encoder running: the stream holds for {Math.round(graceMs / 60_000)} minutes and picks up on its own. On a weak network, 720p at 30fps, 1500–2500 kbps CBR, keyframe every 2 seconds.
       </p>
     </div>
   );

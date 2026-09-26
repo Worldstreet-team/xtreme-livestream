@@ -4,6 +4,7 @@ import {
   brandBodySchema,
   searchUsersQuerySchema,
   streamIdParamsSchema,
+  streamKeyQuerySchema,
   topStreamersQuerySchema,
   updateProfileBodySchema,
   usernameParamsSchema,
@@ -63,20 +64,27 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * The account's encoder credentials — the same server URL and stream key
    * for every broadcast. Set once in OBS or vMix; the studio re-points the
-   * ingress at each new room behind the scenes.
+   * ingress at each new room behind the scenes. `protocol=whip` gives the
+   * WHIP server and bearer token instead (OBS 30+, lower delay).
    */
   app.get(
     "/users/me/stream-key",
     {
       schema: {
         tags: ["Users"],
-        summary: "The caller's persistent RTMP server URL and stream key",
+        summary: "The caller's persistent encoder server URL and key (RTMP, or WHIP)",
         security: [{ bearerAuth: [] }],
+        querystring: streamKeyQuerySchema,
       },
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const ingress = await ensureUserIngress(dbUser);
+      const { protocol } = request.query;
+      // Live on an encoder: show what's stored and leave LiveKit alone —
+      // re-pointing now would move the feed off the room it's live in.
+      const stored = protocol === "whip" ? dbUser.whipIngress : dbUser.obsIngress;
+      const liveFromEncoder = await Stream.exists({ streamerId: dbUser._id, isLive: true, source: "obs" });
+      const ingress = liveFromEncoder && stored?.ingressId ? stored : await ensureUserIngress(dbUser, undefined, protocol);
       return {
         success: true,
         data: {
@@ -95,6 +103,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Users"],
         summary: "Replace the caller's stream key — the old one stops working at once",
         security: [{ bearerAuth: [] }],
+        querystring: streamKeyQuerySchema,
       },
       config: {
         rateLimit: { max: 5, timeWindow: "1 minute" },
@@ -110,7 +119,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
           "STREAM_LIVE",
         );
       }
-      const ingress = await rotateUserIngress(dbUser);
+      const ingress = await rotateUserIngress(dbUser, request.query.protocol);
       return {
         success: true,
         data: {

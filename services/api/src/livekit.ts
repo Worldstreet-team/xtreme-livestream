@@ -50,12 +50,19 @@ export interface UserIngress {
 const standbyRoom = (userId: string) => `standby-${userId}`;
 const encoderIdentity = (userId: string) => `obs-${userId}`;
 
+/** RTMP for any encoder; WHIP for OBS 30+ and others that speak WebRTC out. */
+export type IngressProtocol = "rtmp" | "whip";
+const ingressField = (protocol: IngressProtocol) => (protocol === "whip" ? "whipIngress" : "obsIngress");
+
 async function mintIngress(
   userId: string,
   displayName: string,
   roomName: string,
+  protocol: IngressProtocol = "rtmp",
 ): Promise<UserIngress> {
-  const ingress = await ingressClient.createIngress(IngressInput.RTMP_INPUT, {
+  // WHIP keeps LiveKit's transcode, so viewers still get the simulcast
+  // ladder a weak connection needs.
+  const ingress = await ingressClient.createIngress(protocol === "whip" ? IngressInput.WHIP_INPUT : IngressInput.RTMP_INPUT, {
     name: encoderIdentity(userId),
     roomName,
     participantIdentity: encoderIdentity(userId),
@@ -77,33 +84,38 @@ async function mintIngress(
 export async function ensureUserIngress(
   user: IUser,
   roomName?: string,
+  protocol: IngressProtocol = "rtmp",
 ): Promise<UserIngress> {
   const userId = user._id.toString();
   const target = roomName ?? standbyRoom(userId);
-  if (user.obsIngress?.ingressId) {
+  const field = ingressField(protocol);
+  const current = user[field];
+  if (current?.ingressId) {
     try {
-      await ingressClient.updateIngress(user.obsIngress.ingressId, {
+      await ingressClient.updateIngress(current.ingressId, {
         name: encoderIdentity(userId),
         roomName: target,
         participantIdentity: encoderIdentity(userId),
         participantName: user.displayName,
       });
-      return user.obsIngress;
+      return current;
     } catch {
       // Gone on LiveKit's side (server reset, manual delete): mint again.
     }
   }
-  const fresh = await mintIngress(userId, user.displayName, target);
-  user.obsIngress = fresh;
+  const fresh = await mintIngress(userId, user.displayName, target, protocol);
+  user[field] = fresh;
   await user.save();
   return fresh;
 }
 
 /** A new key for the account — the old one stops working immediately. */
-export async function rotateUserIngress(user: IUser): Promise<UserIngress> {
-  if (user.obsIngress?.ingressId) await deleteIngress(user.obsIngress.ingressId);
-  user.obsIngress = undefined;
-  return ensureUserIngress(user);
+export async function rotateUserIngress(user: IUser, protocol: IngressProtocol = "rtmp"): Promise<UserIngress> {
+  const field = ingressField(protocol);
+  const current = user[field];
+  if (current?.ingressId) await deleteIngress(current.ingressId);
+  user[field] = undefined;
+  return ensureUserIngress(user, undefined, protocol);
 }
 
 /** Best-effort ingress teardown — only for rotation now; streams never delete theirs. */

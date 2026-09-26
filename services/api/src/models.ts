@@ -42,6 +42,19 @@ export interface IUser extends Document {
       }
     | undefined;
   /**
+   * The same, over WHIP (OBS 30+'s WebRTC output: lower delay than RTMP).
+   * Minted only when asked for; re-pointed with the RTMP one at go-live, so
+   * whichever the encoder uses lands in the room.
+   */
+  whipIngress?:
+    | {
+        ingressId: string;
+        url: string;
+        streamKey: string;
+        createdAt: Date;
+      }
+    | undefined;
+  /**
    * Lifetime gift earnings (net of commission), USD cents. Display/stats only —
    * the money itself is credited straight to the streamer's central wallet by
    * the charge split, so there is nothing to withdraw here.
@@ -134,6 +147,18 @@ const userSchema = new Schema<IUser>(
     verified: { type: Boolean, default: false },
     streamKey: { type: String, required: true },
     obsIngress: {
+      type: new Schema(
+        {
+          ingressId: { type: String, required: true },
+          url: { type: String, required: true },
+          streamKey: { type: String, required: true },
+          createdAt: { type: Date, default: Date.now },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
+    whipIngress: {
       type: new Schema(
         {
           ingressId: { type: String, required: true },

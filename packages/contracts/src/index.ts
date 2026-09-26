@@ -394,6 +394,10 @@ export interface StreamHeat {
  * sender stats — averages and the worst of it — and the API keeps the
  * broadcast's run of them (six hours at most) for the report afterwards.
  */
+/** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
+export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
+export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });
+
 export const HEALTH_LIMITATIONS = ["none", "cpu", "bandwidth", "other"] as const;
 export const HEALTH_LEVELS = ["good", "fair", "poor"] as const;
 export const MAX_HEALTH_WINDOWS = 720;

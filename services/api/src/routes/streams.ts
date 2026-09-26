@@ -253,6 +253,11 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         // kick the ingress — killing the feed the moment the streamer looked
         // at their own stream.
         ingress = await ensureUserIngress(dbUser, roomName);
+        // A WHIP key set up too: point it here as well, so whichever the
+        // encoder speaks lands in this room. Never fails the go-live.
+        if (dbUser.whipIngress?.ingressId) {
+          await ensureUserIngress(dbUser, roomName, "whip").catch(() => {});
+        }
       }
 
       const livekitToken = await createToken(
