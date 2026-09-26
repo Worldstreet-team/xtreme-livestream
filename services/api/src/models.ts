@@ -992,6 +992,10 @@ export interface IBattle extends Document {
   winnerId: mongoose.Types.ObjectId | null;
   bonusUsdMinor: number;
   overtimeUsed: boolean;
+  /** A counting gift in the last seconds reset the clock — once per battle. */
+  lateResetUsed: boolean;
+  /** What the loser does on the victory lap ("sings a song"); "" for none. */
+  forfeit: string;
   endedReason: "clock" | "cancelled" | "disconnect" | "declined" | "expired" | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1021,6 +1025,8 @@ const battleSchema = new Schema<IBattle>(
     winnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     bonusUsdMinor: { type: Number, default: 0 },
     overtimeUsed: { type: Boolean, default: false },
+    lateResetUsed: { type: Boolean, default: false },
+    forfeit: { type: String, default: "", maxlength: 60 },
     endedReason: { type: String, default: null },
   },
   { timestamps: true },
@@ -1035,6 +1041,26 @@ battleSchema.index({ status: 1, scheduledAt: 1 });
 battleSchema.index({ challengerId: 1, status: 1, invitedAt: -1 });
 
 export const Battle = mongoose.model<IBattle>("Battle", battleSchema);
+
+/**
+ * Quick match: a live host waiting for any opponent. One entry per host;
+ * the next host to ask is paired with the one waiting longest. Entries
+ * lapse after two minutes (and are swept by Mongo's TTL after that).
+ */
+export interface IBattleQueue extends Document {
+  userId: mongoose.Types.ObjectId;
+  streamId: mongoose.Types.ObjectId;
+  at: Date;
+}
+const battleQueueSchema = new Schema<IBattleQueue>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    at: { type: Date, default: Date.now, expires: 300 },
+  },
+  { timestamps: false },
+);
+export const BattleQueue = mongoose.model<IBattleQueue>("BattleQueue", battleQueueSchema);
 
 /* ------------------------------------------------------------------ */
 /* Points and games                                                    */

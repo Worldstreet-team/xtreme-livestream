@@ -42,14 +42,22 @@ export function BattlePanel({
   const booked = useMemo(() => mine.filter((b) => b.status === "scheduled"), [mine]);
   const [bookName, setBookName] = useState("");
   const [bookAt, setBookAt] = useState("");
+  // What the loser does on the victory lap — goes with an invite or a booking.
+  const [forfeit, setForfeit] = useState("");
+  // Waiting in quick match for whoever's free.
+  const [queued, setQueued] = useState(false);
   const outgoing = useMemo(() => mine.find((b) => b.status === "invited" && b.host.userId === user?.id) ?? null, [mine, user?.id]);
   const incoming = useMemo(() => mine.filter((b) => b.status === "invited" && b.challenger.userId === user?.id), [mine, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      apiFetch<{ success: boolean; data: { battles: BattleView[] } }>(`/api/battles/mine`)
-        .then((r) => !cancelled && setMine(r.data.battles))
+      apiFetch<{ success: boolean; data: { battles: BattleView[]; queued?: boolean } }>(`/api/battles/mine`)
+        .then((r) => {
+          if (cancelled) return;
+          setMine(r.data.battles);
+          setQueued(Boolean(r.data.queued));
+        })
         .catch(() => {});
     void load();
     const t = setInterval(load, 3000);
@@ -85,6 +93,27 @@ export function BattlePanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Quick match: battle whoever else is waiting, or wait for the next to ask. */
+  const quickMatch = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await apiFetch<{ success: boolean; data: { battle: BattleView | null; queued: boolean } }>(`/api/battles/quick`, { method: "POST" });
+      const matched = r.data.battle;
+      if (matched) setMine((m) => [matched, ...m.filter((b) => b.id !== matched.id)]);
+      setQueued(r.data.queued);
+      if (matched) setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't look for a match");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const leaveQuickMatch = () => {
+    setQueued(false);
+    apiFetch(`/api/battles/quick`, { method: "DELETE" }).catch(() => {});
   };
 
   const candidates = live.filter((s) => {
@@ -141,6 +170,15 @@ export function BattlePanel({
             </Pill>
           </div>
         ))}
+        {queued && !outgoing && (
+          <div className="flex items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
+            <span className="size-2 animate-pulse rounded-full bg-ember" />
+            Looking for an opponent…
+            <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={leaveQuickMatch} disabled={busy}>
+              Cancel
+            </Pill>
+          </div>
+        )}
         {outgoing ? (
           <div className="flex items-center gap-2 rounded-sm bg-white/[0.05] py-1.5 pr-1.5 pl-2.5 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-ember" />
@@ -159,10 +197,29 @@ export function BattlePanel({
 
       {open && !outgoing && (
         <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-popover shadow-2xl")}>
+          {/* Quickest way in: whoever else is waiting, straight into a battle. */}
+          <div className="mb-3 flex items-center gap-3 rounded-sm bg-ember/[0.1] p-2.5">
+            <Pill size="sm" variant="ember" icon={<Lightning size={13} weight="fill" />} onClick={() => void quickMatch()} disabled={busy || queued}>
+              {queued ? "Looking…" : "Quick match"}
+            </Pill>
+            <p className="min-w-0 text-[12px] leading-snug text-muted-foreground">
+              {queued ? "You'll be matched with the next creator who's looking." : "Battle whoever's free right now — it starts the moment you're paired."}
+            </p>
+          </div>
+
           <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">
             <Trophy size={12} weight="fill" />
             Challenge a live creator
           </p>
+          {/* The stakes: what the loser does on the victory lap. */}
+          <input
+            value={forfeit}
+            onChange={(e) => setForfeit(e.target.value)}
+            maxLength={60}
+            placeholder="What the loser does — “sings a song” (optional)"
+            aria-label="What the loser does"
+            className="mb-2 h-9 w-full rounded-sm bg-white/[0.06] px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+          />
           <div className="relative mb-2">
             <MagnifyingGlass size={14} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground/60" />
             <input
@@ -179,7 +236,7 @@ export function BattlePanel({
                 key={s._id}
                 type="button"
                 disabled={busy}
-                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username })}
+                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username, forfeit: forfeit.trim() })}
                 className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-white/[0.05] disabled:opacity-50"
               >
                 <UserAvatar src={s.streamerId.avatar} name={s.streamerId.displayName} size={32} className="size-8" />
@@ -194,7 +251,9 @@ export function BattlePanel({
               </button>
             ))}
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground/60">Five minutes on the clock. Gifts decide it; the last 30 seconds count double.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground/60">
+            Five minutes on the clock. Gifts decide it; the last 30 seconds count double, and a gift in the last 10 resets the clock once.
+          </p>
 
           {/* Or book one: it starts by itself once both are live at the time. */}
           <div className="mt-3 border-t border-white/[0.08] pt-3">
@@ -219,7 +278,7 @@ export function BattlePanel({
                 size="sm"
                 variant="glass"
                 disabled={busy || !bookName.trim() || !bookAt}
-                onClick={() => act(`/api/battles/schedule`, { challengerUsername: bookName.trim().replace(/^@/, ""), scheduledAt: new Date(bookAt).toISOString() })}
+                onClick={() => act(`/api/battles/schedule`, { challengerUsername: bookName.trim().replace(/^@/, ""), scheduledAt: new Date(bookAt).toISOString(), forfeit: forfeit.trim() })}
               >
                 Book
               </Pill>

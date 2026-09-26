@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Gift, Lightning, Trophy, ArrowSquareOut } from "@/components/icons";
 import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, type BattleView } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
@@ -52,6 +52,16 @@ export function BattleBar({
   const iWon = ended && battle.winnerId === me.userId;
   const tie = ended && !battle.winnerId;
   const lead = battle.host.usdMinor - battle.challenger.usdMinor;
+  const loser = ended && battle.winnerId ? (battle.winnerId === battle.host.userId ? battle.challenger : battle.host) : null;
+
+  // A late gift just reset the clock: say so beside it for a moment.
+  const [resetSeen, setResetSeen] = useState(Boolean(battle.lateResetUsed));
+  const [flashUntil, setFlashUntil] = useState(0);
+  if (Boolean(battle.lateResetUsed) !== resetSeen) {
+    setResetSeen(Boolean(battle.lateResetUsed));
+    if (battle.lateResetUsed) setFlashUntil(now + 3000);
+  }
+  const resetFlash = !ended && now < flashUntil;
 
   return (
     <div className={cn("pointer-events-none absolute inset-x-3 top-3 z-20 flex flex-col gap-2 md:inset-x-4 md:top-4", className)}>
@@ -87,6 +97,8 @@ export function BattleBar({
               <Trophy size={12} weight="fill" />
               {tie ? "Draw" : "Final"}
             </>
+          ) : resetFlash ? (
+            "+15s"
           ) : (
             <>
               {hot && <Lightning size={12} weight="fill" />}
@@ -102,9 +114,10 @@ export function BattleBar({
 
       {/* The totals in money numerals, the lead called out, then the actions. */}
       <div className="flex items-center justify-between gap-2 px-1 text-white drop-shadow">
-        <span className="flex items-baseline gap-1.5">
+        <span className="flex items-center gap-1.5">
           <span className="font-money text-[17px]">{usd(battle.host.usdMinor)}</span>
           {!ended && lead > 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {usd(lead)}</span>}
+          <Backers backers={battle.host.top} ring="ring-chili" />
         </span>
         {ended ? (
           <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold">
@@ -112,8 +125,10 @@ export function BattleBar({
             {battle.bonusUsdMinor > 0 && !tie ? ` · +${usd(battle.bonusUsdMinor)} bonus` : ""}
           </span>
         ) : (
-          <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold whitespace-nowrap">
-            {hot ? (
+          <span className="min-w-0 truncate rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold whitespace-nowrap">
+            {!hot && battle.forfeit ? (
+              `Loser: ${battle.forfeit}`
+            ) : hot ? (
               <>
                 {/* The clock already says ×2; a phone keeps the line to one row. */}
                 <span className="hidden sm:inline">Last seconds — </span>
@@ -125,11 +140,21 @@ export function BattleBar({
             )}
           </span>
         )}
-        <span className="flex items-baseline gap-1.5">
+        <span className="flex items-center gap-1.5">
+          <Backers backers={battle.challenger.top} ring="ring-ember" />
           {!ended && lead < 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {usd(-lead)}</span>}
           <span className="font-money text-[17px]">{usd(battle.challenger.usdMinor)}</span>
         </span>
       </div>
+
+      {/* The victory lap: what the loser owes, for the minute the result stays up. */}
+      {loser && battle.forfeit && (
+        <div className="flex justify-center">
+          <span className="max-w-full truncate rounded-full bg-ember px-3 py-1 text-[12px] font-bold text-on-ember">
+            Victory lap · {loser.displayName} {battle.forfeit}
+          </span>
+        </div>
+      )}
 
       {!ended && (
         // On a phone the names give way: "Back Ada" keeps its length in check
@@ -152,6 +177,22 @@ export function BattleBar({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A side's top three backers, their faces small and overlapping, in the
+ * side's colour. From a small tablet up: a phone's scoreboard row has no
+ * room, and its header already shows the room's top faces.
+ */
+function Backers({ backers, ring }: { backers?: BattleView["host"]["top"]; ring: string }) {
+  if (!backers || backers.length === 0) return null;
+  return (
+    <span className="hidden -space-x-1.5 sm:flex" aria-label={`Top backers: ${backers.map((b) => b.displayName).join(", ")}`}>
+      {backers.map((b) => (
+        <UserAvatar key={b.userId} src={b.avatar} name={b.displayName} size={18} className={cn("size-[18px] ring-[1.5px]", ring)} />
+      ))}
+    </span>
   );
 }
 

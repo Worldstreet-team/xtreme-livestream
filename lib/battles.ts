@@ -13,6 +13,8 @@ export interface BattleSide {
   streamId: string;
   /** Score: gross gift value counted for this side, in USD cents. */
   usdMinor: number;
+  /** The side's biggest backers, by what their gifts scored. */
+  top?: Array<{ userId: string; username: string; displayName: string; avatar: string; usdMinor: number }>;
 }
 
 export interface BattleView {
@@ -29,6 +31,10 @@ export interface BattleView {
   winnerId: string | null;
   bonusUsdMinor: number;
   overtimeUsed: boolean;
+  /** A counting gift in the last seconds reset the clock (once a battle). */
+  lateResetUsed?: boolean;
+  /** What the loser does on the victory lap ("sings a song"); "" for none. */
+  forfeit?: string;
   endedReason: string | null;
 }
 

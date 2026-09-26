@@ -9,7 +9,10 @@ import { Battle, Stream, User } from "../models.js";
 import {
   currentBattleForStream,
   fanOutBattle,
+  inQuickMatch,
   inviteToBattle,
+  leaveQuickMatch,
+  quickMatch,
   recentResultForStream,
   scheduleBattle,
   settleBattle,
@@ -19,14 +22,18 @@ import {
 } from "../battles.js";
 
 // Candidates for @xtreme/contracts once the client SDK adopts battles.
+/** What the loser does on the victory lap ("sings a song"), if anything. */
+const forfeitSchema = z.string().trim().max(60).default("");
 const inviteBodySchema = z.object({
   /** The creator to challenge — must be live right now. */
   challengerUsername: z.string().trim().min(1).max(60),
+  forfeit: forfeitSchema,
 });
 const scheduleBodySchema = z.object({
   challengerUsername: z.string().trim().min(1).max(60),
   /** ISO time; at least five minutes out, at most two weeks. */
   scheduledAt: z.string().min(10).max(40),
+  forfeit: forfeitSchema,
 });
 const battleIdParamsSchema = z.object({
   id: z.string().regex(/^[a-f\d]{24}$/i, "Invalid battle id"),
@@ -71,8 +78,45 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         { _id: dbUser._id, username: dbUser.username, displayName: dbUser.displayName },
         hostStream,
         challengerStream,
+        request.body.forfeit,
       );
+      // An invite out means not waiting for a stranger any more.
+      await leaveQuickMatch(dbUser._id);
       return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/quick",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "Quick match: battle whoever else is waiting, or wait for the next to ask",
+        security: [{ bearerAuth: [] }],
+      },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const myStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      if (!myStream) throw new ApiError(400, "Go live before you look for a battle", "NOT_LIVE");
+      const busy = await Battle.exists({
+        status: { $in: ["invited", "live", "overtime"] },
+        $or: [{ hostStreamId: myStream._id }, { challengerStreamId: myStream._id }],
+      });
+      if (busy) throw new ApiError(409, "You're already in a battle or have an open invite", "BATTLE_BUSY");
+      const { battle, queued } = await quickMatch({ _id: dbUser._id }, myStream);
+      return { success: true, data: { battle: battle ? await toBattleView(battle) : null, queued } };
+    },
+  );
+
+  app.delete(
+    "/battles/quick",
+    { schema: { tags: ["Battles"], summary: "Stop waiting for a quick match", security: [{ bearerAuth: [] }] } },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      await leaveQuickMatch(dbUser._id);
+      return { success: true, data: { queued: false } };
     },
   );
 
@@ -147,6 +191,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         { _id: dbUser._id, username: dbUser.username, displayName: dbUser.displayName },
         { _id: challenger._id, username: challenger.username, displayName: challenger.displayName },
         at,
+        request.body.forfeit,
       );
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
@@ -178,7 +223,10 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         status: { $in: ["scheduled", "invited", "live", "overtime"] },
         $or: [{ hostId: dbUser._id }, { challengerId: dbUser._id }],
       }).sort({ invitedAt: -1 });
-      return { success: true, data: { battles: await Promise.all(battles.map(toBattleView)) } };
+      return {
+        success: true,
+        data: { battles: await Promise.all(battles.map(toBattleView)), queued: await inQuickMatch(dbUser._id) },
+      };
     },
   );
 
