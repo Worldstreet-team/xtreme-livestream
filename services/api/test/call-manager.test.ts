@@ -82,6 +82,20 @@ describe("calls: ringing in", () => {
     expect(callManager.getState()).toMatchObject({ status: "ended", endReason: "unanswered" });
   });
 
+  it("says where a ring came from when it wasn't Xtream", () => {
+    const { ring } = wire();
+    ring(CONV, { platform: "worldspace" });
+    expect(callManager.getState().via).toBe("via WorldSpace");
+    callManager.declineCall();
+    vi.advanceTimersByTime(1_800);
+    ring(CONV, { platform: "xstream" });
+    expect(callManager.getState().via).toBeNull();
+    callManager.declineCall();
+    vi.advanceTimersByTime(1_800);
+    ring(CONV);
+    expect(callManager.getState().via).toBeNull();
+  });
+
   it("names a group call by the group, and says who's calling", () => {
     const { ring } = wire();
     ring(CONV, { kind: "group", group: { name: "Night Owls", memberCount: 8 } });

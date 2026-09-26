@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { clockTime, describeMessage, personName, pollFootnote, senderIdOf } from "@/lib/messaging";
 import { FloatingMenu, FloatingReactions, type MessageAction } from "./message-actions";
 import { VoiceNote } from "./voice-note";
+import { ViaTag } from "./via-tag";
 
 /**
  * One message in a thread.
@@ -94,6 +95,7 @@ export function MessageBubble({
   showName,
   meId,
   highlighted,
+  via,
   open,
   placeBelow,
   actions,
@@ -116,6 +118,8 @@ export function MessageBubble({
   meId: string | null;
   /** Briefly lit after a jump to it. */
   highlighted: boolean;
+  /** "via WorldSpace" when it came from elsewhere (first of a run only). */
+  via?: string | null;
   /** Which floating control is open on this message (wide screens). */
   open: "react" | "menu" | null;
   placeBelow: boolean;
@@ -326,6 +330,9 @@ export function MessageBubble({
                 m.pending && "opacity-60",
               )}
             >
+              {via && !unframed && (
+                <ViaTag label={via} tone={mine ? "on-ember" : "muted"} className={cn("mb-1 flex", mediaFramed && "px-2 pt-1")} />
+              )}
               {m.replyTo && <ReplyQuote reply={m.replyTo} onMine={mine} onJump={() => onJumpTo(m.replyTo!._id)} />}
               {items ? (
                 <Album items={items} onOpen={onOpenMedia} framed={!unframed} />
@@ -374,6 +381,8 @@ export function MessageBubble({
         {!removed && m.reactions && m.reactions.length > 0 && (
           <Reactions reactions={m.reactions} meId={meId} onReact={onReact} alignEnd={mine} />
         )}
+
+        {via && unframed && <ViaTag label={via} className={cn("mt-1 px-1.5", mine && "self-end")} />}
 
         {(m.editedAt || m.failed) && !removed && (
           <p className={cn("mt-1 flex items-center gap-1.5 px-1.5 text-[11px] text-muted-foreground", mine ? "justify-end" : "justify-start")}>

@@ -3,6 +3,7 @@
 import { Phone, PhoneX, VideoCamera } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { callOutcome, clockTime } from "@/lib/messaging";
+import { ViaTag } from "./via-tag";
 
 /**
  * A finished call, in the thread. Not a speech bubble — a call isn't
@@ -14,11 +15,14 @@ export function CallLogRow({
   content,
   at,
   mine,
+  via,
   onCallBack,
 }: {
   content: string;
   at: string;
   mine: boolean;
+  /** "via WorldSpace" when the call was placed from there. */
+  via?: string | null;
   /** Absent while a call is already on. */
   onCallBack?: (video: boolean) => void;
 }) {
@@ -37,7 +41,15 @@ export function CallLogRow({
         </span>
         <span className="min-w-0 pr-1 leading-tight">
           <span className="block truncate text-[13.5px] font-medium text-foreground">{content || "Call"}</span>
-          <span className="block text-[11.5px] text-muted-foreground tabular-nums">{clockTime(at)}</span>
+          <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
+            {clockTime(at)}
+            {via && (
+              <>
+                <span aria-hidden>·</span>
+                <ViaTag label={via} />
+              </>
+            )}
+          </span>
         </span>
         {missed && onCallBack && (
           <button

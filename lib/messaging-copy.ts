@@ -341,3 +341,33 @@ export function waveformBars(peaks: number[] | undefined, bars: number, seed = "
     return Math.min(1, Math.max(0.12, r * envelope));
   });
 }
+
+/* ---------------- Where it came from ---------------- */
+
+/**
+ * The platform a message or a call came from, named from Xtream's side
+ * (owner: "know if a message is from WorldSpace or from Xstream", "if a
+ * missed call is from WorldSpace or from Xstream"). The gateway stamps
+ * `source` on every message and `platform` on every ring. WorldSpace and
+ * its phone app are one place; Xtream is home and is never named — the
+ * mirror of WorldSpace, which names Xtream and never itself. A platform
+ * this list doesn't know yet is still named, not hidden.
+ */
+const PLATFORM_NAMES: Record<string, string> = {
+  worldspace: "WorldSpace",
+  app: "WorldSpace",
+  dashboard: "Dashboard",
+  academy: "Academy",
+  shop: "Shop",
+};
+
+export function platformName(source: string | null | undefined): string | null {
+  if (!source || source === "xstream") return null;
+  return PLATFORM_NAMES[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
+}
+
+/** "via WorldSpace" for anything sent or rung from elsewhere, else null. */
+export function viaPlatform(source: string | null | undefined): string | null {
+  const name = platformName(source);
+  return name ? `via ${name}` : null;
+}

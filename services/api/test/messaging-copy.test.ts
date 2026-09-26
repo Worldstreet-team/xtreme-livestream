@@ -11,10 +11,12 @@ import {
   waveformBars,
   lastSeenLabel,
   personName,
+  platformName,
   pollFootnote,
   shortTime,
   streamContext,
   systemEventCopy,
+  viaPlatform,
 } from "../../lib/messaging-copy";
 
 const ADA = "a".repeat(24);
@@ -220,5 +222,20 @@ describe("the thread's rhythm", () => {
     expect(a).toEqual(waveformBars(undefined, 24, "msg-1"));
     expect(a).not.toEqual(waveformBars(undefined, 24, "msg-2"));
     expect(Math.min(...a)).toBeGreaterThanOrEqual(0.12);
+  });
+});
+
+describe("where it came from", () => {
+  it("names WorldSpace — web and phone app alike — and never home", () => {
+    expect(viaPlatform("worldspace")).toBe("via WorldSpace");
+    expect(viaPlatform("app")).toBe("via WorldSpace");
+    expect(viaPlatform("xstream")).toBeNull();
+    expect(viaPlatform(undefined)).toBeNull();
+  });
+
+  it("names the other WorldStreet apps, and one it doesn't know yet", () => {
+    expect(viaPlatform("dashboard")).toBe("via Dashboard");
+    expect(platformName("academy")).toBe("Academy");
+    expect(platformName("arcade")).toBe("Arcade");
   });
 });

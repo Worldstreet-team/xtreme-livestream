@@ -236,11 +236,13 @@ export {
   lastSeenLabel,
   needsStamp,
   personName,
+  platformName,
   pollFootnote,
   shortTime,
   stampLabel,
   streamContext,
   systemEventCopy,
+  viaPlatform,
   waveformBars,
 } from "@/lib/messaging-copy";
 

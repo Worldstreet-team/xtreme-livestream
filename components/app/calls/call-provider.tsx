@@ -87,7 +87,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     if (Notification.permission !== "granted" || document.visibilityState === "visible") return;
     const who = incoming.isGroup ? `${incoming.groupCaller?.name ?? "Someone"} · ${incoming.peer.name}` : incoming.peer.name;
     const notification = new Notification(`${who} is calling`, {
-      body: incoming.isVideo ? "Incoming video call on Xtream" : "Incoming voice call on Xtream",
+      body: `${incoming.isVideo ? "Incoming video call" : "Incoming voice call"}${incoming.via ? ` · ${incoming.via}` : ""}`,
       icon: incoming.peer.avatar || undefined,
       tag: "xtream-incoming-call",
     });
@@ -96,7 +96,7 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
       notification.close();
     };
     return () => notification.close();
-  }, [incoming?.peer, incoming?.isGroup, incoming?.groupCaller?.name, incoming?.isVideo]);
+  }, [incoming?.peer, incoming?.isGroup, incoming?.groupCaller?.name, incoming?.isVideo, incoming?.via]);
 
   // Ask for notification permission on the first call, never on page load.
   const active = state.status !== "idle";

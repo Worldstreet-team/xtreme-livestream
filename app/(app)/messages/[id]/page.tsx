@@ -19,8 +19,10 @@ import {
   nudgeUnread,
   personName,
   senderIdOf,
+  platformName,
   stampLabel,
   systemEventCopy,
+  viaPlatform,
   threadAvatar,
   threadTitle,
   useMessagingEvents,
@@ -73,7 +75,7 @@ type Entry =
   | { type: "stamp"; key: string; iso: string }
   | { type: "unread"; key: string }
   | { type: "system"; key: string; m: ThreadMessage }
-  | { type: "call"; key: string; m: ThreadMessage; mine: boolean }
+  | { type: "call"; key: string; m: ThreadMessage; mine: boolean; via: string | null }
   | {
       type: "msg";
       key: string;
@@ -82,6 +84,8 @@ type Entry =
       mine: boolean;
       groupedAbove: boolean;
       groupedBelow: boolean;
+      /** "via WorldSpace", on the first bubble of a run from there (or where the platform changes). */
+      via: string | null;
     };
 
 /** The thread as rows: stamps across gaps, the unread line, runs, albums. */
@@ -96,7 +100,7 @@ function buildEntries(messages: ThreadMessage[], meId: string | null, firstUnrea
     const mine = Boolean(meId) && senderIdOf(m.sender) === meId;
 
     if (m.type === "system") out.push({ type: "system", key: m._id, m });
-    else if (m.type === "call") out.push({ type: "call", key: m._id, m, mine });
+    else if (m.type === "call") out.push({ type: "call", key: m._id, m, mine, via: viaPlatform(m.source) });
     else {
       // Pictures sent together (one groupKey) paint as one album.
       let album: ThreadMessage[] | undefined;
@@ -120,7 +124,10 @@ function buildEntries(messages: ThreadMessage[], meId: string | null, firstUnrea
         !breaks &&
         senderIdOf(last.m.sender) === senderIdOf(m.sender) &&
         new Date(m.createdAt).getTime() - new Date((last.album?.at(-1) ?? last.m).createdAt).getTime() < RUN_GAP_MS;
-      out.push({ type: "msg", key: m._id, m, album, mine, groupedAbove, groupedBelow: false });
+      // Where it came from, said once per run: again only if the platform changes.
+      const via = viaPlatform(m.source);
+      const prevVia = groupedAbove && last?.type === "msg" ? viaPlatform((last.album?.at(-1) ?? last.m).source) : undefined;
+      out.push({ type: "msg", key: m._id, m, album, mine, groupedAbove, groupedBelow: false, via: via !== prevVia ? via : null });
     }
     prev = messages[i];
   }
@@ -1059,7 +1066,9 @@ function Thread({ id }: { id: string }) {
                             : `Say hi to ${title.split(" ")[0]}. It lands in WorldSpace and the app too.`
                           : row?.context?.title
                             ? `This conversation started from “${row.context.title}”.`
-                            : "This is the beginning of your conversation."}
+                            : platformName(row?.source)
+                              ? `This conversation started on ${platformName(row?.source)}.`
+                              : "This is the beginning of your conversation."}
                       </p>
                     </div>
                   )}
@@ -1097,6 +1106,7 @@ function Thread({ id }: { id: string }) {
                           content={e.m.content}
                           at={e.m.createdAt}
                           mine={e.mine}
+                          via={e.via}
                           onCallBack={canCall ? (video) => startCall(video) : undefined}
                         />
                       );
@@ -1114,6 +1124,7 @@ function Thread({ id }: { id: string }) {
                           showName={isGroup && !e.mine && !e.groupedAbove}
                           meId={meId}
                           highlighted={highlight === m._id}
+                          via={e.via}
                           open={isOpen}
                           placeBelow={Boolean(active?.below)}
                           actions={active?.id === m._id ? actionsFor(m, active.at) : []}
@@ -1217,6 +1228,7 @@ function Thread({ id }: { id: string }) {
             owner={owner}
             archived={Boolean(row.archived)}
             context={row.context ?? null}
+            source={row.source}
             canCall={canCall}
             onVoiceCall={() => startCall(false)}
             onVideoCall={() => startCall(true)}

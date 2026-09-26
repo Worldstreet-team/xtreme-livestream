@@ -1,4 +1,5 @@
 import type { CallIncoming, CallSignal, CallTokenResult } from "@worldstreet/messaging-sdk";
+import { viaPlatform } from "./messaging-copy";
 import type { LocalVideoTrack, RemoteTrack, Room } from "livekit-client";
 
 /**
@@ -77,6 +78,8 @@ export interface CallState {
   poorConnection: boolean;
   error: string | null;
   rejoinable: RejoinableCall | null;
+  /** Where a ring came from when it wasn't Xtream: "via WorldSpace". */
+  via: string | null;
 }
 
 /** What the manager needs from the gateway. CallProvider wires the SDK in. */
@@ -135,6 +138,7 @@ export const IDLE_CALL_STATE: CallState = {
   poorConnection: false,
   error: null,
   rejoinable: null,
+  via: null,
 };
 
 /** The sentence the gateway refused with, when it gave one. */
@@ -670,6 +674,10 @@ class CallManager {
           conversationId: data.conversationId ?? null,
           isVideo: Boolean(data.isVideo),
           camOn: Boolean(data.isVideo),
+          // The gateway stamps the platform the ring came from (the same
+          // stamp a message carries as `source`); the contract doesn't
+          // declare it yet, so it's read loosely and absent means home.
+          via: viaPlatform(typeof data.platform === "string" ? data.platform : null),
         });
         // Phones stop ringing on their own; in a group nobody else will stop ours.
         this.ringTimer = setTimeout(() => {

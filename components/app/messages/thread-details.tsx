@@ -6,7 +6,7 @@ import type { Message } from "@worldstreet/messaging-sdk";
 import { Archive, Broadcast, MagnifyingGlass, Phone, Play, SignOut, Trash, VideoCamera, X } from "@/components/icons";
 import { UserAvatar } from "@/components/xtream";
 import { cn } from "@/lib/utils";
-import { contextHref, messaging } from "@/lib/messaging";
+import { contextHref, messaging, platformName } from "@/lib/messaging";
 import type { ViewerItem } from "./media-viewer";
 
 type MuteChoice = "on" | "8h" | "1w" | "forever";
@@ -34,6 +34,7 @@ export function ThreadDetails({
   owner,
   archived,
   context,
+  source,
   canCall,
   onVoiceCall,
   onVideoCall,
@@ -53,6 +54,8 @@ export function ThreadDetails({
   owner: boolean;
   archived: boolean;
   context: { kind: string; title?: string; url?: string } | null;
+  /** The platform that opened the thread. */
+  source?: string;
   canCall: boolean;
   onVoiceCall: () => void;
   onVideoCall: () => void;
@@ -232,7 +235,8 @@ export function ThreadDetails({
       </section>
 
       <p className="mx-4 mt-6 rounded-panel bg-white/[0.03] px-4 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
-        This thread is shared with WorldSpace: the same messages, calls and media, in the web app and on the phone app too.
+        {platformName(source) ? `Started on ${platformName(source)}. ` : ""}This thread is shared with WorldSpace: the same messages, calls
+        and media, in the web app and on the phone app too.
       </p>
 
       <section className="mt-4 mb-8 px-2 pb-[env(safe-area-inset-bottom)]">

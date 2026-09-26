@@ -19,6 +19,7 @@ import { UserAvatar } from "@/components/xtream";
 import { cn } from "@/lib/utils";
 import { CALL_END_COPY, callManager, formatCallClock, type CallPeer } from "@/lib/call-manager";
 import { useCall } from "./call-provider";
+import { ViaTag } from "@/components/app/messages/via-tag";
 
 /**
  * The one surface a call lives on, in all its shapes:
@@ -238,6 +239,7 @@ export function CallSurface() {
     poorConnection,
     error,
     rejoinable,
+    via,
   } = call;
 
   const elapsed = useElapsed(startedAt);
@@ -296,10 +298,12 @@ export function CallSurface() {
           <div className="flex items-center gap-4 rounded-overlay bg-surface-raised p-4 pr-3.5 shadow-[0_28px_70px_-20px_rgba(0,0,0,0.95)]">
             <CallFace peer={peer} size={52} waiting isGroup={isGroup} />
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-ember-hi uppercase">{kind}</p>
+              <p className="text-[11px] font-semibold tracking-[0.14em] whitespace-nowrap text-ember-hi uppercase">{kind}</p>
               <p className="mt-0.5 truncate text-[16px] font-semibold text-foreground">{peer.name}</p>
               <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12.5px] text-muted-foreground">
-                <span className="truncate">{line}</span>
+                {/* Where it's ringing from says more than "wants to call" (the
+                    eyebrow already says what kind of call it is). */}
+                {via && !isGroup ? <ViaTag label={via} /> : <span className="truncate">{line}</span>}
                 <Dots />
               </p>
             </div>
@@ -315,7 +319,10 @@ export function CallSurface() {
         </div>
         <div role="alertdialog" aria-label={`${peer.name} ${line}`} className="msg-fade fixed inset-0 z-[62] flex flex-col bg-[#0b0708] md:hidden">
           <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-            <p className="text-[11.5px] font-semibold tracking-[0.16em] text-ember-hi uppercase">{kind} · Xtream</p>
+            <p className="text-[11.5px] font-semibold tracking-[0.16em] text-ember-hi uppercase">
+              {kind}
+              {via ? ` · ${via}` : ""}
+            </p>
             <div className="mt-8">
               <CallFace peer={peer} size={132} waiting isGroup={isGroup} />
             </div>
@@ -445,7 +452,13 @@ export function CallSurface() {
                 {line}
                 {pending && <Dots />}
               </p>
-              {peer.username && !isGroup && <p className="mt-1 text-[13px] text-white/35">@{peer.username}</p>}
+              {(peer.username || via) && !isGroup && (
+                <p className="mt-1 text-[13px] text-white/35">
+                  {peer.username ? `@${peer.username}` : ""}
+                  {peer.username && via ? " · " : ""}
+                  {via ?? ""}
+                </p>
+              )}
               <div className="mt-5 flex min-h-7 flex-wrap justify-center gap-2">
                 {remoteMuted && status === "connected" && (
                   <Chip>
