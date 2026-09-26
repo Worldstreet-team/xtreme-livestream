@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ChatText } from "@/components/icons";
 import { AudienceCurve } from "@/components/app/audience-curve";
 import { durationWords, MOMENT_LABELS, minuteStamp, useStreamAnalytics, type StreamAnalytics } from "@/lib/analytics";
@@ -24,7 +25,18 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
  * audience curve with what happened on it, the numbers that matter, where
  * people left and what was on then, and what the chat asked.
  */
-export function RecapTile({ analytics, title, eyebrow = "Recap" }: { analytics: StreamAnalytics; title: string; eyebrow?: string }) {
+export function RecapTile({
+  analytics,
+  title,
+  eyebrow = "Recap",
+  action,
+}: {
+  analytics: StreamAnalytics;
+  title: string;
+  eyebrow?: string;
+  /** A small control beside the date — Your channel uses it for "Back to latest". */
+  action?: ReactNode;
+}) {
   const { summary, moments, dropOffs, questions } = analytics;
   const listed = moments.filter((m) => m.kind !== "peak").slice(0, 12);
   return (
@@ -34,9 +46,12 @@ export function RecapTile({ analytics, title, eyebrow = "Recap" }: { analytics: 
           <p className={EYEBROW}>{eyebrow}</p>
           <p className="mt-1.5 font-wide text-[20px] font-bold tracking-[-0.02em] text-balance md:text-[22px]">{title}</p>
         </div>
-        <p className="shrink-0 text-[12.5px] text-muted-foreground">
-          {new Date(analytics.startedAt).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} · {durationWords(summary.durationMinutes)} on air
-        </p>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <p className="text-[12.5px] text-muted-foreground">
+            {new Date(analytics.startedAt).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} · {durationWords(summary.durationMinutes)} on air
+          </p>
+          {action}
+        </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 lg:grid-cols-8">
@@ -160,8 +175,18 @@ export function LiveAudience({ streamId }: { streamId: string }) {
 }
 
 /** The recap of one broadcast, loaded — nothing while it loads or if it can't. */
-export function StreamRecap({ streamId, title, eyebrow }: { streamId: string; title: string; eyebrow?: string }) {
+export function StreamRecap({
+  streamId,
+  title,
+  eyebrow,
+  action,
+}: {
+  streamId: string;
+  title: string;
+  eyebrow?: string;
+  action?: ReactNode;
+}) {
   const { analytics } = useStreamAnalytics(streamId, false);
   if (!analytics) return null;
-  return <RecapTile analytics={analytics} title={title} eyebrow={eyebrow} />;
+  return <RecapTile analytics={analytics} title={title} eyebrow={eyebrow} action={action} />;
 }
