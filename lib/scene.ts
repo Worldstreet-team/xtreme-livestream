@@ -203,6 +203,16 @@ function readLayer(raw: unknown): SceneLayer | null {
       const url = typeof r.url === "string" && /^https?:\/\//i.test(r.url.trim()) ? r.url.trim().slice(0, 300) : "";
       return title && url ? { kind: "cta", title, url } : null;
     }
+    case "sponsor": {
+      const source = r.source === "own" || r.source === "campaign" ? r.source : null;
+      const sponsorId = typeof r.sponsorId === "string" && /^[a-f\d]{24}$/i.test(r.sponsorId) ? r.sponsorId : "";
+      const name = text(r.name, 40);
+      if (!source || !sponsorId || !name) return null;
+      const url = typeof r.url === "string" && /^https?:\/\//i.test(r.url.trim()) ? r.url.trim().slice(0, 300) : "";
+      // Only our own logo route: the card never loads an image from elsewhere.
+      const logoUrl = typeof r.logoUrl === "string" && r.logoUrl.startsWith("/api/") ? r.logoUrl.slice(0, 300) : null;
+      return { kind: "sponsor", source, sponsorId, name, line: text(r.line, 80), url, code: text(r.code, 24), logoUrl, restricted: r.restricted === true };
+    }
     default:
       return null;
   }

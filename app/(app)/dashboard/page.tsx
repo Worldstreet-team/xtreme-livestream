@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, Broadcast, CalendarPlus, Warning } from "@/components/icons";
+import { ArrowUpRight, Broadcast, CalendarPlus, Storefront, Warning } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { formatNumber, type Category } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
@@ -179,6 +179,10 @@ export default function ChannelHubPage() {
           <Link href="/schedule" className="press flex h-11 items-center gap-2 rounded-full bg-control px-5 text-[14.5px] font-semibold hover:bg-control-hover">
             <CalendarPlus size={17} />
             Schedule
+          </Link>
+          <Link href="/sponsorships" className="press flex h-11 items-center gap-2 rounded-full bg-control px-5 text-[14.5px] font-semibold hover:bg-control-hover">
+            <Storefront size={17} />
+            Sponsorships
           </Link>
           <Link
             href={`/c/${user.username}`}

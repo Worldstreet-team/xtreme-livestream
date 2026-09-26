@@ -66,6 +66,7 @@ import { ObsConnect } from "@/components/app/obs-connect";
 import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
 import { AudioDesk, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
+import { useSponsorships } from "@/lib/sponsors";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
@@ -381,6 +382,15 @@ export default function StudioPage() {
   }
   // Paid requests: the menu is the account's, the queue this broadcast's.
   const requestQueue = useRequestQueue(isLive ? streamId : null, liveRoom);
+  // Sponsors for the Scenes panel: your own deals and the campaigns you're in.
+  const sponsorships = useSponsorships(Boolean(user?.id));
+  const reloadSponsorships = sponsorships.reload;
+  // Joined a campaign in another tab? Opening Scenes picks it up.
+  useEffect(() => {
+    if (panel !== "scenes") return;
+    const t = setTimeout(() => void reloadSponsorships(), 0);
+    return () => clearTimeout(t);
+  }, [panel, reloadSponsorships]);
   // The audio desk: the mic's way out while it's on (lib/audio-desk.ts).
   // Its levels and the moments it plays for are this device's.
   const deskRef = useRef<AudioDesk | null>(null);
@@ -2881,6 +2891,7 @@ export default function StudioPage() {
         }))}
         carded={Boolean(scene.card)}
         battle={Boolean(opponentStreamId)}
+        sponsors={sponsorships.data ? { own: sponsorships.data.sponsors, campaigns: sponsorships.data.campaigns } : null}
         onLayers={(layers) => void applyScene({ layers })}
         onBrand={saveBrand}
       />

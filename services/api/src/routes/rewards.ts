@@ -35,8 +35,8 @@ export const rewardRoutes: FastifyPluginAsync = async (fastify) => {
         questViews(dbUser._id),
         streakWeek(dbUser._id),
         PointsLedger.find({ userId: dbUser._id }).sort({ createdAt: -1 }).limit(24).lean(),
-        // Points and bonuses; a paid request's payout is the wallet's to show.
-        Payout.find({ userId: dbUser._id, kind: { $ne: "request" } }).sort({ createdAt: -1 }).limit(12).lean(),
+        // Points and bonuses; request and sponsorship payouts are the wallet's to show.
+        Payout.find({ userId: dbUser._id, kind: { $nin: ["request", "sponsor"] } }).sort({ createdAt: -1 }).limit(12).lean(),
       ]);
       const streakDays = user?.watchStreakDays ?? 0;
       return {

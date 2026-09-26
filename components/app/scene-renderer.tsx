@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api-client";
 import { stageLayout } from "@/lib/stage-layout";
 import { useNow } from "@/lib/use-now";
 import { serverNow, serverOffset } from "@/lib/server-clock";
@@ -225,6 +226,7 @@ export function SceneRenderer({
   stage,
   goal = null,
   heat = null,
+  hideRestricted = false,
 }: {
   scene: Scene;
   /** Is the frame taller than it is wide? Splits follow the long axis. */
@@ -262,6 +264,11 @@ export function SceneRenderer({
   goal?: StreamGoal | null;
   /** The heat meter as of the last gift. */
   heat?: StreamHeat | null;
+  /**
+   * This viewer is where crypto, betting and alcohol sponsors stay off
+   * screen unless cleared (lib/sponsors.ts): such a card isn't drawn.
+   */
+  hideRestricted?: boolean;
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
   const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
@@ -370,6 +377,7 @@ export function SceneRenderer({
         insets={insets}
         goal={goal}
         heat={heat}
+        hideRestricted={hideRestricted}
       />
     </div>
   );
@@ -395,6 +403,7 @@ function SceneGraphics({
   insets,
   goal,
   heat,
+  hideRestricted,
 }: {
   layers: SceneLayer[];
   featured: FeaturedItem | null;
@@ -405,6 +414,7 @@ function SceneGraphics({
   insets?: { top?: string; bottom?: string };
   goal: StreamGoal | null;
   heat: StreamHeat | null;
+  hideRestricted: boolean;
 }) {
   const accent = ACCENTS[brand.accent];
   // The goal and the meter keep to the top with the banner: under a card
@@ -414,6 +424,10 @@ function SceneGraphics({
   const fontClass = BRAND_FONT_CLASS[brand.font] ?? "font-wide";
   const lowerThird = carded ? undefined : layerOf(layers, "lower-third");
   const cta = carded ? undefined : layerOf(layers, "cta");
+  // A sponsor's card stays over a card too ("brought to you by"), unless
+  // this viewer is somewhere it may not be shown.
+  const sponsorCard = layerOf(layers, "sponsor");
+  const sponsor = sponsorCard && !(sponsorCard.restricted && hideRestricted) ? sponsorCard : undefined;
   const banner = carded || battle ? undefined : layerOf(layers, "banner");
   const countdown = carded || battle ? undefined : layerOf(layers, "countdown");
   const ticker = layerOf(layers, "ticker");
@@ -494,7 +508,7 @@ function SceneGraphics({
           </div>
         )}
 
-        {(lowerThird || ticker || bottomLogo || card || cta) && (
+        {(lowerThird || ticker || bottomLogo || card || cta || sponsor) && (
           <div className="absolute inset-x-0 bottom-0 flex flex-col gap-[calc(var(--g-m)/2)]">
             {card && (
               <div className={cn("flex px-[var(--g-m)]", !lowerThird && !bottomLogo && !ticker && "pb-[var(--g-m)]")}>
@@ -503,7 +517,7 @@ function SceneGraphics({
             )}
             {/* The lower third's row: a bottom logo stacks above it on the
                 left, or shares its baseline on the right. */}
-            {(lowerThird || bottomLogo || cta) && (
+            {(lowerThird || bottomLogo || cta || sponsor) && (
               // Side by side on a wide frame; on a narrow one (a phone) the
               // right-hand column stacks above, so the name keeps its width.
               <div
@@ -525,10 +539,11 @@ function SceneGraphics({
                     />
                   )}
                 </div>
-                {/* Right: the call to action, a bottom-right logo above it. */}
-                {(bottomLogo === "bottom-right" || cta) && (
+                {/* Right: the sponsor and the call to action, a bottom-right logo above them. */}
+                {(bottomLogo === "bottom-right" || cta || sponsor) && (
                   <div className="flex shrink-0 flex-col items-end gap-[calc(var(--g-m)/2)] self-end @lg:self-auto">
                     {bottomLogo === "bottom-right" && logoImg()}
+                    {sponsor && <SponsorGraphic key={`${sponsor.source}:${sponsor.sponsorId}`} sponsor={sponsor} fontClass={fontClass} />}
                     {cta && <CtaGraphic key={`${cta.title}|${cta.url}`} title={cta.title} url={cta.url} fontClass={fontClass} />}
                   </div>
                 )}
@@ -699,6 +714,66 @@ function CtaGraphic({ title, url, fontClass }: { title: string; url: string; fon
         </span>
       </span>
     </a>
+  );
+}
+
+/**
+ * A sponsor's card: "Paid promotion" on it, always — the label isn't the
+ * creator's to turn off — then the brand's mark, name and line, and a
+ * promo code in the creator's accent. On a viewer's own screen it's a link
+ * to the brand (marked sponsored, so it passes nothing on to them).
+ */
+function SponsorGraphic({ sponsor, fontClass }: { sponsor: Extract<SceneLayer, { kind: "sponsor" }>; fontClass: string }) {
+  const body = (
+    <>
+      <span aria-hidden className="w-[clamp(3px,0.45cqw,6px)] shrink-0 bg-[var(--g-fill)]" />
+      <span className="flex min-w-0 flex-col gap-[0.45em] py-[0.55em] pr-[0.9em] pl-[0.6em]">
+        <span className="flex items-center gap-[0.4em] text-[max(10px,0.6em)] leading-none font-bold tracking-[0.1em] text-white/70 uppercase">
+          <span aria-hidden className="size-[0.5em] min-h-[5px] min-w-[5px] rounded-full bg-white/70" />
+          Paid promotion
+        </span>
+        <span className="flex min-w-0 items-center gap-[0.6em]">
+          {sponsor.logoUrl ? (
+            <span className="flex size-[2.3em] shrink-0 items-center justify-center overflow-hidden rounded-[0.45em] bg-white p-[0.2em]">
+              {/* eslint-disable-next-line @next/next/no-img-element -- the sponsor's logo, served versioned by the API */}
+              <img src={apiUrl(sponsor.logoUrl)} alt="" draggable={false} className="max-h-full max-w-full object-contain" />
+            </span>
+          ) : (
+            <span aria-hidden className={cn("flex size-[2.3em] shrink-0 items-center justify-center rounded-[0.45em] bg-[var(--g-fill)] text-[1.05em] font-bold text-[var(--g-ink)]", fontClass)}>
+              {sponsor.name.trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className={cn("block truncate leading-tight font-bold text-white", fontClass)}>{sponsor.name}</span>
+            {sponsor.line && <span className="mt-[0.15em] line-clamp-2 block text-[0.8em] leading-snug text-white/75">{sponsor.line}</span>}
+          </span>
+        </span>
+        {sponsor.code && (
+          <span className="self-start rounded-[0.35em] bg-[var(--g-fill)] px-[0.55em] py-[0.2em] font-mono text-[0.76em] font-bold tracking-[0.02em] text-[var(--g-ink)]">
+            Code {sponsor.code}
+          </span>
+        )}
+      </span>
+    </>
+  );
+  const cls =
+    "pointer-events-auto flex max-w-[min(18em,100%)] items-stretch overflow-hidden rounded-[clamp(8px,1cqw,14px)] bg-black/80 text-[clamp(12px,1.5cqw,18px)] motion-safe:animate-[graphic-in-left_460ms_var(--ease-spring)_both]";
+  return sponsor.url ? (
+    <a
+      href={sponsor.url}
+      target="_blank"
+      rel="sponsored noopener noreferrer"
+      aria-label={`${sponsor.name} — paid promotion`}
+      // The tap is the link's, not the player's underneath.
+      onClick={(e) => e.stopPropagation()}
+      className={cls}
+    >
+      {body}
+    </a>
+  ) : (
+    <div role="note" aria-label={`${sponsor.name} — paid promotion`} className={cn(cls, "pointer-events-none")}>
+      {body}
+    </div>
   );
 }
 

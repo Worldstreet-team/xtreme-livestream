@@ -22,14 +22,14 @@ import { readyCount } from "../quests.js";
 import { thumbnailUrlFor } from "../stream-service.js";
 import { DAILY_REDEEM_CAP_POINTS, MIN_REDEEM_POINTS, POINTS_PER_USD, RedeemError, audit, redeemPoints } from "../rewards.js";
 import { isTreasuryConfigured } from "../wallet.js";
-import { Payout, RequestOrder, type IPayout } from "../models.js";
+import { Payout, RequestOrder, SponsorRun, type IPayout } from "../models.js";
 
 function toPayoutView(p: IPayout, titles: Map<string, string> = new Map()) {
   return {
     id: String(p._id),
     kind: p.kind,
-    // A paid request's payout says which request it was.
-    ...(p.kind === "request" ? { title: titles.get(String(p.refId)) ?? "" } : {}),
+    // A paid request's payout says which request it was; a sponsorship's, whose campaign.
+    ...(p.kind === "request" || p.kind === "sponsor" ? { title: titles.get(String(p.refId)) ?? "" } : {}),
     points: p.points,
     usdMinor: p.usdMinor,
     status: p.status,
@@ -269,8 +269,12 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const { dbUser } = await authenticate(request);
       const payouts = await Payout.find({ userId: dbUser._id }).sort({ createdAt: -1 }).limit(20);
       const requestIds = payouts.filter((p) => p.kind === "request" && p.refId).map((p) => p.refId);
-      const orders = requestIds.length ? await RequestOrder.find({ _id: { $in: requestIds } }).select("title").lean() : [];
-      const titles = new Map(orders.map((o) => [String(o._id), o.title]));
+      const runIds = payouts.filter((p) => p.kind === "sponsor" && p.refId).map((p) => p.refId);
+      const [orders, runs] = await Promise.all([
+        requestIds.length ? RequestOrder.find({ _id: { $in: requestIds } }).select("title").lean() : [],
+        runIds.length ? SponsorRun.find({ _id: { $in: runIds } }).select("name").lean() : [],
+      ]);
+      const titles = new Map([...orders.map((o) => [String(o._id), o.title] as const), ...runs.map((r) => [String(r._id), r.name] as const)]);
       return {
         success: true,
         data: {

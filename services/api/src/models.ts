@@ -663,9 +663,10 @@ export interface INotification extends Document {
    * about started; mod_added = a creator made you a moderator; report = a
    * report reached the review queue (platform admins only); takedown = your
    * stream was taken down after a report; request_refunded = a paid
-   * request wasn't done, and the money went back.
+   * request wasn't done, and the money went back; sponsor_paid = an Xtream
+   * campaign paid for a stream that ran its card.
    */
-  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown" | "request_refunded";
+  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown" | "request_refunded" | "sponsor_paid";
   /** Who did the thing (the streamer who went live). */
   actorId: mongoose.Types.ObjectId;
   actorName: string;
@@ -688,7 +689,7 @@ const notificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown", "request_refunded"],
+      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown", "request_refunded", "sponsor_paid"],
       default: "live",
     },
     actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -1310,7 +1311,7 @@ export const GameEntry = mongoose.model<IGameEntry>("GameEntry", gameEntrySchema
 /* Payouts and audit                                                   */
 /* ------------------------------------------------------------------ */
 
-export type PayoutKind = "points_redemption" | "battle_bonus" | "request";
+export type PayoutKind = "points_redemption" | "battle_bonus" | "request" | "sponsor";
 export type PayoutStatus = "pending" | "paid" | "failed";
 
 /**
@@ -1336,7 +1337,7 @@ export interface IPayout extends Document {
 const payoutSchema = new Schema<IPayout>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    kind: { type: String, enum: ["points_redemption", "battle_bonus", "request"], required: true },
+    kind: { type: String, enum: ["points_redemption", "battle_bonus", "request", "sponsor"], required: true },
     points: { type: Number, default: 0 },
     usdMinor: { type: Number, required: true, min: 1 },
     status: { type: String, enum: ["pending", "paid", "failed"], default: "pending" },
@@ -1428,3 +1429,236 @@ auditLogSchema.index({ targetType: 1, targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 
 export const AuditLog = mongoose.model<IAuditLog>("AuditLog", auditLogSchema);
+
+/* ------------------------------------------------------------------ */
+/* Sponsorships                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A creator's own sponsor (Phase 2, sponsor slots): a deal they made
+ * themselves. The money never passes through us; the card we draw for it
+ * always says "Paid promotion". Kept apart from the user document, since a
+ * handful of logos would otherwise ride along on every signed-in request.
+ */
+export interface ISponsor extends Document {
+  ownerId: mongoose.Types.ObjectId;
+  name: string;
+  line: string;
+  url: string;
+  code: string;
+  category: string;
+  /** Inline image, served at /sponsors/:id/logo?v=<logoVersion>. */
+  logo: string;
+  logoVersion: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const sponsorSchema = new Schema<ISponsor>(
+  {
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    name: { type: String, required: true, maxlength: 40 },
+    line: { type: String, default: "", maxlength: 80 },
+    url: { type: String, default: "", maxlength: 300 },
+    code: { type: String, default: "", maxlength: 24 },
+    category: { type: String, enum: ["everyday", "finance", "crypto", "betting", "alcohol"], default: "everyday" },
+    logo: { type: String, default: "" },
+    logoVersion: { type: Number, default: 0 },
+  },
+  { timestamps: true },
+);
+sponsorSchema.index({ ownerId: 1, createdAt: 1 });
+
+export const Sponsor = mongoose.model<ISponsor>("Sponsor", sponsorSchema);
+
+/**
+ * An Xtream campaign: the platform's team sets it up, the brand prepays,
+ * creators opt in and are paid from the pool — the prepayment less the
+ * platform's margin — for each stream that keeps the card up long enough.
+ * `spentUsdMinor` only moves with an atomic check against the pool, so the
+ * campaign can never pay out more than the brand put in.
+ */
+export interface ICampaign extends Document {
+  name: string;
+  line: string;
+  url: string;
+  code: string;
+  category: string;
+  logo: string;
+  logoVersion: number;
+  brief: string;
+  cleared: boolean;
+  status: "draft" | "live" | "paused" | "ended";
+  /** Why it ended: the team ended it, its end date passed, or its pool ran dry. */
+  endedReason: "" | "admin" | "date" | "budget";
+  startsAt: Date | null;
+  endsAt: Date | null;
+  streamCategories: string[];
+  payPerStreamUsdMinor: number;
+  minMinutes: number;
+  minViewers: number;
+  maxStreamsPerCreator: number;
+  brandPaidUsdMinor: number;
+  marginPercent: number;
+  /** The creators' pool (campaignBudgetMinor). */
+  budgetUsdMinor: number;
+  spentUsdMinor: number;
+  paidStreams: number;
+  quest: { minutes: number; reward: string } | null;
+  createdBy: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const campaignSchema = new Schema<ICampaign>(
+  {
+    name: { type: String, required: true, maxlength: 40 },
+    line: { type: String, default: "", maxlength: 80 },
+    url: { type: String, default: "", maxlength: 300 },
+    code: { type: String, default: "", maxlength: 24 },
+    category: { type: String, enum: ["everyday", "finance", "crypto", "betting", "alcohol"], default: "everyday" },
+    logo: { type: String, default: "" },
+    logoVersion: { type: Number, default: 0 },
+    brief: { type: String, default: "", maxlength: 500 },
+    cleared: { type: Boolean, default: false },
+    status: { type: String, enum: ["draft", "live", "paused", "ended"], default: "draft" },
+    endedReason: { type: String, enum: ["", "admin", "date", "budget"], default: "" },
+    startsAt: { type: Date, default: null },
+    endsAt: { type: Date, default: null },
+    streamCategories: { type: [String], default: [] },
+    payPerStreamUsdMinor: { type: Number, required: true, min: 100 },
+    minMinutes: { type: Number, default: 10, min: 1 },
+    minViewers: { type: Number, default: 0, min: 0 },
+    maxStreamsPerCreator: { type: Number, default: 4, min: 1 },
+    brandPaidUsdMinor: { type: Number, default: 0, min: 0 },
+    marginPercent: { type: Number, default: 25, min: 0, max: 90 },
+    budgetUsdMinor: { type: Number, default: 0, min: 0 },
+    spentUsdMinor: { type: Number, default: 0, min: 0 },
+    paidStreams: { type: Number, default: 0, min: 0 },
+    quest: {
+      type: new Schema({ minutes: { type: Number, required: true }, reward: { type: String, required: true } }, { _id: false }),
+      default: null,
+    },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  },
+  { timestamps: true },
+);
+campaignSchema.index({ status: 1, createdAt: -1 });
+
+export const Campaign = mongoose.model<ICampaign>("Campaign", campaignSchema);
+
+/** A creator who opted in to a campaign; `paidStreams` is checked against the per-creator cap atomically. */
+export interface ICampaignMember extends Document {
+  campaignId: mongoose.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
+  joinedAt: Date;
+  leftAt: Date | null;
+  paidStreams: number;
+  earnedUsdMinor: number;
+}
+
+const campaignMemberSchema = new Schema<ICampaignMember>(
+  {
+    campaignId: { type: Schema.Types.ObjectId, ref: "Campaign", required: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    joinedAt: { type: Date, default: Date.now },
+    leftAt: { type: Date, default: null },
+    paidStreams: { type: Number, default: 0, min: 0 },
+    earnedUsdMinor: { type: Number, default: 0, min: 0 },
+  },
+  { timestamps: false },
+);
+campaignMemberSchema.index({ campaignId: 1, userId: 1 }, { unique: true });
+campaignMemberSchema.index({ userId: 1, leftAt: 1 });
+
+export const CampaignMember = mongoose.model<ICampaignMember>("CampaignMember", campaignMemberSchema);
+
+/**
+ * One sponsor on one broadcast: when its card was on screen while live
+ * (closed spans, plus `openSince` while it's up now), and — for a campaign —
+ * whether the stream qualified and was paid. The spans are what a sponsored
+ * quest counts a viewer's minutes against.
+ */
+export interface ISponsorRun extends Document {
+  streamId: mongoose.Types.ObjectId;
+  hostId: mongoose.Types.ObjectId;
+  source: "own" | "campaign";
+  sponsorId: mongoose.Types.ObjectId;
+  /** The sponsor's name when the run began, for the report. */
+  name: string;
+  openSince: Date | null;
+  seconds: number;
+  spans: Array<{ from: Date; to: Date }>;
+  status: "none" | "counting" | "paying" | "paid" | "unpaid";
+  /**
+   * Why a campaign run wasn't paid: its card wasn't up long enough (short),
+   * the stream's audience fell short (viewers), the creator had had their
+   * paid streams (cap), the pool ran dry (budget), they left the campaign,
+   * or it ended first.
+   */
+  unpaidReason: "" | "short" | "viewers" | "cap" | "budget" | "left" | "ended";
+  payUsdMinor: number;
+  payoutId: mongoose.Types.ObjectId | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const sponsorRunSchema = new Schema<ISponsorRun>(
+  {
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    hostId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    source: { type: String, enum: ["own", "campaign"], required: true },
+    sponsorId: { type: Schema.Types.ObjectId, required: true },
+    name: { type: String, default: "" },
+    openSince: { type: Date, default: null },
+    seconds: { type: Number, default: 0, min: 0 },
+    spans: {
+      type: [new Schema({ from: { type: Date, required: true }, to: { type: Date, required: true } }, { _id: false })],
+      default: [],
+    },
+    status: { type: String, enum: ["none", "counting", "paying", "paid", "unpaid"], default: "none" },
+    unpaidReason: { type: String, enum: ["", "short", "viewers", "cap", "budget", "left", "ended"], default: "" },
+    payUsdMinor: { type: Number, default: 0 },
+    payoutId: { type: Schema.Types.ObjectId, ref: "Payout", default: null },
+  },
+  { timestamps: true },
+);
+// One run per sponsor per broadcast: the card coming back reopens it.
+sponsorRunSchema.index({ streamId: 1, source: 1, sponsorId: 1 }, { unique: true });
+sponsorRunSchema.index({ hostId: 1, createdAt: -1 });
+sponsorRunSchema.index({ source: 1, sponsorId: 1 });
+sponsorRunSchema.index({ status: 1, updatedAt: 1 });
+sponsorRunSchema.index({ openSince: 1 }, { partialFilterExpression: { openSince: { $type: "date" } } });
+
+export const SponsorRun = mongoose.model<ISponsorRun>("SponsorRun", sponsorRunSchema);
+
+/**
+ * One of a brand's voucher codes, the prize of a sponsored quest. Claimed
+ * atomically; a viewer holds at most one per campaign (the partial unique
+ * index), however often they press the button.
+ */
+export interface IVoucher extends Document {
+  campaignId: mongoose.Types.ObjectId;
+  code: string;
+  userId: mongoose.Types.ObjectId | null;
+  claimedAt: Date | null;
+}
+
+const voucherSchema = new Schema<IVoucher>(
+  {
+    campaignId: { type: Schema.Types.ObjectId, ref: "Campaign", required: true },
+    code: { type: String, required: true, maxlength: 64 },
+    userId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    claimedAt: { type: Date, default: null },
+  },
+  { timestamps: false },
+);
+voucherSchema.index({ campaignId: 1, code: 1 }, { unique: true });
+voucherSchema.index({ campaignId: 1, claimedAt: 1 });
+voucherSchema.index(
+  { campaignId: 1, userId: 1 },
+  { unique: true, name: "voucher_once", partialFilterExpression: { userId: { $type: "objectId" } } },
+);
+voucherSchema.index({ userId: 1, claimedAt: -1 }, { partialFilterExpression: { userId: { $type: "objectId" } } });
+
+export const Voucher = mongoose.model<IVoucher>("Voucher", voucherSchema);

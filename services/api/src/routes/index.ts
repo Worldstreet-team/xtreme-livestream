@@ -15,6 +15,7 @@ import { notificationRoutes } from "./notifications.js";
 import { requestRoutes } from "./requests.js";
 import { rewardRoutes } from "./rewards.js";
 import { safetyRoutes } from "./safety.js";
+import { sponsorRoutes } from "./sponsors.js";
 import { streamActionRoutes } from "./stream-actions.js";
 import { streamRoutes } from "./streams.js";
 import { userRoutes } from "./users.js";
@@ -29,6 +30,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(giftRoutes);
   await fastify.register(goalRoutes);
   await fastify.register(requestRoutes);
+  await fastify.register(sponsorRoutes);
   await fastify.register(healthRoutes);
   await fastify.register(battleRoutes);
   await fastify.register(gameRoutes);

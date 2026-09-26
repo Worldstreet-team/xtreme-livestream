@@ -26,6 +26,7 @@ import {
   Check,
   Info,
   ShieldStar,
+  Ticket,
 } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { MessageButton } from "@/components/app/message-button";
@@ -56,7 +57,9 @@ import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import type { TopFan } from "@/components/app/chat/chat-lines";
 import { readFan, type FanStanding } from "@/components/app/chat/lines";
-import { DEFAULT_SCENE, gainFor, guestsShown, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { DEFAULT_SCENE, gainFor, guestsShown, layerOf, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { useRestrictedRegion, useSponsoredQuest } from "@/lib/sponsors";
+import { SponsorPanel } from "@/components/app/sponsor-panel";
 import { cn } from "@/lib/utils";
 import { use } from "react";
 import { useRouter } from "next/navigation";
@@ -227,6 +230,15 @@ export default function StreamPage({
   /** Phones: the top gifters list, opened from their faces in the top bar. */
   const [showGifters, setShowGifters] = useState(false);
   const [elapsed, setElapsed] = useState("0:00");
+  // The sponsor on screen, if this viewer may see it — crypto, betting and
+  // alcohol promotions stay off screens in Nigeria unless cleared — and,
+  // for an Xtream campaign, its sponsored quest.
+  const restrictedRegion = useRestrictedRegion();
+  const sponsorOnAir = layerOf(stream?.scene?.layers ?? [], "sponsor") ?? null;
+  const sponsorShown = sponsorOnAir && !(sponsorOnAir.restricted && restrictedRegion !== false) ? sponsorOnAir : null;
+  const sponsoredQuest = useSponsoredQuest(sponsorShown?.source === "campaign" ? sponsorShown.sponsorId : null, Boolean(user));
+  /** Phones: the sponsored quest's sheet, from its chip under the header. */
+  const [showQuest, setShowQuest] = useState(false);
 
   // LiveKit
   const roomRef = useRef<Room | null>(null);
@@ -2230,6 +2242,7 @@ export default function StreamPage({
             goal={goal}
             heat={heat}
             brand={brand}
+            hideRestricted={restrictedRegion !== false}
             // Graphics keep between the header and the chat lane — or, in a
             // battle's band, to the band.
             insets={
@@ -2499,6 +2512,24 @@ export default function StreamPage({
         {/* Right action rail — above the chat layer, which is painted after
             it and would otherwise sit over these buttons. */}
         <div className="absolute right-2.5 bottom-[calc(max(env(safe-area-inset-bottom),10px)+76px)] z-40 flex flex-col items-center gap-3.5">
+          {/* A sponsored quest on the card that's up: your minutes, a tap from the prize. */}
+          {sponsorShown && sponsoredQuest.quest && (
+            <RailButton
+              title={`${sponsorShown.name} sponsored quest`}
+              label={
+                !user
+                  ? "Quest"
+                  : sponsoredQuest.quest.voucher
+                    ? "Won"
+                    : sponsoredQuest.quest.progress >= sponsoredQuest.quest.minutes
+                      ? "Claim"
+                      : `${sponsoredQuest.quest.progress}/${sponsoredQuest.quest.minutes}`
+              }
+              tone={!sponsoredQuest.quest.voucher && sponsoredQuest.quest.progress >= sponsoredQuest.quest.minutes ? "ember" : "obj"}
+              onClick={() => setShowQuest(true)}
+              icon={<Ticket size={22} weight="fill" />}
+            />
+          )}
           {/* In a battle's band these two ride in the scoreboard instead. */}
           {!band && (
             <>
@@ -2595,6 +2626,30 @@ export default function StreamPage({
             />
           </div>
         </div>
+
+        {/* The sponsor and its quest: a sheet from the bottom. */}
+        {showQuest && sponsorShown && (
+          <div className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70" onClick={() => setShowQuest(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${sponsorShown.name} — paid promotion`}
+              className="sheet-obj w-full rounded-t-[24px] px-3 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              <SponsorPanel
+                sponsor={sponsorShown}
+                quest={sponsoredQuest.quest}
+                signedIn={Boolean(user)}
+                claiming={sponsoredQuest.claiming}
+                error={sponsoredQuest.error}
+                onClaim={() => void sponsoredQuest.claim()}
+                className="bg-transparent p-2"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Picture and data: a sheet from the bottom. */}
         {showPicture && (
@@ -2783,6 +2838,7 @@ export default function StreamPage({
                   goal={goal}
                   heat={heat}
                   brand={brand}
+                  hideRestricted={restrictedRegion !== false}
                   // Clear of the badges and controls while they show (and of
                   // "Turn sound on", which never hides); the frame's own
                   // edges once they fade.
@@ -3042,6 +3098,16 @@ export default function StreamPage({
                   {stream.category}
                 </Badge>
               </Link>
+              {sponsorOnAir && (
+                // The disclosure stands even where the card itself can't be shown.
+                <span
+                  title={`${hostName} is paid to promote ${sponsorOnAir.name}`}
+                  className="mr-1 inline-flex h-7 items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 text-xs font-semibold text-foreground/85"
+                >
+                  <Info size={13} className="text-muted-foreground" />
+                  Includes paid promotion
+                </span>
+              )}
               {stream.tags.map((tag) => (
                 <Link
                   key={tag}
@@ -3170,6 +3236,18 @@ export default function StreamPage({
 
             {followError && <p className="mt-3 text-xs text-chili-hi">{followError}</p>}
             {stageError && <p className="mt-3 text-xs text-ember-hi">{stageError}</p>}
+
+            {sponsorShown && (
+              <SponsorPanel
+                sponsor={sponsorShown}
+                quest={sponsoredQuest.quest}
+                signedIn={Boolean(user)}
+                claiming={sponsoredQuest.claiming}
+                error={sponsoredQuest.error}
+                onClaim={() => void sponsoredQuest.claim()}
+                className="mt-6"
+              />
+            )}
 
             <p className="mt-6 flex max-w-[72ch] gap-2 text-[12px] leading-relaxed text-muted-foreground/65">
               <Info size={14} className="mt-[3px] shrink-0" />

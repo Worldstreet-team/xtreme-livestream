@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, ShieldStar, Warning } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
+import { AdminTabs } from "@/components/app/admin/admin-tabs";
 import { ReportCard, type ReportRow } from "@/components/app/admin/report-card";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -89,6 +90,7 @@ export default function ReportQueuePage() {
 
   return (
     <Shell>
+      <AdminTabs current="reports" />
       <header className="mb-6 md:mb-8">
         <p className={EYEBROW}>Trust &amp; safety</p>
         <h1 className="mt-2 font-wide text-[clamp(2rem,4.2vw,3.4rem)] leading-[0.98] font-bold tracking-[-0.04em] text-balance">

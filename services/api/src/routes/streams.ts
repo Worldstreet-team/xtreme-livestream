@@ -14,6 +14,7 @@ import { ensureUserIngress,
   createToken, sendRoomData, setRoomScene } from "../livekit.js";
 import { Stream, User, type IStream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
+import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
 import {
   notifyFollowersOfLive,
   notifyRemindersOfLive,
@@ -282,7 +283,9 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           card: scene?.card ?? null,
           cardNote: scene?.cardNote ?? "",
           chart: scene?.chart ?? null,
-          layers: scene?.layers ?? [],
+          // A sponsor card goes up through the scene route, where it's
+          // checked and its on-screen time starts counting.
+          layers: (scene?.layers ?? []).filter((l) => l.kind !== "sponsor"),
           featured: null,
           version: scene ? 1 : 0,
         },
@@ -510,12 +513,16 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream.isLive) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
+      const now = new Date();
+      // A sponsor card is drawn from our records, never from what was sent.
+      const layers = await resolveSceneLayers(request.body.layers, dbUser._id, stream, now);
+      const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
       const scene = {
         layout: request.body.layout,
         card: request.body.card,
         cardNote: request.body.cardNote,
         chart: request.body.chart,
-        layers: request.body.layers,
+        layers,
         gains: request.body.gains,
         // Not the host's to set here: the feature routes own it (featured.ts).
         featured: stream.scene?.featured ?? null,
@@ -525,6 +532,11 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       await stream.save();
       await setRoomScene(stream.livekitRoomName, scene);
       void sendRoomData(stream.livekitRoomName, { __evt: "scene", scene });
+      // The sponsor's on-screen time: what campaigns pay on, and what
+      // sponsored quests count against.
+      await trackSponsorExposure(stream, sponsorBefore, sponsorLayerOf(layers), now).catch((e) =>
+        request.log.error({ err: e }, "sponsor exposure tracking failed"),
+      );
       return { success: true, data: { scene } };
     },
   );

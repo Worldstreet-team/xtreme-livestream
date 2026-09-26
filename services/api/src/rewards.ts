@@ -51,7 +51,9 @@ export async function attemptPayout(payout: IPayout) {
         ? `Xtreme points redemption (${payout.points} pts)`
         : payout.kind === "request"
           ? "Xtreme paid request"
-          : "Xtreme battle bonus",
+          : payout.kind === "sponsor"
+            ? "Xtreme sponsorship"
+            : "Xtreme battle bonus",
     idempotencyKey: `livestream:payout:${String(payout._id)}`,
     metadata: { payoutId: String(payout._id), kind: payout.kind, username: user.username },
   });
@@ -70,7 +72,7 @@ export async function attemptPayout(payout: IPayout) {
   return payout;
 }
 
-async function createPayout(userId: mongoose.Types.ObjectId, kind: PayoutKind, usdMinor: number, points: number, refId: mongoose.Types.ObjectId | null) {
+export async function createPayout(userId: mongoose.Types.ObjectId, kind: PayoutKind, usdMinor: number, points: number, refId: mongoose.Types.ObjectId | null) {
   const payout = await Payout.create({ userId, kind, usdMinor, points, refId, status: "pending" });
   return attemptPayout(payout);
 }

@@ -24,9 +24,10 @@ interface NotificationRow {
    * live = someone you follow went live; reminder = a stream you asked
    * about started; mod_added = a creator made you a moderator; report = a
    * report for the queue (admins); takedown = your stream was taken down;
-   * request_refunded = a paid request wasn't done and the money went back.
+   * request_refunded = a paid request wasn't done and the money went back;
+   * sponsor_paid = an Xtream campaign paid for a stream that ran its card.
    */
-  type?: "live" | "reminder" | "mod_added" | "report" | "takedown" | "battle_invite" | "battle_result" | "request_refunded";
+  type?: "live" | "reminder" | "mod_added" | "report" | "takedown" | "battle_invite" | "battle_result" | "request_refunded" | "sponsor_paid";
   actorName: string;
   streamId: string | null;
   streamTitle: string;
@@ -49,6 +50,8 @@ function describe(n: NotificationRow) {
       return { verb: "took down your stream after a report", detail: n.streamTitle };
     case "request_refunded":
       return { verb: "didn't get to your request — it's refunded", detail: n.streamTitle };
+    case "sponsor_paid":
+      return { verb: "paid you for running their card", detail: n.streamTitle };
     default:
       return { verb: "went live", detail: n.streamTitle };
   }

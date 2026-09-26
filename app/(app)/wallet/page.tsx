@@ -23,6 +23,8 @@ import {
   Sword,
 } from "@/components/icons";
 import { apiFetch, ApiError } from "@/lib/api-client";
+import { useVouchers } from "@/lib/sponsors";
+import { VoucherList } from "@/components/app/voucher-list";
 import { useAuth } from "@/lib/auth-context";
 import { formatPoints } from "@/lib/games";
 import { cn } from "@/lib/utils";
@@ -73,8 +75,8 @@ interface Earnings {
 }
 interface PayoutRow {
   id: string;
-  kind: "points_redemption" | "battle_bonus" | "request";
-  /** A paid request's payout: which request it was. */
+  kind: "points_redemption" | "battle_bonus" | "request" | "sponsor";
+  /** A paid request's payout: which request it was; a sponsorship's, whose campaign. */
   title?: string;
   points: number;
   usdMinor: number;
@@ -89,7 +91,7 @@ interface Ledger {
   at: string;
 }
 
-type Tab = "activity" | "payouts" | "points";
+type Tab = "activity" | "payouts" | "points" | "vouchers";
 
 /** Always two decimals: a balance that renders "$8" reads as an estimate. */
 const money = (minor: number) =>
@@ -135,6 +137,8 @@ export default function WalletPage() {
   const [points, setPoints] = useState<{ balance: number; streakDays: number; ledger: Ledger[] } | null>(null);
   const [tab, setTab] = useState<Tab>("activity");
   const [loading, setLoading] = useState(true);
+  const vouchers = useVouchers(Boolean(user));
+  const won = (vouchers.quests ?? []).filter((q) => q.voucher);
 
   useEffect(() => {
     if (!user) return;
@@ -185,6 +189,7 @@ export default function WalletPage() {
     { id: "activity" as const, label: "Gifts", icon: Gift, count: txns.length || null },
     { id: "payouts" as const, label: "Payouts", icon: Receipt, count: payouts.length || null },
     { id: "points" as const, label: "Points", icon: Coins, count: null },
+    { id: "vouchers" as const, label: "Vouchers", icon: Ticket, count: won.length || null },
   ];
 
   return (
@@ -362,7 +367,9 @@ export default function WalletPage() {
                           ? "Battle bonus"
                           : p.kind === "request"
                             ? `Request done${p.title ? ` · ${p.title}` : ""}`
-                            : `${formatPoints(p.points)} points redeemed`}
+                            : p.kind === "sponsor"
+                              ? `Sponsorship${p.title ? ` · ${p.title}` : ""}`
+                              : `${formatPoints(p.points)} points redeemed`}
                       </span>
                       <span className="truncate text-[12px] text-muted-foreground">
                         {when(p.createdAt)} · {p.status === "paid" ? "paid to your wallet" : p.status === "failed" ? "failed — nothing was deducted" : "pending"}
@@ -373,6 +380,8 @@ export default function WalletPage() {
                 ))}
               </div>
             )
+          ) : tab === "vouchers" ? (
+            <VoucherList quests={vouchers.quests} onClaim={vouchers.claim} emptyClassName={PANEL} />
           ) : !points || points.ledger.length === 0 ? (
             <Empty
               className={PANEL}

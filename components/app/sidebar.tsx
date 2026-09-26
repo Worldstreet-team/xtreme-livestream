@@ -267,9 +267,11 @@ export function Sidebar({
   // the phone drawer's copy (lib/messaging.ts).
   const unreadThreads = useUnreadThreads(Boolean(user));
 
-  // Schedule lives inside Your channel now, so it lights that row.
+  // Schedule and Sponsorships live inside Your channel, so they light that row.
   const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/") || (href === "/dashboard" && pathname.startsWith("/schedule"));
+    pathname === href ||
+    pathname.startsWith(href + "/") ||
+    (href === "/dashboard" && (pathname.startsWith("/schedule") || pathname.startsWith("/sponsorships")));
 
   const renderItem = (item: NavItem, index: number, offset: number) => {
     const active = isActive(item.href);

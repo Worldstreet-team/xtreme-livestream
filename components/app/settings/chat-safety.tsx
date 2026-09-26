@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Check, Plus, ShieldStar, Trash, Warning, X } from "@/components/icons";
+import { ArrowUpRight, Check, Plus, ShieldStar, Storefront, Trash, Warning, X } from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
@@ -199,6 +199,21 @@ export function ChatSafety({ userId, rules }: { userId: string; rules: ReactNode
           <span className="min-w-0 flex-1">
             <span className="block text-[14.5px] font-semibold">Report queue</span>
             <span className="block text-[12.5px] text-muted-foreground">Platform admin: every report, on its 48-hour clock.</span>
+          </span>
+          <ArrowUpRight size={16} className="text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </Link>
+      )}
+      {admin && (
+        <Link
+          href="/admin/campaigns"
+          className={cn(TILE, "group flex items-center gap-4 p-5 transition-colors hover:bg-surface-raised lg:col-span-12")}
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-value/[0.14] text-value">
+            <Storefront size={18} weight="fill" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-semibold">Campaigns</span>
+            <span className="block text-[12.5px] text-muted-foreground">Platform admin: brands&apos; prepaid campaigns, creators&apos; pay and voucher quests.</span>
           </span>
           <ArrowUpRight size={16} className="text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
