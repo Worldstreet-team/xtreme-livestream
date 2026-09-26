@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LocalVideoTrack, RemoteTrack } from "livekit-client";
 import {
   CameraRotate,
@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { CALL_END_COPY, callManager, formatCallClock, type CallPeer } from "@/lib/call-manager";
 import { useCall } from "./call-provider";
 import { ViaTag } from "@/components/app/messages/via-tag";
+import { reducedMotion } from "@/components/app/messages/motion";
+import { RING_CYCLE_MS, ringClock, type RingMode } from "./use-call-tones";
 
 /**
  * The one surface a call lives on, in all its shapes:
@@ -171,32 +173,93 @@ function HangUp({ size }: { size: number }) {
   return <PhoneDisconnect size={size} weight="fill" />;
 }
 
-/** The person (or group) on the call; the heat ring breathes while you wait. */
-function CallFace({ peer, size, waiting, isGroup }: { peer: CallPeer; size: number; waiting: boolean; isGroup: boolean }) {
+/** Where a call is while you wait on it: ringing in, ringing out, or connecting. */
+type RingPhase = RingMode | "connecting" | null;
+
+const ease = { out: "cubic-bezier(0.2, 0.8, 0.2, 1)", io: "cubic-bezier(0.45, 0, 0.55, 1)" };
+/** Ringing in: two beats while the tone sounds (its first second of three), each sending a ripple out; then still. */
+const BEATS: Record<RingMode, { ring: Keyframe[]; ripples: Keyframe[][] }> = {
+  incoming: {
+    ring: [
+      { transform: "scale(1)", offset: 0, easing: ease.out },
+      { transform: "scale(1.07)", offset: 0.05, easing: ease.io },
+      { transform: "scale(1)", offset: 0.14, easing: ease.out },
+      { transform: "scale(1.05)", offset: 0.19, easing: ease.io },
+      { transform: "scale(1)", offset: 0.3 },
+      { transform: "scale(1)", offset: 1 },
+    ],
+    ripples: [
+      [
+        { transform: "scale(1)", opacity: 0.55, offset: 0, easing: ease.out },
+        { transform: "scale(1.5)", opacity: 0, offset: 0.4 },
+        { transform: "scale(1.5)", opacity: 0, offset: 1 },
+      ],
+      [
+        { transform: "scale(1)", opacity: 0, offset: 0 },
+        { transform: "scale(1)", opacity: 0, offset: 0.139 },
+        { transform: "scale(1)", opacity: 0.4, offset: 0.14, easing: ease.out },
+        { transform: "scale(1.4)", opacity: 0, offset: 0.5 },
+        { transform: "scale(1.4)", opacity: 0, offset: 1 },
+      ],
+    ],
+  },
+  // Ringing out: one slow swell for the ringback's pulse (1.1s of every 4), one ripple.
+  outgoing: {
+    ring: [
+      { transform: "scale(1)", offset: 0, easing: ease.out },
+      { transform: "scale(1.06)", offset: 0.08, easing: ease.io },
+      { transform: "scale(1)", offset: 0.275 },
+      { transform: "scale(1)", offset: 1 },
+    ],
+    ripples: [
+      [
+        { transform: "scale(1)", opacity: 0.45, offset: 0, easing: ease.out },
+        { transform: "scale(1.5)", opacity: 0, offset: 0.35 },
+        { transform: "scale(1.5)", opacity: 0, offset: 1 },
+      ],
+    ],
+  },
+};
+
+/**
+ * The person (or group) on the call, in their heat ring (the owner's picks,
+ * 2026-09-26). Ringing, the ring beats in time with the tone — both read
+ * one clock — and each beat sends a hollow ripple out; between tones it
+ * rests. Connecting, a short arc of heat orbits it once every 1.8s. Rings
+ * are on Afterglow's heat allowlist; a ring, never a filled glow.
+ */
+function CallFace({ peer, size, phase, isGroup }: { peer: CallPeer; size: number; phase: RingPhase; isGroup: boolean }) {
+  const ringRef = useRef<HTMLSpanElement>(null);
+  const rippleRefs = [useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null)];
+  const beating: RingMode | null = phase === "incoming" || phase === "outgoing" ? phase : null;
+
+  useLayoutEffect(() => {
+    if (!beating || reducedMotion()) return;
+    const cycle = RING_CYCLE_MS[beating];
+    const start = ringClock(beating);
+    const loop = (el: HTMLElement | null, frames: Keyframe[]) => {
+      if (!el) return null;
+      const a = el.animate(frames, { duration: cycle, iterations: Infinity });
+      // Locked to the tone: time zero is the moment it started ringing.
+      a.startTime = start;
+      return a;
+    };
+    const beat = BEATS[beating];
+    const anims = [loop(ringRef.current, beat.ring), ...beat.ripples.map((frames, i) => loop(rippleRefs[i].current, frames))];
+    return () => anims.forEach((a) => a?.cancel());
+    // The refs are stable; the beat changes with the phase.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [beating]);
+
+  const hollow = "absolute inset-0 rounded-full bg-heat p-[2px] opacity-0 [mask:linear-gradient(#000_0_0)_content-box_exclude,linear-gradient(#000_0_0)]";
   return (
-    <span className="relative inline-flex">
-      {waiting && (
-        // Hollow heat rings leaving the avatar — the ally-burst ring, looped.
-        // A ring, never a filled glow: Afterglow keeps heat to rings.
-        <>
-          <span
-            aria-hidden
-            className="call-ripple absolute inset-0 rounded-full bg-heat p-[2px] [mask:linear-gradient(#000_0_0)_content-box_exclude,linear-gradient(#000_0_0)]"
-          />
-          <span
-            aria-hidden
-            className="call-ripple absolute inset-0 rounded-full bg-heat p-[2px] [animation-delay:1.1s] [mask:linear-gradient(#000_0_0)_content-box_exclude,linear-gradient(#000_0_0)]"
-          />
-        </>
-      )}
-      <span className={cn("relative inline-flex", waiting && "call-breathe")}>
-        <UserAvatar
-          src={peer.avatar}
-          name={isGroup ? peer.name || "Group" : peer.name}
-          size={size}
-          ring="live"
-          ringGapClassName="bg-[#0b0708]"
-        />
+    <span className="relative inline-flex shrink-0 p-[2px]">
+      {beating && <span ref={rippleRefs[0]} aria-hidden className={hollow} />}
+      {beating === "incoming" && <span ref={rippleRefs[1]} aria-hidden className={hollow} />}
+      <span ref={ringRef} aria-hidden className={cn("absolute inset-0 rounded-full bg-heat transition-opacity duration-300", phase === "connecting" && "opacity-55")} />
+      {phase === "connecting" && <span aria-hidden className="call-orbit absolute -inset-[6px] rounded-full" />}
+      <span className="relative inline-flex rounded-full bg-[#0b0708] p-[2px]">
+        <UserAvatar src={peer.avatar} name={isGroup ? peer.name || "Group" : peer.name} size={size} />
       </span>
     </span>
   );
@@ -268,6 +331,7 @@ export function CallSurface() {
   }
 
   const pending = status === "ringing" || status === "connecting";
+  const ringPhase: RingPhase = status === "ringing" ? (isIncoming ? "incoming" : "outgoing") : status === "connecting" ? "connecting" : null;
   let line: string;
   if (status === "ended") line = CALL_END_COPY[endReason ?? "ended"];
   else if (status === "connected") line = isGroup ? `${elapsed ?? "0:00"} · ${participantCount + 1} in the call` : (elapsed ?? "Connected");
@@ -296,7 +360,7 @@ export function CallSurface() {
           className="msg-drop fixed top-5 right-5 z-[62] hidden w-[392px] md:block"
         >
           <div className="flex items-center gap-4 rounded-overlay bg-surface-raised p-4 pr-3.5 shadow-[0_28px_70px_-20px_rgba(0,0,0,0.95)]">
-            <CallFace peer={peer} size={52} waiting isGroup={isGroup} />
+            <CallFace peer={peer} size={52} phase="incoming" isGroup={isGroup} />
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold tracking-[0.14em] whitespace-nowrap text-ember-hi uppercase">{kind}</p>
               <p className="mt-0.5 truncate text-[16px] font-semibold text-foreground">{peer.name}</p>
@@ -324,7 +388,7 @@ export function CallSurface() {
               {via ? ` · ${via}` : ""}
             </p>
             <div className="mt-8">
-              <CallFace peer={peer} size={132} waiting isGroup={isGroup} />
+              <CallFace peer={peer} size={132} phase="incoming" isGroup={isGroup} />
             </div>
             <h2 className="mt-8 font-wide text-[30px] leading-tight font-bold tracking-[-0.02em] text-white">{peer.name}</h2>
             <p className="mt-2 flex items-center gap-2 text-[15px] text-white/60">
@@ -355,6 +419,7 @@ export function CallSurface() {
           isGroup={isGroup}
           line={line}
           pending={pending}
+          ringPhase={ringPhase}
           micOn={micOn}
           poorConnection={poorConnection}
           remoteVideo={videoStage && remoteVideoOn ? remoteVideo : null}
@@ -406,7 +471,7 @@ export function CallSurface() {
                 <VideoTile track={remoteVideo} />
               ) : (
                 <div className="flex size-full flex-col items-center justify-center gap-5 px-6 text-center">
-                  <CallFace peer={peer} size={112} waiting={pending} isGroup={isGroup} />
+                  <CallFace peer={peer} size={112} phase={ringPhase} isGroup={isGroup} />
                   <p className="flex items-center gap-2 text-[14px] text-white/60">
                     {status === "connected" ? `${peer.name.split(" ")[0]}'s camera is off` : line}
                     {pending && <Dots />}
@@ -438,7 +503,7 @@ export function CallSurface() {
           ) : (
             // Voice: the person, big, and the clock.
             <div className="flex flex-1 flex-col items-center justify-center px-8 pt-16 pb-10 text-center md:pt-14 md:pb-8">
-              <CallFace peer={peer} size={128} waiting={pending} isGroup={isGroup} />
+              <CallFace peer={peer} size={128} phase={ringPhase} isGroup={isGroup} />
               <h2 className="mt-8 font-wide text-[30px] leading-tight font-bold tracking-[-0.02em] text-white md:text-[26px]">
                 {peer.name}
               </h2>
@@ -698,6 +763,7 @@ function CallDock({
   isGroup,
   line,
   pending,
+  ringPhase,
   micOn,
   poorConnection,
   remoteVideo,
@@ -709,6 +775,7 @@ function CallDock({
   isGroup: boolean;
   line: string;
   pending: boolean;
+  ringPhase: RingPhase;
   micOn: boolean;
   poorConnection: boolean;
   remoteVideo: RemoteTrack | null;
@@ -775,7 +842,7 @@ function CallDock({
             <VideoTile track={remoteVideo} />
           ) : (
             <span className="flex size-full items-center justify-center">
-              <CallFace peer={peer} size={56} waiting={pending} isGroup={isGroup} />
+              <CallFace peer={peer} size={56} phase={ringPhase} isGroup={isGroup} />
             </span>
           )}
           <span className="obj absolute top-2 right-2 flex size-8 items-center justify-center rounded-full text-white transition-colors group-hover:bg-black/75">

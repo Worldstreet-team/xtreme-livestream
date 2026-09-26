@@ -37,14 +37,6 @@
   0%, 70%, 100% { opacity: 0.25; transform: translateY(0); }
   35% { opacity: 1; transform: translateY(-2px); }
 }
-@keyframes call-breathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(1.07); }
-}
-@keyframes call-ripple {
-  from { opacity: 0.35; transform: scale(1); }
-  to { opacity: 0; transform: scale(1.55); }
-}
 @keyframes rec-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -78,11 +70,17 @@
 .msg-dots > span:nth-child(2) { animation-delay: 0.16s; }
 .msg-dots > span:nth-child(3) { animation-delay: 0.32s; }
 
-/* Waiting on a person, not loading: the caller's ring breathes, and a soft
-   ripple leaves it. Rings are on Afterglow's heat allowlist. */
-.call-breathe { animation: call-breathe 2.2s ease-in-out infinite; }
-.call-ripple { animation: call-ripple 2.2s var(--ease-out) infinite; }
 .rec-blink { animation: rec-blink 1.1s ease-in-out infinite; }
+
+/* Connecting a call: a short arc of heat orbits the face, calm and always
+   moving (ringing, the ring beats with the tone instead: call-surface.tsx). */
+@keyframes call-orbit { to { transform: rotate(360deg); } }
+.call-orbit {
+  background: conic-gradient(from 0deg, transparent 0 58%, #ff2b45 70%, #f85810 83%, #f8a008 95%, transparent 100%);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  animation: call-orbit 1.8s linear infinite;
+}
 
 /* ---- Messages in motion: the owner's picks (2026-09-26) ------------------
    The choreography that needs JavaScript lives in motion.ts; what CSS can
@@ -193,7 +191,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .msg-pop, .msg-rise, .msg-drop, .msg-lift, .msg-fade, .msg-flash,
-  .msg-dots > span, .call-breathe, .call-ripple, .rec-blink,
+  .msg-dots > span, .rec-blink,
   .msg-roll-out, .msg-roll-in, .msg-badge-pop, .msg-typing-in, .msg-typing-out,
   .msg-sent-pop, .msg-face-pop, .msg-bar-in, .msg-emoji-in, .rec-bar-in, .msg-lock-in {
     animation: none !important;
@@ -201,5 +199,6 @@
   .msg-roll-out { display: none; }
   .msg-pending { animation: none !important; opacity: 0.6; }
   .msg-corners, .msg-orb { transition: none; }
+  .call-orbit { display: none; }
   .msg-press:active:not(:disabled) { transform: none; }
 }
