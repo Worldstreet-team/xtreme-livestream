@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, type ReactNode } from "react"
 import type { VividAgentState } from "@/lib/vivid/types"
-import SilkOrb from "./silk-orb"
+import { VividOrb } from "./vivid-orb"
 import { useSiraVivid } from "./sira-provider"
 
 /**
@@ -10,7 +10,9 @@ import { useSiraVivid } from "./sira-provider"
  *
  * Idle: the orb lives in the top bar (`VividLauncher`) — an "Ask Vivid"
  * pill on desktop, the bare orb on phones — so it never floats over the
- * picture (owner's pick, 2026-09-23: option 3B, in heat). Tap to start.
+ * picture (owner's pick, 2026-09-23: option 3B). It wears the dot sphere,
+ * the same Vivid as the landing page and vividai (owner, 2026-09-26: the dots
+ * are Vivid's sign, not heat). Tap to start.
  *
  * Live: the orb docks into a slim capsule centred at the bottom of the screen —
  * the Codex grammar: one quiet bar that says who is listening and always shows
@@ -68,7 +70,9 @@ export default function VividVoiceControl() {
       {isLive && (
         <div className="fixed inset-x-0 bottom-5 z-[45] flex justify-center px-4 max-md:bottom-24">
           <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-card/90 py-1.5 pl-1.5 pr-2 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-            <SilkOrb state={state} size="xs" getAudioLevels={getAudioLevels} label="Vivid" />
+            <span className="size-10 shrink-0" aria-label="Vivid">
+              <VividOrb live getAudioLevels={getAudioLevels} />
+            </span>
 
             <div className="flex items-center gap-2 pl-2 pr-1.5 select-none" aria-live="polite">
               <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[state]}`} />
@@ -121,7 +125,7 @@ export function VividLauncher({ variant, className = "" }: { variant: "pill" | "
         title={label}
         className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full ${className}`}
       >
-        <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />
+        <VividOrb live={isLive} getAudioLevels={getAudioLevels} className="pointer-events-none" />
       </button>
     )
   }
@@ -133,8 +137,8 @@ export function VividLauncher({ variant, className = "" }: { variant: "pill" | "
       aria-label={label}
       className={`press flex h-10 shrink-0 items-center gap-2 rounded-full bg-control pr-4 pl-1 text-[13.5px] font-semibold whitespace-nowrap text-foreground transition-colors hover:bg-control-hover ${className}`}
     >
-      <span className="relative flex size-8 items-center justify-center">
-        <SilkOrb state={state} size={40} getAudioLevels={getAudioLevels} className="pointer-events-none shrink-0" />
+      <span className="relative size-8 shrink-0">
+        <VividOrb live={isLive} getAudioLevels={getAudioLevels} className="pointer-events-none" />
       </span>
       <span aria-live="polite">{isLive ? STATE_LABELS[state] || "Vivid" : "Ask Vivid"}</span>
     </button>
