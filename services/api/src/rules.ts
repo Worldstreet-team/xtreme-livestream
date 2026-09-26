@@ -175,6 +175,8 @@ async function takeDown(streamId: Id | string, what: TakeDown) {
 /* ---- The creator's rules, cached a moment per creator ---- */
 
 const CACHE_MS = 15_000;
+/** One entry per creator whose stream saw an event lately — bounded, oldest out first. */
+const CACHE_MAX = 500;
 const cache = new Map<string, { rules: IShowRule[]; at: number }>();
 
 /** Forget a creator's cached rules — they just changed them. */
@@ -187,7 +189,9 @@ async function rulesOf(ownerId: Id | string, now: number) {
   const hit = cache.get(key);
   if (hit && now - hit.at < CACHE_MS) return hit.rules;
   const rules = (await ShowRule.find({ ownerId, on: true }).lean()) as unknown as IShowRule[];
+  cache.delete(key);
   cache.set(key, { rules, at: now });
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
   return rules;
 }
 
@@ -233,7 +237,7 @@ export async function runActions(
   now = Date.now(),
 ) {
   let plan: ReturnType<typeof planActions> | null = null;
-  await changeScene(stream._id, (scene) => {
+  const written = await changeScene(stream._id, (scene) => {
     plan = planActions(scene, actions, vars, now);
     return plan.set;
   });
@@ -249,6 +253,11 @@ export async function runActions(
     const room = stream.livekitRoomName ?? (await Stream.findById(stream._id).select("livekitRoomName").lean())?.livekitRoomName;
     if (room) void sendRoomDataTo(room, [String(stream.streamerId)], { __evt: "rule_fire", sounds }).catch(() => {});
   }
+  // Only what actually went up comes down again later. (A take-down finds
+  // its graphic by value, so a card the host raised themselves in the
+  // meantime and left up would come down with it — a nonce on the layer
+  // would tell them apart, once the layer shapes can carry one.)
+  if (!written) return;
   for (const t of takeDowns) {
     const timer = setTimeout(() => void takeDown(stream._id, t).catch(() => {}), t.after);
     timer.unref?.();

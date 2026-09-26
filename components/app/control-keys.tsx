@@ -211,8 +211,8 @@ export function ControlKeys() {
           ))}
         </ul>
         <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
-          Actions are the show rules&apos; — lower_third, banner, card, layout, countdown, hide, sound. A segment&apos;s sponsor card goes up from the
-          studio, which keeps a campaign&apos;s on-screen time.
+          Actions are the show rules&apos; — lower_third, banner, card, layout, countdown, hide, sound. Next puts up a segment&apos;s cues, its sponsor
+          card included, from the host&apos;s own sponsors.
         </p>
       </aside>
     </div>

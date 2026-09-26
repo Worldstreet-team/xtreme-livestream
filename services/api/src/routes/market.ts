@@ -199,13 +199,16 @@ export const marketRoutes: FastifyPluginAsync = async (fastify) => {
       config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
     },
     async (request, reply) => {
-      const results = await Promise.allSettled(request.query.symbols.map((s) => getQuote(s)));
+      const symbols = request.query.symbols;
+      const results = await Promise.allSettled(symbols.map((s) => getQuote(s)));
       const quotes = results.flatMap((r) => (r.status === "fulfilled" && r.value ? [r.value] : []));
-      if (quotes.length === 0 && results.some((r) => r.status === "rejected")) {
+      // Markets whose feed couldn't be read just now (not ones that don't exist): the strip says it's paused.
+      const unavailable = symbols.filter((_, i) => results[i]!.status === "rejected");
+      if (quotes.length === 0 && unavailable.length > 0) {
         throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
       }
       reply.header("Cache-Control", "public, max-age=10");
-      return { success: true, data: { quotes, source: "Coinbase", asOf: new Date().toISOString() } };
+      return { success: true, data: { quotes, unavailable, source: "Coinbase", asOf: new Date().toISOString() } };
     },
   );
 

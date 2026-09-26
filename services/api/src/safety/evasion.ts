@@ -17,6 +17,8 @@ export const EVASION_ACCOUNT_MS = 7 * 86_400_000;
 /** Bans this recent on the channel are what a new name is compared with. */
 const BAN_LOOKBACK_MS = 14 * 86_400_000;
 const CACHE_MS = 60_000;
+/** One entry per channel a young account chats in lately — bounded, oldest out first. */
+const CACHE_MAX = 500;
 
 const LEET: Record<string, string> = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", $: "s" };
 
@@ -52,7 +54,10 @@ export function looksLike(a: string, b: string) {
   if (x.length < 4 || y.length < 4) return false;
   if (x === y) return true;
   const short = Math.min(x.length, y.length);
-  if (short >= 5 && (x.includes(y) || y.includes(x))) return true;
+  // One name inside the other only when the shorter is long enough to be
+  // more than a common first name ("chioma" is in "chiomaokeke" — and in
+  // half of Lagos).
+  if (short >= 7 && (x.includes(y) || y.includes(x))) return true;
   return distance(x, y) <= (short >= 8 ? 2 : short >= 5 ? 1 : 0);
 }
 
@@ -72,11 +77,16 @@ async function recentBans(channelId: Id | string, now: number) {
   if (hit && now - hit.at < CACHE_MS) return hit.bans;
   const since = new Date(now - BAN_LOOKBACK_MS);
   const streams = await Stream.find({ streamerId: channelId, startedAt: { $gte: since } }).select("_id").lean();
+  // Bans for the stream's lifetime, not timeouts: a two-minute time-out
+  // isn't someone to watch for. And a ban that never got a name (the
+  // "user" stand-in) matches nothing.
   const bans = streams.length
-    ? await StreamBan.find({ streamId: { $in: streams.map((s) => s._id) }, createdAt: { $gte: since } }).select("username userId createdAt").lean()
+    ? await StreamBan.find({ streamId: { $in: streams.map((s) => s._id) }, createdAt: { $gte: since }, expiresAt: null }).select("username userId createdAt").lean()
     : [];
-  const list = bans.map((b) => ({ username: b.username, userId: String(b.userId), at: new Date(b.createdAt) }));
+  const list = bans.filter((b) => b.username && b.username !== "user").map((b) => ({ username: b.username, userId: String(b.userId), at: new Date(b.createdAt) }));
+  bansCache.delete(key);
   bansCache.set(key, { at: now, bans: list });
+  if (bansCache.size > CACHE_MAX) bansCache.delete(bansCache.keys().next().value!);
   return list;
 }
 

@@ -127,6 +127,16 @@ describe("the market routes", () => {
     expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("BTC-USD")).length).toBe(1);
   });
 
+  it("says which markets couldn't be read, so the strip can say it's paused", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/products/BTC-USD/stats")) return new Response(JSON.stringify({ open: "100", last: "110" }), { status: 200 });
+      throw new Error("upstream down");
+    });
+    const res = await app.inject({ method: "GET", url: "/v1/market/quotes?symbols=BTC-USD,ETH-USD" });
+    expect(res.json().data).toMatchObject({ quotes: [{ symbol: "BTC-USD" }], unavailable: ["ETH-USD"] });
+  });
+
   it("lets the host and producers read what chat's talking about, not moderators", async () => {
     await noteTickers(stream, streamer as never, "$eth", Date.now());
     state.caller = "producer";

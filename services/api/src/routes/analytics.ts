@@ -15,7 +15,9 @@ import { requireChannelRole } from "../safety/roles.js";
  */
 
 const LIVE_CACHE_MS = 15_000;
-const cache = new Map<string, { at: number; data: StreamAnalytics }>();
+/** Live ones for a few seconds; ended ones for good, since nothing about them changes. Oldest out first past the cap. */
+const CACHE_MAX = 300;
+const cache = new Map<string, { at: number; live: boolean; data: StreamAnalytics }>();
 
 export const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -42,12 +44,15 @@ export const analyticsRoutes: FastifyPluginAsync = async (fastify) => {
       const key = String(stream._id);
       const hit = cache.get(key);
       const now = Date.now();
-      if (stream.isLive && hit && now - hit.at < LIVE_CACHE_MS) return { success: true, data: { analytics: hit.data } };
+      if (hit && (!hit.live || now - hit.at < LIVE_CACHE_MS) && hit.live === Boolean(stream.isLive)) {
+        return { success: true, data: { analytics: hit.data } };
+      }
 
       const analytics = await streamAnalytics(stream, now);
       if (!analytics) throw new ApiError(409, "This stream never went on air", "NEVER_LIVE");
-      if (stream.isLive) cache.set(key, { at: now, data: analytics });
-      else cache.delete(key);
+      cache.delete(key);
+      cache.set(key, { at: now, live: Boolean(stream.isLive), data: analytics });
+      if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
       return { success: true, data: { analytics } };
     },
   );

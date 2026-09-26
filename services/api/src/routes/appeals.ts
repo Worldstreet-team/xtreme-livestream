@@ -45,17 +45,20 @@ export const appealRoutes: FastifyPluginAsync = async (fastify) => {
       // An appeal that reversed a takedown keeps its stream here, so the outcome can be read.
       const reversed = await Appeal.find({ userId: dbUser._id, status: "reversed", reviewedAt: { $gte: since } }).lean();
       const back = reversed.length ? await Stream.find({ _id: { $in: reversed.map((a) => a.streamId) } }).select("title takenDownAt").lean() : [];
-      const rows: TakedownView[] = [
-        ...streams.map((s) => {
-          const a = appeals.find((x) => String(x.streamId) === String(s._id));
-          return { streamId: String(s._id), title: s.title, takenDownAt: new Date(s.takenDownAt!).toISOString(), appeal: a ? appealView(a, s) : null };
-        }),
-        ...back.map((s) => {
-          const a = reversed.find((x) => String(x.streamId) === String(s._id))!;
-          return { streamId: String(s._id), title: s.title, takenDownAt: new Date(a.takenDownAt ?? a.createdAt).toISOString(), appeal: appealView(a, s) };
-        }),
-      ];
-      return { success: true, data: { takedowns: rows } };
+      const sameTakedown = (a: { takenDownAt?: Date | null }, at: Date) => !a.takenDownAt || new Date(a.takenDownAt).getTime() === new Date(at).getTime();
+      // One row per stream: a takedown in force first, with the appeal made
+      // against it (not one against an earlier takedown since reversed).
+      const rows = new Map<string, TakedownView>();
+      for (const s of streams) {
+        const a = appeals.find((x) => String(x.streamId) === String(s._id) && sameTakedown(x, s.takenDownAt!));
+        rows.set(String(s._id), { streamId: String(s._id), title: s.title, takenDownAt: new Date(s.takenDownAt!).toISOString(), appeal: a ? appealView(a, s) : null });
+      }
+      for (const s of back) {
+        if (rows.has(String(s._id))) continue;
+        const a = reversed.find((x) => String(x.streamId) === String(s._id))!;
+        rows.set(String(s._id), { streamId: String(s._id), title: s.title, takenDownAt: new Date(a.takenDownAt ?? a.createdAt).toISOString(), appeal: appealView(a, s) });
+      }
+      return { success: true, data: { takedowns: [...rows.values()] } };
     },
   );
 
@@ -88,7 +91,7 @@ export const appealRoutes: FastifyPluginAsync = async (fastify) => {
         });
       } catch (err) {
         if (err && typeof err === "object" && "code" in err && err.code === 11000) {
-          throw new ApiError(409, "You've already appealed this one — the team will get back to you", "ALREADY_APPEALED");
+          throw new ApiError(409, "You've already appealed this takedown — the team will get back to you", "ALREADY_APPEALED");
         }
         throw err;
       }

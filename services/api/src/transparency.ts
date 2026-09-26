@@ -5,8 +5,10 @@ import { Appeal, AuditLog, ChatMessage, Report, Stream } from "./models.js";
  * The transparency report (Phase 3, deeper moderation): a calendar year of
  * trust & safety in numbers, from what's already kept — reports and how
  * they were resolved, appeals, and every moderation action in the audit
- * trail. NITDA's code of practice asks for one every year; this is what
- * the admins publish it from.
+ * trail. NITDA's code of practice asks large platforms for one every
+ * year; this is what the admins publish it from. "On time" is measured
+ * against the 48 hours every report is given at intake — notices from an
+ * authorised agency, which the Code gives 24 hours, aren't separated yet.
  */
 
 const HOUR = 3_600_000;

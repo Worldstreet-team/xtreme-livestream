@@ -79,9 +79,9 @@ export function TransparencySections({ report: r }: { report: TransparencyReport
       </div>
       <div className="mt-5 grid grid-cols-2 gap-5 md:grid-cols-4">
         <Figure
-          label="Within 48 hours"
+          label="Resolved in time"
           value={resolved ? `${Math.round((r.reports.onTime / resolved) * 100)}%` : "—"}
-          hint={resolved ? `${n(r.reports.onTime)} of ${n(resolved)} resolved` : undefined}
+          hint={resolved ? `${n(r.reports.onTime)} of ${n(resolved)} resolved, inside the 48 hours each report is given` : undefined}
         />
         <Figure label="Median time to resolve" value={r.reports.medianHoursToResolve === null ? "—" : `${r.reports.medianHoursToResolve} h`} />
       </div>
@@ -135,7 +135,8 @@ export function TransparencySections({ report: r }: { report: TransparencyReport
     </section>
 
     <p className="px-1 text-[12px] leading-relaxed text-muted-foreground">
-      Counted from report records, appeals and the moderation audit trail. A takedown that closed several reports counts once.
+      Counted from report records, appeals and the moderation audit trail. A takedown that closed several reports counts once. Every
+      report is given 48 hours at intake; notices from an authorised agency, which the Code gives 24 hours, aren&apos;t separated out yet.
     </p>
   </div>
   );

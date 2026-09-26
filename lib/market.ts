@@ -76,11 +76,12 @@ export function useQuotes(symbols: string[]): QuotesView {
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await apiFetch<{ success: boolean; data: { quotes: MarketQuote[]; source: string; asOf: string } }>(
+        const r = await apiFetch<{ success: boolean; data: { quotes: MarketQuote[]; unavailable?: string[]; source: string; asOf: string } }>(
           `/api/market/quotes?symbols=${encodeURIComponent(key)}`
         );
         if (cancelled) return;
-        setView({ quotes: r.data.quotes, source: r.data.source || "Coinbase", asOf: r.data.asOf || null, failed: false });
+        // A market the feed couldn't read just now: the strip shows the rest, and says it's paused.
+        setView({ quotes: r.data.quotes, source: r.data.source || "Coinbase", asOf: r.data.asOf || null, failed: (r.data.unavailable?.length ?? 0) > 0 });
       } catch {
         if (!cancelled) setView((cur) => ({ ...cur, failed: true }));
       }

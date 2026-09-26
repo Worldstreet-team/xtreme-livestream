@@ -39,6 +39,8 @@ vi.mock("../src/rewards.js", () => ({
   payBattleBonus: async (_b: unknown, shares: Array<{ userId: unknown; usdMinor: number }>) => void state.bonusCalls.push(shares),
 }));
 vi.mock("../src/models.js", () => ({
+  // Settling fires show rules: none here.
+  ShowRule: { find: () => ({ lean: async () => [] }) },
   Battle: {
     create: async (fields: Row) => {
       const d: Row = {

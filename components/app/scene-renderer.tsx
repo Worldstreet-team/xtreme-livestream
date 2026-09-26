@@ -422,16 +422,20 @@ function GraphicsAnnouncer({ scene }: { scene: Scene }) {
   const said = useRef<Set<string>>(new Set());
   const lastAt = useRef(0);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** What's waiting to be read: a second graphic inside the pause joins the first rather than replacing it. */
+  const queued = useRef<string[]>([]);
   const lines = announcementOf(scene).join(" ");
   useEffect(() => {
     const fresh = lines ? announcementOf(scene).filter((l) => !said.current.has(l)) : [];
     said.current = new Set(announcementOf(scene));
     if (fresh.length === 0) return;
+    queued.current.push(...fresh.filter((l) => !queued.current.includes(l)));
     const wait = Math.max(0, lastAt.current + 4000 - Date.now());
     if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(() => {
       lastAt.current = Date.now();
-      setMessage(fresh.join(" "));
+      setMessage(queued.current.join(" "));
+      queued.current = [];
     }, wait);
     // `lines` stands for the scene's words: a new version with the same words says nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps

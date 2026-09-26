@@ -33,6 +33,9 @@ describe("names that look alike", () => {
     expect(looksLike("chiomaa", "chioma")).toBe(true);
     expect(looksLike("tolu", "tolulope")).toBe(false);
     expect(looksLike("chioma", "emeka")).toBe(false);
+    // A common first name inside a longer one isn't the same person.
+    expect(looksLike("chiomaokeke", "chioma")).toBe(false);
+    expect(looksLike("xXspammerkingXx", "spammerking")).toBe(true);
     expect(looksLike("ada", "ada1")).toBe(false);
     // The same account isn't evading anything.
     expect(looksLike("Spammer", "spammer")).toBe(false);
@@ -44,9 +47,12 @@ describe("a young account named like a recent ban", () => {
     for (const m of Object.values(db)) m.reset();
     forgetBans(HOST);
     const recent = db.Stream!.insert({ streamerId: HOST, startedAt: new Date(NOW - 2 * DAY) });
-    db.StreamBan!.insert({ streamId: recent._id, userId: new mongoose.Types.ObjectId(), username: "spammer", createdAt: new Date(NOW - 2 * HOUR) });
+    db.StreamBan!.insert({ streamId: recent._id, userId: new mongoose.Types.ObjectId(), username: "spammer", expiresAt: null, createdAt: new Date(NOW - 2 * HOUR) });
     const old = db.Stream!.insert({ streamerId: HOST, startedAt: new Date(NOW - 30 * DAY) });
-    db.StreamBan!.insert({ streamId: old._id, userId: new mongoose.Types.ObjectId(), username: "oldtroll", createdAt: new Date(NOW - 30 * DAY) });
+    db.StreamBan!.insert({ streamId: old._id, userId: new mongoose.Types.ObjectId(), username: "oldtroll", expiresAt: null, createdAt: new Date(NOW - 30 * DAY) });
+    // A time-out, and a ban that never got a name: neither is someone to watch for.
+    db.StreamBan!.insert({ streamId: recent._id, userId: new mongoose.Types.ObjectId(), username: "chioma", expiresAt: new Date(NOW + HOUR), createdAt: new Date(NOW - HOUR) });
+    db.StreamBan!.insert({ streamId: recent._id, userId: new mongoose.Types.ObjectId(), username: "user", expiresAt: null, createdAt: new Date(NOW - HOUR) });
   });
   const user = (username: string, ageMs: number) => ({ _id: new mongoose.Types.ObjectId(), username, createdAt: new Date(NOW - ageMs) });
 
@@ -60,5 +66,10 @@ describe("a young account named like a recent ban", () => {
     expect(await evasionOf(HOST, user("sp4mmer_2", 10 * DAY), NOW)).toBeNull();
     expect(await evasionOf(HOST, user("0ldtroll", 3 * HOUR), NOW)).toBeNull();
     expect(await evasionOf(HOST, user("amaka", 3 * HOUR), NOW)).toBeNull();
+  });
+
+  it("isn't flagged for a time-out, or for a ban with no name", async () => {
+    expect(await evasionOf(HOST, user("chi0ma", 3 * HOUR), NOW)).toBeNull();
+    expect(await evasionOf(HOST, user("user_01", 3 * HOUR), NOW)).toBeNull();
   });
 });

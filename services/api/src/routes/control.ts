@@ -10,6 +10,7 @@ import {
   ruleIdParamsSchema,
   type ControlKeyView,
   type RuleAction,
+  type SceneLayer,
 } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { authenticateControl, newControlKey } from "../control-keys.js";
@@ -17,6 +18,8 @@ import { ApiError } from "../errors.js";
 import { ControlKey, Rundown, ShowRule, Stream, type IControlKey } from "../models.js";
 import { SAMPLE_WORDS, cueActions, runActions } from "../rules.js";
 import { moveShow } from "./rundown.js";
+import { sceneView } from "../featured.js";
+import { putScene, type SceneBody } from "../scene-put.js";
 
 /**
  * The control API (Phase 3): the studio's buttons for a Stream Deck,
@@ -152,11 +155,41 @@ export const controlRoutes: FastifyPluginAsync = async (fastify) => {
       const target = step === "stop" ? null : step === "start" || onAirIndex < 0 ? segments[0]! : (segments[onAirIndex + 1] ?? null);
       if (step === "next" && onAirIndex >= 0 && !target) throw new ApiError(409, "That was the last segment", "LAST_SEGMENT");
       const position = await moveShow(stream, owner, target?.id ?? null);
-      // The segment's cues, as the studio's Next applies them (sponsor cards go up from the studio).
+      // The segment's cues, as the studio's Next applies them.
       const { actions, skipped } = target ? cueActions(target) : { actions: [], skipped: [] };
       if (actions.length > 0) await runActions(stream, actions, {});
+      // A sponsor cue goes up the way the studio puts one up — through the
+      // scene, from the host's own records — so a campaign's time counts.
+      const sponsorCue = target?.cues?.find((c) => c.do === "sponsor" || c.do === "hide-sponsor");
+      const left = skipped.filter((k) => k !== "sponsor" && k !== "hide-sponsor");
+      if (sponsorCue) {
+        try {
+          const fresh = await Stream.findById(stream._id).select("scene").lean();
+          const cur = sceneView(fresh?.scene);
+          const layers: SceneLayer[] = (cur.layers as SceneLayer[]).filter((l) => l.kind !== "sponsor");
+          if (sponsorCue.do === "sponsor") {
+            layers.push({
+              kind: "sponsor",
+              source: sponsorCue.source as "own" | "campaign",
+              sponsorId: String(sponsorCue.sponsorId),
+              name: "",
+              line: "",
+              url: "",
+              code: "",
+              logoUrl: null,
+              restricted: false,
+            });
+          }
+          // The stored scene is already the wire shape; only the layers change here.
+          await putScene(stream._id, { ...(cur as unknown as SceneBody), layers });
+        } catch (err) {
+          // A sponsor since removed, or a scene that kept moving: the rest of the segment still went up.
+          request.log.warn({ err }, "control: sponsor cue didn't go up");
+          left.push(sponsorCue.do);
+        }
+      }
       const next = target ? (segments[segments.indexOf(target) + 1]?.title ?? null) : null;
-      return { success: true, data: { position, onAir: target?.title ?? null, next, skipped } };
+      return { success: true, data: { position, onAir: target?.title ?? null, next, skipped: left } };
     },
   );
 

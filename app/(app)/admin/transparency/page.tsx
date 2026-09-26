@@ -16,9 +16,9 @@ import { cn } from "@/lib/utils";
  * The transparency report (Phase 3, deeper moderation): a calendar year of
  * trust & safety in numbers — reports and how fast they were handled, what
  * came down, what appeals decided, and what creators and their moderators
- * did in their rooms. NITDA's code of practice asks platforms to publish
- * one every year; this is the page it's published from (print it, or copy
- * the figures). Admins only.
+ * did in their rooms. NITDA's code of practice asks large platforms to
+ * publish one every year; this is the page it's published from (print it,
+ * or copy the figures). Admins only.
  */
 
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";

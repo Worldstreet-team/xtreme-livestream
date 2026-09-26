@@ -1516,7 +1516,8 @@ const appealSchema = new Schema<IAppeal>(
   },
   { timestamps: true },
 );
-appealSchema.index({ kind: 1, streamId: 1 }, { unique: true });
+// One appeal per takedown: a stream taken down again later can be appealed again.
+appealSchema.index({ kind: 1, streamId: 1, takenDownAt: 1 }, { unique: true });
 
 export const Appeal = mongoose.model<IAppeal>("Appeal", appealSchema);
 

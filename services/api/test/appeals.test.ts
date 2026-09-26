@@ -28,7 +28,7 @@ vi.mock("../src/models.js", async () => {
   return {
     Stream: new FakeModel("Stream"),
     User: new FakeModel("User"),
-    Appeal: new FakeModel("Appeal", [{ keys: ["kind", "streamId"] }]),
+    Appeal: new FakeModel("Appeal", [{ keys: ["kind", "streamId", "takenDownAt"] }]),
     Notification: new FakeModel("Notification"),
     Report: new FakeModel("Report"),
     AuditLog: new FakeModel("AuditLog"),
@@ -115,6 +115,20 @@ describe("appeals", () => {
     state.caller = "creator";
     const mine = (await app.inject({ method: "GET", url: "/v1/users/me/takedowns" })).json().data.takedowns;
     expect(mine).toEqual([expect.objectContaining({ title: "Friday night desk", appeal: expect.objectContaining({ status: "reversed" }) })]);
+  });
+
+  it("lets a stream taken down again after a reversal be appealed again, once, and lists it once", async () => {
+    const first = (await appeal()).json().data.appeal.id;
+    state.caller = "boss";
+    await decide(first, "reverse");
+    // Reported and taken down a second time.
+    db.Stream!.rows[0]!.takenDownAt = new Date(Date.now() - 60_000);
+    state.caller = "creator";
+    expect((await appeal()).statusCode).toBe(200);
+    expect((await appeal()).json().code).toBe("ALREADY_APPEALED");
+    const mine = (await app.inject({ method: "GET", url: "/v1/users/me/takedowns" })).json().data.takedowns;
+    expect(mine).toHaveLength(1);
+    expect(mine[0].appeal.status).toBe("open");
   });
 
   it("upholds a takedown and keeps the stream down", async () => {
