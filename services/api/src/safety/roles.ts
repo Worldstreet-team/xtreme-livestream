@@ -23,7 +23,7 @@ export function roleIn(streamer: Streamer, userId: unknown): ChannelRole | null 
   return mod ? mod.role : null;
 }
 
-const POWER: Record<ChannelRole, number> = { mod: 1, lead: 2, host: 3 };
+const POWER: Record<ChannelRole, number> = { mod: 1, lead: 2, producer: 3, host: 4 };
 
 /** Does `role` reach `need`? */
 export function atLeast(role: ChannelRole | null, need: ChannelRole) {
@@ -49,9 +49,11 @@ export async function requireChannelRole(
       403,
       need === "host"
         ? "Only the host can do that"
-        : need === "lead"
-          ? "Only the host and lead moderators can do that"
-          : "Only the host and moderators can do that",
+        : need === "producer"
+          ? "Only the host and their producers can do that"
+          : need === "lead"
+            ? "Only the host and lead moderators can do that"
+            : "Only the host and moderators can do that",
       "FORBIDDEN",
     );
   }
@@ -75,5 +77,14 @@ export function assertActionable(streamer: Streamer, targetUserId: unknown) {
  */
 export function moderatorIdentities(streamer: Streamer) {
   const host = String(streamer._id);
-  return [host, `mon-${host}`, ...(streamer.safety?.mods ?? []).map((m) => String(m.userId))];
+  // Each also as a control surface (prod-<id>, producer mode): the host on a
+  // second device, or a producer running the show.
+  const mods = (streamer.safety?.mods ?? []).map((m) => String(m.userId));
+  return [host, `mon-${host}`, `prod-${host}`, ...mods, ...mods.map((id) => `prod-${id}`)];
 }
+
+/** A control surface's room identity (producer mode): watches, never publishes, hidden from viewers. */
+export const consoleIdentity = (userId: unknown) => `prod-${String(userId)}`;
+export const isConsoleIdentity = (identity: string) => identity.startsWith("prod-");
+/** Every console that could be open on a channel: the host's second device and each producer's. */
+export const consoleIdentities = (streamer: Streamer) => moderatorIdentities(streamer).filter(isConsoleIdentity);

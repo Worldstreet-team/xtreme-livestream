@@ -14,6 +14,9 @@ import type { FilterCategory, FilterLevel, ModRole, ModsCanFeature } from "@xtre
  * the moment it changes, like the switches beside it.
  */
 
+const ROLE_LABEL: Record<ModRole, string> = { mod: "Moderator", lead: "Lead", producer: "Producer" };
+const NEXT_ROLE: Record<ModRole, ModRole> = { mod: "lead", lead: "producer", producer: "mod" };
+
 const TILE = "relative overflow-hidden rounded-panel bg-surface";
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 
@@ -425,7 +428,7 @@ export function ModsTile({
       });
       onMods(r.data.mods);
       setUsername("");
-      show(true, `@${name} is a ${role === "lead" ? "lead moderator" : "moderator"}`);
+      show(true, role === "producer" ? `@${name} is a producer — they've been sent the way into your console` : `@${name} is a ${role === "lead" ? "lead moderator" : "moderator"}`);
     } catch (e) {
       show(false, e instanceof Error ? e.message : "Couldn't add them");
     } finally {
@@ -465,7 +468,9 @@ export function ModsTile({
         <div className="lg:col-span-7">
           <p className="text-[13px] leading-relaxed text-muted-foreground">
             Moderators keep your chat: they delete, time out and ban, pin, and decide on held lines. A{" "}
-            <span className="font-semibold text-foreground">lead</span> also adds moderators and raises Shield.
+            <span className="font-semibold text-foreground">lead</span> also adds moderators and raises Shield. A{" "}
+            <span className="font-semibold text-foreground">producer</span> runs your show from their own device — scenes, graphics, your
+            run of show and the stage — without appearing on air.
           </p>
           <form
             className="mt-4 flex flex-wrap gap-2"
@@ -482,7 +487,7 @@ export function ModsTile({
               className="h-10 min-w-0 flex-1 basis-40 rounded-full bg-white/[0.06] px-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
             />
             <div role="radiogroup" aria-label="Role" className="flex shrink-0 rounded-full bg-white/[0.05] p-0.5">
-              {(["mod", "lead"] as ModRole[]).map((r) => (
+              {(["mod", "lead", "producer"] as ModRole[]).map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -494,7 +499,7 @@ export function ModsTile({
                     role === r ? "bg-white/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {r === "lead" ? "Lead" : "Moderator"}
+                  {ROLE_LABEL[r]}
                 </button>
               ))}
             </div>
@@ -521,17 +526,22 @@ export function ModsTile({
                     <span className="block truncate text-[14px] font-semibold">{m.displayName || m.username}</span>
                     <span className="block truncate text-[12px] text-muted-foreground">@{m.username}</span>
                   </span>
+                  {/* A tap moves them to the next role: moderator, lead, producer. */}
                   <button
                     type="button"
                     disabled={busy === m.userId}
-                    onClick={() => void change(m, m.role === "lead" ? "mod" : "lead")}
-                    title={m.role === "lead" ? "Make a moderator" : "Make a lead moderator"}
+                    onClick={() => void change(m, NEXT_ROLE[m.role])}
+                    title={`Make a ${ROLE_LABEL[NEXT_ROLE[m.role]].toLowerCase()}`}
                     className={cn(
                       "press h-7 shrink-0 rounded-full px-2.5 text-[11.5px] font-bold transition-colors disabled:opacity-50",
-                      m.role === "lead" ? "bg-ember/[0.16] text-ember-hi hover:bg-ember/25" : "bg-white/[0.07] text-foreground/85 hover:bg-white/[0.11]"
+                      m.role === "producer"
+                        ? "bg-white/[0.14] text-foreground hover:bg-white/[0.18]"
+                        : m.role === "lead"
+                          ? "bg-ember/[0.16] text-ember-hi hover:bg-ember/25"
+                          : "bg-white/[0.07] text-foreground/85 hover:bg-white/[0.11]"
                     )}
                   >
-                    {m.role === "lead" ? "Lead" : "Moderator"}
+                    {ROLE_LABEL[m.role]}
                   </button>
                   <button
                     type="button"

@@ -73,6 +73,12 @@ interface LiveChatProps {
   isLive: boolean;
   /** The host's own chat: moderation tools, no gift button. */
   isHost?: boolean;
+  /**
+   * A producer's console (producer mode): the crew's chat — no gifts or
+   * paid requests, and what's on screen marked as in the host's. Their
+   * role comes from the room as anyone's does.
+   */
+  crew?: boolean;
   /** Pin persisted on the stream doc, so late joiners see it. */
   initialPinned?: PinnedMessage | null;
   /**
@@ -146,6 +152,7 @@ export function LiveChat({
   room,
   isLive,
   isHost = false,
+  crew = false,
   initialPinned = null,
   variant = "panel",
   beforeComposer,
@@ -217,7 +224,7 @@ export function LiveChat({
     },
     [hostUsername]
   );
-  const requests = useViewerRequests(streamId, isHost ? null : room, Boolean(user) && !isHost, onRequestNews);
+  const requests = useViewerRequests(streamId, isHost || crew ? null : room, Boolean(user) && !isHost && !crew, onRequestNews);
   const onFeatureQueueRef = useRef(onFeatureQueue);
   useEffect(() => {
     onFeatureQueueRef.current = onFeatureQueue;
@@ -934,7 +941,7 @@ export function LiveChat({
     }
   };
 
-  const requestsForMe = !isHost && Boolean(user) && requests.menu.open;
+  const requestsForMe = !isHost && !crew && Boolean(user) && requests.menu.open;
   const openGifts = (tab: GiftTab) => {
     setGiftTab(tab);
     setShowGiftPanel(true);
@@ -985,12 +992,12 @@ export function LiveChat({
   );
 
   // What's on screen now — its line wears "On stream", and its tool takes it down.
-  const showing = useFeaturedShowing(isHost ? featured : null);
+  const showing = useFeaturedShowing(isHost || crew ? featured : null);
   const onStreamId = showing?.id ?? null;
 
   // The screen button: the host's, and a moderator's as the host allows —
   // straight up, or as a suggestion the host decides on.
-  const canFeature = role === "host" || rules.modsCanFeature === "on";
+  const canFeature = role === "host" || role === "producer" || rules.modsCanFeature === "on";
   const featureTool = (msg: ChatMsg) =>
     canFeature
       ? onStreamId === msg.id
@@ -1076,6 +1083,8 @@ export function LiveChat({
         ? `Slow mode · ${SLOW_MODE_SECONDS}s between messages`
         : isHost
           ? "Message your viewers"
+          : crew
+            ? "Message the room"
           : overlay
             ? "Say something…"
             : "Send a message";
@@ -1144,7 +1153,7 @@ export function LiveChat({
           {canModerate && showModTools && (
             <div className="mx-3 mb-2 rounded-[12px] bg-white/[0.04] px-3.5 py-3">
               <p className="caps mb-2.5 font-mono text-[10px] text-muted-foreground">
-                {role === "host" ? "Your room" : role === "lead" ? "Lead moderator" : "Moderator"}
+                {role === "host" ? "Your room" : role === "producer" ? "Producer" : role === "lead" ? "Lead moderator" : "Moderator"}
               </p>
               <ModSwitch
                 label="Slow mode"
@@ -1152,7 +1161,7 @@ export function LiveChat({
                 on={slowMode}
                 onChange={(v) => void toggleSlowMode(v)}
               />
-              {(role === "host" || role === "lead") && (
+              {(role === "host" || role === "producer" || role === "lead") && (
                 <div className="mt-3">
                   <ModSwitch
                     label="Shield"
@@ -1428,6 +1437,7 @@ export function LiveChat({
               <Smiley size={20} />
             )}
             {!isHost &&
+              !crew &&
               iconButton(
                 "Send a gift",
                 showGiftPanel,

@@ -169,6 +169,8 @@ export async function createToken(
     canSubscribe?: boolean;
     canPublishData?: boolean;
     roomCreate?: boolean;
+    /** Invisible to the room's other participants (a producer's console). */
+    hidden?: boolean;
   } = {},
 ) {
   const {
@@ -176,6 +178,7 @@ export async function createToken(
     canSubscribe = true,
     canPublishData = true,
     roomCreate = false,
+    hidden = false,
   } = options;
 
   const token = new AccessToken(
@@ -195,6 +198,7 @@ export async function createToken(
     canPublish,
     canSubscribe,
     canPublishData,
+    ...(hidden ? { hidden: true } : {}),
   });
 
   return token.toJwt();

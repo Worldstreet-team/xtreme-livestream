@@ -10,6 +10,7 @@ import {
   type SponsorView,
 } from "@xtreme/contracts";
 import { apiFetch } from "@/lib/api-client";
+import type { CueSponsor } from "@/lib/rundown";
 
 /**
  * Sponsorships on the client (Phase 2, sponsor slots): a creator's own
@@ -23,6 +24,20 @@ import { apiFetch } from "@/lib/api-client";
 
 export type { CampaignView, SponsorCategory, SponsoredQuestView, SponsorRunView, SponsorView };
 export { MAX_SPONSORS, SPONSOR_CATEGORIES } from "@xtreme/contracts";
+
+/**
+ * The sponsors a graphic or a run-of-show cue can put up: the campaigns the
+ * creator joined that are running, then their own sponsors.
+ */
+export function cueSponsorsOf(list: { own: SponsorView[]; campaigns: CampaignView[] } | null | undefined): CueSponsor[] {
+  if (!list) return [];
+  return [
+    ...list.campaigns
+      .filter((c) => c.joined && c.status === "live")
+      .map((c) => ({ source: "campaign" as const, id: c.id, name: c.name, line: c.line, url: c.url, code: c.code, logoUrl: c.logoUrl, restricted: c.restricted })),
+    ...list.own.map((o) => ({ source: "own" as const, id: o.id, name: o.name, line: o.line, url: o.url, code: o.code, logoUrl: o.logoUrl, restricted: o.restricted })),
+  ];
+}
 
 export const SPONSOR_CATEGORY_LABELS: Record<SponsorCategory, { label: string; hint: string }> = {
   everyday: { label: "Products & services", hint: "Food, fashion, apps, games, events" },

@@ -4,6 +4,8 @@ import { rundownBodySchema, rundownPositionBodySchema, streamIdParamsSchema, typ
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { Rundown, Stream, type IStream } from "../models.js";
+import { sendRoomDataTo } from "../livekit.js";
+import { consoleIdentities, moderatorIdentities, requireChannelRole } from "../safety/roles.js";
 
 /**
  * Run of show (Phase 3). The rundown is the creator's — segments, lengths,
@@ -54,6 +56,9 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
         { $set: { segments: request.body.segments } },
         { upsert: true, new: true },
       ).lean();
+      // Edited mid-show: the consoles running it fetch it again.
+      const live = await Stream.findOne({ streamerId: dbUser._id, isLive: true }).select("livekitRoomName").lean();
+      if (live) void sendRoomDataTo(live.livekitRoomName, consoleIdentities(dbUser), { __evt: "rundown_changed" }).catch(() => {});
       return {
         success: true,
         data: { rundown: { segments: rundown?.segments ?? [], updatedAt: rundown?.updatedAt ? new Date(rundown.updatedAt).toISOString() : null } },
@@ -63,13 +68,21 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
 
   app.get(
     "/streams/:id/rundown",
-    { schema: { tags: ["Run of show"], summary: "Where your show is: the segment on air and since when", params: streamIdParamsSchema, security: [{ bearerAuth: [] }] } },
+    {
+      schema: {
+        tags: ["Run of show"],
+        summary: "Where the show is (the segment on air and since when) and its running order — the host's and their producers'",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
     async (request) => {
       const { dbUser } = await authenticate(request);
       const stream = await Stream.findById(request.params.id).select("+rundown streamerId").lean();
       if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
-      if (!stream.streamerId.equals(dbUser._id)) throw new ApiError(403, "Only the host runs the show", "NOT_HOST");
-      return { success: true, data: { position: positionView(stream.rundown) } };
+      await requireChannelRole(stream, dbUser._id, "producer");
+      const rundown = await Rundown.findOne({ ownerId: stream.streamerId }).select("segments").lean();
+      return { success: true, data: { position: positionView(stream.rundown), segments: rundown?.segments ?? [] } };
     },
   );
 
@@ -87,9 +100,9 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const stream = await Stream.findById(request.params.id).select("+rundown streamerId isLive").lean();
+      const stream = await Stream.findById(request.params.id).select("+rundown streamerId isLive livekitRoomName").lean();
       if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
-      if (!stream.streamerId.equals(dbUser._id)) throw new ApiError(403, "Only the host runs the show", "NOT_HOST");
+      const { streamer } = await requireChannelRole(stream, dbUser._id, "producer");
       if (!stream.isLive) throw new ApiError(409, "Go live first", "NOT_LIVE");
       const { segmentId } = request.body;
       const now = new Date();
@@ -98,6 +111,9 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
         ? { segmentId, startedAt: now, showStartedAt: stream.rundown?.showStartedAt ?? now }
         : { segmentId: null, startedAt: null, showStartedAt: null };
       await Stream.updateOne({ _id: stream._id, isLive: true }, { $set: { rundown: position } });
+      // The host's studio and every producer's console move on together —
+      // the host's prompter follows a producer's Next.
+      void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { __evt: "rundown", position: positionView(position) }).catch(() => {});
       return { success: true, data: { position: positionView(position) } };
     },
   );

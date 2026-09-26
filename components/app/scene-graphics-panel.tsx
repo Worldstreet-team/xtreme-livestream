@@ -75,6 +75,7 @@ export function SceneGraphicsPanel({
   carded,
   battle,
   sponsors = null,
+  brandKit = true,
   onLayers,
   onBrand,
 }: {
@@ -90,6 +91,8 @@ export function SceneGraphicsPanel({
   battle: boolean;
   /** The creator's own sponsors and the campaigns they've joined; null while loading. */
   sponsors?: { own: SponsorView[]; campaigns: CampaignView[] } | null;
+  /** The brand kit under the graphics — the creator's own; a producer uses it as it is. */
+  brandKit?: boolean;
   /** Put a new set of graphics on air. */
   onLayers: (layers: SceneLayer[]) => void;
   /** Save part of the brand kit; rejects with a message worth showing. */
@@ -474,11 +477,7 @@ export function SceneGraphicsPanel({
         </p>
       </section>
 
-      <BrandKit
-        brand={brand}
-        onBrand={onBrand}
-        onLogoRemoved={() => logo && take("logo")}
-      />
+      {brandKit && <BrandKit brand={brand} onBrand={onBrand} onLogoRemoved={() => logo && take("logo")} />}
     </div>
   );
 }

@@ -78,11 +78,13 @@ const CHROMELESS = ["/welcome"];
  *  is a bar over the picture. Desktop keeps its chrome. */
 const PHONE_CHROMELESS = [
   "/studio",
+  // A producer's console is a control surface, like the studio.
+  "/produce/",
   // An open thread is its own screen on a phone: its header has the way
   // back, and a tab bar under the composer would sit under the keyboard.
   "/messages/",
 ];
-const NO_RAIL = ["/stream/", "/feed", "/studio", "/dashboard", "/settings", "/wallet", "/messages"];
+const NO_RAIL = ["/stream/", "/feed", "/studio", "/produce/", "/dashboard", "/settings", "/wallet", "/messages"];
 
 /** True from the `lg` breakpoint up; false for the server paint. */
 function useMinWidth(px: number) {
@@ -135,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const phoneChromeless = PHONE_CHROMELESS.some((p) => pathname.startsWith(p));
   // Tablets get the icon rail whether or not you asked for it — and so does
   // the studio below 1280px, where every pixel belongs to the stage.
-  const narrow = collapsed || !wide || (pathname.startsWith("/studio") && !roomy);
+  const narrow = collapsed || !wide || ((pathname.startsWith("/studio") || pathname.startsWith("/produce/")) && !roomy);
 
   return (
     <div className="min-h-screen bg-background">

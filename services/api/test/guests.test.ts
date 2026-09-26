@@ -132,7 +132,8 @@ vi.mock("../src/models.js", () => ({
       return {};
     },
   },
-  User: {},
+  // The channel, for the role check (the host, or a producer, runs the stage).
+  User: { findById: () => ({ select: async () => ({ _id: HOST_ID, username: "host", safety: { mods: [] } }) }) },
   Follow: {},
   ChatMessage: {},
   StreamBan: { findOne: async () => null },

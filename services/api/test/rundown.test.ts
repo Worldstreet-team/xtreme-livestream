@@ -127,6 +127,8 @@ describe("run of show routes", () => {
     db.Rundown!.reset();
     db.Stream!.reset();
     state.caller = "host";
+    db.User!.reset();
+    db.User!.insert({ _id: HOST, username: "host", displayName: "Host", safety: { mods: [] } });
     streamId = String(db.Stream!.insert({ streamerId: HOST, isLive: true, rundown: null })._id);
   });
   const call = (method: "GET" | "PUT", url: string, payload?: unknown) => app.inject({ method, url: `/v1${url}`, ...(payload ? { payload } : {}) });

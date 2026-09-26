@@ -60,7 +60,8 @@ vi.mock("../src/models.js", () => ({
       return Object.assign(Promise.resolve(doc), { select: async () => doc });
     },
   },
-  User: {},
+  // The channel, for the role check (the host, or a producer, sets the scene).
+  User: { findById: () => ({ select: async () => ({ _id: HOST_ID, username: "host", safety: { mods: [] } }) }) },
   Follow: {},
   ChatMessage: {},
   StreamBan: { findOne: async () => null },

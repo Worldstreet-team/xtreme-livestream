@@ -159,7 +159,7 @@ describe("ordering", () => {
       recipientAmountUsdMinor: 500,
     });
     expect(o).toMatchObject({ status: "pending", title: "Song", note: "Last Last", priceUsdMinor: 500, walletChargeId: "ch_1" });
-    expect(state.toHost[0]!.to).toEqual([HOST, `mon-${HOST}`, "f".repeat(24)]);
+    expect(state.toHost[0]!.to).toEqual([HOST, `mon-${HOST}`, `prod-${HOST}`, "f".repeat(24), `prod-${"f".repeat(24)}`]);
     expect(state.toHost[0]!.payload).toMatchObject({ __evt: "request", order: { title: "Song", status: "pending" } });
   });
 

@@ -24,6 +24,7 @@ export function DirectorSwitch({
   live,
   blocked,
   pausedUntil,
+  pausedBy = "you",
   onResume,
   shot,
   names,
@@ -33,6 +34,8 @@ export function DirectorSwitch({
   live: boolean;
   blocked: DirectorBlock;
   pausedUntil: number;
+  /** Whose hand paused it: the host's, or a producer's at their console. */
+  pausedBy?: "you" | "producer";
   onResume: () => void;
   shot: Shot;
   /** Guests on stage, for saying who's on screen. */
@@ -60,7 +63,8 @@ export function DirectorSwitch({
       {paused ? (
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] leading-snug text-muted-foreground">
           <span>
-            Paused — you framed a shot. Back in <span className="font-mono tabular-nums">{formatClock((pausedUntil - now) / 1000)}</span>
+            Paused — {pausedBy === "producer" ? "your producer" : "you"} framed a shot. Back in{" "}
+            <span className="font-mono tabular-nums">{formatClock((pausedUntil - now) / 1000)}</span>
           </span>
           <button type="button" onClick={onResume} className="font-semibold text-ember-hi hover:underline">
             Hand it back now
@@ -84,15 +88,18 @@ export function BesideYou({
   guests,
   spotlight,
   onPick,
+  label = "Beside you",
 }: {
   guests: { identity: string; name: string }[];
   spotlight: string | null;
   onPick: (identity: string) => void;
+  /** A producer's console says "Beside the host". */
+  label?: string;
 }) {
   const current = guests.some((g) => g.identity === spotlight) ? spotlight : (guests[0]?.identity ?? null);
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Beside you">
-      <span className="mr-1 text-[12px] text-muted-foreground">Beside you</span>
+    <div className="mt-3 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={label}>
+      <span className="mr-1 text-[12px] text-muted-foreground">{label}</span>
       {guests.map((g) => {
         const on = g.identity === current;
         return (

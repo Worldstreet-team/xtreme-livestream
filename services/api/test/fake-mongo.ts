@@ -310,4 +310,8 @@ export class FakeModel {
       return opts.new ? row : before;
     });
   }
+
+  findByIdAndUpdate(id: unknown, update: Row, opts: Row = {}) {
+    return this.findOneAndUpdate({ _id: id }, update, opts);
+  }
 }

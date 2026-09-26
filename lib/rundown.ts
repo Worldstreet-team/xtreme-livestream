@@ -310,6 +310,22 @@ export function useRundownPosition(streamId: string | null, live: boolean) {
     [streamId],
   );
 
+  /** Where the show is, as someone else moved it (the room's `rundown` event). */
+  const take = useCallback(
+    (next: RundownPosition) => {
+      if (streamId) setState({ streamId, position: next });
+    },
+    [streamId],
+  );
+
   const position = live && state && state.streamId === streamId ? state.position : null;
-  return { position, go };
+  return { position, go, take };
+}
+
+/** A position off the wire, if it reads as one. */
+export function readPosition(raw: unknown): RundownPosition | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return { segmentId: str(r.segmentId), startedAt: str(r.startedAt), showStartedAt: str(r.showStartedAt) };
 }

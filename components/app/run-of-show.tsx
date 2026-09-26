@@ -55,9 +55,10 @@ export function RunOfShow({
   position,
   onGo,
   sponsors,
-  prompterOn,
+  prompterOn = false,
   onPrompter,
   onFocus,
+  editable = true,
 }: {
   /** null while it loads. */
   segments: RundownSegment[] | null;
@@ -69,10 +70,13 @@ export function RunOfShow({
   onGo: (segment: RundownSegment | null) => Promise<void>;
   /** Sponsors a cue can put up. */
   sponsors: CueSponsor[];
-  prompterOn: boolean;
-  onPrompter: () => void;
+  prompterOn?: boolean;
+  /** The host's own teleprompter; a producer's console has none. */
+  onPrompter?: () => void;
   /** The segment being worked on, for the prompter before a show. */
   onFocus?: (segmentId: string) => void;
+  /** The rundown is the host's to write; a producer runs it as it is. */
+  editable?: boolean;
 }) {
   const [editing, setEditing] = useState(!live);
   const [busy, setBusy] = useState(false);
@@ -112,7 +116,7 @@ export function RunOfShow({
             : list.length === 0
               ? "No segments yet"
               : `${list.length} ${list.length === 1 ? "segment" : "segments"} · ${formatLength(planned)} planned`}
-          {segments !== null && list.length > 0 && (
+          {segments !== null && list.length > 0 && editable && (
             <span className={cn(status === "error" ? "text-chili-hi" : "text-muted-foreground/70")}>
               {" "}
               · {status === "saving" ? "Saving…" : status === "error" ? "Not saved — retrying" : "Saved"}
@@ -120,19 +124,21 @@ export function RunOfShow({
           )}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onPrompter}
-        aria-pressed={prompterOn}
-        className={cn(
-          "press flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors",
-          prompterOn ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]"
-        )}
-      >
-        <ClapperboardText size={14} />
-        Prompter
-      </button>
-      {live && list.length > 0 && (
+      {onPrompter && (
+        <button
+          type="button"
+          onClick={onPrompter}
+          aria-pressed={prompterOn}
+          className={cn(
+            "press flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold transition-colors",
+            prompterOn ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]"
+          )}
+        >
+          <ClapperboardText size={14} />
+          Prompter
+        </button>
+      )}
+      {live && list.length > 0 && editable && (
         <button
           type="button"
           onClick={() => setEditing((e) => !e)}
@@ -172,8 +178,14 @@ export function RunOfShow({
       {error && <p className="rounded-[10px] bg-chili/[0.12] px-3 py-2 text-[12.5px] text-chili-hi">{error}</p>}
 
       {list.length === 0 ? (
-        <Templates onPick={(picked) => onChange(picked)} />
-      ) : editing ? (
+        editable ? (
+          <Templates onPick={(picked) => onChange(picked)} />
+        ) : (
+          <p className="rounded-[12px] bg-white/[0.04] px-4 py-5 text-[13px] leading-snug text-muted-foreground">
+            No run of show yet — the host writes it in their studio, and it shows up here.
+          </p>
+        )
+      ) : editing && editable ? (
         <Editor segments={list} onChange={onChange} sponsors={sponsors} onFocus={onFocus} />
       ) : (
         <ol className="flex flex-col gap-1">
@@ -210,7 +222,7 @@ export function RunOfShow({
                     </p>
                   )}
                 </div>
-                {state !== "on" && (
+                {state !== "on" && live && (
                   <button
                     type="button"
                     disabled={busy}
@@ -229,8 +241,9 @@ export function RunOfShow({
 
       {!live && list.length > 0 && (
         <p className="text-[12px] leading-snug text-muted-foreground">
-          Once you&apos;re live, <span className="text-foreground/85">Start the show</span> puts the first segment on air — its cues change the picture, and
-          its clock starts. The prompter reads the segment on air.
+          {editable ? "Once you're live, " : "Once the host is live, "}
+          <span className="text-foreground/85">Start the show</span> puts the first segment on air — its cues change the picture, and its clock
+          starts. {editable ? "The prompter reads the segment on air." : "The host's prompter follows it."}
         </p>
       )}
     </div>

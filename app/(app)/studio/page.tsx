@@ -69,12 +69,14 @@ import { ObsConnect } from "@/components/app/obs-connect";
 import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
 import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
-import { useSponsorships } from "@/lib/sponsors";
-import { applyCues, formatLength, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
+import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
+import { ConsoleLink } from "@/components/app/console-link";
+import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
 import { Teleprompter } from "@/components/app/teleprompter";
-import { BesideYou, DirectorSwitch } from "@/components/app/director-switch";
+import { DirectorSwitch } from "@/components/app/director-switch";
+import { LayoutAndCards } from "@/components/app/scene-controls";
 import { useSiraVivid } from "@/components/vivid/sira-provider";
 import { setPushToTalk, setTalkHeld, usePushToTalk } from "@/lib/vivid/ptt";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
@@ -84,8 +86,6 @@ import { gainFor, withLayer } from "@/lib/scene";
 import { serverNow } from "@/lib/server-clock";
 import {
   CARDS,
-  CHART_INTERVAL_LABELS,
-  CHART_MARKETS,
   DEFAULT_BRAND,
   DEFAULT_CHART,
   DEFAULT_SCENE,
@@ -96,10 +96,7 @@ import {
   readScene,
   sceneFromMetadata,
   type Brand,
-  type ChartInterval,
   type Scene,
-  type SceneChart,
-  type SceneLayout,
   type SuggestedLine,
 } from "@/lib/scene";
 import { useAuth } from "@/lib/auth-context";
@@ -142,129 +139,13 @@ interface StageUser {
 }
 
 /** 720p either way round — the same pixels, turned to match the shape. */
-/** A layout drawn small: where the people go, the way the scene will place them. */
-function LayoutThumb({ layout }: { layout: SceneLayout }) {
-  const cell = "rounded-[3px] bg-current opacity-35";
-  return (
-    <span aria-hidden className="relative block aspect-video w-full overflow-hidden rounded-[6px] bg-current/[0.08] p-[3px]">
-      {layout === "auto" ? (
-        <span className="flex size-full items-center justify-center font-mono text-[10px] font-bold opacity-70">AUTO</span>
-      ) : layout === "solo" ? (
-        <span className={cn("block size-full", cell)} />
-      ) : layout === "split" ? (
-        <span className="grid size-full grid-cols-2 gap-[3px]">
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "trio" ? (
-        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
-          <span className={cn("row-span-2", cell)} />
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "grid" ? (
-        <span className="grid size-full grid-cols-2 grid-rows-2 gap-[3px]">
-          <span className={cell} />
-          <span className={cell} />
-          <span className={cell} />
-          <span className={cell} />
-        </span>
-      ) : layout === "chart-face" ? (
-        // A little rising chart, the face in the corner.
-        <span className="relative block size-full">
-          <svg viewBox="0 0 40 22" preserveAspectRatio="none" className="absolute inset-0 size-full opacity-60">
-            <polyline points="1,18 8,15 14,16 20,10 26,12 32,6 39,8" fill="none" stroke="currentColor" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-          </svg>
-          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
-        </span>
-      ) : (
-        <span className="relative block size-full">
-          <span className={cn("absolute inset-0", cell)} />
-          <span className="absolute top-[3px] right-[3px] h-[38%] w-[34%] rounded-[2px] bg-current opacity-80" />
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
- * Chart + face's market: the usual ones a tap away, any other pair typed
- * ("ADA-USD"), and the candle size. Changes go straight to the room.
- */
-function MarketPicker({ chart, onChart }: { chart: SceneChart; onChart: (chart: SceneChart) => void }) {
-  const [draft, setDraft] = useState("");
-  const typed = draft.trim().toUpperCase();
-  const valid = /^[A-Z0-9]{2,10}-[A-Z]{3,4}$/.test(typed);
-  return (
-    <div className="mt-3 rounded-[12px] bg-white/[0.04] p-3">
-      <p className="text-[12.5px] font-semibold">Market</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {CHART_MARKETS.map((m) => (
-          <button
-            key={m}
-            type="button"
-            aria-pressed={chart.symbol === m}
-            onClick={() => chart.symbol !== m && onChart({ ...chart, symbol: m })}
-            className={cn(
-              "press h-8 rounded-full px-3 font-mono text-[11.5px] font-semibold transition-colors",
-              chart.symbol === m ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
-            )}
-          >
-            {m.replace("-", "/")}
-          </button>
-        ))}
-      </div>
-      <form
-        className="mt-2 flex gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!valid) return;
-          onChart({ ...chart, symbol: typed });
-          setDraft("");
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={CHART_MARKETS.includes(chart.symbol as (typeof CHART_MARKETS)[number]) ? "Another pair, like ADA-USD" : chart.symbol}
-          aria-label="Another market"
-          maxLength={15}
-          className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-white/[0.09]"
-        />
-        <button
-          type="submit"
-          disabled={!valid}
-          className="press h-9 shrink-0 rounded-full bg-white px-3.5 text-[12px] font-bold text-[#0b0708] disabled:opacity-40"
-        >
-          Chart it
-        </button>
-      </form>
-      <div role="radiogroup" aria-label="Candle size" className="mt-3 flex items-center gap-1.5">
-        <span className="mr-1 text-[12px] text-muted-foreground">Candles</span>
-        {(Object.keys(CHART_INTERVAL_LABELS) as ChartInterval[]).map((iv) => (
-          <button
-            key={iv}
-            type="button"
-            role="radio"
-            aria-checked={chart.interval === iv}
-            onClick={() => chart.interval !== iv && onChart({ ...chart, interval: iv })}
-            className={cn(
-              "press h-7 rounded-full px-2.5 font-mono text-[11.5px] font-semibold transition-colors",
-              chart.interval === iv ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
-            )}
-          >
-            {CHART_INTERVAL_LABELS[iv]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /**
  * What the camera captures: 720p, or 540p when the creator saves data —
  * about half the upload, steadier on a weak connection (Phase 1).
  */
+/** The shot a scene frames — what a hand on the controls changes, as opposed to its graphics. */
+const framing = (s: Scene) => `${s.layout}|${s.card ?? ""}|${s.spotlight ?? ""}`;
+
 function captureResolution(o: Orientation, saveData = false) {
   const [long, short] = saveData ? [960, 540] : [1280, 720];
   return o === "portrait" ? { width: short, height: long, frameRate: 30 } : { width: long, height: short, frameRate: 30 };
@@ -399,6 +280,11 @@ export default function StudioPage() {
   // Run of show: the rundown (saved as it's edited), where the show is, and the prompter.
   const rundown = useRundown(Boolean(user?.id));
   const show = useRundownPosition(isLive ? streamId : null, isLive);
+  // The room's event handler is set up once; it reaches the latest `take` through this.
+  const rundownTakeRef = useRef(show.take);
+  useEffect(() => {
+    rundownTakeRef.current = show.take;
+  }, [show.take]);
   const [prompterOn, setPrompterOn] = useState(false);
   const [focusSegment, setFocusSegment] = useState<string | null>(null);
   const [segmentBusy, setSegmentBusy] = useState(false);
@@ -500,6 +386,18 @@ export default function StudioPage() {
     blocked: directorBlocked,
     // Its own cuts, marked as its own, so they don't pause it.
     onCut: (shot) => void applyScene({ layout: shot.layout, spotlight: shot.spotlight }, "director"),
+  });
+  /** Who framed the shot that paused the director: the host here, or a producer at their console. */
+  const [framedBy, setFramedBy] = useState<"you" | "producer">("you");
+  // The room's handlers are set up once; they reach the latest scene and the director through these.
+  const sceneNowRef = useRef(scene);
+  const framedElsewhereRef = useRef(() => {});
+  useEffect(() => {
+    sceneNowRef.current = scene;
+    framedElsewhereRef.current = () => {
+      setFramedBy("producer");
+      director.pause();
+    };
   });
   // Vivid on air (Phase 3, Vivid as producer): while live, Vivid hears the
   // host only while they hold the talk key — the room is who they're talking
@@ -864,6 +762,12 @@ export default function StudioPage() {
         // A platform admin took the stream down after a report; the room
         // closes next, and the host is told why.
         // A battle won: the airhorn, once, if the desk is on and it's wanted.
+        // A producer moved the show on from their console: the prompter follows.
+        if (data.__evt === "rundown") {
+          const next = readPosition((data as { position?: unknown }).position);
+          if (next) rundownTakeRef.current(next);
+          return;
+        }
         if (data.__evt === "battle") {
           const b = (data as { battle?: BattleView }).battle;
           if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
@@ -1188,7 +1092,7 @@ export default function StudioPage() {
       let n = 0;
       room.remoteParticipants.forEach((p) => {
         // Neither the RTMP encoder nor the host's own monitor tab counts.
-        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-"))
+        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-") && !p.identity.startsWith("prod-"))
           n += 1;
       });
       return n;
@@ -1197,7 +1101,9 @@ export default function StudioPage() {
       setViewerCount(countViewers());
       if (
         participant.identity.startsWith("obs-") ||
-        participant.identity.startsWith("mon-")
+        participant.identity.startsWith("mon-") ||
+        // A producer's console joins hidden, but never counts as a viewer either way.
+        participant.identity.startsWith("prod-")
       )
         return;
       setConnectedViewers((prev) => [
@@ -1300,7 +1206,12 @@ export default function StudioPage() {
     room.on(RoomEvent.RoomMetadataChanged, (metadata: string) => {
       if (roomRef.current !== room) return;
       const next = sceneFromMetadata(metadata);
-      if (next) setScene((cur) => (next.version >= cur.version ? next : cur));
+      if (!next) return;
+      // Framed from a producer's console rather than here: the auto-director
+      // steps back for a minute, as it does for the host's own hand.
+      const cur = sceneNowRef.current;
+      if (next.version > cur.version && framing(next) !== framing(cur)) framedElsewhereRef.current();
+      setScene((c) => (next.version >= c.version ? next : c));
     });
     // Sharing stopped from the browser's own bar: the preview goes back to the camera.
     room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
@@ -2304,12 +2215,7 @@ export default function StudioPage() {
 
   // One column in the side panel; two once the console is wide enough (tablets).
   // Sponsors a rundown cue can put up: your own, and the campaigns you're running.
-  const cueSponsors: CueSponsor[] = [
-    ...(sponsorships.data?.campaigns ?? [])
-      .filter((c) => c.joined && c.status === "live")
-      .map((c) => ({ source: "campaign" as const, id: c.id, name: c.name, line: c.line, url: c.url, code: c.code, logoUrl: c.logoUrl, restricted: c.restricted })),
-    ...(sponsorships.data?.sponsors ?? []).map((o) => ({ source: "own" as const, id: o.id, name: o.name, line: o.line, url: o.url, code: o.code, logoUrl: o.logoUrl, restricted: o.restricted })),
-  ];
+  const cueSponsors: CueSponsor[] = cueSponsorsOf(sponsorships.data ? { own: sponsorships.data.sponsors, campaigns: sponsorships.data.campaigns } : null);
   const segments = rundown.segments ?? [];
   const onAirIndex = show.position?.segmentId ? segments.findIndex((x) => x.id === show.position?.segmentId) : -1;
   const onAirSegment = onAirIndex >= 0 ? segments[onAirIndex]! : null;
@@ -2799,7 +2705,10 @@ export default function StudioPage() {
     by: "host" | "director" = "host",
   ): Promise<string | null> => {
     if (!streamId) return "Go live first";
-    if (by === "host" && ("layout" in patch || "card" in patch || "spotlight" in patch)) director.pause();
+    if (by === "host" && ("layout" in patch || "card" in patch || "spotlight" in patch)) {
+      setFramedBy("you");
+      director.pause();
+    }
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
     setScene(next);
@@ -3152,93 +3061,20 @@ export default function StudioPage() {
         live={isLive}
         blocked={directorBlocked}
         pausedUntil={director.pausedUntil}
+        pausedBy={framedBy}
         onResume={director.resume}
         shot={shotOf(scene)}
         names={guestTiles}
       />
 
-      <section aria-labelledby="scenes-layout">
-        <p id="scenes-layout" className={SETUP_LABEL}>Layout</p>
-        <div className="mt-2.5 grid grid-cols-3 gap-2">
-          {LAYOUTS.map((l) => {
-            const on = scene.layout === l.id;
-            return (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => void applyScene(l.id === "chart-face" && !scene.chart ? { layout: l.id, chart: DEFAULT_CHART } : { layout: l.id })}
-                aria-pressed={on}
-                title={l.hint}
-                className={cn(
-                  "press flex flex-col items-stretch gap-2 rounded-[12px] p-2 text-[12px] font-semibold transition-colors",
-                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.05] text-foreground/85 hover:bg-white/[0.08]"
-                )}
-              >
-                <LayoutThumb layout={l.id} />
-                <span className="truncate text-center">{l.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
-          {LAYOUTS.find((l) => l.id === scene.layout)?.hint}.{" "}
-          {battle ? "A battle keeps its split until it ends." : "Viewers see the change at once."}
-        </p>
-        {scene.layout === "chart-face" && (
-          <MarketPicker chart={scene.chart ?? DEFAULT_CHART} onChart={(chart) => void applyScene({ chart })} />
-        )}
-        {(scene.layout === "split" || scene.layout === "trio") && guestTiles.length > 1 && !battle && (
-          <BesideYou guests={guestTiles} spotlight={scene.spotlight ?? null} onPick={(identity) => void applyScene({ spotlight: identity })} />
-        )}
-      </section>
-
-      <section aria-labelledby="scenes-cards">
-        <p id="scenes-cards" className={SETUP_LABEL}>Cards</p>
-        <div className="mt-2.5 flex flex-col gap-2">
-          {CARDS.map((c) => {
-            const on = scene.card === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => void applyScene({ card: on ? null : c.id, cardNote: cardNote.trim() })}
-                aria-pressed={on}
-                className={cn(
-                  "press flex items-center justify-between gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors",
-                  on ? "bg-ember text-on-ember" : "bg-white/[0.05] text-foreground hover:bg-white/[0.08]"
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block text-[13.5px] font-semibold">{c.title}</span>
-                  <span className={cn("mt-0.5 block text-[12px] leading-snug", on ? "text-on-ember/75" : "text-muted-foreground")}>
-                    {on ? "On screen now — tap to take it down" : c.body}
-                  </span>
-                </span>
-                <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", on ? "bg-on-ember/[0.14]" : "bg-white/[0.08]")}>
-                  {on ? "Showing" : "Show"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <label className="mt-3 block">
-          <span className="sr-only">A line under the card</span>
-          <input
-            value={cardNote}
-            onChange={(e) => setCardNote(e.target.value)}
-            onBlur={() => {
-              // A card already up takes the new line.
-              if (scene.card && cardNote.trim() !== scene.cardNote) void applyScene({ cardNote: cardNote.trim() });
-            }}
-            maxLength={80}
-            placeholder="Add a line under the card (optional)"
-            className="h-10 w-full rounded-full bg-white/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-white/[0.09]"
-          />
-        </label>
-        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
-          A card covers the picture; the room still hears you.
-        </p>
-      </section>
+      <LayoutAndCards
+        scene={scene}
+        battle={Boolean(battle)}
+        guests={guestTiles}
+        cardNote={cardNote}
+        onCardNote={setCardNote}
+        onScene={(patch) => void applyScene(patch)}
+      />
 
       <FeaturedPanel
         queue={featureQueue}
@@ -3348,6 +3184,11 @@ export default function StudioPage() {
         </button>
       )}
       {source === "obs" && <div className="mt-1">{encoderBlock}</div>}
+      {user?.username && (
+        <div className="mt-1">
+          <ConsoleLink username={user.username} />
+        </div>
+      )}
       <button onClick={() => setConfirmDialog("end")} className="press mt-2 flex h-11 items-center justify-center gap-2 rounded-full bg-chili/15 text-[14px] font-semibold text-chili-hi transition-colors hover:bg-chili/25">
         <Stop size={14} weight="fill" />
         End stream

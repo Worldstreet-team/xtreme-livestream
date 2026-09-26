@@ -930,8 +930,14 @@ export const DEFAULT_FILTER_LEVELS: Record<FilterCategory, FilterLevel> = {
   scams: "hold",
 };
 
-/** A lead moderator also manages the other moderators and can raise Shield. */
-export const MOD_ROLES = ["lead", "mod"] as const;
+/**
+ * A lead moderator also manages the other moderators and can raise Shield.
+ * A producer (Phase 3, producer mode) does all a lead can and runs the show
+ * — scenes, graphics, the run of show and the stage — from their own device,
+ * without appearing on air. The host can be their own producer on a second
+ * device too.
+ */
+export const MOD_ROLES = ["lead", "mod", "producer"] as const;
 export type ModRole = (typeof MOD_ROLES)[number];
 /** Who someone is in a channel's room. */
 export type ChannelRole = "host" | ModRole;

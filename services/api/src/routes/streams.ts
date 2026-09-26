@@ -15,6 +15,7 @@ import { ensureUserIngress,
 import { Stream, User, type IStream } from "../models.js";
 import { relayLiveEvent } from "../socials-relay.js";
 import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
+import { requireChannelRole } from "../safety/roles.js";
 import {
   notifyFollowersOfLive,
   notifyRemindersOfLive,
@@ -509,15 +510,15 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      if (!stream.streamerId.equals(dbUser._id)) {
-        throw new ApiError(403, "Only the host changes the scene", "NOT_HOST");
-      }
+      // The host, or a producer running the show from their console.
+      await requireChannelRole(stream, dbUser._id, "producer");
       if (!stream.isLive) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
       const now = new Date();
-      // A sponsor card is drawn from our records, never from what was sent.
-      const layers = await resolveSceneLayers(request.body.layers, dbUser._id, stream, now);
+      // A sponsor card is drawn from our records, never from what was sent —
+      // and it's always the host's sponsor, whoever is producing.
+      const layers = await resolveSceneLayers(request.body.layers, stream.streamerId, stream, now);
       const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
       const scene = {
         layout: request.body.layout,
