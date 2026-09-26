@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { registerStudioBridge, registerVividContext, type StudioAction } from "@/lib/vivid/page-context";
 import {
@@ -71,8 +71,10 @@ import { AudioDesk, readDeskSettings, saveDeskSettings, type DeskSettings } from
 import { useRequestQueue } from "@/lib/requests";
 import { useSponsorships } from "@/lib/sponsors";
 import { applyCues, formatLength, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
+import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
 import { Teleprompter } from "@/components/app/teleprompter";
+import { BesideYou, DirectorSwitch } from "@/components/app/director-switch";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
@@ -460,6 +462,56 @@ export default function StudioPage() {
     battle && battle.mode === "2v2" && streamId ? (sideOf(battle, streamId) === "host" ? battle.challenger : battle.host) : null;
   const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
 
+  // The auto-director: the layout follows whoever's talking (lib/director.ts).
+  // Off until the host turns it on; remembered on this device.
+  const [directorOn, setDirectorOn] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        setDirectorOn(localStorage.getItem("xtream:director") === "on");
+      } catch {
+        // No storage: it starts off.
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const hostIdentities = useMemo(() => (user?.id ? [user.id, `obs-${user.id}`] : []), [user?.id]);
+  const guestIdentities = useMemo(() => guestTiles.map((t) => t.identity), [guestTiles]);
+  const directorBlocked: DirectorBlock =
+    guestIdentities.length === 0
+      ? "alone"
+      : scene.card
+        ? "card"
+        : battle
+          ? "battle"
+          : scene.layout === "screen-face" || scene.layout === "chart-face"
+            ? "content"
+            : null;
+  const director = useAutoDirector({
+    on: directorOn && isLive,
+    room: liveRoom,
+    host: hostIdentities,
+    guests: guestIdentities,
+    current: shotOf(scene),
+    blocked: directorBlocked,
+    // Its own cuts, marked as its own, so they don't pause it.
+    onCut: (shot) => void applyScene({ layout: shot.layout, spotlight: shot.spotlight }, "director"),
+  });
+  // The gift handler lives in the room's event callback; it reaches the director through this.
+  const directorReactRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    directorReactRef.current = directorOn ? director.react : () => {};
+  }, [directorOn, director.react]);
+  const setDirector = (on: boolean) => {
+    setDirectorOn(on);
+    if (on) director.resume();
+    try {
+      localStorage.setItem("xtream:director", on ? "on" : "off");
+    } catch {
+      // It's on for this visit.
+    }
+  };
+
   // ---- Co-live ----
   /** An open invite from another live host, shown in the Stage tab. */
   const [coLiveInvite, setCoLiveInvite] = useState<{
@@ -846,6 +898,8 @@ export default function StudioPage() {
           // A big gift: the desk's ka-ching, for everyone.
           const from = deskMomentsRef.current.giftFromMinor;
           if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
+          // …and, with the auto-director on, the host alone for their reaction.
+          if (cents >= 2000) directorReactRef.current();
           playTipChime();
           setTipAlerts((prev) => [
             ...prev.slice(-2),
@@ -2642,8 +2696,13 @@ export default function StudioPage() {
    * Change the scene. Shown at once here, then saved and broadcast by the
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
-  const applyScene = async (patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains">>) => {
+  const applyScene = async (
+    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight">>,
+    /** The auto-director's own cuts don't pause it; anyone else's framing does. */
+    by: "host" | "director" = "host",
+  ) => {
     if (!streamId) return;
+    if (by === "host" && ("layout" in patch || "card" in patch || "spotlight" in patch)) director.pause();
     const before = scene;
     const next = { ...scene, ...patch, version: scene.version + 1 };
     setScene(next);
@@ -2651,7 +2710,15 @@ export default function StudioPage() {
       const r = await apiFetch<{ success: boolean; data: { scene: Scene } }>(`/api/streams/${streamId}/scene`, {
         method: "PUT",
         // The whole scene every time: what's left out goes back to its default.
-        body: JSON.stringify({ layout: next.layout, card: next.card, cardNote: next.cardNote, chart: next.chart ?? null, layers: next.layers, gains: next.gains ?? {} }),
+        body: JSON.stringify({
+          layout: next.layout,
+          card: next.card,
+          cardNote: next.cardNote,
+          chart: next.chart ?? null,
+          layers: next.layers,
+          gains: next.gains ?? {},
+          spotlight: next.spotlight ?? null,
+        }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
     } catch (err) {
@@ -2864,6 +2931,17 @@ export default function StudioPage() {
 
   const scenesPanel = (
     <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
+      <DirectorSwitch
+        on={directorOn}
+        onToggle={setDirector}
+        live={isLive}
+        blocked={directorBlocked}
+        pausedUntil={director.pausedUntil}
+        onResume={director.resume}
+        shot={shotOf(scene)}
+        names={guestTiles}
+      />
+
       <section aria-labelledby="scenes-layout">
         <p id="scenes-layout" className={SETUP_LABEL}>Layout</p>
         <div className="mt-2.5 grid grid-cols-3 gap-2">
@@ -2893,6 +2971,9 @@ export default function StudioPage() {
         </p>
         {scene.layout === "chart-face" && (
           <MarketPicker chart={scene.chart ?? DEFAULT_CHART} onChart={(chart) => void applyScene({ chart })} />
+        )}
+        {(scene.layout === "split" || scene.layout === "trio") && guestTiles.length > 1 && !battle && (
+          <BesideYou guests={guestTiles} spotlight={scene.spotlight ?? null} onPick={(identity) => void applyScene({ spotlight: identity })} />
         )}
       </section>
 

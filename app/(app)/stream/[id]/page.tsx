@@ -2168,7 +2168,7 @@ export default function StreamPage({
   const stageCells = (): SceneCell[] => {
     const me: SceneCell | null =
       stageState === "live" && localStageTrack
-        ? { key: "me", node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }
+        ? { key: "me", identity: user?.id, node: <StageTile fill track={localStageTrack} label="You" self micOn={stageMicOn} /> }
         : null;
     const guestCell = (g: (typeof guestVideos)[number]): SceneCell => ({
       key: g.identity,

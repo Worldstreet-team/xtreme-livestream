@@ -197,6 +197,8 @@ function useLinger<T>(value: T | null, ms: number): { value: T; leaving: boolean
 export interface SceneCell {
   key: string;
   node: ReactNode;
+  /** Whose tile it is, when that isn't its key (a viewer's own tile is "me"): what a spotlight matches. */
+  identity?: string;
 }
 
 /**
@@ -271,7 +273,13 @@ export function SceneRenderer({
   hideRestricted?: boolean;
 }) {
   const layout = forceAuto ? "auto" : scene.layout;
-  const shown = guests.slice(0, guestsShown(layout, guests.length, forceAuto));
+  // The guest in the spotlight comes first, so a Split shows them beside the
+  // host. A battle keeps its own order: its sides are never reshuffled.
+  const ordered =
+    scene.spotlight && !forceAuto
+      ? [...guests].sort((a, b) => Number((b.identity ?? b.key) === scene.spotlight) - Number((a.identity ?? a.key) === scene.spotlight))
+      : guests;
+  const shown = ordered.slice(0, guestsShown(layout, ordered.length, forceAuto));
   const grid = stageLayout(1 + shown.length, portrait);
   // Chart + face: the chart has the frame and the host's face the corner.
   const chartMode = layout === "chart-face";

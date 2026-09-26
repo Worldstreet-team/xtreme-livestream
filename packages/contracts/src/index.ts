@@ -261,6 +261,12 @@ export const sceneBodySchema = z.object({
     .record(z.string().regex(/^[\w.:-]{1,64}$/), z.number().min(0).max(1))
     .default({})
     .refine((g) => Object.keys(g).length <= MAX_SCENE_GAINS, "Eight faders at most"),
+  /**
+   * Who's beside the host: the room identity of the guest a Split (or the
+   * first of a Trio) shows — picked by hand, or by the auto-director when
+   * they're the one talking. Null keeps the stage's own order.
+   */
+  spotlight: z.string().regex(/^[\w.:-]{1,64}$/).nullable().default(null),
 });
 
 /**

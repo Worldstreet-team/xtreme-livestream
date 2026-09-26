@@ -313,6 +313,8 @@ export interface IStream extends Document {
     featured: FeaturedItem | null;
     /** The audio desk's guest faders, by room identity (0–1). */
     gains?: Record<string, number>;
+    /** The guest beside the host in a Split, by room identity (null: stage order). */
+    spotlight?: string | null;
     version: number;
   };
   viewers: number;
@@ -457,6 +459,7 @@ const streamSchema = new Schema<IStream>(
       layers: { type: [Schema.Types.Mixed], default: [] },
       featured: { type: Schema.Types.Mixed, default: null },
       gains: { type: Schema.Types.Mixed, default: () => ({}) },
+      spotlight: { type: String, default: null },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },

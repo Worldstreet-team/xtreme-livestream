@@ -70,8 +70,13 @@ vi.mock("../src/models.js", () => ({
 }));
 
 describe("the scene contract", () => {
+  it("takes a guest in the spotlight by their room identity", () => {
+    expect(sceneBodySchema.parse({ layout: "split", spotlight: "64f0c2a1b2c3d4e5f6a7b8c9" }).spotlight).toBe("64f0c2a1b2c3d4e5f6a7b8c9");
+    expect(sceneBodySchema.safeParse({ spotlight: "not an identity!" }).success).toBe(false);
+  });
+
   it("defaults to the automatic layout with no card and no graphics", () => {
-    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {} });
+    expect(sceneBodySchema.parse({})).toEqual({ layout: "auto", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null });
   });
 
   it("takes guest faders by room identity, 0 to 1, eight at most", () => {
@@ -151,7 +156,7 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, featured: null, version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toEqual(scene);
     expect(streamDoc.save).toHaveBeenCalledTimes(1);
