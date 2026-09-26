@@ -872,6 +872,59 @@ export const controlDoBodySchema = z.object({ actions: z.array(ruleActionSchema)
 export const controlShowBodySchema = z.object({ step: z.enum(["start", "next", "stop"]) });
 
 /**
+ * The transparency report (Phase 3, deeper moderation): a year of trust &
+ * safety in numbers — what was reported and how fast it was handled, what
+ * the platform took down, what appeals decided, and what creators and
+ * their moderators did in their rooms. NITDA's code of practice asks
+ * platforms to publish one every year.
+ */
+/** A creator's appeal against a takedown, in their words. */
+export const appealBodySchema = z.object({ text: z.string().trim().min(20, "Say a little more — a sentence or two").max(1000) });
+export const appealResolveBodySchema = z.object({ decision: z.enum(["reverse", "uphold"]), note: z.string().trim().max(500).optional() });
+export const appealListQuerySchema = z.object({ status: z.enum(["open", "closed"]).default("open") });
+export interface AppealView {
+  id: string;
+  status: "open" | "reversed" | "upheld";
+  text: string;
+  note: string;
+  createdAt: string;
+  reviewedAt: string | null;
+  stream: { id: string; title: string; takenDownAt: string | null };
+  /** For admins: whose it is. */
+  creator?: { id: string; username: string; displayName: string };
+}
+/** A creator's stream the platform took down, and their appeal if they made one. */
+export interface TakedownView {
+  streamId: string;
+  title: string;
+  takenDownAt: string;
+  appeal: AppealView | null;
+}
+
+export const transparencyQuerySchema = z.object({ year: z.coerce.number().int().min(2024).max(2100).optional() });
+export interface TransparencyReport {
+  year: number;
+  from: string;
+  to: string;
+  /** Context: how much happened on the platform in the period. */
+  scale: { streams: number; creators: number; chatLines: number };
+  reports: {
+    total: number;
+    byReason: Record<string, number>;
+    actioned: number;
+    dismissed: number;
+    open: number;
+    /** Resolved inside the 48-hour window, of those resolved. */
+    onTime: number;
+    medianHoursToResolve: number | null;
+  };
+  platform: { streamTakedowns: number; chatTakedowns: number };
+  appeals: { received: number; reversed: number; upheld: number; open: number };
+  rooms: { bans: number; timeouts: number; deletions: number; heldLines: number; heldApproved: number; heldDenied: number; shieldRaised: number };
+  heldByReason: Record<string, number>;
+}
+
+/**
  * Live analytics (Phase 3): a broadcast minute by minute — viewers, chat
  * and gifts — with what happened when, where people left, and what the
  * chat asked. Read live by the studio, and afterwards as the recap.

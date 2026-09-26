@@ -705,7 +705,7 @@ export interface INotification extends Document {
    * request wasn't done, and the money went back; sponsor_paid = an Xtream
    * campaign paid for a stream that ran its card.
    */
-  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown" | "request_refunded" | "sponsor_paid";
+  type: "live" | "reminder" | "battle_invite" | "battle_result" | "mod_added" | "report" | "takedown" | "request_refunded" | "sponsor_paid" | "appeal" | "appeal_reversed" | "appeal_upheld";
   /** Who did the thing (the streamer who went live). */
   actorId: mongoose.Types.ObjectId;
   actorName: string;
@@ -728,7 +728,7 @@ const notificationSchema = new Schema<INotification>(
     },
     type: {
       type: String,
-      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown", "request_refunded", "sponsor_paid"],
+      enum: ["live", "reminder", "battle_invite", "battle_result", "mod_added", "report", "takedown", "request_refunded", "sponsor_paid", "appeal", "appeal_reversed", "appeal_upheld"],
       default: "live",
     },
     actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -1468,6 +1468,44 @@ auditLogSchema.index({ targetType: 1, targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 
 export const AuditLog = mongoose.model<IAuditLog>("AuditLog", auditLogSchema);
+
+/**
+ * An appeal (Phase 3, deeper moderation): a creator asking the platform to
+ * look again at a stream it took down. One per stream; an admin reverses
+ * the takedown (the stream's page comes back) or upholds it, with a note.
+ */
+export interface IAppeal extends Document {
+  kind: "takedown";
+  streamId: mongoose.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
+  text: string;
+  /** When the stream was taken down — kept here, since a reversal clears it on the stream. */
+  takenDownAt: Date;
+  status: "open" | "reversed" | "upheld";
+  reviewedBy: mongoose.Types.ObjectId | null;
+  reviewedAt: Date | null;
+  note: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const appealSchema = new Schema<IAppeal>(
+  {
+    kind: { type: String, enum: ["takedown"], default: "takedown" },
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    text: { type: String, required: true, maxlength: 1000 },
+    takenDownAt: { type: Date, required: true },
+    status: { type: String, enum: ["open", "reversed", "upheld"], default: "open", index: true },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    reviewedAt: { type: Date, default: null },
+    note: { type: String, default: "", maxlength: 500 },
+  },
+  { timestamps: true },
+);
+appealSchema.index({ kind: 1, streamId: 1 }, { unique: true });
+
+export const Appeal = mongoose.model<IAppeal>("Appeal", appealSchema);
 
 /* ------------------------------------------------------------------ */
 /* Sponsorships                                                        */

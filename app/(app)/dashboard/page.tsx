@@ -17,6 +17,7 @@ import { GoLiveLink } from "@/components/app/go-live-link";
 import { Shelf } from "@/components/app/shelf";
 import { HealthReportTile } from "@/components/app/stream-health";
 import { StreamRecap } from "@/components/app/stream-recap";
+import { Takedowns } from "@/components/app/takedowns";
 import { report as healthReport, type HealthWindow } from "@/lib/stream-health";
 
 /**
@@ -252,6 +253,7 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
           <StreamRecap streamId={recentStreams[0].id} title={recentStreams[0].title} eyebrow="Recap · last broadcast" />
         </div>
       )}
+      <Takedowns />
 
       <section aria-label="Recent broadcasts" className="mt-10 md:mt-14">
         {recentStreams.length === 0 ? (

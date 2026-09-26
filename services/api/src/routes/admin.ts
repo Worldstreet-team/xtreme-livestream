@@ -1,14 +1,23 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { objectIdSchema, reportListQuerySchema, reportResolveBodySchema } from "@xtreme/contracts";
+import {
+  appealListQuerySchema,
+  appealResolveBodySchema,
+  objectIdSchema,
+  reportListQuerySchema,
+  reportResolveBodySchema,
+  transparencyQuerySchema,
+} from "@xtreme/contracts";
 import { audit } from "../audit.js";
 import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { unfeatureMessage } from "../featured.js";
 import { closeRoom, sendRoomData } from "../livekit.js";
-import { ChatMessage, Notification, Report, Stream, User } from "../models.js";
+import { Appeal, ChatMessage, Notification, Report, Stream, User } from "../models.js";
+import { transparencyReport } from "../transparency.js";
+import { appealView } from "./appeals.js";
 import { markStreamEnded } from "../stream-service.js";
 
 /**
@@ -158,7 +167,8 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
               actorName: "Xtream Trust & Safety",
               streamId: stream._id,
               streamTitle: stream.title,
-              link: "",
+              // Where they can read what happened and appeal it.
+              link: "/dashboard#takedowns",
             }).catch(() => {});
           }
         }
@@ -182,6 +192,95 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         ...(note ? { note } : {}),
       });
       return { success: true, data: { resolved: resolved.modifiedCount } };
+    },
+  );
+
+  /* ── Appeals against takedowns ─────────────────────────────────────── */
+
+  app.get(
+    "/admin/appeals",
+    {
+      schema: { tags: ["Admin"], summary: "Appeals against takedowns: open ones oldest first, or decided ones newest first", security: [{ bearerAuth: [] }], querystring: appealListQuerySchema },
+    },
+    async (request) => {
+      await requireAdmin(request);
+      const open = request.query.status === "open";
+      const appeals = await Appeal.find(open ? { status: "open" } : { status: { $in: ["reversed", "upheld"] } })
+        .sort(open ? { createdAt: 1 } : { reviewedAt: -1 })
+        .limit(100)
+        .lean();
+      const [streams, creators] = await Promise.all([
+        Stream.find({ _id: { $in: appeals.map((a) => a.streamId) } }).select("title takenDownAt").lean(),
+        User.find({ _id: { $in: appeals.map((a) => a.userId) } }).select("username displayName").lean(),
+      ]);
+      return {
+        success: true,
+        data: {
+          appeals: appeals.map((a) => {
+            const creator = creators.find((u) => String(u._id) === String(a.userId));
+            return {
+              ...appealView(a, streams.find((s) => String(s._id) === String(a.streamId)) ?? null),
+              creator: creator ? { id: String(creator._id), username: creator.username, displayName: creator.displayName } : undefined,
+            };
+          }),
+        },
+      };
+    },
+  );
+
+  app.post(
+    "/admin/appeals/:id/resolve",
+    {
+      schema: {
+        tags: ["Admin"],
+        summary: "Reverse a takedown (its stream comes back) or uphold it — the creator is told either way",
+        security: [{ bearerAuth: [] }],
+        params: z.object({ id: objectIdSchema }),
+        body: appealResolveBodySchema,
+      },
+    },
+    async (request) => {
+      const admin = await requireAdmin(request);
+      const { decision, note } = request.body;
+      const status = decision === "reverse" ? "reversed" : "upheld";
+      // Decided once: a second click, or a second admin, finds it decided.
+      const appeal = await Appeal.findOneAndUpdate(
+        { _id: request.params.id, status: "open" },
+        { $set: { status, reviewedBy: admin._id, reviewedAt: new Date(), note: note ?? "" } },
+        { new: true },
+      );
+      if (!appeal) throw new ApiError(409, "That appeal's already been decided", "APPEAL_DECIDED");
+      const stream = await Stream.findById(appeal.streamId).select("title streamerId").lean();
+      if (decision === "reverse") await Stream.updateOne({ _id: appeal.streamId }, { $set: { takenDownAt: null } });
+      if (stream) {
+        const owner = await User.findById(stream.streamerId).select("username").lean();
+        await Notification.create({
+          userId: appeal.userId,
+          type: decision === "reverse" ? "appeal_reversed" : "appeal_upheld",
+          actorId: admin._id,
+          actorName: "Xtream Trust & Safety",
+          streamId: appeal.streamId,
+          streamTitle: stream.title,
+          link: decision === "reverse" && owner ? `/c/${owner.username}` : "/dashboard#takedowns",
+        }).catch(() => {});
+      }
+      await audit(admin._id, decision === "reverse" ? "appeal.reverse" : "appeal.uphold", "stream", appeal.streamId, {
+        appealId: String(appeal._id),
+        ...(note ? { note } : {}),
+      });
+      return { success: true, data: { appeal: appealView(appeal, stream ? { _id: appeal.streamId, title: stream.title, takenDownAt: decision === "reverse" ? null : appeal.takenDownAt } : null) } };
+    },
+  );
+
+  /* ── The transparency report ───────────────────────────────────────── */
+
+  app.get(
+    "/admin/transparency",
+    { schema: { tags: ["Admin"], summary: "A calendar year of trust & safety in numbers, to publish", security: [{ bearerAuth: [] }], querystring: transparencyQuerySchema } },
+    async (request) => {
+      await requireAdmin(request);
+      const year = request.query.year ?? new Date().getUTCFullYear();
+      return { success: true, data: { report: await transparencyReport(year) } };
     },
   );
 };

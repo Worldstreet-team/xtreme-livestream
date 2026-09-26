@@ -27,7 +27,19 @@ interface NotificationRow {
    * request_refunded = a paid request wasn't done and the money went back;
    * sponsor_paid = an Xtream campaign paid for a stream that ran its card.
    */
-  type?: "live" | "reminder" | "mod_added" | "report" | "takedown" | "battle_invite" | "battle_result" | "request_refunded" | "sponsor_paid";
+  type?:
+    | "live"
+    | "reminder"
+    | "mod_added"
+    | "report"
+    | "takedown"
+    | "battle_invite"
+    | "battle_result"
+    | "request_refunded"
+    | "sponsor_paid"
+    | "appeal"
+    | "appeal_reversed"
+    | "appeal_upheld";
   actorName: string;
   streamId: string | null;
   streamTitle: string;
@@ -47,7 +59,13 @@ function describe(n: NotificationRow) {
     case "report":
       return { verb: "reported", detail: n.streamTitle };
     case "takedown":
-      return { verb: "took down your stream after a report", detail: n.streamTitle };
+      return { verb: "took down your stream after a report — you can appeal", detail: n.streamTitle };
+    case "appeal":
+      return { verb: "appealed a takedown", detail: n.streamTitle };
+    case "appeal_reversed":
+      return { verb: "reversed the takedown — your stream is back", detail: n.streamTitle };
+    case "appeal_upheld":
+      return { verb: "looked again and upheld the takedown", detail: n.streamTitle };
     case "request_refunded":
       return { verb: "didn't get to your request — it's refunded", detail: n.streamTitle };
     case "sponsor_paid":
@@ -202,7 +220,7 @@ export function NotificationsBell({
                   >
                     {n.type === "reminder" ? (
                       <BellRinging size={14} weight="fill" />
-                    ) : n.type === "mod_added" || n.type === "takedown" ? (
+                    ) : n.type === "mod_added" || n.type === "takedown" || n.type === "appeal" || n.type === "appeal_reversed" || n.type === "appeal_upheld" ? (
                       <ShieldStar size={14} weight="fill" />
                     ) : n.type === "report" ? (
                       <Flag size={14} weight="fill" />
