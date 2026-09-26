@@ -19,7 +19,13 @@ export async function ensureBattles(db) {
   const running = await battles.find({ status: { $in: ["live", "overtime"] }, endsAt: { $gt: new Date(now) } }).toArray();
   const booked = await battles.find({ status: "scheduled", scheduledAt: { $gt: new Date(now) } }).toArray();
   const busy = new Set(running.flatMap((b) => [String(b.hostStreamId), String(b.challengerStreamId)]));
-  const live = await streams.find({ isLive: true }).project({ streamerId: 1, viewers: 1 }).toArray();
+  // Seeded channels only: a real account that goes live in dev must never be
+  // pulled into a made-up battle (or have made-up gifts land on it).
+  const seeded = await db.collection("users").find({ authUserId: /^seed_/ }).project({ _id: 1 }).toArray();
+  const live = await streams
+    .find({ isLive: true, streamerId: { $in: seeded.map((u) => u._id) } })
+    .project({ streamerId: 1, viewers: 1 })
+    .toArray();
   const free = live.filter((s) => !busy.has(String(s._id))).sort(() => Math.random() - 0.5);
 
   // Gifts land in the running battles — a few dollars a tick, now and then a big one.
