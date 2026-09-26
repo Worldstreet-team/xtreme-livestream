@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Room, RoomEvent, Track, type RemoteTrack } from "livekit-client";
 import { apiFetch } from "@/lib/api-client";
+import { useDataMode } from "@/lib/data-mode";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,7 +14,8 @@ import { cn } from "@/lib/utils";
  * the room as a guest in preview mode (no join announcement, no watch
  * session) and shows the broadcaster's video with the sound off. One
  * preview at a time: opening another disconnects the last, so a page never
- * holds several live connections.
+ * holds several live connections. With Data saver on it stays a still
+ * picture: no room, no clip — nothing downloads but the poster.
  */
 
 let active: Room | null = null;
@@ -41,6 +43,7 @@ export function LivePreview({
   const fallbackRef = useRef<HTMLVideoElement>(null);
   const [showing, setShowing] = useState(false);
   const [fallbackPlaying, setFallbackPlaying] = useState(false);
+  const saving = useDataMode() === "saver";
 
   // The clip plays until a live track shows up, then it stops so two
   // videos never decode at once.
@@ -58,7 +61,7 @@ export function LivePreview({
   }, [fallbackSrc, showing]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || saving) return;
     let cancelled = false;
     let room: Room | null = null;
     let attached: RemoteTrack | null = null;
@@ -109,14 +112,14 @@ export function LivePreview({
         void room.disconnect().catch(() => {});
       }
     };
-  }, [streamId, enabled]);
+  }, [streamId, enabled, saving]);
 
   return (
     <div className={cn("relative overflow-hidden bg-black", className)}>
       <div className={cn("absolute inset-0 transition-opacity duration-500", showing || fallbackPlaying ? "opacity-0" : "opacity-100")}>
         {poster}
       </div>
-      {fallbackSrc && (
+      {fallbackSrc && !saving && (
         <video
           ref={fallbackRef}
           src={fallbackSrc}

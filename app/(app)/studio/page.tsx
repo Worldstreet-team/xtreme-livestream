@@ -240,10 +240,13 @@ function MarketPicker({ chart, onChart }: { chart: SceneChart; onChart: (chart: 
   );
 }
 
-function captureResolution(o: Orientation) {
-  return o === "portrait"
-    ? { width: 720, height: 1280, frameRate: 30 }
-    : { width: 1280, height: 720, frameRate: 30 };
+/**
+ * What the camera captures: 720p, or 540p when the creator saves data —
+ * about half the upload, steadier on a weak connection (Phase 1).
+ */
+function captureResolution(o: Orientation, saveData = false) {
+  const [long, short] = saveData ? [960, 540] : [1280, 720];
+  return o === "portrait" ? { width: short, height: long, frameRate: 30 } : { width: long, height: short, frameRate: 30 };
 }
 
 export default function StudioPage() {
@@ -334,6 +337,8 @@ export default function StudioPage() {
   const [cardNote, setCardNote] = useState("");
   /** Go live on "Starting soon" rather than straight into the camera. */
   const [openOnCard, setOpenOnCard] = useState(false);
+  // Send 540p with voice-tuned sound, for creators on a weak uplink.
+  const [saveData, setSaveData] = useState(false);
   /** The screen being shared alongside the camera — the preview's main picture while it is. */
   const [localScreen, setLocalScreen] = useState<LocalVideoTrack | null>(null);
   /** The brand kit the graphics wear, saved to the channel. */
@@ -460,7 +465,7 @@ export default function StudioPage() {
       if (source === "camera") {
         const { createLocalVideoTrack } = await import("livekit-client");
         const track = await createLocalVideoTrack({
-          resolution: captureResolution(orientation),
+          resolution: captureResolution(orientation, saveData),
           facingMode: facing,
         });
         setPreviewTrack(track);
@@ -953,12 +958,12 @@ export default function StudioPage() {
    * reload, and by the rejoin loop after a drop (`rejoin`).
    */
   const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
-    const { Room: LKRoom, RoomEvent, Track, VideoPresets, DisconnectReason } = await import("livekit-client");
+    const { Room: LKRoom, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason } = await import("livekit-client");
     const room = new LKRoom({
       // Pause simulcast layers no subscriber is consuming.
       dynacast: true,
       videoCaptureDefaults: {
-        resolution: captureResolution(orientation),
+        resolution: captureResolution(orientation, saveData),
         facingMode: facing,
       },
       publishDefaults: {
@@ -968,6 +973,8 @@ export default function StudioPage() {
         // instead of the full feed or nothing.
         simulcast: true,
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+        // Saving data: sound tuned for a voice, at a lower bitrate.
+        ...(saveData ? { audioPreset: AudioPresets.speech } : {}),
       },
     });
 
@@ -2230,6 +2237,22 @@ export default function StudioPage() {
           onCheckedChange={setOpenOnCard}
         />
       </div>
+
+      {/* A weak uplink: send less, steadily. */}
+      {source !== "obs" && (
+        <div className="border-t border-white/[0.06] pt-3">
+          <SwitchField
+            label="Save data — 540p"
+            description={
+              saveData
+                ? "Sends 540p with voice-tuned sound: about half the upload, steadier on a weak connection."
+                : "Sends up to 720p. Turn this on if your connection struggles."
+            }
+            checked={saveData}
+            onCheckedChange={setSaveData}
+          />
+        </div>
+      )}
 
       {/* Where it goes — the same switch as Settings and Schedule. */}
       <div className="border-t border-white/[0.06] pt-3">

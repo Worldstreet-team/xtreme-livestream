@@ -63,6 +63,9 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, apiUrl, ApiError } from "@/lib/api-client";
 import type { Room, DisconnectReason as DisconnectReasonType } from "livekit-client";
+import { VideoQuality } from "livekit-client";
+import { setDataMode, useDataMode, type PictureMode } from "@/lib/data-mode";
+import { PictureIcon, PictureMenu, RadioCard } from "@/components/app/picture-menu";
 import {
   GiftOverlay,
   type GiftOverlayHandle,
@@ -461,6 +464,40 @@ export default function StreamPage({
     setGoal(null);
     setHeat(null);
   }
+  // How much picture to take: the viewer's data setting (it stays with
+  // them), or Radio — the sound without the picture — for this stream only.
+  const dataMode = useDataMode();
+  const [radio, setRadio] = useState(false);
+  const [showPicture, setShowPicture] = useState(false);
+  const pictureMode: PictureMode = radio ? "radio" : dataMode;
+  const pictureModeRef = useRef<PictureMode>(pictureMode);
+  useEffect(() => {
+    pictureModeRef.current = pictureMode;
+  }, [pictureMode]);
+  const pickPicture = (mode: PictureMode) => {
+    setShowPicture(false);
+    if (mode === "radio") {
+      setRadio(true);
+      return;
+    }
+    setRadio(false);
+    setDataMode(mode);
+  };
+  // Every video in the room follows the setting as it changes.
+  useEffect(() => {
+    const room = roomRef.current;
+    if (!room || !connected) return;
+    room.remoteParticipants.forEach((participant) =>
+      participant.videoTrackPublications.forEach((pub) => {
+        if (pictureMode === "radio") {
+          pub.setSubscribed(false);
+          return;
+        }
+        pub.setSubscribed(true);
+        pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : VideoQuality.HIGH);
+      })
+    );
+  }, [pictureMode, connected]);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -721,8 +758,16 @@ export default function StreamPage({
         }
       };
 
-      room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (!track) return;
+        // Radio takes no picture; Data saver takes the smallest.
+        if (track.kind === Track.Kind.Video) {
+          if (pictureModeRef.current === "radio") {
+            publication.setSubscribed(false);
+            return;
+          }
+          if (pictureModeRef.current === "saver") publication.setVideoQuality(VideoQuality.LOW);
+        }
         addTrack(track, participant);
       });
 
@@ -2070,6 +2115,7 @@ export default function StreamPage({
       <div className="relative size-full bg-black">
         <LivePreview
           streamId={o.streamId}
+          enabled={!radio}
           className="absolute inset-0"
           poster={<div className="absolute inset-0 bg-black" />}
           fallbackSrc={null}
@@ -2152,6 +2198,8 @@ export default function StreamPage({
           />
         </div>
 
+        {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
+
         {/* Light falls off at the bottom, so the chat lane reads on any picture. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
         {/* Gift banners ride above the chat lane, not over it. */}
@@ -2161,7 +2209,7 @@ export default function StreamPage({
         {/* Status overlays */}
         {hostAway
           ? brbCard
-          : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
+          : stream.isLive && (connected || rejoining) && !hasVideo && !radio && !playbackError && !stream.scene?.card && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                 <div className="px-8 text-center">
                   <Spinner className="mx-auto size-7 text-white/70" />
@@ -2268,6 +2316,16 @@ export default function StreamPage({
               {!isFollowing && allyButton("sm")}
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              {stream.isLive && (
+                <button
+                  type="button"
+                  onClick={() => setShowPicture(true)}
+                  aria-label="Picture and data"
+                  className={cn("obj press flex size-9 items-center justify-center rounded-full", pictureMode === "auto" ? "text-white" : "text-ember-hi")}
+                >
+                  <PictureIcon mode={pictureMode} size={17} />
+                </button>
+              )}
               <Badge variant="glass" size="md" icon={<Eye size={13} />}>
                 {formatNumber(connected ? viewerCount : stream.viewers)}
               </Badge>
@@ -2496,6 +2554,25 @@ export default function StreamPage({
           </div>
         </div>
 
+        {/* Picture and data: a sheet from the bottom. */}
+        {showPicture && (
+          <div className="animate-fade-in fixed inset-0 z-[70] flex items-end bg-black/70" onClick={() => setShowPicture(false)}>
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="picture-sheet-title"
+              className="sheet-obj w-full rounded-t-[24px] px-3 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              <h3 id="picture-sheet-title" className="mb-2 px-3 font-wide text-[18px] font-bold tracking-[-0.02em] text-foreground">
+                Picture
+              </h3>
+              <PictureMenu mode={pictureMode} onPick={pickPicture} />
+            </div>
+          </div>
+        )}
+
         {/* Host stage sheet */}
         {showStageSheet && (
           <div
@@ -2681,6 +2758,9 @@ export default function StreamPage({
               );
             })()}
 
+            {/* Radio: the sound without the picture. */}
+            {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
+
             {/* Gift spectacle layer */}
             <GiftOverlay onReady={handleGiftOverlayReady} />
 
@@ -2721,7 +2801,7 @@ export default function StreamPage({
                 viewer is on the way back in after their own drop. */}
             {hostAway
               ? brbCard
-              : stream.isLive && (connected || rejoining) && !hasVideo && !playbackError && !stream.scene?.card && (
+              : stream.isLive && (connected || rejoining) && !hasVideo && !radio && !playbackError && !stream.scene?.card && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                     <div className="px-6 text-center">
                       <Spinner className="mx-auto size-7 text-white/70" />
@@ -2814,13 +2894,32 @@ export default function StreamPage({
               />
             </div>
 
-            {/* Player buttons: PiP, theater, fullscreen */}
+            {/* Player buttons: picture and data, PiP, theater, fullscreen */}
             <div
               className={cn(
                 "absolute right-4 bottom-4 flex items-center gap-2 transition-all duration-300",
-                !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
+                !controlsVisible && stream.isLive && !showPicture && "pointer-events-none opacity-0"
               )}
             >
+              {stream.isLive && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowPicture((v) => !v)}
+                    aria-expanded={showPicture}
+                    className={playerButton(pictureMode !== "auto")}
+                    title="Picture and data"
+                    aria-label="Picture and data"
+                  >
+                    <PictureIcon mode={pictureMode} />
+                  </button>
+                  {showPicture && (
+                    <div className="absolute right-0 bottom-full z-30 mb-2 w-[320px] animate-in rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-bottom-1">
+                      <p className="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wide text-white/60 uppercase">Picture</p>
+                      <PictureMenu mode={pictureMode} onPick={pickPicture} />
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 onClick={() => void togglePiP()}
                 className={playerButton()}
