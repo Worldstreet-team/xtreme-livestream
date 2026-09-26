@@ -1,12 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { ConversationRow, UserEvent } from "@worldstreet/messaging-sdk";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import type { ConversationRow, Message, UserEvent } from "@worldstreet/messaging-sdk";
 import {
   getMessagingSession,
   messaging,
   messagingFailure,
   nudgeUnread,
+  senderIdOf,
   useMessagingEvents,
   type MessagingFailure,
 } from "@/lib/messaging";
@@ -33,6 +35,25 @@ interface MessagesState {
 }
 
 const MessagesContext = createContext<MessagesState | null>(null);
+
+/** A thread's newest message as its inbox row shows it. */
+function asLast(m: Message): NonNullable<ConversationRow["lastMessage"]> {
+  return {
+    _id: m._id,
+    sender: m.sender,
+    content: m.content,
+    type: m.type,
+    mediaUrl: m.mediaUrl,
+    durationSec: m.durationSec,
+    amountMinor: m.amountMinor,
+    systemEvent: m.systemEvent,
+    createdAt: m.createdAt,
+  };
+}
+
+/** How long after the last live change the rows are re-read from the
+ *  gateway, to pick up anything an event doesn't carry. */
+const RECONCILE_MS = 1500;
 
 export function useMessages(): MessagesState {
   const ctx = useContext(MessagesContext);
@@ -93,16 +114,79 @@ export function MessagesProvider({ enabled, children }: { enabled: boolean; chil
     nudgeUnread();
   }, []);
 
-  // A message anywhere reorders the list and updates previews and counts —
-  // cheapest correct answer is to reload the rows (one small request).
+  // The event is the news: a new message moves its row to the top with its
+  // words and count straight from the socket, with no round trip first.
+  // A quiet re-read afterwards picks up what an event doesn't carry
+  // (a request becoming a thread, a count the gateway settled).
+  const rowsRef = useRef(rows);
+  const meRef = useRef(meId);
+  const openId = usePathname()?.match(/^\/messages\/([^/?#]+)/)?.[1] ?? null;
+  const openRef = useRef(openId);
+  useEffect(() => {
+    rowsRef.current = rows;
+    meRef.current = meId;
+    openRef.current = openId;
+  }, [rows, meId, openId]);
+
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconcile = useCallback(() => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => void reload(), RECONCILE_MS);
+  }, [reload]);
+  useEffect(() => () => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+  }, []);
+
   const onEvent = useCallback(
     (event: UserEvent) => {
       switch (event.type) {
-        case "message:new":
+        case "message:new": {
+          const msg = event.message;
+          // A thread the list hasn't got yet: only the gateway can describe it.
+          if (!rowsRef.current?.some((r) => r._id === event.conversationId)) {
+            void reload();
+            break;
+          }
+          const mine = senderIdOf(msg.sender) === meRef.current;
+          const open = openRef.current === event.conversationId;
+          setRows((cur) => {
+            const at = cur?.findIndex((r) => r._id === event.conversationId) ?? -1;
+            if (!cur || at < 0 || cur[at].lastMessage?._id === msg._id) return cur;
+            const row = cur[at];
+            const next: ConversationRow = {
+              ...row,
+              lastMessage: asLast(msg),
+              lastMessageAt: msg.createdAt,
+              // Replying reads the thread; an open thread reads itself.
+              unreadCount: mine ? 0 : open ? row.unreadCount : row.unreadCount + 1,
+            };
+            return [next, ...cur.slice(0, at), ...cur.slice(at + 1)];
+          });
+          reconcile();
+          break;
+        }
+        case "message:read":
+          // Read on another device (or this one): the count clears now.
+          if (event.readerId === meRef.current) patchRow(event.conversationId, { unreadCount: 0 });
+          reconcile();
+          break;
         case "message:edited":
+          // The preview takes the new words if it was the newest message.
+          setRows(
+            (cur) =>
+              cur?.map((r) =>
+                r._id === event.conversationId && r.lastMessage?._id === event.messageId
+                  ? { ...r, lastMessage: { ...r.lastMessage, content: event.content } }
+                  : r,
+              ) ?? cur,
+          );
+          reconcile();
+          break;
         case "message:unsent":
         case "message:removed":
-        case "message:read":
+          // The preview falls back to the message before, which only the gateway knows.
+          void reload();
+          break;
         case "group:updated":
         case "member:joined":
         case "member:left":
@@ -125,7 +209,7 @@ export function MessagesProvider({ enabled, children }: { enabled: boolean; chil
           break;
       }
     },
-    [reload, removeRow, patchRow],
+    [reload, reconcile, removeRow, patchRow],
   );
   useMessagingEvents(onEvent);
 

@@ -250,12 +250,11 @@ function Thread({ id }: { id: string }) {
   /** Read marks only while you're actually looking. */
   const markRead = useCallback(() => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    // The count clears as you look, not a round trip later.
+    patchRow(id, { unreadCount: 0 });
     void messaging.messages
       .markRead(id)
-      .then(() => {
-        patchRow(id, { unreadCount: 0 });
-        nudgeUnread();
-      })
+      .then(() => nudgeUnread())
       .catch(() => {});
   }, [id, patchRow]);
 
@@ -267,6 +266,34 @@ function Thread({ id }: { id: string }) {
     let cancelled = false;
     let stopSignals: (() => void) | null = null;
     let stopPresence: (() => void) | null = null;
+
+    // The live channel joins while the history loads, not after: typing,
+    // presence and reactions are listening by the time the thread paints.
+    const joined = getMessagingSession().then((session) => {
+      if (cancelled) return;
+      const thread = session.live.thread(id);
+      threadRef.current = thread;
+      void thread.enter();
+      stopSignals = thread.onSignal((name, signal) => {
+        if (name === "typing" || name === "recording") {
+          // Who's typing: their face goes on the dots (a group has several people).
+          const from = signal?.from ?? null;
+          const at = Date.now();
+          setPeerState((cur) => (cur?.kind === name && cur.from === from ? cur : { kind: name, from, at }));
+          if (typingTimer.current) clearTimeout(typingTimer.current);
+          typingTimer.current = setTimeout(() => setPeerState(null), name === "recording" ? 6000 : 4000);
+        } else if (name === "typing:stop") {
+          setPeerState(null);
+        } else if (name === "reaction" && signal?.messageId && signal.reactions) {
+          setMessages((cur) => cur.map((m) => (m._id === signal.messageId ? { ...m, reactions: signal.reactions } : m)));
+        }
+      });
+      // "Active now" follows them in and out of the thread.
+      const checkPresence = () => void thread.peerPresent().then((here) => !cancelled && setPeerHere(here));
+      checkPresence();
+      stopPresence = thread.onPresence(checkPresence);
+    });
+    joined.catch(() => {});
 
     void (async () => {
       try {
@@ -290,28 +317,6 @@ function Thread({ id }: { id: string }) {
         setLoadError(null);
         setLoaded(true);
         markRead();
-
-        const thread = session.live.thread(id);
-        threadRef.current = thread;
-        void thread.enter();
-        stopSignals = thread.onSignal((name, signal) => {
-          if (name === "typing" || name === "recording") {
-            // Who's typing: their face goes on the dots (a group has several people).
-            const from = signal?.from ?? null;
-            const at = Date.now();
-            setPeerState((cur) => (cur?.kind === name && cur.from === from ? cur : { kind: name, from, at }));
-            if (typingTimer.current) clearTimeout(typingTimer.current);
-            typingTimer.current = setTimeout(() => setPeerState(null), name === "recording" ? 6000 : 4000);
-          } else if (name === "typing:stop") {
-            setPeerState(null);
-          } else if (name === "reaction" && signal?.messageId && signal.reactions) {
-            setMessages((cur) => cur.map((m) => (m._id === signal.messageId ? { ...m, reactions: signal.reactions } : m)));
-          }
-        });
-        // "Active now" follows them in and out of the thread.
-        const checkPresence = () => void thread.peerPresent().then((here) => !cancelled && setPeerHere(here));
-        checkPresence();
-        stopPresence = thread.onPresence(checkPresence);
       } catch (err) {
         if (!cancelled) {
           setLoadError(messagingFailure(err, "This conversation"));
