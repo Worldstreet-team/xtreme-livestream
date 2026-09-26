@@ -15,6 +15,8 @@ import { RemoteImage } from "@/components/ui/remote-image";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 import { GoLiveLink } from "@/components/app/go-live-link";
 import { Shelf } from "@/components/app/shelf";
+import { HealthReportTile } from "@/components/app/stream-health";
+import { report as healthReport, type HealthWindow } from "@/lib/stream-health";
 
 /**
  * Your channel — the channel and its numbers in one place (owner,
@@ -239,6 +241,8 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
         <TopTile top={top} />
       </div>
 
+      {recentStreams[0] && <LastHealth streamId={recentStreams[0].id} title={recentStreams[0].title} />}
+
       <section aria-label="Recent broadcasts" className="mt-10 md:mt-14">
         {recentStreams.length === 0 ? (
           <div className={cn(TILE, "flex flex-col items-start gap-4 p-7 md:flex-row md:items-center md:justify-between md:p-8")}>
@@ -257,6 +261,31 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * How the last broadcast ran (Phase 1, stream health), from the half-minute
+ * summaries the studio sent while live. Nothing to show — an encoder
+ * stream, or one from before health was kept — shows nothing.
+ */
+function LastHealth({ streamId, title }: { streamId: string; title: string }) {
+  const [data, setData] = useState<{ windows: HealthWindow[]; startedAt: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    apiFetch<{ success: boolean; data: { windows: HealthWindow[]; startedAt: string } }>(`/api/streams/${streamId}/health`)
+      .then((r) => alive && setData(r.data))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [streamId]);
+  const summary = data ? healthReport(data.windows, Date.parse(data.startedAt)) : null;
+  if (!data || !summary) return null;
+  return (
+    <div className="mt-3">
+      <HealthReportTile report={summary} windows={data.windows} title={title} />
+    </div>
   );
 }
 

@@ -287,6 +287,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         featureQueue: [],
         goal: null,
         heat: null,
+        health: [],
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,

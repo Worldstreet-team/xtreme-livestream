@@ -325,6 +325,17 @@ export interface IStream extends Document {
   } | null;
   /** The heat meter as of the last gift. */
   heat: { level: number; at: Date } | null;
+  /** The studio's 30-second health summaries, for the report afterwards (capped at six hours). */
+  health: Array<{
+    at: number;
+    kbps: number;
+    fps: number;
+    height: number;
+    rttMs: number | null;
+    lossPct: number;
+    limitation: "none" | "cpu" | "bandwidth" | "other";
+    level: "good" | "fair" | "poor";
+  }>;
   /** Lines moderators suggested for the screen, waiting on the host. */
   featureQueue: Array<{
     messageId: mongoose.Types.ObjectId;
@@ -439,6 +450,8 @@ const streamSchema = new Schema<IStream>(
     takenDownAt: { type: Date, default: null },
     goal: { type: Schema.Types.Mixed, default: null },
     heat: { type: Schema.Types.Mixed, default: null },
+    // Kept out of every read unless asked for (+health): only the report wants it.
+    health: { type: Schema.Types.Mixed, default: () => [], select: false },
     featureQueue: {
       type: [
         new Schema(

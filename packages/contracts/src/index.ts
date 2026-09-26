@@ -389,6 +389,27 @@ export interface StreamHeat {
   at: string;
 }
 
+/**
+ * Stream health (Phase 1): the studio sends a 30-second summary of its
+ * sender stats — averages and the worst of it — and the API keeps the
+ * broadcast's run of them (six hours at most) for the report afterwards.
+ */
+export const HEALTH_LIMITATIONS = ["none", "cpu", "bandwidth", "other"] as const;
+export const HEALTH_LEVELS = ["good", "fair", "poor"] as const;
+export const MAX_HEALTH_WINDOWS = 720;
+export const healthWindowSchema = z.object({
+  at: z.number().int().min(0),
+  kbps: z.number().int().min(0).max(1_000_000),
+  fps: z.number().int().min(0).max(240),
+  height: z.number().int().min(0).max(4_320),
+  rttMs: z.number().int().min(0).max(60_000).nullable(),
+  lossPct: z.number().min(0).max(100),
+  limitation: z.enum(HEALTH_LIMITATIONS),
+  level: z.enum(HEALTH_LEVELS),
+});
+export const healthBodySchema = z.object({ window: healthWindowSchema });
+export type HealthWindowBody = z.infer<typeof healthWindowSchema>;
+
 export const createStreamBodySchema = z.object({
   title: z.string().trim().min(1).max(100),
   category: categorySchema,

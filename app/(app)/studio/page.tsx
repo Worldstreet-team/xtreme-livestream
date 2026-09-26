@@ -59,6 +59,8 @@ import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
 import { GoalPanel } from "@/components/app/goal-panel";
+import { HealthChip, HealthSection } from "@/components/app/stream-health";
+import { useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import {
   CARDS,
@@ -341,6 +343,13 @@ export default function StudioPage() {
   const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
   /** Lines moderators suggested for the screen, waiting on me. */
   const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
+  // Stream health: what's being sent — the shared screen, else the camera —
+  // read every 2 s while live from the browser (an encoder has its own stats).
+  const measuredTrack = useCallback(() => localScreen ?? (camEnabled ? videoTrackRef.current : null), [localScreen, camEnabled]);
+  const health = useStreamHealth(measuredTrack, {
+    active: isLive && source !== "obs" && (camEnabled || Boolean(localScreen)),
+    streamId,
+  });
   // The goal bar and heat meter: each broadcast starts without them.
   const [goal, setGoal] = useState<StreamGoal | null>(null);
   const [heat, setHeat] = useState<StreamHeat | null>(null);
@@ -2689,6 +2698,11 @@ export default function StudioPage() {
 
   const statsPanel = (
     <div className="px-4 pb-4">
+      {health.verdict && (
+        <div className="pt-4">
+          <HealthSection samples={health.samples} verdict={health.verdict} />
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 pt-4">
         <div className="col-span-2 rounded-[12px] bg-white/[0.04] p-4">
           <p className={SETUP_LABEL}>Watching now</p>
@@ -2997,6 +3011,7 @@ export default function StudioPage() {
                   {viewerCount}
                 </button>
               </span>
+              {conn === "live" && health.verdict && <HealthChip verdict={health.verdict} onOpen={() => openPanel("stats")} />}
               {conn !== "live" && (
                 <span className="obj flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold text-ember-hi">
                   <span className="size-1.5 animate-pulse rounded-full bg-ember" />
