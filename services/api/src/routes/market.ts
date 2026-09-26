@@ -1,7 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { marketCandlesQuerySchema, type ChartInterval } from "@xtreme/contracts";
+import { marketCandlesQuerySchema, marketQuotesQuerySchema, streamIdParamsSchema, type ChartInterval, type MarketQuote } from "@xtreme/contracts";
 import { ApiError } from "../errors.js";
+import { authenticate } from "../auth.js";
+import { Stream } from "../models.js";
+import { requireChannelRole } from "../safety/roles.js";
+import { trendingOf } from "../tickers.js";
 
 /**
  * Market candles for Chart + face (scene engine). Every viewer's screen
@@ -113,6 +117,57 @@ export async function getMarket(symbol: string, interval: ChartInterval, now = D
   }
 }
 
+/* ---- Quotes, for the price strip (Phase 3, market layer) ---- */
+
+const quoteCache = new Map<string, { at: number; quote?: MarketQuote | undefined; pending?: Promise<MarketQuote | null> | undefined }>();
+
+/** One market's last price and its 24-hour move, from Coinbase's public stats. Null when there's no such market. */
+async function fetchQuote(symbol: string): Promise<MarketQuote | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${SOURCE}/products/${symbol}/stats`, {
+      headers: { "User-Agent": "xtream-live/1.0", Accept: "application/json" },
+      signal: AbortSignal.timeout(6_000),
+    });
+  } catch {
+    throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
+  }
+  if (res.status === 404 || res.status === 400) return null;
+  if (!res.ok) throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
+  const stats = (await res.json()) as { open?: string; last?: string };
+  const open = Number(stats.open);
+  const last = Number(stats.last);
+  if (!Number.isFinite(last) || last <= 0) return null;
+  return { symbol, last, changePct: Number.isFinite(open) && open > 0 ? ((last - open) / open) * 100 : 0 };
+}
+
+/** A market's quote, shared for 15 seconds like the candles; a stale one beats none for a while. */
+export async function getQuote(symbol: string, now = Date.now()): Promise<MarketQuote | null> {
+  const hit = quoteCache.get(symbol);
+  if (hit && !hit.pending && now - hit.at < TTL_MS) return hit.quote ?? null;
+  if (hit?.pending) return hit.pending;
+  const pending = fetchQuote(symbol);
+  quoteCache.set(symbol, { at: hit?.at ?? 0, quote: hit?.quote, pending });
+  try {
+    const quote = await pending;
+    quoteCache.set(symbol, { at: Date.now(), quote: quote ?? undefined });
+    if (quoteCache.size > 300) quoteCache.delete(quoteCache.keys().next().value!);
+    return quote;
+  } catch (error) {
+    if (hit?.quote && now - hit.at < TTL_MS * 20) {
+      quoteCache.set(symbol, { at: hit.at, quote: hit.quote });
+      return hit.quote;
+    }
+    quoteCache.delete(symbol);
+    throw error;
+  }
+}
+
+/** For tests: forget the quotes. */
+export function clearQuoteCache() {
+  quoteCache.clear();
+}
+
 export const marketRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -130,6 +185,46 @@ export const marketRoutes: FastifyPluginAsync = async (fastify) => {
       const view = await getMarket(request.query.symbol, request.query.interval);
       reply.header("Cache-Control", "public, max-age=10");
       return { success: true, data: view };
+    },
+  );
+
+  app.get(
+    "/market/quotes",
+    {
+      schema: {
+        tags: ["Market"],
+        summary: "The latest price and 24-hour move of up to five markets (the price strip), shared and cached 15 seconds",
+        querystring: marketQuotesQuerySchema,
+      },
+      config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
+    },
+    async (request, reply) => {
+      const results = await Promise.allSettled(request.query.symbols.map((s) => getQuote(s)));
+      const quotes = results.flatMap((r) => (r.status === "fulfilled" && r.value ? [r.value] : []));
+      if (quotes.length === 0 && results.some((r) => r.status === "rejected")) {
+        throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
+      }
+      reply.header("Cache-Control", "public, max-age=10");
+      return { success: true, data: { quotes, source: "Coinbase", asOf: new Date().toISOString() } };
+    },
+  );
+
+  app.get(
+    "/streams/:id/tickers",
+    {
+      schema: {
+        tags: ["Market"],
+        summary: "The markets chat is talking about right now ($cashtags), for the host and their producers to chart",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select("streamerId").lean();
+      if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      await requireChannelRole(stream, dbUser._id, "producer");
+      return { success: true, data: { tickers: trendingOf(stream._id) } };
     },
   );
 };

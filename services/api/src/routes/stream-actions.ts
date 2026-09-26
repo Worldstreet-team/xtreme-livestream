@@ -35,6 +35,7 @@ import {
 import { bumpGoal } from "../goals.js";
 import { fanStatus, fanStatuses } from "../fans.js";
 import { fireRules } from "../rules.js";
+import { noteTickers } from "../tickers.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -669,6 +670,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // A chat word the host made a rule for ("!discord") — never the host's own line.
       if (body.type === "text" && role !== "host") {
         void fireRules(stream, { kind: "chat_word", text: body.content, user: dbUser.username });
+        // "$SOL": what chat's talking about, as a chart the host can put up in a tap.
+        void noteTickers(stream, streamer ?? null, body.content).catch(() => {});
       }
 
       return { success: true, data: { message, fan } };

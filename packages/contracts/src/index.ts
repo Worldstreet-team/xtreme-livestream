@@ -183,6 +183,19 @@ export const sceneChartSchema = z.object({
   interval: z.enum(CHART_INTERVALS).default("5m"),
 });
 export const marketCandlesQuerySchema = sceneChartSchema;
+/** Several markets' latest prices, for the price strip: "BTC-USD,ETH-USD". */
+export const marketQuotesQuerySchema = z.object({
+  symbols: z
+    .string()
+    .transform((s) => [...new Set(s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean))])
+    .pipe(z.array(z.string().regex(/^[A-Z0-9]{2,10}-[A-Z]{3,4}$/)).min(1).max(5)),
+});
+export interface MarketQuote {
+  symbol: string;
+  last: number;
+  /** The move over the last 24 hours, in per cent. */
+  changePct: number;
+}
 export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
 
 /**
@@ -190,12 +203,27 @@ export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
  * each at most. They render as DOM on every screen — crisp at any quality
  * layer — in the creator's brand accent.
  */
-export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta", "sponsor"] as const;
+export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta", "sponsor", "prices"] as const;
+/** The most markets a price strip shows at once. */
+export const MAX_PRICE_SYMBOLS = 5;
 export const LOGO_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 /** Whose sponsor a card is: the creator's own deal, or an Xtream campaign they joined. */
 export const SPONSOR_SOURCES = ["own", "campaign"] as const;
 
 export const sceneLayerSchema = z.discriminatedUnion("kind", [
+  /**
+   * Live prices (Phase 3, market layer): a strip of markets, each viewer's
+   * app drawing the numbers from our shared feed (/market/quotes), always
+   * with its source and "not financial advice". No buy buttons, no links.
+   */
+  z.object({
+    kind: z.literal("prices"),
+    symbols: z
+      .array(marketSymbolSchema)
+      .min(1)
+      .max(MAX_PRICE_SYMBOLS)
+      .refine((s) => new Set(s).size === s.length, "Each market once"),
+  }),
   z.object({
     kind: z.literal("lower-third"),
     title: z.string().trim().min(1).max(48),
