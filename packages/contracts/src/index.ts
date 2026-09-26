@@ -686,6 +686,73 @@ export interface SponsoredQuestView {
   status: CampaignStatus;
 }
 
+/**
+ * Run of show (Phase 3): a creator's rundown — segments in order, each
+ * with a planned length, a script the host-only teleprompter reads, and
+ * what it puts on screen when it starts (its cues). The rundown is kept
+ * with the channel, so it's ready on whichever device goes live; the live
+ * stream only keeps where the show is (which segment, since when). Viewers
+ * never see a script — only the scene changes its cues make.
+ */
+export const MAX_SEGMENTS = 20;
+export const MAX_SEGMENT_SCRIPT = 4_000;
+/** The prompter's whole script, across every segment. */
+export const MAX_RUNDOWN_SCRIPT = 10_000;
+export const MAX_SEGMENT_CUES = 6;
+export const segmentIdSchema = z.string().regex(/^[a-z0-9]{6,16}$/, "Invalid segment id");
+
+/**
+ * One thing a segment does to the picture as it starts. Each is either
+ * "put this up" or "take that down"; anything a segment doesn't mention
+ * stays as it was.
+ */
+export const rundownCueSchema = z.discriminatedUnion("do", [
+  z.object({ do: z.literal("layout"), layout: z.enum(SCENE_LAYOUTS) }),
+  z.object({ do: z.literal("card"), card: z.enum(SCENE_CARDS) }),
+  z.object({ do: z.literal("clear-card") }),
+  z.object({ do: z.literal("lower-third"), title: z.string().trim().min(1).max(48), subtitle: z.string().trim().max(72).default("") }),
+  z.object({ do: z.literal("hide-lower-third") }),
+  z.object({ do: z.literal("banner"), text: z.string().trim().min(1).max(100) }),
+  z.object({ do: z.literal("hide-banner") }),
+  z.object({ do: z.literal("sponsor"), source: z.enum(SPONSOR_SOURCES), sponsorId: objectIdSchema }),
+  z.object({ do: z.literal("hide-sponsor") }),
+  /** A countdown to the segment's planned end, labelled with its title. */
+  z.object({ do: z.literal("countdown") }),
+]);
+
+export const rundownSegmentSchema = z.object({
+  id: segmentIdSchema,
+  title: z.string().trim().min(1).max(60),
+  /** Planned length: ten seconds to four hours. */
+  seconds: z.number().int().min(10).max(4 * 3600),
+  script: z.string().max(MAX_SEGMENT_SCRIPT).default(""),
+  cues: z
+    .array(rundownCueSchema)
+    .max(MAX_SEGMENT_CUES)
+    .default([])
+    .refine((cues) => new Set(cues.map((c) => c.do.replace(/^(hide|clear)-/, ""))).size === cues.length, "One change of each kind per segment"),
+});
+
+export const rundownBodySchema = z
+  .object({ segments: z.array(rundownSegmentSchema).max(MAX_SEGMENTS) })
+  .refine((r) => new Set(r.segments.map((s) => s.id)).size === r.segments.length, "Segment ids must be unique")
+  .refine((r) => r.segments.reduce((n, s) => n + s.script.length, 0) <= MAX_RUNDOWN_SCRIPT, {
+    message: `Scripts add up to ${MAX_RUNDOWN_SCRIPT.toLocaleString("en-US")} characters at most`,
+  });
+
+/** Where the show is: a segment on air (null: the rundown isn't running). */
+export const rundownPositionBodySchema = z.object({ segmentId: segmentIdSchema.nullable() });
+
+export type RundownCue = z.infer<typeof rundownCueSchema>;
+export type RundownSegment = z.infer<typeof rundownSegmentSchema>;
+export interface RundownPosition {
+  segmentId: string | null;
+  /** When this segment went on air (server time, ISO). */
+  startedAt: string | null;
+  /** When the first segment went on air — the show's own clock. */
+  showStartedAt: string | null;
+}
+
 /** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
 export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
 export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });

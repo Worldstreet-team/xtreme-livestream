@@ -39,6 +39,9 @@ import {
   LayoutIcon,
   Ticket,
   Faders,
+  Playlist,
+  ClapperboardText,
+  CaretRight,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -67,10 +70,14 @@ import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-pa
 import { AudioDesk, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
 import { useSponsorships } from "@/lib/sponsors";
+import { applyCues, formatLength, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
+import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
+import { Teleprompter } from "@/components/app/teleprompter";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import { gainFor } from "@/lib/scene";
+import { serverNow } from "@/lib/server-clock";
 import {
   CARDS,
   CHART_INTERVAL_LABELS,
@@ -113,7 +120,7 @@ type SourceType = "camera" | "screen" | "obs";
 type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
-type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio";
+type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio" | "show";
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -385,6 +392,13 @@ export default function StudioPage() {
   // Sponsors for the Scenes panel: your own deals and the campaigns you're in.
   const sponsorships = useSponsorships(Boolean(user?.id));
   const reloadSponsorships = sponsorships.reload;
+  // Run of show: the rundown (saved as it's edited), where the show is, and the prompter.
+  const rundown = useRundown(Boolean(user?.id));
+  const show = useRundownPosition(isLive ? streamId : null, isLive);
+  const [prompterOn, setPrompterOn] = useState(false);
+  const [focusSegment, setFocusSegment] = useState<string | null>(null);
+  const [segmentBusy, setSegmentBusy] = useState(false);
+  const [showPlanner, setShowPlanner] = useState(false);
   // Joined a campaign in another tab? Opening Scenes picks it up.
   useEffect(() => {
     if (panel !== "scenes") return;
@@ -2158,6 +2172,51 @@ export default function StudioPage() {
   );
 
   // One column in the side panel; two once the console is wide enough (tablets).
+  // Sponsors a rundown cue can put up: your own, and the campaigns you're running.
+  const cueSponsors: CueSponsor[] = [
+    ...(sponsorships.data?.campaigns ?? [])
+      .filter((c) => c.joined && c.status === "live")
+      .map((c) => ({ source: "campaign" as const, id: c.id, name: c.name, line: c.line, url: c.url, code: c.code, logoUrl: c.logoUrl, restricted: c.restricted })),
+    ...(sponsorships.data?.sponsors ?? []).map((o) => ({ source: "own" as const, id: o.id, name: o.name, line: o.line, url: o.url, code: o.code, logoUrl: o.logoUrl, restricted: o.restricted })),
+  ];
+  const segments = rundown.segments ?? [];
+  const onAirIndex = show.position?.segmentId ? segments.findIndex((x) => x.id === show.position?.segmentId) : -1;
+  const onAirSegment = onAirIndex >= 0 ? segments[onAirIndex]! : null;
+  const nextSegment = onAirIndex >= 0 ? (segments[onAirIndex + 1] ?? null) : (segments[0] ?? null);
+  // What the prompter reads: the segment on air, or — before a show — the one being prepared.
+  const prompterSegment = onAirSegment ?? segments.find((x) => x.id === focusSegment) ?? segments[0] ?? null;
+
+  /**
+   * Put a segment on air: its clock starts on the server, then its cues go
+   * to the picture through the scene route, the same way a hand-made
+   * change does. Null stops the run of show.
+   */
+  const goSegment = async (segment: RundownSegment | null) => {
+    setSegmentBusy(true);
+    try {
+      await show.go(segment?.id ?? null);
+      const patch = segment ? applyCues(scene, segment, serverNow(), cueSponsors) : null;
+      if (patch) await applyScene(patch);
+    } finally {
+      setSegmentBusy(false);
+    }
+  };
+
+  const runOfShow = (
+    <RunOfShow
+      segments={rundown.segments}
+      status={rundown.status}
+      onChange={rundown.update}
+      live={isLive}
+      position={show.position}
+      onGo={goSegment}
+      sponsors={cueSponsors}
+      prompterOn={prompterOn}
+      onPrompter={() => setPrompterOn((on) => !on)}
+      onFocus={setFocusSegment}
+    />
+  );
+
   const setupFields = (
     <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
       {orphan && (() => {
@@ -2402,6 +2461,32 @@ export default function StudioPage() {
           onCheckedChange={toggleWorldSpace}
         />
       </div>
+      </div>
+
+      {/* The run of show: segments, the prompter's script, and what each puts on screen. */}
+      <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
+        {showPlanner ? (
+          runOfShow
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowPlanner(true)}
+            className="press flex w-full items-center gap-3 rounded-[14px] bg-white/[0.04] p-3.5 text-left transition-colors hover:bg-white/[0.06]"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.07]">
+              <Playlist size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-semibold">Run of show</span>
+              <span className="block truncate text-[12.5px] text-muted-foreground">
+                {segments.length > 0
+                  ? `${segments.length} ${segments.length === 1 ? "segment" : "segments"} · ${formatLength(totalSeconds(segments))} · the prompter reads your script`
+                  : "Plan segments, a script for the prompter, and what goes on screen"}
+              </span>
+            </span>
+            <CaretRight size={16} className="shrink-0 text-muted-foreground" />
+          </button>
+        )}
       </div>
 
       {source === "obs" && <div className="@[620px]:col-span-2">{encoderBlock}</div>}
@@ -3023,6 +3108,7 @@ export default function StudioPage() {
         {streamId && <GamesPanel inline streamId={streamId} />}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "more" && "hidden")}>{morePanel}</div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-5", panel !== "show" && "hidden")}>{runOfShow}</div>
     </>
   );
 
@@ -3214,7 +3300,22 @@ export default function StudioPage() {
 
         {/* Tip alerts — the on-air moment */}
         {tipAlerts.length > 0 && (
-          <div className="pointer-events-none absolute top-[4.5rem] left-4 z-30 flex flex-col items-start gap-2 md:top-16">
+          <div
+            className={cn(
+              "pointer-events-none absolute z-30 flex items-start gap-2",
+              // Clear of the run of show: under the segment chip, or — while
+              // the prompter is up — down by the dock, off the script.
+              prompterOn
+                ? mode === "phone"
+                  ? "bottom-[calc(46dvh+0.75rem)] left-3 flex-col-reverse"
+                  : "bottom-24 left-4 flex-col-reverse"
+                : onAirSegment && isLive
+                  ? mode === "phone"
+                    ? "top-[calc(max(env(safe-area-inset-top),12px)+6rem)] left-3 flex-col"
+                    : "top-28 left-4 flex-col"
+                  : "top-[4.5rem] left-4 flex-col md:top-16"
+            )}
+          >
             {tipAlerts.map((t) => (
               <div key={t.id} className="flex animate-in items-center gap-2 rounded-full bg-black/80 py-1 pr-3.5 pl-1.5 slide-in-from-left-4">
                 <GiftArt emoji={t.emoji} size={30} />
@@ -3318,6 +3419,48 @@ export default function StudioPage() {
           </div>
         )}
 
+        {/* Run of show on the stage (host-only, never in the program): the
+            segment on air with its clock and Next, and the prompter. */}
+        {isLive && onAirSegment && show.position && (
+          <div
+            className={cn(
+              "absolute z-20",
+              mode === "phone" ? "top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 max-w-[calc(100%-5rem)]" : "top-16 left-4 max-w-[calc(100%-2rem)]"
+            )}
+          >
+            <SegmentChip
+              segment={onAirSegment}
+              index={onAirIndex}
+              count={segments.length}
+              position={show.position}
+              next={nextSegment}
+              busy={segmentBusy}
+              compact={mode === "phone"}
+              onOpen={() => setPanel("show")}
+              onNext={() => void goSegment(nextSegment).catch((err) => setError(err instanceof Error ? err.message : "Couldn't move the show on"))}
+            />
+          </div>
+        )}
+        {prompterOn && (
+          <div
+            className={cn(
+              "pointer-events-none absolute z-20 flex justify-center",
+              mode === "phone"
+                ? cn("top-[calc(max(env(safe-area-inset-top),12px)+6.25rem)] right-[4.25rem] left-3", isLive ? "h-[36dvh]" : "h-[26dvh]")
+                : "inset-x-4 top-28 h-[min(46cqh,420px)]"
+            )}
+          >
+            <Teleprompter
+              className="size-full max-w-[820px]"
+              segment={prompterSegment}
+              next={onAirSegment ? (nextSegment?.title ?? null) : null}
+              compact={mode === "phone"}
+              onClose={() => setPrompterOn(false)}
+              onOpenRundown={() => (isLive ? setPanel("show") : setShowPlanner(true))}
+            />
+          </div>
+        )}
+
         {/* ---- Tablet & desktop live: the dock — the camera's keys, the link, End ---- */}
         {isLive && mode !== "phone" && (
           <div className={cn("absolute inset-x-0 bottom-5 z-20 flex justify-center px-4 transition-[opacity,transform] duration-300", dockHidden && "pointer-events-none translate-y-2 opacity-0")}>
@@ -3328,6 +3471,9 @@ export default function StudioPage() {
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
               {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
               {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
+              {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", on: panel === "show", children: <Playlist size={20} /> })}
+              {dockButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", on: prompterOn, children: <ClapperboardText size={20} /> })}
+              <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />
               {dockButton({ onClick: shareStream, label: shareCopied ? "Link copied" : "Share the stream", on: shareCopied, children: shareCopied ? <Check size={19} weight="bold" /> : <ShareNetwork size={20} /> })}
               <button
                 type="button"
@@ -3350,6 +3496,8 @@ export default function StudioPage() {
             {source === "camera"
               ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
               : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", active: panel === "show", children: <Playlist size={21} /> })}
+            {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
           </div>
         )}
 

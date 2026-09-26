@@ -297,6 +297,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         heat: null,
         health: [],
         requestsOpen: false,
+        // A fresh show: the rundown starts from the top.
+        rundown: null,
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
         livekitRoomName: roomName,

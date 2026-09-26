@@ -370,6 +370,11 @@ export interface IStream extends Document {
   heat: { level: number; at: Date } | null;
   /** The host is taking paid requests on this broadcast. */
   requestsOpen: boolean;
+  /**
+   * Where the run of show is (Phase 3): the segment on air and since when.
+   * Host-only — the segment ids point into the creator's private rundown.
+   */
+  rundown: { segmentId: string | null; startedAt: Date | null; showStartedAt: Date | null } | null;
   /** The studio's 30-second health summaries, for the report afterwards (capped at six hours). */
   health: Array<{
     at: number;
@@ -497,6 +502,8 @@ const streamSchema = new Schema<IStream>(
     goal: { type: Schema.Types.Mixed, default: null },
     heat: { type: Schema.Types.Mixed, default: null },
     requestsOpen: { type: Boolean, default: false },
+    // The host's own: kept out of every read unless asked for (+rundown).
+    rundown: { type: Schema.Types.Mixed, default: null, select: false },
     // Kept out of every read unless asked for (+health): only the report wants it.
     health: { type: Schema.Types.Mixed, default: () => [], select: false },
     featureQueue: {
@@ -1662,3 +1669,30 @@ voucherSchema.index(
 voucherSchema.index({ userId: 1, claimedAt: -1 }, { partialFilterExpression: { userId: { $type: "objectId" } } });
 
 export const Voucher = mongoose.model<IVoucher>("Voucher", voucherSchema);
+
+/* ------------------------------------------------------------------ */
+/* Run of show                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A creator's rundown (Phase 3): segments with planned lengths, the
+ * prompter's script and each segment's cues (`rundownBodySchema`). One per
+ * creator, kept apart from the user document so scripts don't ride along
+ * on every signed-in request.
+ */
+export interface IRundown extends Document {
+  ownerId: mongoose.Types.ObjectId;
+  segments: Array<Record<string, unknown>>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const rundownSchema = new Schema<IRundown>(
+  {
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    segments: { type: Schema.Types.Mixed, default: () => [] },
+  },
+  { timestamps: true },
+);
+
+export const Rundown = mongoose.model<IRundown>("Rundown", rundownSchema);
