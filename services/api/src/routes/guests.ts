@@ -17,6 +17,7 @@ import { reconcileStream } from "../stream-service.js";
 import { requireChannelRole, roleIn } from "../safety/roles.js";
 import { assertNotBanned } from "./moderation.js";
 import { fireRules } from "../rules.js";
+import { recordMoment } from "../analytics.js";
 
 /**
  * Stage guests — "bring people into your live".
@@ -347,6 +348,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         avatar: guest.avatar,
       });
       void fireRules(stream, { kind: "guest_join", user: guest.username });
+      void recordMoment(stream._id, "guest", `${guest.username} joined the stage`);
 
       return { success: true, data: { status: "live" } };
     },

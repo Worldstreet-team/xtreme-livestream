@@ -5,7 +5,7 @@ import mongoose from "mongoose";
  * enough of Mongo's query and update language to run real module code:
  * equality (ObjectIds and strings compare by value), $ne/$lt/$lte/$gt/$gte,
  * $in, $elemMatch, $type, $or/$and, $expr ($add, $lte); updates with $set,
- * $inc, $push ($each, $slice), $setOnInsert and $pull; upserts; and unique
+ * $inc, $max, $push ($each, $slice), $setOnInsert and $pull; upserts; and unique
  * indexes that refuse a duplicate with Mongo's 11000.
  */
 
@@ -112,6 +112,11 @@ function applyUpdate(doc: Row, update: Row, inserting: boolean) {
       continue;
     } else if (op === "$inc") {
       for (const [k, v] of Object.entries(fields as Row)) setPath(doc, k, (get(doc, k) ?? 0) + (v as number));
+    } else if (op === "$max") {
+      for (const [k, v] of Object.entries(fields as Row)) {
+        const cur = get(doc, k);
+        if (cur == null || num(v) > num(cur)) setPath(doc, k, v);
+      }
     } else if (op === "$push") {
       for (const [k, v] of Object.entries(fields as Row)) {
         const items: unknown[] = v && typeof v === "object" && "$each" in (v as Row) ? (v as Row).$each : [v];

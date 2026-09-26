@@ -844,6 +844,41 @@ export interface ShowRuleView {
   firedAt: string | null;
 }
 
+/**
+ * Live analytics (Phase 3): a broadcast minute by minute — viewers, chat
+ * and gifts — with what happened when, where people left, and what the
+ * chat asked. Read live by the studio, and afterwards as the recap.
+ */
+export const MOMENT_KINDS = ["segment", "guest", "card", "gift", "battle", "goal", "peak"] as const;
+export type MomentKind = (typeof MOMENT_KINDS)[number];
+
+export interface StreamAnalytics {
+  startedAt: string;
+  endedAt: string | null;
+  live: boolean;
+  /** One per minute on air, from the first. */
+  minutes: Array<{ viewers: number; chats: number; giftsMinor: number }>;
+  moments: Array<{ minute: number; kind: MomentKind; label: string }>;
+  /** The biggest falls in the audience, and what was on when they happened. */
+  dropOffs: Array<{ minute: number; from: number; to: number; during: string | null }>;
+  summary: {
+    durationMinutes: number;
+    peakViewers: number;
+    peakMinute: number;
+    avgViewers: number;
+    /** Signed-in viewers; guests watching signed out aren't counted here. */
+    uniqueViewers: number;
+    chats: number;
+    chatters: number;
+    giftsMinor: number;
+    gifters: number;
+    newAllies: number;
+    avgWatchMinutes: number;
+  };
+  /** Lines from chat that asked something — worth an answer next time if not this. */
+  questions: Array<{ minute: number; user: string; text: string }>;
+}
+
 /** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
 export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
 export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });

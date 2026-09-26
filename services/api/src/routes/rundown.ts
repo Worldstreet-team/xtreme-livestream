@@ -5,6 +5,7 @@ import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { Rundown, Stream, type IStream } from "../models.js";
 import { sendRoomDataTo } from "../livekit.js";
+import { recordMoment } from "../analytics.js";
 import { consoleIdentities, moderatorIdentities, requireChannelRole } from "../safety/roles.js";
 
 /**
@@ -111,6 +112,12 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
         ? { segmentId, startedAt: now, showStartedAt: stream.rundown?.showStartedAt ?? now }
         : { segmentId: null, startedAt: null, showStartedAt: null };
       await Stream.updateOne({ _id: stream._id, isLive: true }, { $set: { rundown: position } });
+      // The recap marks where each segment started (analytics.ts).
+      if (segmentId) {
+        const rundown = await Rundown.findOne({ ownerId: stream.streamerId }).select("segments").lean();
+        const title = (rundown?.segments as Array<{ id?: string; title?: string }> | undefined)?.find((s) => s.id === segmentId)?.title;
+        if (title) void recordMoment(stream._id, "segment", title, now);
+      }
       // The host's studio and every producer's console move on together —
       // the host's prompter follows a producer's Next.
       void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { __evt: "rundown", position: positionView(position) }).catch(() => {});

@@ -73,6 +73,7 @@ import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings,
 import { useRequestQueue } from "@/lib/requests";
 import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
+import { LiveAudience } from "@/components/app/stream-recap";
 import { StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
@@ -3332,6 +3333,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           <p className="mt-2.5 font-money text-[32px] leading-none text-value tabular-nums">{tipsLabel}</p>
         </div>
       </div>
+      {isLive && streamId && panel === "stats" && <LiveAudience streamId={streamId} />}
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground/70">Gifts land in your wallet as they arrive and play on the stage for everyone.</p>
     </div>
   );

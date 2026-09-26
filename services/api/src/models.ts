@@ -339,6 +339,14 @@ export interface IStream extends Document {
   viewerSeconds: number;
   /** Start of the current accrual window — when `viewers` was last sampled. */
   viewerSampledAt: Date | null;
+  /**
+   * The audience curve (live analytics): the most viewers seen in each
+   * minute since `startedAt`, keyed by minute. Minutes with no change carry
+   * the last count forward when read (analytics.ts).
+   */
+  viewersByMinute?: Record<string, number>;
+  /** What happened when, for the recap: segments starting, guests joining, cards going up (200 at most). */
+  moments?: Array<{ at: Date; kind: string; label: string }>;
   likes: number;
   /**
    * Viewers on the stage (or asking to be). Guests publish into the same
@@ -477,6 +485,12 @@ const streamSchema = new Schema<IStream>(
     peakViewers: { type: Number, default: 0, min: 0 },
     viewerSeconds: { type: Number, default: 0, min: 0 },
     viewerSampledAt: { type: Date, default: null },
+    viewersByMinute: { type: Schema.Types.Mixed, default: () => ({}), select: false },
+    moments: {
+      type: [{ _id: false, at: { type: Date, required: true }, kind: { type: String, required: true }, label: { type: String, default: "" } }],
+      default: [],
+      select: false,
+    },
     likes: { type: Number, default: 0, min: 0 },
     guests: {
       type: [

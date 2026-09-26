@@ -26,6 +26,7 @@ import {
   reconcileStream,
   thumbnailUrlFor,
 } from "../stream-service.js";
+import { cardMoment, recordMoment } from "../analytics.js";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -520,6 +521,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       // and it's always the host's sponsor, whoever is producing.
       const layers = await resolveSceneLayers(request.body.layers, stream.streamerId, stream, now);
       const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
+      const cardBefore = stream.scene?.card ?? null;
       const scene = {
         layout: request.body.layout,
         card: request.body.card,
@@ -536,6 +538,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       await stream.save();
       await setRoomScene(stream.livekitRoomName, scene);
       void sendRoomData(stream.livekitRoomName, { __evt: "scene", scene });
+      // A card going up is a moment in the recap (analytics.ts).
+      if (scene.card && scene.card !== cardBefore) void recordMoment(stream._id, "card", cardMoment(scene.card), now);
       // The sponsor's on-screen time: what campaigns pay on, and what
       // sponsored quests count against.
       await trackSponsorExposure(stream, sponsorBefore, sponsorLayerOf(layers), now).catch((e) =>

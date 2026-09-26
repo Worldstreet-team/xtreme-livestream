@@ -10,6 +10,7 @@ import {
   markStreamEnded,
 } from "../stream-service.js";
 import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
+import { recordViewers } from "../analytics.js";
 
 /**
  * Refresh a live stream's current/peak viewer counts and bank the viewer-time
@@ -54,6 +55,8 @@ async function updateViewerCounts(
   stream.viewers = viewers;
   if (viewers > stream.peakViewers) stream.peakViewers = viewers;
   await stream.save();
+  // The audience curve: the most seen this minute (live analytics).
+  if (stream.startedAt) await recordViewers(stream._id, stream.startedAt, viewers).catch(() => {});
 }
 
 export const webhookRoutes: FastifyPluginAsync = async (fastify) => {

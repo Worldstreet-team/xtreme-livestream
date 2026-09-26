@@ -10,6 +10,7 @@ import { healthRoutes } from "./health.js";
 import { coLiveRoutes } from "./colive.js";
 import { consoleRoutes } from "./console.js";
 import { ruleRoutes } from "./rules.js";
+import { analyticsRoutes } from "./analytics.js";
 import { guestRoutes } from "./guests.js";
 import { marketRoutes } from "./market.js";
 import { moderationRoutes } from "./moderation.js";
@@ -37,6 +38,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(rundownRoutes);
   await fastify.register(consoleRoutes);
   await fastify.register(ruleRoutes);
+  await fastify.register(analyticsRoutes);
   await fastify.register(healthRoutes);
   await fastify.register(battleRoutes);
   await fastify.register(gameRoutes);
