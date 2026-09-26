@@ -36,6 +36,10 @@ export interface AppUser {
     featureGiftsFromMinor?: number;
     /** How long a featured comment stays up, in seconds; 0 is until taken down. */
     featureSeconds?: number;
+    /** Who can ask to join the stage (the request line). */
+    stageRequests?: "everyone" | "allies" | "fans" | "off";
+    /** How old an account must be to ask to join, in days. */
+    stageAccountDays?: number;
   };
   /** Cold-start picker state; `completedAt` null means never seen or skipped. */
   onboarding?: {

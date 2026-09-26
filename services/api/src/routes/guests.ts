@@ -1,16 +1,20 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import type mongoose from "mongoose";
 import {
   MAX_STAGE_GUESTS,
+  STAGE_FAN_LEVEL,
   guestUserParamsSchema,
   streamIdParamsSchema,
+  type StageStanding,
 } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
+import { fanStatus } from "../fans.js";
 import { sendRoomData, setParticipantPublishPermission } from "../livekit.js";
-import { Stream, type IStream } from "../models.js";
+import { Follow, Stream, User, type IStream, type IUser } from "../models.js";
 import { reconcileStream } from "../stream-service.js";
-import { requireChannelRole } from "../safety/roles.js";
+import { requireChannelRole, roleIn } from "../safety/roles.js";
 import { assertNotBanned } from "./moderation.js";
 
 /**
@@ -49,7 +53,48 @@ const publicGuest = (g: IStream["guests"][number]) => ({
   username: g.username,
   avatar: g.avatar,
   status: g.status,
+  standing: g.standing ? { ally: Boolean(g.standing.ally), level: g.standing.level ?? 0, hours: g.standing.hours ?? 0 } : null,
 });
+
+const DAY_MS = 86_400_000;
+
+/** Where someone asking to join stands with the channel: an ally or not, their fan level, hours watched. */
+async function standingOf(channelId: mongoose.Types.ObjectId, userId: mongoose.Types.ObjectId): Promise<StageStanding> {
+  const [ally, fan] = await Promise.all([Follow.exists({ followerId: userId, followingId: channelId }), fanStatus(channelId, userId)]);
+  return { ally: Boolean(ally), level: fan?.level ?? 0, hours: fan?.hours ?? 0 };
+}
+
+/**
+ * The request line, as the host set it (producer mode): who can ask to
+ * join, and how old their account must be. The host's crew is never held
+ * back by it. Says why, in words for the viewer, when they can't.
+ */
+export function assertMayAsk(
+  streamer: Pick<IUser, "username" | "displayName"> & { settings?: Partial<IUser["settings"]> | null },
+  user: { createdAt?: Date | string | null },
+  standing: StageStanding,
+  now = Date.now(),
+) {
+  const host = streamer.displayName || streamer.username;
+  const rule = streamer.settings?.stageRequests ?? "everyone";
+  const days = streamer.settings?.stageAccountDays ?? 0;
+  if (rule === "off") {
+    throw new ApiError(403, `${host} isn't taking requests to join right now`, "STAGE_CLOSED");
+  }
+  if (days > 0 && user.createdAt && now - new Date(user.createdAt).getTime() < days * DAY_MS) {
+    throw new ApiError(403, `Accounts need to be ${days === 1 ? "a day" : "a week"} old to ask to join ${host}`, "STAGE_NEW_ACCOUNT");
+  }
+  if (rule === "allies" && !standing.ally) {
+    throw new ApiError(403, `Only allies can ask to join — ally with ${host} first`, "STAGE_ALLIES_ONLY");
+  }
+  if (rule === "fans" && standing.level < STAGE_FAN_LEVEL) {
+    throw new ApiError(
+      403,
+      `Only fans at level ${STAGE_FAN_LEVEL} or more can ask to join ${host} — you're level ${standing.level}. Watching and chatting level you up`,
+      "STAGE_FANS_ONLY",
+    );
+  }
+}
 
 export const guestRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -64,11 +109,12 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const stream = await Stream.findById(request.params.id).select("guests");
+      const stream = await Stream.findById(request.params.id).select("guests streamerId");
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
       const guests = stream.guests ?? [];
+      const streamer = await User.findById(stream.streamerId).select("settings.stageRequests settings.stageAccountDays").lean();
       return {
         success: true,
         data: {
@@ -77,6 +123,11 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
             .filter((g) => g.status === "requested")
             .map(publicGuest),
           maxGuests: MAX_STAGE_GUESTS,
+          // Who can ask, so a viewer knows before they try.
+          line: {
+            who: streamer?.settings?.stageRequests ?? "everyone",
+            accountDays: streamer?.settings?.stageAccountDays ?? 0,
+          },
         },
       };
     },
@@ -106,6 +157,11 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       // Banned viewers don't get to ask for the camera either.
       await assertNotBanned(stream._id, dbUser._id);
 
+      // The request line's rules — the crew always gets through.
+      const streamer = await User.findById(stream.streamerId).select("username displayName settings safety").lean();
+      const standing = await standingOf(stream.streamerId, dbUser._id);
+      if (streamer && !roleIn(streamer, dbUser._id)) assertMayAsk(streamer, dbUser, standing);
+
       // Single atomic push, guarded on "not already in the array" — two
       // rapid taps produce one entry, not two.
       const updated = await Stream.findOneAndUpdate(
@@ -125,6 +181,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
               avatar: dbUser.avatar,
               status: "requested",
               requestedAt: new Date(),
+              standing,
             },
           },
         },
@@ -154,6 +211,7 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
         userId: String(dbUser._id),
         username: dbUser.username,
         avatar: dbUser.avatar,
+        standing,
       });
 
       return { success: true, data: { status: "requested" } };

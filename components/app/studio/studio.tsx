@@ -73,6 +73,7 @@ import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings 
 import { useRequestQueue } from "@/lib/requests";
 import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
+import { StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
@@ -138,6 +139,8 @@ interface StageUser {
   userId: string;
   username: string;
   avatar: string;
+  /** Where they stood with the channel when they asked (the request line). */
+  standing?: StageStanding | null;
 }
 
 /** 720p either way round — the same pixels, turned to match the shape. */
@@ -257,6 +260,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND);
   // Comments on screen: the channel's saved choices until changed here.
   const [featureSecondsPick, setFeatureSecondsPick] = useState<number | null>(null);
+  /** Who can ask to join, as just picked here; the account's setting until then. */
+  const [stageLinePick, setStageLinePick] = useState<StageLineRule | null>(null);
   const [giftsFromPick, setGiftsFromPick] = useState<number | null>(null);
   /** Lines moderators suggested for the screen, waiting on me. */
   const [featureQueue, setFeatureQueue] = useState<SuggestedLine[]>([]);
@@ -323,6 +328,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const gainsRef = useRef<Record<string, number>>({});
   const gainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const featureSeconds = featureSecondsPick ?? user?.settings?.featureSeconds ?? 20;
+  const stageLine = stageLinePick ?? readStageLine({ who: user?.settings?.stageRequests, accountDays: user?.settings?.stageAccountDays });
   const giftsFrom = giftsFromPick ?? user?.settings?.featureGiftsFromMinor ?? 0;
   const rejoinRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; attempt: number } | null>(null);
   /** The live session's facts, for room events and timers that outlive a render. */
@@ -843,6 +849,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             userId: data.userId,
             username: data.username ?? "viewer",
             avatar: data.avatar ?? "",
+            standing: readStanding((data as { standing?: unknown }).standing),
           };
           setStageRequests((prev) =>
             prev.some((r) => r.userId === row.userId) ? prev : [...prev, row]
@@ -983,6 +990,40 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       setStageBusyId(null);
     }
   };
+
+  /** Who can ask to join: saved to the channel, and the room hears it at once. */
+  const saveStageLine = (next: StageLineRule) => {
+    const before = stageLine;
+    setStageLinePick(next);
+    setStageError(null);
+    apiFetch("/api/user/me", {
+      method: "PATCH",
+      body: JSON.stringify({ settings: { stageRequests: next.who, stageAccountDays: next.accountDays } }),
+    }).catch(() => {
+      setStageLinePick(before);
+      setStageError("Couldn't change who can ask — try again.");
+    });
+  };
+
+  // Who's asking and who's on, as the stream has it — a reload or a resume
+  // keeps the line and the stage list, not only what arrives after.
+  useEffect(() => {
+    if (!streamId || !isLive) return;
+    let alive = true;
+    type Row = { userId: string; username: string; avatar: string; standing?: unknown };
+    apiFetch<{ success: boolean; data: { live: Row[]; requests: Row[] } }>(`/api/streams/${streamId}/guests`)
+      .then((r) => {
+        if (!alive) return;
+        const row = (g: Row): StageUser => ({ userId: g.userId, username: g.username, avatar: g.avatar, standing: readStanding(g.standing) });
+        const merge = (prev: StageUser[], rows: Row[]) => [...prev, ...rows.filter((g) => !prev.some((p) => p.userId === g.userId)).map(row)];
+        setStageRequests((prev) => merge(prev, r.data.requests));
+        setLiveGuests((prev) => merge(prev, r.data.live));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [streamId, isLive]);
 
   // ---- Co-live actions ----
 
@@ -2716,6 +2757,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </div>
       )}
 
+      <StageLineControl line={stageLine} onChange={saveStageLine} />
+
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h3 className={SETUP_LABEL}>Asking to join</h3>
@@ -2728,7 +2771,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             {stageRequests.map((r) => (
               <div key={r.userId} className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.045] px-3 py-2.5">
                 <UserAvatar src={r.avatar} name={r.username} size={32} className="size-8" />
-                <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">{r.username}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground/90">{r.username}</p>
+                  <StandingLine standing={r.standing} />
+                </div>
                 <button onClick={() => approveGuest(r.userId)} disabled={stageBusyId !== null || liveGuests.length >= MAX_STAGE_GUESTS} title={liveGuests.length >= MAX_STAGE_GUESTS ? "The stage is full" : "Bring them on"} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[12.5px] font-semibold text-neutral-950 transition-colors hover:bg-neutral-100 disabled:opacity-50">
                   {stageBusyId === r.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Approve
@@ -3059,6 +3105,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       setError("Couldn't save that setting — it's on for this stream only.")
     );
   };
+
 
   // What's waiting when the room opens (a resume, a reload); the chat
   // follows the queue from there.
