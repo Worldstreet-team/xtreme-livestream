@@ -23,7 +23,7 @@ export function scoreVelocity(now: number, then: number) {
 }
 
 export async function sampleAndScoreVelocity(at = new Date()) {
-  const live = await Stream.find({ isLive: true })
+  const live = await Stream.find({ isLive: true, practice: { $ne: true } })
     .select("_id viewers")
     .lean();
   if (live.length === 0) return 0;

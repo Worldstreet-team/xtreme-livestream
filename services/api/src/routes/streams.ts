@@ -7,15 +7,16 @@ import {
   streamIdParamsSchema,
   updateStreamBodySchema,
 } from "@xtreme/contracts";
-import { authenticate } from "../auth.js";
+import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { ensureUserIngress,
   createToken, sendRoomData, setRoomScene } from "../livekit.js";
 import { Stream, User, type IStream } from "../models.js";
+import { startPractice } from "../practice.js";
 import { relayLiveEvent } from "../socials-relay.js";
 import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
-import { requireChannelRole } from "../safety/roles.js";
+import { atLeast, requireChannelRole, roleIn } from "../safety/roles.js";
 import {
   notifyFollowersOfLive,
   notifyRemindersOfLive,
@@ -27,6 +28,7 @@ import {
   thumbnailUrlFor,
 } from "../stream-service.js";
 import { cardMoment, recordMoment } from "../analytics.js";
+import { putScene } from "../scene-put.js";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -57,8 +59,10 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         page,
       } = request.query;
       const skip = (page - 1) * limit;
-      // What a platform admin took down after a report stays out of every list.
-      const filter: Record<string, unknown> = { takenDownAt: null };
+      // What a platform admin took down after a report stays out of every
+      // list — and so does a practice run, which is live but private
+      // ($ne, so streams from before the field existed still list).
+      const filter: Record<string, unknown> = { takenDownAt: null, practice: { $ne: true } };
 
       if (live !== undefined) filter.isLive = live === "true";
       if (status) {
@@ -186,7 +190,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         coverId: unknown;
         coverVersion: number;
       }>([
-        { $match: { isLive: true } },
+        { $match: { isLive: true, practice: { $ne: true } } },
         { $sort: { viewers: -1 } },
         {
           $group: {
@@ -276,8 +280,11 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       const { scheduledStreamId, scene, ...body } = request.body;
+      // A practice run (practice.ts): decided here and never changed.
+      const practice = body.practice === true;
       const fields = {
         ...body,
+        practice,
         // A fresh program every broadcast — a reused booking must not
         // inherit last time's card.
         scene: {
@@ -313,10 +320,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Starting a scheduled stream keeps its document: the upcoming card,
       // its URL and the reminders people set on it all become this live
-      // broadcast instead of pointing at an orphan.
+      // broadcast instead of pointing at an orphan. A practice run never
+      // starts a booking, though: the rehearsal is its own private
+      // document, and the scheduled card stays up for the real broadcast.
       let stream: IStream;
       let fromSchedule = false;
-      if (scheduledStreamId) {
+      if (scheduledStreamId && !practice) {
         const scheduled = await Stream.findOne({
           _id: scheduledStreamId,
           streamerId: dbUser._id,
@@ -342,22 +351,29 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         stream = await Stream.create({ streamerId: dbUser._id, ...fields });
       }
 
-      dbUser.isLive = true;
-      await dbUser.save();
+      if (practice) {
+        // A rehearsal: the live ring stays off, nobody is told, nothing is
+        // posted — whatever the body said about followers or WorldSpace —
+        // and the simulated audience files in.
+        startPractice(stream);
+      } else {
+        dbUser.isLive = true;
+        await dbUser.save();
 
-      // Only when the broadcaster asked for it — see postToWorldSpace.
-      if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
+        // Only when the broadcaster asked for it — see postToWorldSpace.
+        if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
 
-      // In-app bell for our own users; the socials relay handles that
-      // platform's feed separately.
-      if (stream.notifyFollowers !== false) {
-        void notifyFollowersOfLive(stream, dbUser);
+        // In-app bell for our own users; the socials relay handles that
+        // platform's feed separately.
+        if (stream.notifyFollowers !== false) {
+          void notifyFollowersOfLive(stream, dbUser);
+        }
+        if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
       }
-      if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
 
       return {
         success: true,
-        message: "Stream started",
+        message: practice ? "Practice run started" : "Stream started",
         data: {
           stream: {
             id: stream._id,
@@ -366,6 +382,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             source: stream.source,
             livekitRoomName: roomName,
             startedAt: stream.startedAt,
+            practice,
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
@@ -416,6 +433,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             livekitRoomName: stream.livekitRoomName,
             source: stream.source ?? "camera",
             feedDroppedAt: stream.feedDroppedAt ?? null,
+            // So a reloaded studio knows it's back in a rehearsal.
+            practice: stream.practice === true,
           },
           graceMs: config.OBS_RECONNECT_GRACE_MS,
         },
@@ -472,6 +491,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             startedAt: stream.startedAt,
             source: stream.source ?? "camera",
             feedDroppedAt: stream.feedDroppedAt ?? null,
+            practice: stream.practice === true,
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
@@ -516,36 +536,10 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream.isLive) {
         throw new ApiError(409, "Go live first", "NOT_LIVE");
       }
-      const now = new Date();
-      // A sponsor card is drawn from our records, never from what was sent —
-      // and it's always the host's sponsor, whoever is producing.
-      const layers = await resolveSceneLayers(request.body.layers, stream.streamerId, stream, now);
-      const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
-      const cardBefore = stream.scene?.card ?? null;
-      const scene = {
-        layout: request.body.layout,
-        card: request.body.card,
-        cardNote: request.body.cardNote,
-        chart: request.body.chart,
-        layers,
-        gains: request.body.gains,
-        spotlight: request.body.spotlight,
-        interpreter: request.body.interpreter,
-        // Not the host's to set here: the feature routes own it (featured.ts).
-        featured: stream.scene?.featured ?? null,
-        version: (stream.scene?.version ?? 0) + 1,
-      };
-      stream.scene = scene;
-      await stream.save();
-      await setRoomScene(stream.livekitRoomName, scene);
-      void sendRoomData(stream.livekitRoomName, { __evt: "scene", scene });
-      // A card going up is a moment in the recap (analytics.ts).
-      if (scene.card && scene.card !== cardBefore) void recordMoment(stream._id, "card", cardMoment(scene.card), now);
-      // The sponsor's on-screen time: what campaigns pay on, and what
-      // sponsored quests count against.
-      await trackSponsorExposure(stream, sponsorBefore, sponsorLayerOf(layers), now).catch((e) =>
-        request.log.error({ err: e }, "sponsor exposure tracking failed"),
-      );
+      // Written only if nobody changed the scene in between (scene-put.ts):
+      // a show rule's banner can't be lost under a host's tap that read the
+      // scene a moment earlier. The featured line stays the feature routes'.
+      const scene = await putScene(stream._id, request.body);
       return { success: true, data: { scene } };
     },
   );
@@ -567,6 +561,18 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (stream.takenDownAt) {
         throw new ApiError(410, "This stream was removed for breaking the community rules", "TAKEN_DOWN");
+      }
+
+      // A practice run is the host's and their producers' alone. Everyone
+      // else — signed out, a stranger, a moderator, a bad token — gets the
+      // 404 a stream that doesn't exist would, so the id never confirms a
+      // rehearsal is on.
+      if (stream.practice) {
+        const viewer = getOptionalAuthUserId(request) ? await authenticate(request).catch(() => null) : null;
+        const streamer = viewer ? await User.findById(stream.streamerId).select("safety").lean() : null;
+        if (!viewer || !streamer || !atLeast(roleIn(streamer, viewer.dbUser._id), "producer")) {
+          throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+        }
       }
 
       // The list route and the token route both reconcile; this one didn't,

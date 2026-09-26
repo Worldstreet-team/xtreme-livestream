@@ -50,7 +50,8 @@ function hasInvite(fromStreamId: string, toStreamId: string) {
 
 /** The caller's own currently-live stream, or the reason they can't play. */
 async function requireLiveHost(dbUserId: Types.ObjectId) {
-  const stream = await Stream.findOne({ streamerId: dbUserId, isLive: true });
+  // A practice run can't co-live: nobody's meant to find it.
+  const stream = await Stream.findOne({ streamerId: dbUserId, isLive: true, practice: { $ne: true } });
   if (!stream || !(await reconcileStream(stream))) {
     throw new ApiError(
       400,
@@ -84,7 +85,8 @@ export const coLiveRoutes: FastifyPluginAsync = async (fastify) => {
       const myStream = await requireLiveHost(dbUser._id);
 
       const target = await Stream.findById(request.params.id);
-      if (!target || !(await reconcileStream(target))) {
+      // A practice run is nobody's to invite — it reads as not live.
+      if (!target || target.practice || !(await reconcileStream(target))) {
         throw new ApiError(400, "That stream is not live", "TARGET_NOT_LIVE");
       }
       if (target.streamerId.equals(dbUser._id)) {

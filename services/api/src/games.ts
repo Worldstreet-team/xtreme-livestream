@@ -312,7 +312,7 @@ export function startGameSweep() {
  */
 export function startDropSweep() {
   const tick = async () => {
-    const live = await Stream.find({ isLive: true }).select("_id livekitRoomName").lean();
+    const live = await Stream.find({ isLive: true, practice: { $ne: true } }).select("_id livekitRoomName").lean();
     for (const s of live) {
       const eligible = await WatchSession.aggregate<{ _id: mongoose.Types.ObjectId }>([
         { $match: { streamId: s._id, leftAt: null, joinedAt: { $lte: new Date(Date.now() - DROP_MIN_WATCH_MS) } } },

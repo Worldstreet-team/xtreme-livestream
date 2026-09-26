@@ -20,7 +20,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const allStreams = await Stream.find({ streamerId: dbUser._id })
+      // Rehearsals aren't broadcasts: they stay out of the record.
+      const allStreams = await Stream.find({ streamerId: dbUser._id, practice: { $ne: true } })
         // Same reasoning as the list endpoint: the dashboard renders every
         // stream this creator has ever run, so inlining the blobs made the
         // payload scale with their history. Thumbnails come from the

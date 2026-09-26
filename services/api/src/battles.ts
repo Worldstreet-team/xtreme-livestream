@@ -338,7 +338,7 @@ export async function quickMatch(me: { _id: mongoose.Types.ObjectId }, myStream:
   for (let tries = 0; tries < 3; tries++) {
     const other = await BattleQueue.findOneAndDelete({ userId: { $ne: me._id }, at: { $gte: since }, ...sameMode }, { sort: { at: 1 } });
     if (!other) break;
-    const theirs = await Stream.findOne({ _id: other.streamId, isLive: true }).select("_id streamerId livekitRoomName");
+    const theirs = await Stream.findOne({ _id: other.streamId, isLive: true, practice: { $ne: true } }).select("_id streamerId livekitRoomName");
     if (!theirs || !(await streamIsFree(theirs._id as mongoose.Types.ObjectId))) continue;
     await BattleQueue.deleteOne({ userId: me._id });
     const battle = await Battle.create({
@@ -490,8 +490,8 @@ export function startBattleSweep() {
     for (const b of booked) {
       try {
         const [hs, cs] = await Promise.all([
-          Stream.findOne({ streamerId: b.hostId, isLive: true }).select("_id"),
-          Stream.findOne({ streamerId: b.challengerId, isLive: true }).select("_id"),
+          Stream.findOne({ streamerId: b.hostId, isLive: true, practice: { $ne: true } }).select("_id"),
+          Stream.findOne({ streamerId: b.challengerId, isLive: true, practice: { $ne: true } }).select("_id"),
         ]);
         // A booked 2v2 waits for both partners to be on stage, too.
         const pairsReady =

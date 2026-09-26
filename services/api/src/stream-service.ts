@@ -2,6 +2,7 @@ import type mongoose from "mongoose";
 import { isBroadcasterConnected, sendRoomData } from "./livekit.js";
 import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
+import { stopPractice } from "./practice.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
 import { closeStreamRuns } from "./sponsors.js";
 import { closeAllWatchSessions } from "./watch-sessions.js";
@@ -154,17 +155,25 @@ export async function markStreamEnded(stream: IStream) {
   stream.velocity = 0;
   stream.endedAt = endedAt;
   stream.duration = formatDuration(stream.startedAt);
+  // A practice run was never announced anywhere, so there's nothing to
+  // close out — and it never lit the host's live ring, so it must not
+  // clear one a real broadcast might have set. Its audience goes home.
+  const practice = stream.practice === true;
   // Flagged in the same save that ends the stream, so even a crash right
   // after leaves the sweep enough to re-relay "ended" to the socials feed.
-  if (socialsRelayEnabled() && stream.postToWorldSpace) {
+  if (socialsRelayEnabled() && stream.postToWorldSpace && !practice) {
     stream.socialsRelayPending = true;
   }
   await stream.save();
-  await User.updateOne({ _id: stream.streamerId }, { isLive: false });
-  // The ingress is the account's, not the stream's — it lives on, so the
-  // key in the encoder keeps working for the next broadcast.
-  // A stream that was never posted to WorldSpace has no post to close out.
-  if (stream.postToWorldSpace) void relayLiveEvent("ended", stream);
+  if (practice) {
+    stopPractice(stream._id);
+  } else {
+    await User.updateOne({ _id: stream.streamerId }, { isLive: false });
+    // The ingress is the account's, not the stream's — it lives on, so the
+    // key in the encoder keeps working for the next broadcast.
+    // A stream that was never posted to WorldSpace has no post to close out.
+    if (stream.postToWorldSpace) void relayLiveEvent("ended", stream);
+  }
   void closeAllWatchSessions(stream._id).catch((error) =>
     console.error("watch session close-all failed:", error),
   );

@@ -16,6 +16,7 @@ const STREAM_ID = "d".repeat(24);
 const id = (v: string) => ({ toString: () => v, equals: (o: unknown) => String(o) === v });
 
 const state = vi.hoisted(() => ({
+  moving: false,
   caller: "" as string,
   metadata: [] as Array<{ room: string; scene: unknown }>,
   events: [] as Array<Record<string, unknown>>,
@@ -57,8 +58,28 @@ vi.mock("../src/models.js", () => ({
   Stream: {
     findById: (lookup: unknown) => {
       const doc = String(lookup) === STREAM_ID ? streamDoc : null;
-      return Object.assign(Promise.resolve(doc), { select: async () => doc });
+      // Both `findById(id)` and `findById(id).select(...).lean()`.
+      const chain = Object.assign(Promise.resolve(doc), { lean: async () => doc });
+      return Object.assign(Promise.resolve(doc), { select: () => chain });
     },
+    // The guarded write (scene-put.ts): lands only on the version it read, then bumps it.
+    findOneAndUpdate: (filter: Record<string, unknown>, update: { $set: Record<string, unknown>; $inc: Record<string, number> }) => {
+      const run = async () => {
+        if (String(filter._id) !== STREAM_ID || !streamDoc.isLive) return null;
+        // Someone else's write landing first (a show rule's, say).
+        if (state.moving && streamDoc.scene) streamDoc.scene.version += 1;
+        const have = streamDoc.scene?.version ?? 0;
+        const want = (filter["scene.version"] as number | undefined) ?? (filter.$or ? 0 : undefined);
+        if (want !== have) return null;
+        const scene: Record<string, unknown> = { ...(streamDoc.scene ?? {}) };
+        for (const [k, v] of Object.entries(update.$set)) scene[k.replace(/^scene\./, "")] = v;
+        scene.version = have + (update.$inc["scene.version"] ?? 0);
+        streamDoc.scene = scene as typeof streamDoc.scene;
+        return { scene: streamDoc.scene, livekitRoomName: streamDoc.livekitRoomName };
+      };
+      return { lean: run };
+    },
+    updateOne: async () => ({ modifiedCount: 0 }),
   },
   // The channel, for the role check (the host, or a producer, sets the scene).
   User: { findById: () => ({ select: async () => ({ _id: HOST_ID, username: "host", safety: { mods: [] } }) }) },
@@ -149,6 +170,7 @@ describe("PUT /streams/:id/scene", () => {
       save: vi.fn(async () => {}),
     };
     state.caller = HOST_ID;
+    state.moving = false;
     state.metadata.length = 0;
     state.events.length = 0;
   });
@@ -162,8 +184,7 @@ describe("PUT /streams/:id/scene", () => {
     expect(response.statusCode).toBe(200);
     const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, interpreter: null, featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
-    expect(streamDoc.scene).toEqual(scene);
-    expect(streamDoc.save).toHaveBeenCalledTimes(1);
+    expect(streamDoc.scene).toMatchObject({ layout: "screen-face", version: 1 });
     expect(state.metadata).toEqual([{ room: "room-1", scene }]);
     expect(state.events).toEqual([{ __evt: "scene", scene }]);
   });
@@ -202,6 +223,16 @@ describe("PUT /streams/:id/scene", () => {
     expect(state.metadata).toEqual([]);
   });
 
+  it("won't land on a scene that moved under it", async () => {
+    // A show rule writes between the route's read and its guarded write, every time: three misses, then 409.
+    state.moving = true;
+    const response = await put({ layout: "solo" });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().code).toBe("SCENE_MOVED");
+    expect(streamDoc.scene?.version).toBe(3);
+    expect(state.metadata).toEqual([]);
+  });
+
   it("refuses a stream that isn't live", async () => {
     streamDoc.isLive = false;
 
@@ -214,6 +245,6 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "mosaic" });
 
     expect(response.statusCode).toBe(400);
-    expect(streamDoc.save).not.toHaveBeenCalled();
+    expect(state.metadata).toEqual([]);
   });
 });

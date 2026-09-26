@@ -66,13 +66,13 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const hostStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      const hostStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true, practice: { $ne: true } });
       if (!hostStream) throw new ApiError(400, "Go live before you challenge anyone", "NOT_LIVE");
 
       const challenger = await User.findOne({ username: request.body.challengerUsername.toLowerCase() }).select("_id username");
       if (!challenger) throw new ApiError(404, "No creator by that name", "USER_NOT_FOUND");
       if (challenger._id.equals(dbUser._id)) throw new ApiError(400, "You can't battle yourself", "SELF_BATTLE");
-      const challengerStream = await Stream.findOne({ streamerId: challenger._id, isLive: true });
+      const challengerStream = await Stream.findOne({ streamerId: challenger._id, isLive: true, practice: { $ne: true } });
       if (!challengerStream) throw new ApiError(400, "That creator isn't live right now", "CHALLENGER_OFFLINE");
 
       // One battle per stream at a time, on either side, in any open state.
@@ -114,7 +114,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const myStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      const myStream = await Stream.findOne({ streamerId: dbUser._id, isLive: true, practice: { $ne: true } });
       if (!myStream) throw new ApiError(400, "Go live before you look for a battle", "NOT_LIVE");
       const busy = await Battle.exists({
         status: { $in: ["invited", "live", "overtime"] },

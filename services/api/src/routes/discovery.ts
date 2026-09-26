@@ -128,7 +128,8 @@ export const discoveryRoutes: FastifyPluginAsync = async (fastify) => {
           .select("-thumbnail")
           .populate("streamerId", STREAMER_FIELDS)
           .lean(),
-        Stream.find({ streamerId: { $in: streamerIds }, isLive: true })
+        // A practice run is live but private — not a room to return to.
+        Stream.find({ streamerId: { $in: streamerIds }, isLive: true, practice: { $ne: true } })
           .select("-thumbnail")
           .populate("streamerId", STREAMER_FIELDS)
           .lean(),

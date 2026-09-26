@@ -35,6 +35,12 @@ const STREAMER_POPULATE = {
   path: "streamerId",
   select: "username displayName avatar isLive verified",
 } as const;
+/**
+ * Live, and for everyone: a practice run (practice.ts) is live but
+ * private, so no row may carry it. $ne, so streams from before the field
+ * existed still count as public.
+ */
+const PUBLIC_LIVE = { isLive: true, practice: { $ne: true } } as const;
 
 export type RowKind = "streams" | "upcoming" | "channels";
 
@@ -141,7 +147,7 @@ async function liveStreams(
   sort: Record<string, 1 | -1>,
   limit = ROW_LIMIT,
 ) {
-  const rows = await Stream.find({ isLive: true, ...filter })
+  const rows = await Stream.find({ ...PUBLIC_LIVE, ...filter })
     .sort(sort)
     .limit(limit)
     .select(CARD_SELECT)
@@ -266,7 +272,7 @@ export async function alsoWatchedLive(
  * traffic can be evaluated on its own.
  */
 export async function risingSample(limit = 8, exclude: unknown[] = []) {
-  const live = await Stream.find({ isLive: true }).select("viewers").lean();
+  const live = await Stream.find(PUBLIC_LIVE).select("viewers").lean();
   if (live.length < 4) return [] as RowItem[];
 
   const sorted = live.map((s) => s.viewers).sort((a, b) => a - b);
@@ -275,7 +281,7 @@ export async function risingSample(limit = 8, exclude: unknown[] = []) {
   const rows = await Stream.aggregate<{ _id: unknown }>([
     {
       $match: {
-        isLive: true,
+        ...PUBLIC_LIVE,
         viewers: { $lte: Math.max(cutoff, 1) },
         _id: { $nin: exclude.map((id) => new mongoose.Types.ObjectId(String(id))) },
       },

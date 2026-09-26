@@ -89,6 +89,9 @@ async function postLiveEvent(kind: LiveRelayKind, body: string) {
  */
 export async function relayLiveEvent(kind: LiveRelayKind, stream: IStream) {
   if (!socialsRelayEnabled()) return false;
+  // A practice run (practice.ts) is private: WorldSpace never hears of it,
+  // whatever the stream's cross-post flag says. Settled, nothing to do.
+  if (stream.practice) return true;
 
   try {
     const streamer = await User.findById(stream.streamerId)
@@ -211,6 +214,8 @@ export async function sweepPendingEndRelays() {
   const pending = await Stream.find({
     isLive: false,
     socialsRelayPending: true,
+    // Never flagged for a practice run; belt and braces all the same.
+    practice: { $ne: true },
     endedAt: { $gte: new Date(Date.now() - RELAY_SWEEP_MAX_AGE_MS) },
   })
     .sort({ endedAt: -1 })

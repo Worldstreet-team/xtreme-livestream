@@ -397,10 +397,13 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         .select("username displayName avatar bio followers isLive verified")
         .lean();
 
+      // A practice run is live but private: a channel rehearsing reads as
+      // off air here.
       const liveStreams = users.length
         ? await Stream.find({
             streamerId: { $in: users.map((user) => user._id) },
             isLive: true,
+            practice: { $ne: true },
           })
             .select("streamerId title category viewers")
             .lean()
@@ -633,7 +636,8 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
           .lean(),
         // The live stream is what makes a followed channel worth surfacing —
         // the row shows what they're streaming, not just that they're on.
-        Stream.find({ streamerId: { $in: channelIds }, isLive: true })
+        // A practice run is neither: private, so the channel reads as off air.
+        Stream.find({ streamerId: { $in: channelIds }, isLive: true, practice: { $ne: true } })
           .select("streamerId title category viewers startedAt thumbnailVersion")
           .lean(),
       ]);

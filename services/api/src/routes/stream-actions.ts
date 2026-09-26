@@ -26,7 +26,7 @@ import {
 } from "../models.js";
 import { checkMessage, HELD_REASON_LABELS, NEW_ACCOUNT_MS } from "../safety/filter.js";
 import { evasionOf, evasionReason } from "../safety/evasion.js";
-import { moderatorIdentities, roleIn } from "../safety/roles.js";
+import { atLeast, moderatorIdentities, roleIn } from "../safety/roles.js";
 import {
   markStreamEnded,
   parseImageDataUri,
@@ -115,15 +115,32 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
-      if (!(await reconcileStream(stream))) {
-        throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
-      }
 
       // The stream's owner gets a publisher token: this is how a broadcaster
       // whose page reloaded reclaims their own live stream instead of being
       // locked out of it while it stays live.
       const isOwner =
         viewer !== null && stream.streamerId.equals(viewer.dbUser._id);
+
+      // A practice run's room is private: the host (their monitor included)
+      // and their producers, nobody else — not a moderator, not a preview,
+      // not a guest. Checked before the liveness reconcile, so a stranger's
+      // probe never so much as asks LiveKit about the room.
+      if (stream.practice && !isOwner) {
+        const streamer = viewer ? await User.findById(stream.streamerId).select("safety").lean() : null;
+        if (!viewer || !streamer || !atLeast(roleIn(streamer, viewer.dbUser._id), "producer")) {
+          throw new ApiError(
+            403,
+            "This is a practice run — only the host and their producers can join",
+            "PRACTICE_PRIVATE",
+          );
+        }
+      }
+
+      if (!(await reconcileStream(stream))) {
+        throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
+      }
+
       const monitoring = isOwner && request.query.monitor === "1";
       const token = await createToken(
         stream.livekitRoomName,
