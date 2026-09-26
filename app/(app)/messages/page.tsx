@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChatCircle } from "@phosphor-icons/react";
-import type { ConversationRow, UserEvent } from "@worldstreet/messaging-sdk";
+import { type ConversationRow, type UserEvent, viaLabel } from "@worldstreet/messaging-sdk";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -33,8 +33,11 @@ function rowPreview(row: ConversationRow) {
       return "Video";
     case "audio":
       return "Voice note";
-    case "call":
-      return "Call";
+    case "call": {
+      // The outcome, and where the call came from when it was not here.
+      const via = viaLabel((last as { source?: Parameters<typeof viaLabel>[0] }).source, "xstream");
+      return `${last.content || "Call"}${via ? ` ${via}` : ""}`;
+    }
     case "payment":
       return "Payment";
     case "system":
@@ -163,6 +166,13 @@ function ThreadList({ rows }: { rows: ConversationRow[] }) {
                   >
                     {rowTitle(row)}
                   </p>
+                  {/* A thread opened from another platform wears its name
+                      (WorldSpace shows "Xstream" on the mirror row). */}
+                  {viaLabel(row.source, "xstream") && (
+                    <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-px text-[0.65rem] text-muted-foreground">
+                      {viaLabel(row.source, "xstream")?.replace(/^via /, "")}
+                    </span>
+                  )}
                   <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
                     {shortTime(row.lastMessageAt)}
                   </span>

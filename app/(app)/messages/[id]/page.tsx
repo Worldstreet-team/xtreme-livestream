@@ -212,9 +212,16 @@ export default function ThreadPage({ params }: { params: Promise<{ id: string }>
         {messages.map((m) => {
           const mine = meId !== null && senderId(m) === meId;
           if (m.type === "system" || m.type === "call") {
+            // A call row keeps its outcome ("Missed voice call") and, when
+            // the call was placed from another platform, says so the same
+            // way a message does (owner 2026-09-26).
+            const via = m.type === "call" ? viaLabel(m.source, "xstream") : null;
             return (
               <p key={m._id} className="py-1 text-center text-[0.7rem] text-muted-foreground">
-                {m.type === "call" ? "Call" : m.systemEvent?.kind.replace(/^platform:/, "") ?? "Update"}
+                {m.type === "call"
+                  ? m.content || "Call"
+                  : (m.systemEvent?.kind.replace(/^platform:/, "") ?? "Update")}
+                {via && <span className="opacity-70"> {via}</span>}
               </p>
             );
           }
