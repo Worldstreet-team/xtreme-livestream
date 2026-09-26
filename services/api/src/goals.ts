@@ -10,6 +10,7 @@ import {
 } from "@xtreme/contracts";
 import { sendRoomData } from "./livekit.js";
 import { GiftTransaction, Stream, type IStream } from "./models.js";
+import { fireRules } from "./rules.js";
 
 /**
  * Goals and the heat meter (Phase 2, goals and status).
@@ -137,10 +138,12 @@ export async function bumpGoal(
     const crossed = await Stream.findOneAndUpdate(
       { _id: streamId, "goal.id": goal.id, "goal.reachedAt": null },
       { $set: { "goal.reachedAt": new Date(now) }, $inc: { "goal.rev": 1 } },
-      { new: true, select: "goal livekitRoomName" },
+      { new: true, select: "goal livekitRoomName streamerId" },
     ).lean();
     if (crossed?.goal) {
       announce(crossed.livekitRoomName, crossed.goal, true);
+      // The host's show rules for a goal reached (rules.ts).
+      void fireRules(crossed, { kind: "goal_reached", goal: crossed.goal.title });
       return goalView(crossed.goal);
     }
   }

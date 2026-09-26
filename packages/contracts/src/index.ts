@@ -759,6 +759,91 @@ export interface RundownPosition {
   showStartedAt: string | null;
 }
 
+/**
+ * Show rules (Phase 3): "when X happens, do Y". The creator's rules run on
+ * the API as things happen on their stream — a gift, a new ally, a guest,
+ * a goal, a battle's result, a chat word — and change the scene the way a
+ * hand on the controls would. A sound goes to the host's studio, whose
+ * audio desk plays it. Each rule rests for its cooldown after it fires.
+ */
+export const RULE_TRIGGERS = ["gift", "ally", "guest_join", "goal_reached", "battle_won", "battle_lost", "chat_word"] as const;
+export type RuleTrigger = (typeof RULE_TRIGGERS)[number];
+/** The audio desk's pads (lib/audio-desk.ts PADS), which a rule can play. */
+export const RULE_SOUNDS = ["airhorn", "applause", "drumroll", "kaching", "badumtss", "whoosh", "levelup", "sadtrombone"] as const;
+export const MAX_RULES = 20;
+export const MAX_RULE_ACTIONS = 4;
+export const RULE_COOLDOWNS = [0, 10, 30, 60, 300] as const;
+/** A chat word can't fire more often than this — it's anyone's to type. */
+export const MIN_CHAT_RULE_COOLDOWN = 30;
+
+export const ruleWhenSchema = z.discriminatedUnion("kind", [
+  /** A gift worth at least this much, in USD cents. */
+  z.object({ kind: z.literal("gift"), minMinor: z.number().int().min(100).max(1_000_000) }),
+  z.object({ kind: z.literal("ally") }),
+  z.object({ kind: z.literal("guest_join") }),
+  z.object({ kind: z.literal("goal_reached") }),
+  z.object({ kind: z.literal("battle_won") }),
+  z.object({ kind: z.literal("battle_lost") }),
+  /** A chat line that starts with this word ("!discord", "gm"), any case. */
+  z.object({
+    kind: z.literal("chat_word"),
+    word: z
+      .string()
+      .trim()
+      .min(2)
+      .max(24)
+      .regex(/^!?[\p{L}\p{N}_-]+$/u, "One word — letters and numbers, with a ! in front if you like"),
+  }),
+]);
+export type RuleWhen = z.infer<typeof ruleWhenSchema>;
+
+/** What a rule does. Words can carry {user}, {amount}, {gift}, {goal} and {opponent}, filled in as it fires. */
+export const ruleActionSchema = z.discriminatedUnion("do", [
+  z.object({ do: z.literal("layout"), layout: z.enum(SCENE_LAYOUTS) }),
+  /** A card, or none; up for `seconds` and then taken down, or until someone does. */
+  z.object({ do: z.literal("card"), card: z.enum(SCENE_CARDS).nullable(), seconds: z.number().int().min(5).max(600).nullable().default(null) }),
+  z.object({
+    do: z.literal("lower_third"),
+    title: z.string().trim().min(1).max(48),
+    subtitle: z.string().trim().max(72).default(""),
+    seconds: z.number().int().min(3).max(300).nullable().default(8),
+  }),
+  z.object({ do: z.literal("banner"), text: z.string().trim().min(1).max(100), seconds: z.number().int().min(3).max(600).nullable().default(15) }),
+  z.object({ do: z.literal("hide"), graphic: z.enum(["lower-third", "banner", "countdown"]) }),
+  z.object({ do: z.literal("countdown"), minutes: z.number().int().min(1).max(120), label: z.string().trim().max(40).default("") }),
+  z.object({ do: z.literal("sound"), pad: z.enum(RULE_SOUNDS) }),
+]);
+export type RuleAction = z.infer<typeof ruleActionSchema>;
+
+export const showRuleBodySchema = z
+  .object({
+    name: z.string().trim().max(40).default(""),
+    on: z.boolean().default(true),
+    when: ruleWhenSchema,
+    then: z.array(ruleActionSchema).min(1).max(MAX_RULE_ACTIONS),
+    cooldownSec: z.union([z.literal(0), z.literal(10), z.literal(30), z.literal(60), z.literal(300)]).default(10),
+  })
+  .refine((r) => r.when.kind !== "chat_word" || r.cooldownSec >= MIN_CHAT_RULE_COOLDOWN, {
+    message: `A chat word needs a cooldown of ${MIN_CHAT_RULE_COOLDOWN} seconds or more — anyone can type it`,
+    path: ["cooldownSec"],
+  });
+export type ShowRuleBody = z.input<typeof showRuleBodySchema>;
+/** A rule with every field filled in — what an editor holds, and a body the API takes as it is. */
+export type ShowRuleDraft = z.output<typeof showRuleBodySchema>;
+export const ruleIdParamsSchema = z.object({ ruleId: objectIdSchema });
+
+export interface ShowRuleView {
+  id: string;
+  name: string;
+  on: boolean;
+  when: RuleWhen;
+  then: RuleAction[];
+  cooldownSec: number;
+  /** How often it has fired, and when it last did. */
+  fires: number;
+  firedAt: string | null;
+}
+
 /** Which of the account's encoder ingresses: RTMP (any encoder) or WHIP (OBS 30+). */
 export const INGRESS_PROTOCOLS = ["rtmp", "whip"] as const;
 export const streamKeyQuerySchema = z.object({ protocol: z.enum(INGRESS_PROTOCOLS).default("rtmp") });

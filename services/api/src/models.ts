@@ -1714,3 +1714,38 @@ const rundownSchema = new Schema<IRundown>(
 );
 
 export const Rundown = mongoose.model<IRundown>("Rundown", rundownSchema);
+
+/**
+ * A show rule (Phase 3): when something happens on the creator's stream,
+ * what the scene does (rules.ts). `when` and `then` are validated on the
+ * way in (showRuleBodySchema); `firedAt` is claimed atomically, so a rule
+ * rests for its cooldown however many API instances see the event.
+ */
+export interface IShowRule extends Document {
+  ownerId: mongoose.Types.ObjectId;
+  name: string;
+  on: boolean;
+  when: Record<string, unknown> & { kind: string };
+  then: Array<Record<string, unknown> & { do: string }>;
+  cooldownSec: number;
+  fires: number;
+  firedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const showRuleSchema = new Schema<IShowRule>(
+  {
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    name: { type: String, default: "", maxlength: 40 },
+    on: { type: Boolean, default: true },
+    when: { type: Schema.Types.Mixed, required: true },
+    then: { type: Schema.Types.Mixed, default: () => [] },
+    cooldownSec: { type: Number, default: 10 },
+    fires: { type: Number, default: 0 },
+    firedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+
+export const ShowRule = mongoose.model<IShowRule>("ShowRule", showRuleSchema);

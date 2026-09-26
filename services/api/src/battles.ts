@@ -14,6 +14,7 @@ import {
 import { sendRoomData } from "./livekit.js";
 import { audit, payBattleBonus } from "./rewards.js";
 import { relayBattleResult } from "./socials-relay.js";
+import { fireRules } from "./rules.js";
 
 /**
  * Live battles: two creators, one clock, the audience decides with gifts.
@@ -425,6 +426,12 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
         (id): id is mongoose.Types.ObjectId => Boolean(id),
       );
       await Promise.all(everyone.map((id) => notify(id, "battle_result", actor, hostStream as Pick<IStream, "_id" | "title">)));
+      // Each side's show rules for winning or losing (rules.ts) — a tie fires neither.
+      if (battle.winnerId) {
+        const hostWon = battle.winnerId.equals(battle.hostId);
+        void fireRules({ _id: battle.hostStreamId, streamerId: battle.hostId }, { kind: hostWon ? "battle_won" : "battle_lost", opponent: challenger.displayName || challenger.username });
+        void fireRules({ _id: battle.challengerStreamId, streamerId: battle.challengerId }, { kind: hostWon ? "battle_lost" : "battle_won", opponent: host.displayName || host.username });
+      }
     }
   }
   return battle;

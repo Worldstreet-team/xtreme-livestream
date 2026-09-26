@@ -15,6 +15,7 @@ import { ensureUserIngress, rotateUserIngress, sendRoomData } from "../livekit.j
 import { Follow, Stream, User, type IUser } from "../models.js";
 import { bumpGoal } from "../goals.js";
 import { parseImageDataUri, thumbnailUrlFor } from "../stream-service.js";
+import { fireRules } from "../rules.js";
 
 /**
  * The brand kit as clients see it: the logo as a versioned URL (never its
@@ -543,8 +544,11 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       // Allied while they're live: an allies goal counts it, once per person.
       // Nothing here — the lookup included — may fail the follow.
       await (async () => {
-        const live = await Stream.findOne({ streamerId: target._id, isLive: true }).select("_id").lean();
-        if (live) await bumpGoal(live._id, "allies", 1, { userId: dbUser._id });
+        const live = await Stream.findOne({ streamerId: target._id, isLive: true }).select("_id streamerId livekitRoomName").lean();
+        if (!live) return;
+        await bumpGoal(live._id, "allies", 1, { userId: dbUser._id });
+        // …and the host's show rules for a new ally.
+        void fireRules(live, { kind: "ally", user: dbUser.username });
       })().catch((err) => request.log.error({ err }, "moving the goal failed"));
 
       return {

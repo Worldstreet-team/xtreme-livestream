@@ -69,7 +69,7 @@ import { GoalPanel } from "@/components/app/goal-panel";
 import { RequestsPanel } from "@/components/app/requests-panel";
 import { ObsConnect } from "@/components/app/obs-connect";
 import { AudioDeskPanel, type DeskMoments } from "@/components/app/audio-desk-panel";
-import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings } from "@/lib/audio-desk";
+import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings, type PadId } from "@/lib/audio-desk";
 import { useRequestQueue } from "@/lib/requests";
 import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
@@ -779,15 +779,24 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           state?: string;
           graceMs?: number;
         };
-        // A platform admin took the stream down after a report; the room
-        // closes next, and the host is told why.
-        // A battle won: the airhorn, once, if the desk is on and it's wanted.
         // A producer moved the show on from their console: the prompter follows.
         if (data.__evt === "rundown") {
           const next = readPosition((data as { position?: unknown }).position);
           if (next) rundownTakeRef.current(next);
           return;
         }
+        // A show rule fired a sound (rules.ts on the API): the audio desk
+        // plays it into the broadcast — only while the desk is on.
+        if (data.__evt === "rule_fire") {
+          const sounds = (data as { sounds?: unknown }).sounds;
+          if (deskOnRef.current && Array.isArray(sounds)) {
+            for (const pad of sounds) {
+              if (PADS.some((p) => p.id === pad)) void deskRef.current?.playPad(pad as PadId);
+            }
+          }
+          return;
+        }
+        // A battle won: the airhorn, once, if the desk is on and it's wanted.
         if (data.__evt === "battle") {
           const b = (data as { battle?: BattleView }).battle;
           if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
@@ -796,6 +805,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           }
           return;
         }
+        // A platform admin took the stream down after a report; the room
+        // closes next, and the host is told why.
         if (data.__evt === "takedown") {
           takenDownRef.current = true;
           return;
@@ -3235,6 +3246,21 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       />
 
       <GoalPanel streamId={isLive ? streamId : null} goal={goal} onGoal={(g) => setGoal((cur) => newerGoal(cur, g))} />
+
+      {/* Show rules run by themselves (Settings → Show rules); here's the way there. */}
+      <Link
+        href="/settings#rules"
+        className="press flex items-center gap-3 rounded-[12px] bg-white/[0.04] px-3.5 py-3 transition-colors hover:bg-white/[0.07]"
+      >
+        <Lightning size={16} weight="fill" className="shrink-0 text-ember-hi" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold">Show rules</span>
+          <span className="block text-[12px] leading-snug text-muted-foreground">
+            A thank-you for big gifts, a sound for a battle won — they run by themselves.{deskOn ? "" : " Sounds need the audio desk on."}
+          </span>
+        </span>
+        <CaretRight size={14} className="shrink-0 text-muted-foreground" />
+      </Link>
 
       <SceneGraphicsPanel
         layers={scene.layers}

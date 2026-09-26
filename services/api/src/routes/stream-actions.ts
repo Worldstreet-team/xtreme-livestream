@@ -33,6 +33,7 @@ import {
 } from "../stream-service.js";
 import { bumpGoal } from "../goals.js";
 import { fanStatus, fanStatuses } from "../fans.js";
+import { fireRules } from "../rules.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -632,6 +633,10 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // The author's fan level and watch-time badge ride along. Never fails the line.
       const fan = await fanStatus(stream.streamerId, dbUser._id).catch(() => null);
       void sendRoomData(stream.livekitRoomName, chatPayload(message, fan));
+      // A chat word the host made a rule for ("!discord") — never the host's own line.
+      if (body.type === "text" && role !== "host") {
+        void fireRules(stream, { kind: "chat_word", text: body.content, user: dbUser.username });
+      }
 
       return { success: true, data: { message, fan } };
     },

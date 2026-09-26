@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select-field";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { ShowRules } from "@/components/app/show-rules";
 import { ChatSafety } from "@/components/app/settings/chat-safety";
 import { BrandKit, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { SceneRenderer } from "@/components/app/scene-renderer";
@@ -20,18 +21,20 @@ import { DEFAULT_BRAND, DEFAULT_SCENE, readBrand, type Brand, type Scene } from 
 
 /**
  * Settings, in the same grammar as Schedule and Your channel (owner,
- * 2026-09-24: "can we do for the settings and the studio same way"). Five
- * sections on one page, reached from a sticky index that follows the
+ * 2026-09-24: "can we do for the settings and the studio same way").
+ * Sections on one page, reached from a sticky index that follows the
  * scroll: who you are (with a live preview of how people see you), your
- * encoder key, your chat rules, what your feed leads with, and your
- * account. Switches save the moment they flip; the profile saves as one
- * edit, with a bar that only appears when there's something to save.
+ * encoder key, your brand, your show rules, your chat rules, what your
+ * feed leads with, and your account. Switches save the moment they flip;
+ * the profile saves as one edit, with a bar that only appears when there's
+ * something to save.
  */
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "streaming", label: "Streaming" },
   { id: "brand", label: "Brand" },
+  { id: "rules", label: "Show rules" },
   { id: "chat", label: "Chat" },
   { id: "feed", label: "Your feed" },
   { id: "account", label: "Account" },
@@ -120,6 +123,7 @@ export default function SettingsPage() {
         <ProfileSection />
         <StreamingSection />
         <BrandSection />
+        <RulesSection />
         <ChatSection />
         <FeedSection />
         <AccountSection />
@@ -654,6 +658,21 @@ function BrandSection() {
           </p>
         </div>
       </div>
+    </section>
+  );
+}
+
+/* ── Show rules ──────────────────────────────────────────────────────── */
+
+function RulesSection() {
+  return (
+    <section id="rules" aria-labelledby="rules-title" className="scroll-mt-32">
+      <SectionHead
+        id="rules"
+        title="Show rules"
+        lede="When something happens on your stream, the picture answers by itself — a thank-you for a big gift, a welcome for new allies, a sound when you win a battle."
+      />
+      <ShowRules />
     </section>
   );
 }

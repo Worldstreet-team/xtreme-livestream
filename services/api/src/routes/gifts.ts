@@ -23,6 +23,7 @@ import {
   isWalletConfigured,
   refundWalletCharge,
 } from "../wallet.js";
+import { fireRules } from "../rules.js";
 
 // Candidate for @xtreme/contracts once the web client adopts gifting too.
 const sendGiftBodySchema = z.object({
@@ -215,6 +216,8 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         await autoFeatureGift(stream._id, streamer, message, grossUsdMinor).catch((err) =>
           request.log.error({ err }, "auto-featuring the gift failed"),
         );
+        // The host's show rules for a gift this size (rules.ts) — never fails the gift either.
+        void fireRules(stream, { kind: "gift", minor: grossUsdMinor, user: sender.dbUser.username, gift: giftName || "gift" });
 
         return { success: true, message: "Gift sent", data: { gift, chatMessage: message } };
       } catch (error) {

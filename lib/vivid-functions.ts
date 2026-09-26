@@ -514,6 +514,81 @@ export const playSound = define({
   executionContext: "client",
 })
 
+const RULE_TRIGGER_WORDS = ["gift", "ally", "guest_join", "goal_reached", "battle_won", "battle_lost", "chat_word"] as const
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)))
+
+/**
+ * Show rules by voice (Phase 3): "when someone gifts twenty dollars or
+ * more, thank them on screen and play the ka-ching". Saved to the user's
+ * channel like one made in Settings → Show rules; the API runs it.
+ */
+export const createShowRule = define({
+  name: "createShowRule",
+  description:
+    "Create a show rule for the user's channel: when something happens on their live stream, the picture answers by itself. " +
+    "trigger: gift (at least minDollars), ally (someone allies with them), guest_join, goal_reached, battle_won, battle_lost, or chat_word (a chat line starting with `word`, like !discord). " +
+    "Give it at least one thing to do: lowerThird (a title, with an optional subtitle), banner (text), sound (a pad) or card. " +
+    "Text can carry {user}, {amount}, {gift}, {goal} or {opponent}, filled in when it fires. Say back what you set up; they can change it in Settings → Show rules.",
+  parameters: buildParameters({
+    trigger: enumParam("What sets it off.", RULE_TRIGGER_WORDS, true),
+    minDollars: numberParam("For a gift: the smallest gift it answers, in dollars (1 or more)."),
+    word: stringParam("For a chat word: the word, like !discord."),
+    lowerThird: stringParam("Put up a lower third with this title, 48 characters at most."),
+    subtitle: stringParam("The line under the lower third."),
+    banner: stringParam("Put up a banner with this text, 100 characters at most."),
+    sound: enumParam("Play this sound pad (their audio desk has to be on).", PAD_IDS),
+    card: enumParam("Put up this full-screen card.", ["starting-soon", "brb", "ending"]),
+    seconds: numberParam("How long the lower third, banner or card stays up. Leave it out for the usual (8 s, 15 s, until taken down)."),
+    name: stringParam("A short name for the rule."),
+  }),
+  handler: async (args: {
+    trigger?: string
+    minDollars?: number
+    word?: string
+    lowerThird?: string
+    subtitle?: string
+    banner?: string
+    sound?: string
+    card?: string
+    seconds?: number
+    name?: string
+  }) => {
+    const trigger = RULE_TRIGGER_WORDS.find((t) => t === args.trigger)
+    if (!trigger) return { error: "What should set it off?", triggers: RULE_TRIGGER_WORDS }
+    const word = (args.word ?? "").replace(/\s+/g, "")
+    if (trigger === "chat_word" && word.length < 2) return { error: "Which chat word should it answer?" }
+    const when =
+      trigger === "gift"
+        ? { kind: trigger, minMinor: clamp((args.minDollars ?? 1) * 100, 100, 1_000_000) }
+        : trigger === "chat_word"
+          ? { kind: trigger, word: word.slice(0, 24) }
+          : { kind: trigger }
+    const then: Record<string, unknown>[] = []
+    if (args.lowerThird?.trim()) {
+      then.push({ do: "lower_third", title: args.lowerThird.trim().slice(0, 48), subtitle: (args.subtitle ?? "").trim().slice(0, 72), seconds: clamp(args.seconds ?? 8, 3, 300) })
+    }
+    if (args.banner?.trim()) then.push({ do: "banner", text: args.banner.trim().slice(0, 100), seconds: clamp(args.seconds ?? 15, 3, 600) })
+    if (args.sound && PAD_IDS.some((p) => p === args.sound)) then.push({ do: "sound", pad: args.sound })
+    if (args.card && ["starting-soon", "brb", "ending"].includes(args.card)) {
+      then.push({ do: "card", card: args.card, seconds: args.seconds ? clamp(args.seconds, 5, 600) : null })
+    }
+    if (then.length === 0) return { error: "What should happen — a lower third, a banner, a sound or a card?" }
+    // Chat words rest 30 s (anyone can type them); gifts 10 s; the rest as they come.
+    const cooldownSec = trigger === "chat_word" || trigger === "ally" ? 30 : trigger === "gift" || trigger === "guest_join" ? 10 : 0
+    try {
+      await apiFetch("/api/users/me/rules", {
+        method: "POST",
+        body: JSON.stringify({ name: (args.name ?? "").trim().slice(0, 40), on: true, when, then: then.slice(0, 4), cooldownSec }),
+      })
+      return { success: true, trigger, steps: then.map((t) => t.do), where: "Settings → Show rules" }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return { error: "The user needs to sign in first." }
+      return errorOf(err, "Couldn't save that rule")
+    }
+  },
+  executionContext: "client",
+})
+
 // ── Server tool stubs (real bodies in lib/vivid-functions.server.ts) ────────
 
 export const listLiveStreams = serverStub(
@@ -604,6 +679,7 @@ export const xtremeFunctions: VoiceFunctionConfig[] = [
   startPrediction,
   roomControl,
   playSound,
+  createShowRule,
   listLiveStreams,
   findChannel,
   followChannel,
