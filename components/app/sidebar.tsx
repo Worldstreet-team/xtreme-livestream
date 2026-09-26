@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
-import { useUnreadThreads } from "@/lib/messaging";
+import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-badge";
 import { useEffect, useRef, useState } from "react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
@@ -273,8 +273,9 @@ export function Sidebar({
 
   const narrow = collapsed;
   // Threads with something new from someone else — one shared poll with
-  // the phone drawer's copy (lib/messaging.ts).
-  const unreadThreads = useUnreadThreads(Boolean(user));
+  // the phone drawer's copy (lib/messaging.ts). It pops in, rolls, and the
+  // icon shakes once when another conversation becomes unread.
+  const { shown: unreadThreads, iconRef: unreadIcon, badgeRef: unreadBadge } = useUnreadBadge(Boolean(user));
 
   // Schedule lives inside Your channel now, so it lights that row.
   const isActive = (href: string) =>
@@ -284,7 +285,9 @@ export function Sidebar({
     const active = isActive(item.href);
     // Chili is for counts that need you now (design system); the Ember dot
     // still marks the page you're on.
-    const count = item.href === "/messages" ? unreadThreads : 0;
+    const messages = item.href === "/messages";
+    const count = messages ? unreadThreads : 0;
+    const glyph = <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />;
     return (
       <Link
         key={item.href}
@@ -301,19 +304,27 @@ export function Sidebar({
         )}
       >
         <span className="relative shrink-0">
-          <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />
+          {messages ? (
+            <span ref={unreadIcon} className="block">
+              {glyph}
+            </span>
+          ) : (
+            glyph
+          )}
           {count > 0 && narrow && (
             // On the icon rail the count shrinks to a dot on the glyph's corner.
-            <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-chili ring-2 ring-background">
+            <span ref={unreadBadge} className="absolute -top-1 -right-1 size-2.5 rounded-full bg-chili ring-2 ring-background">
               <span className="sr-only">{count} unread</span>
             </span>
           )}
         </span>
         {!narrow && <span className="text-[16px] tracking-[-0.005em]">{item.label}</span>}
         {count > 0 && !narrow && (
-          <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums">
-            {count > 99 ? "99+" : count}
-            <span className="sr-only"> unread</span>
+          <span
+            ref={unreadBadge}
+            className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums"
+          >
+            <UnreadNumber count={count} />
           </span>
         )}
         {active && !narrow && (

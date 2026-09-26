@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ConversationRow } from "@worldstreet/messaging-sdk";
@@ -33,6 +33,9 @@ import {
 } from "@/lib/messaging";
 import { useMessages } from "./messages-context";
 import { NewMessageDialog } from "./new-message";
+import { EASE, done, play, settle } from "./motion";
+import { beginPush } from "./push";
+import { Roll } from "./roll";
 
 /**
  * The inbox: every WorldSpace thread you're in, wherever it was opened —
@@ -42,6 +45,11 @@ import { NewMessageDialog } from "./new-message";
  * around right now, then the threads. Requests and group invites wait on
  * their own shelf, silent until you answer; archived threads sit at the
  * foot, out of the way but never gone.
+ *
+ * When someone writes, their row makes its way up (the owner's pick,
+ * reorder B): the preview rolls to the new words first, then the row
+ * glides to the top while the rows above slide down, and its count pops
+ * as it arrives.
  */
 
 type Filter = "all" | "unread" | "requests" | "archived";
@@ -77,6 +85,52 @@ export function InboxPane() {
     (r.lastMessage ? describeMessage(r.lastMessage).toLowerCase().includes(q) : false);
   const shelf = filter === "requests" ? requests : filter === "unread" ? unread : filter === "archived" ? archived : inbox;
   const shown = shelf.filter(matches);
+
+  // Rows keep their place while the order changes, then glide to the new one.
+  const listRef = useRef<HTMLUListElement>(null);
+  const tops = useRef(new Map<string, number>());
+  const order = shown.map((r) => r._id).join(" ");
+  const view = `${filter}|${q}`;
+  const lastView = useRef(view);
+  useLayoutEffect(() => {
+    const ul = listRef.current;
+    const was = tops.current;
+    const sameShelf = lastView.current === view;
+    lastView.current = view;
+    const items = ul ? [...ul.querySelectorAll<HTMLElement>(":scope > li[data-row]")] : [];
+    tops.current = new Map(items.map((li) => [li.dataset.row!, li.offsetTop]));
+    if (!sameShelf || !was.size) return;
+    for (const li of items) {
+      const before = was.get(li.dataset.row!);
+      if (before === undefined) continue;
+      const dy = before - li.offsetTop;
+      if (Math.abs(dy) < 0.5) continue;
+      // A beat for the preview to roll, then the glide; the row going up passes over the rest.
+      settle(li);
+      const move = play(li, [{ transform: `translateY(${dy}px)` }, { transform: "none" }], 440, EASE.glide, 260);
+      if (dy < 0) {
+        // Rows React moved to make room were re-inserted, which restarts CSS
+        // entrances inside them: they only changed place.
+        li.getAnimations({ subtree: true }).forEach((a) => a instanceof CSSAnimation && a.cancel());
+      } else {
+        const card = li.firstElementChild as HTMLElement | null;
+        li.style.position = "relative";
+        li.style.zIndex = "1";
+        if (card) card.style.backgroundColor = "var(--background)";
+        void done(move).then(() => {
+          li.style.position = "";
+          li.style.zIndex = "";
+          if (card) card.style.backgroundColor = "";
+        });
+        // Its count, if it just appeared, pops as the row arrives rather than before it leaves.
+        const count = li.querySelector<HTMLElement>("[data-unread-count]");
+        if (count?.getAnimations().some((a) => a.playState === "running")) {
+          settle(count);
+          play(count, POP, 340, EASE.spring, 560);
+        }
+      }
+    }
+  }, [order, view]);
 
   const summary = !rows
     ? "Loading your threads"
@@ -276,9 +330,9 @@ export function InboxPane() {
         )}
 
         {shown.length > 0 && (
-          <ul className="space-y-0.5">
+          <ul ref={listRef} className="space-y-0.5">
             {shown.map((row, i) => (
-              <li key={row._id} style={{ "--i": i } as React.CSSProperties} className="msg-rise">
+              <li key={row._id} data-row={row._id} style={{ "--i": i } as React.CSSProperties} className="msg-rise">
                 <InboxRow
                   row={row}
                   meId={meId}
@@ -356,9 +410,12 @@ function InboxRow({
   const who =
     row.kind === "group" && !mine && last?.type !== "system" && sender && typeof sender !== "string" ? `${personName(sender).split(" ")[0]}: ` : "";
   const preview = row.isInvite ? requestLine(row) : last ? describeMessage(last, meId) : "Say hello";
+  // The line as one value, so a new message rolls the whole of it at once.
+  const line = JSON.stringify([mine ? "You: " : who, last && !row.isInvite ? last.type : "", preview]);
 
   return (
     <div
+      data-hero-row={row._id}
       className={cn(
         "group relative flex items-center gap-3.5 rounded-panel px-3 py-3 transition-colors",
         active ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
@@ -370,6 +427,11 @@ function InboxRow({
       <Link
         href={threadHref(row._id)}
         aria-current={active ? "page" : undefined}
+        onClick={(e) => {
+          // On a phone the thread pushes in over the inbox, this row's face leading.
+          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || active) return;
+          beginPush(row._id, e.currentTarget.closest("aside"), e.currentTarget.closest("[data-hero-row]"));
+        }}
         className="absolute inset-0 rounded-panel outline-none focus-visible:ring-2 focus-visible:ring-ember"
       >
         <span className="sr-only">
@@ -379,36 +441,33 @@ function InboxRow({
       </Link>
 
       <span className="relative shrink-0">
-        <UserAvatar src={threadAvatar(row)} name={title} size={52} className="size-[52px]" ring={row.call ? "live" : "none"} />
+        <span data-hero-avatar className="block">
+          <UserAvatar src={threadAvatar(row)} name={title} size={52} className="size-[52px]" ring={row.call ? "live" : "none"} />
+        </span>
         {online && <span aria-hidden className="absolute right-0 bottom-0 size-3.5 rounded-full bg-success ring-[3px] ring-background" />}
       </span>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <p className={cn("min-w-0 flex-1 truncate text-[15.5px]", unread ? "font-semibold text-foreground" : "font-medium text-foreground/90")}>
-            {title}
+          <p className="min-w-0 flex-1 truncate">
+            <span data-hero-name className={cn("text-[15.5px]", unread ? "font-semibold text-foreground" : "font-medium text-foreground/90")}>
+              {title}
+            </span>
           </p>
           {muted && <BellSlash size={13} className="shrink-0 text-muted-foreground" aria-label="Muted" />}
           <span className={cn("shrink-0 text-[12px] tabular-nums", unread ? "font-semibold text-chili-hi" : "text-muted-foreground")}>
-            {shortTime(row.lastMessageAt ?? last?.createdAt)}
+            <Roll value={shortTime(row.lastMessageAt ?? last?.createdAt)} />
           </span>
         </div>
         <div className="mt-0.5 flex items-center gap-2">
           {row.call ? (
             <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-chili-hi">Call in progress · tap to join</p>
           ) : (
-            <p className={cn("min-w-0 flex-1 truncate text-[13.5px]", unread ? "text-foreground" : "text-muted-foreground")}>
-              {mine && <span className="text-muted-foreground">You: </span>}
-              {who && <span className="text-muted-foreground">{who}</span>}
-              {last && !row.isInvite && <PreviewGlyph type={last.type} />}
-              {preview}
-            </p>
+            <div className={cn("flex min-w-0 flex-1 text-[13.5px]", unread ? "text-foreground" : "text-muted-foreground")}>
+              <Roll value={line} render={previewLine} className="w-full" />
+            </div>
           )}
-          {unread && (
-            <span className="msg-pop flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums">
-              {row.unreadCount > 99 ? "99+" : row.unreadCount}
-            </span>
-          )}
+          {unread && <UnreadPill count={row.unreadCount} />}
         </div>
         {row.context && !onAccept && (
           <span className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full bg-control px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -429,6 +488,37 @@ function InboxRow({
         )}
       </div>
     </div>
+  );
+}
+
+const POP: Keyframe[] = [{ transform: "scale(0)" }, { transform: "scale(1.15)", offset: 0.6 }, { transform: "scale(1)" }];
+
+/** A row's unread count: it pops in when it appears, then rolls as it changes. */
+function UnreadPill({ count }: { count: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    play(ref.current, POP, 340, EASE.spring);
+  }, []);
+  return (
+    <span
+      ref={ref}
+      data-unread-count
+      className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-chili px-1.5 text-[11px] font-bold text-white tabular-nums"
+    >
+      <Roll value={count > 99 ? "99+" : String(count)} />
+    </span>
+  );
+}
+
+/** A row's preview line: who said it, what kind of thing, and the words. */
+function previewLine(value: string) {
+  const [prefix, type, text] = JSON.parse(value) as [string, string, string];
+  return (
+    <span className="block truncate">
+      {prefix && <span className="text-muted-foreground">{prefix}</span>}
+      {type && <PreviewGlyph type={type} />}
+      {text}
+    </span>
   );
 }
 

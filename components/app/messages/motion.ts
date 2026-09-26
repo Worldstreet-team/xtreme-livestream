@@ -140,6 +140,8 @@ export function ghost(el: HTMLElement, box: { left: number; top: number; width: 
   g.setAttribute("aria-hidden", "true");
   g.inert = true;
   document.body.appendChild(g);
+  // New to the page, a copy would replay its entrances; it travels as it looked.
+  g.getAnimations({ subtree: true }).forEach((a) => a.cancel());
   return g;
 }
 

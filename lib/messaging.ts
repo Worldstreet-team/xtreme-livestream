@@ -150,8 +150,16 @@ export function useMessagingEvents(handler: (event: UserEvent) => void) {
  * rather than each running its own.
  */
 const UNREAD_POLL_MS = 30_000;
+/** The count, and whether it has loaded at least once (so the first load
+ *  can paint without the motion a live change gets). */
+export interface UnreadState {
+  count: number;
+  settled: boolean;
+}
+const NO_UNREAD: UnreadState = { count: 0, settled: false };
 const unread = {
   count: 0,
+  state: NO_UNREAD,
   listeners: new Set<() => void>(),
   timer: null as ReturnType<typeof setInterval> | null,
   stop: null as (() => void) | null,
@@ -160,8 +168,9 @@ const unread = {
 async function refreshUnread() {
   try {
     const res = await messaging.conversations.unread();
-    if (res.threads !== unread.count) {
+    if (res.threads !== unread.count || !unread.state.settled) {
       unread.count = res.threads;
+      unread.state = { count: res.threads, settled: true };
       unread.listeners.forEach((l) => l());
     }
   } catch {
@@ -212,6 +221,16 @@ export function useUnreadThreads(enabled: boolean): number {
     () => 0,
   );
   return enabled ? count : 0;
+}
+
+/** The count with whether it has loaded yet, or nothing while signed out. */
+export function useUnreadState(enabled: boolean): UnreadState {
+  const state = useSyncExternalStore(
+    enabled ? subscribeUnread : subscribeNothing,
+    () => unread.state,
+    () => NO_UNREAD,
+  );
+  return enabled ? state : NO_UNREAD;
 }
 
 /** Let the inbox or a thread nudge the badge after reading or deleting. */

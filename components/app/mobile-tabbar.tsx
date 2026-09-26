@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { HouseLine, Compass, PlayCircle, Broadcast, ChatCircleDots } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
+import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-badge";
 
 /**
  * The phone's primary navigation: five tabs, Go live in the middle
@@ -22,6 +23,9 @@ import { cn } from "@/lib/utils";
  * sits over the content rather than pushing it up. Glyphs are Phosphor
  * regular, 22px, and fill only when their tab is the page you're on — which
  * also wears a small Ember dot under its label (owner's pick, 2026-09-23).
+ * Messages carries the unread count: it pops in, then rolls, and the icon
+ * shakes once when another conversation becomes unread (owner's pick,
+ * 2026-09-26).
  */
 
 const TABS = [
@@ -35,6 +39,7 @@ const TABS = [
 export function MobileTabBar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const unread = useUnreadBadge(Boolean(user));
 
   // No bar on the watch page or the feed — the picture owns the screen.
   if (pathname.startsWith("/stream/") || pathname === "/feed") return null;
@@ -74,7 +79,23 @@ export function MobileTabBar() {
               active ? "text-foreground" : "text-muted-foreground",
             )}
           >
-            <t.icon size={23} weight={active ? "fill" : "regular"} aria-hidden />
+            {t.href === "/messages" ? (
+              <span className="relative">
+                <span ref={unread.iconRef} className="block">
+                  <t.icon size={23} weight={active ? "fill" : "regular"} aria-hidden />
+                </span>
+                {unread.shown > 0 && (
+                  <span
+                    ref={unread.badgeRef}
+                    className="absolute -top-1.5 left-[13px] flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-chili px-1 text-[10px] leading-none font-bold text-white tabular-nums ring-2 ring-background"
+                  >
+                    <UnreadNumber count={unread.shown} />
+                  </span>
+                )}
+              </span>
+            ) : (
+              <t.icon size={23} weight={active ? "fill" : "regular"} aria-hidden />
+            )}
             {t.label}
             {active && (
               <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-ember motion-safe:animate-[xt-pop_.35s_var(--ease-spring)_both]" />

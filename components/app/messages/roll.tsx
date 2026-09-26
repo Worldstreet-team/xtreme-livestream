@@ -37,7 +37,8 @@ export function Roll<T extends string | number>({
           {render(roll.prev)}
         </span>
       )}
-      <span key={`in-${roll.n}`} className={roll.n ? "msg-roll-in" : undefined}>
+      {/* Only while it rolls: a row moved in the list must not roll again. */}
+      <span key={`in-${roll.n}`} className={roll.prev !== null ? "msg-roll-in" : undefined}>
         {render(value)}
       </span>
     </span>

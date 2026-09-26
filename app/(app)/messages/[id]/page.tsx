@@ -51,6 +51,7 @@ import {
   type Launch,
 } from "@/components/app/messages/thread-motion";
 import { handOff, reducedMotion, receive, settle } from "@/components/app/messages/motion";
+import { beginBack } from "@/components/app/messages/push";
 
 /**
  * One thread — the conversation, and everything WorldSpace threads can do.
@@ -213,6 +214,7 @@ function Thread({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<ReturnType<MessagingRealtime["thread"]> | null>(null);
@@ -1054,7 +1056,7 @@ function Thread({ id }: { id: string }) {
       : (lastSeenLabel(other?.lastSeenAt) ?? (other ? `@${other.username}` : ""));
 
   return (
-    <div className="relative flex h-dvh min-h-0 md:h-[calc(100dvh-4rem)]">
+    <div ref={rootRef} className="relative flex h-dvh min-h-0 md:h-[calc(100dvh-4rem)]">
       <div className="relative flex min-w-0 flex-1 flex-col">
         {flash && (
           <div
@@ -1077,7 +1079,11 @@ function Thread({ id }: { id: string }) {
           inCall={callHere ? { startedAt: call.startedAt } : null}
           groupCall={groupCall}
           detailsOpen={detailsOpen}
-          onBack={() => router.push("/messages")}
+          onBack={() => {
+            // One pane at a time, the thread slides back off to the right.
+            beginBack(rootRef.current);
+            router.push("/messages");
+          }}
           onVoiceCall={() => startCall(false)}
           onVideoCall={() => startCall(true)}
           onJoinCall={() => row?.call && call.joinCall({ conversationId: id, peer, isVideo: row.call.video })}

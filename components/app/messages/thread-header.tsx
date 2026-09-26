@@ -73,13 +73,17 @@ export function ThreadHeader({
           aria-label={`${title} — conversation details`}
         >
           <span className="relative shrink-0">
-            <UserAvatar src={avatar} name={title} size={40} className="size-10" />
+            <span data-hero-avatar className="block">
+              <UserAvatar src={avatar} name={title} size={40} className="size-10" />
+            </span>
             {online && (
               <span aria-hidden className="absolute right-0 bottom-0 size-3 rounded-full bg-success ring-[2.5px] ring-background" />
             )}
           </span>
           <span className="min-w-0 leading-tight">
-            <span className="block truncate text-[15.5px] font-semibold text-foreground">{title}</span>
+            <span data-hero-name className="block truncate text-[15.5px] font-semibold text-foreground">
+              {title}
+            </span>
             {/* "Active now" rolls to "typing" and back. */}
             <span aria-live="polite" className="flex text-[12.5px]">
               <Roll value={`${statusTone}|${status}`} render={statusLine} />
