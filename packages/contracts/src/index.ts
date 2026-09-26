@@ -845,6 +845,33 @@ export interface ShowRuleView {
 }
 
 /**
+ * The control API (Phase 3): keys a creator makes for a Stream Deck,
+ * Companion or a script, each allowed some of: changing the scene and its
+ * graphics, playing sounds, running the show, firing rules. Keys are shown
+ * once and kept only as a hash.
+ */
+export const CONTROL_SCOPES = ["scene", "sound", "show", "rules"] as const;
+export type ControlScope = (typeof CONTROL_SCOPES)[number];
+export const MAX_CONTROL_KEYS = 10;
+export const controlKeyBodySchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  scopes: z.array(z.enum(CONTROL_SCOPES)).min(1).max(CONTROL_SCOPES.length),
+});
+export const controlKeyIdParamsSchema = z.object({ keyId: objectIdSchema });
+export interface ControlKeyView {
+  id: string;
+  name: string;
+  scopes: ControlScope[];
+  /** The start of the key, to tell keys apart — never the key. */
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+/** Do these, now, on the live stream — the show rules' actions. */
+export const controlDoBodySchema = z.object({ actions: z.array(ruleActionSchema).min(1).max(MAX_RULE_ACTIONS) });
+export const controlShowBodySchema = z.object({ step: z.enum(["start", "next", "stop"]) });
+
+/**
  * Live analytics (Phase 3): a broadcast minute by minute — viewers, chat
  * and gifts — with what happened when, where people left, and what the
  * chat asked. Read live by the studio, and afterwards as the recap.

@@ -105,23 +105,37 @@ export const rundownRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       const { streamer } = await requireChannelRole(stream, dbUser._id, "producer");
       if (!stream.isLive) throw new ApiError(409, "Go live first", "NOT_LIVE");
-      const { segmentId } = request.body;
-      const now = new Date();
-      // The show's clock starts with its first segment and runs until it's stopped.
-      const position: StoredPosition = segmentId
-        ? { segmentId, startedAt: now, showStartedAt: stream.rundown?.showStartedAt ?? now }
-        : { segmentId: null, startedAt: null, showStartedAt: null };
-      await Stream.updateOne({ _id: stream._id, isLive: true }, { $set: { rundown: position } });
-      // The recap marks where each segment started (analytics.ts).
-      if (segmentId) {
-        const rundown = await Rundown.findOne({ ownerId: stream.streamerId }).select("segments").lean();
-        const title = (rundown?.segments as Array<{ id?: string; title?: string }> | undefined)?.find((s) => s.id === segmentId)?.title;
-        if (title) void recordMoment(stream._id, "segment", title, now);
-      }
-      // The host's studio and every producer's console move on together —
-      // the host's prompter follows a producer's Next.
-      void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { __evt: "rundown", position: positionView(position) }).catch(() => {});
-      return { success: true, data: { position: positionView(position) } };
+      const position = await moveShow(stream, streamer, request.body.segmentId);
+      return { success: true, data: { position } };
     },
   );
 };
+
+/**
+ * Put a segment on air (null stops the show): the position the live stream
+ * keeps, the recap's moment, and the room event the host's studio and every
+ * console follow. Cues are the caller's to apply — the studio and consoles
+ * through the scene route, the control API through the rules engine.
+ */
+export async function moveShow(
+  stream: Pick<IStream, "_id" | "streamerId" | "livekitRoomName"> & { rundown?: IStream["rundown"] },
+  streamer: Parameters<typeof moderatorIdentities>[0],
+  segmentId: string | null,
+  now = new Date(),
+) {
+  // The show's clock starts with its first segment and runs until it's stopped.
+  const position: StoredPosition = segmentId
+    ? { segmentId, startedAt: now, showStartedAt: stream.rundown?.showStartedAt ?? now }
+    : { segmentId: null, startedAt: null, showStartedAt: null };
+  await Stream.updateOne({ _id: stream._id, isLive: true }, { $set: { rundown: position } });
+  // The recap marks where each segment started (analytics.ts).
+  if (segmentId) {
+    const rundown = await Rundown.findOne({ ownerId: stream.streamerId }).select("segments").lean();
+    const title = (rundown?.segments as Array<{ id?: string; title?: string }> | undefined)?.find((s) => s.id === segmentId)?.title;
+    if (title) void recordMoment(stream._id, "segment", title, now);
+  }
+  // The host's studio and every producer's console move on together —
+  // the host's prompter follows a producer's Next.
+  void sendRoomDataTo(stream.livekitRoomName, moderatorIdentities(streamer), { __evt: "rundown", position: positionView(position) }).catch(() => {});
+  return positionView(position);
+}

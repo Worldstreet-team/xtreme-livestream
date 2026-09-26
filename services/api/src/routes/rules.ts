@@ -4,16 +4,13 @@ import { MAX_RULES, ruleIdParamsSchema, showRuleBodySchema, type RuleAction } fr
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { ShowRule, Stream } from "../models.js";
-import { forgetRules, ruleView, runActions } from "../rules.js";
+import { SAMPLE_WORDS, forgetRules, ruleView, runActions } from "../rules.js";
 
 /**
  * Show rules (Phase 3): the creator's "when X happens, do Y" list — theirs
  * to write, turn on and off, and try on their live stream. The engine that
  * fires them is rules.ts.
  */
-
-/** What "Try it" fills a rule's words with: the words a real event would bring. */
-const SAMPLE_VARS = { user: "a viewer", amount: "$20", gift: "Rose", goal: "the goal", opponent: "your opponent" };
 
 export const ruleRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -99,7 +96,7 @@ export const ruleRoutes: FastifyPluginAsync = async (fastify) => {
       if (!rule) throw new ApiError(404, "That rule isn't there any more", "RULE_NOT_FOUND");
       const stream = await Stream.findOne({ streamerId: dbUser._id, isLive: true }).select("_id streamerId livekitRoomName").lean();
       if (!stream) throw new ApiError(409, "Go live to try a rule — it changes what viewers see", "NOT_LIVE");
-      await runActions(stream, rule.then as RuleAction[], SAMPLE_VARS);
+      await runActions(stream, rule.then as RuleAction[], SAMPLE_WORDS);
       return { success: true, data: { tried: true } };
     },
   );

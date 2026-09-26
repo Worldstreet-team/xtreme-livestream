@@ -1763,3 +1763,32 @@ const showRuleSchema = new Schema<IShowRule>(
 );
 
 export const ShowRule = mongoose.model<IShowRule>("ShowRule", showRuleSchema);
+
+/**
+ * A control key (Phase 3, control API): what a Stream Deck or a script
+ * signs in with. Only the key's SHA-256 is kept; `prefix` tells keys apart.
+ */
+export interface IControlKey extends Document {
+  ownerId: mongoose.Types.ObjectId;
+  name: string;
+  hash: string;
+  prefix: string;
+  scopes: string[];
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const controlKeySchema = new Schema<IControlKey>(
+  {
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    name: { type: String, required: true, maxlength: 40 },
+    hash: { type: String, required: true, unique: true },
+    prefix: { type: String, required: true },
+    scopes: { type: [String], default: [] },
+    lastUsedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+
+export const ControlKey = mongoose.model<IControlKey>("ControlKey", controlKeySchema);

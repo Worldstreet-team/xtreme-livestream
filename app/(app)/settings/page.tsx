@@ -14,6 +14,7 @@ import { SelectField } from "@/components/ui/select-field";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { ShowRules } from "@/components/app/show-rules";
+import { ControlKeys } from "@/components/app/control-keys";
 import { ChatSafety } from "@/components/app/settings/chat-safety";
 import { BrandKit, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { SceneRenderer } from "@/components/app/scene-renderer";
@@ -24,10 +25,10 @@ import { DEFAULT_BRAND, DEFAULT_SCENE, readBrand, type Brand, type Scene } from 
  * 2026-09-24: "can we do for the settings and the studio same way").
  * Sections on one page, reached from a sticky index that follows the
  * scroll: who you are (with a live preview of how people see you), your
- * encoder key, your brand, your show rules, your chat rules, what your
- * feed leads with, and your account. Switches save the moment they flip;
- * the profile saves as one edit, with a bar that only appears when there's
- * something to save.
+ * encoder key, your brand, your show rules and Stream Deck keys, your chat
+ * rules, what your feed leads with, and your account. Switches save the
+ * moment they flip; the profile saves as one edit, with a bar that only
+ * appears when there's something to save.
  */
 
 const SECTIONS = [
@@ -35,6 +36,7 @@ const SECTIONS = [
   { id: "streaming", label: "Streaming" },
   { id: "brand", label: "Brand" },
   { id: "rules", label: "Show rules" },
+  { id: "control", label: "Stream Deck" },
   { id: "chat", label: "Chat" },
   { id: "feed", label: "Your feed" },
   { id: "account", label: "Account" },
@@ -124,6 +126,7 @@ export default function SettingsPage() {
         <StreamingSection />
         <BrandSection />
         <RulesSection />
+        <ControlSection />
         <ChatSection />
         <FeedSection />
         <AccountSection />
@@ -673,6 +676,21 @@ function RulesSection() {
         lede="When something happens on your stream, the picture answers by itself — a thank-you for a big gift, a welcome for new allies, a sound when you win a battle."
       />
       <ShowRules />
+    </section>
+  );
+}
+
+/* ── Stream Deck & automation ────────────────────────────────────────── */
+
+function ControlSection() {
+  return (
+    <section id="control" aria-labelledby="control-title" className="scroll-mt-32">
+      <SectionHead
+        id="control"
+        title="Stream Deck & automation"
+        lede="Put the studio's buttons on a Stream Deck, in Companion or in a script — scenes, graphics, sounds, the run of show and your rules — with keys you can remove any time."
+      />
+      <ControlKeys />
     </section>
   );
 }

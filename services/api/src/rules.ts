@@ -59,6 +59,9 @@ export function varsOf(event: ShowEvent): Record<string, string> {
   }
 }
 
+/** The words a rule is filled with when it's run by hand (Try, a Stream Deck button): what a real event would bring. */
+export const SAMPLE_WORDS = { user: "a viewer", amount: "$20", gift: "Rose", goal: "the goal", opponent: "your opponent" };
+
 /** "Thanks {user}!" → "Thanks ada!". A word the event doesn't have stays as written. */
 export function fill(template: string, vars: Record<string, string>) {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => vars[key] ?? whole).trim();
@@ -250,6 +253,48 @@ export async function runActions(
     const timer = setTimeout(() => void takeDown(stream._id, t).catch(() => {}), t.after);
     timer.unref?.();
   }
+}
+
+/**
+ * A run-of-show segment's cues as actions, for going to it without a studio
+ * (the control API). A sponsor cue is left out and named — a sponsor card
+ * goes up through the scene route, which keeps campaigns' on-screen time.
+ */
+export function cueActions(segment: { title: string; seconds: number; cues?: Array<Record<string, unknown> & { do: string }> }) {
+  const actions: RuleAction[] = [];
+  const skipped: string[] = [];
+  for (const cue of segment.cues ?? []) {
+    switch (cue.do) {
+      case "layout":
+        actions.push({ do: "layout", layout: cue.layout as Extract<RuleAction, { do: "layout" }>["layout"] });
+        break;
+      case "card":
+        actions.push({ do: "card", card: cue.card as Extract<RuleAction, { do: "card" }>["card"], seconds: null });
+        break;
+      case "clear-card":
+        actions.push({ do: "card", card: null, seconds: null });
+        break;
+      case "lower-third":
+        actions.push({ do: "lower_third", title: String(cue.title ?? ""), subtitle: String(cue.subtitle ?? ""), seconds: null });
+        break;
+      case "hide-lower-third":
+        actions.push({ do: "hide", graphic: "lower-third" });
+        break;
+      case "banner":
+        actions.push({ do: "banner", text: String(cue.text ?? ""), seconds: null });
+        break;
+      case "hide-banner":
+        actions.push({ do: "hide", graphic: "banner" });
+        break;
+      case "countdown":
+        // To the segment's planned end, to the second (minutes may be a fraction here).
+        actions.push({ do: "countdown", minutes: segment.seconds / 60, label: segment.title.slice(0, 40) });
+        break;
+      default:
+        skipped.push(cue.do);
+    }
+  }
+  return { actions, skipped };
 }
 
 export function ruleView(rule: Pick<IShowRule, "_id" | "name" | "on" | "when" | "then" | "cooldownSec" | "fires" | "firedAt">): ShowRuleView {
