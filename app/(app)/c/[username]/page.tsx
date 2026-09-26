@@ -3,44 +3,52 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Eye,
-  SealCheck,
-  Users,
-  VideoCamera,
   Broadcast,
   CalendarBlank,
-  Clock,
-  ChartBar,
+  Check,
+  Eye,
   House,
   Info,
+  SealCheck,
+  ShareNetwork,
+  Users,
+  VideoCamera,
 } from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
-import { UpcomingCard, RemindButton } from "@/components/app/upcoming-card";
+import { EventCard } from "@/components/app/event-card";
+import { RemindButton } from "@/components/app/upcoming-card";
 import { FollowButton } from "@/components/app/follow-button";
 import { StreamArt } from "@/components/app/stream-art";
 import { Empty } from "@/components/app/empty";
 import { PillTabs } from "@/components/ui/tabs";
+import { LiveBadge } from "@/components/ui/badge";
+import { Pill, PillLink, pillClass } from "@/components/ui/pill";
+import { Chip, ChipRow } from "@/components/xtream/chip";
 import { LivePreview } from "@/components/app/live-preview";
 import { Shelf, LiveDot } from "@/components/app/shelf";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
-import { formatStartsIn, formatUptime, toCard, type RowItem } from "@/lib/discovery";
+import { formatUptime, toCard, type RowItem } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 
 /**
- * A channel — the platform's unit of identity. A stream is something a
- * channel is doing right now and vanishes when it ends; everything durable
- * about a streamer lives here.
+ * A channel — the platform's unit of identity, and the public twin of
+ * Your channel (/dashboard): the same masthead, tiles and rows, turned to
+ * face a visitor. A stream is something a channel is doing right now;
+ * everything durable about a streamer lives here.
  *
- * Live: the broadcast is the hero, as a muted preview. Offline: the last
- * broadcast leads, dimmed and dated, beside the next scheduled one — so the
- * page is never a dead end, and a follow has something to wait for.
+ * Live, the broadcast is the hero. Off air, the last broadcast leads beside
+ * a solid Ember "Next up" — the booking with its countdown and a reminder,
+ * or when they usually go live — so the page is never a dead end, and a
+ * follow has something to wait for. The numbers sit in one line under the
+ * name; the big tiles are the About tab's.
  */
 
 type Tab = "home" | "videos" | "schedule" | "about";
+type Sort = "recent" | "top";
 
 interface ChannelUser {
   id: string;
@@ -55,7 +63,12 @@ interface ChannelUser {
   createdAt: string;
 }
 
+const TILE = "relative overflow-hidden rounded-panel bg-surface";
+const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const PARTS = ["Night", "Morning", "Afternoon", "Evening"];
+const PART_PHRASES = ["late at night", "in the morning", "in the afternoon", "in the evening"];
 
 function timeAgo(iso: string, now: number) {
   const diff = now - new Date(iso).getTime();
@@ -65,6 +78,26 @@ function timeAgo(iso: string, now: number) {
   const d = Math.floor(h / 24);
   if (d < 14) return `${d} day${d === 1 ? "" : "s"} ago`;
   return `${Math.floor(d / 7)} weeks ago`;
+}
+
+/** "2d 04h", "3h 12m", "12 min" — the dial on the Next up tile. */
+function countdown(iso: string, now: number) {
+  const ms = new Date(iso).getTime() - now;
+  if (ms <= 0) return "Now";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${String(h % 24).padStart(2, "0")}h`;
+  if (h >= 1) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${Math.max(1, m)} min`;
+}
+
+/** "1:29:00" reads as minutes to some eyes; say the units. */
+function spoken(duration: string | undefined) {
+  if (!duration) return "";
+  const parts = duration.split(":");
+  if (parts.length === 3) return `${Number(parts[0])}h ${parts[1]}m`;
+  if (parts.length === 2) return `${Number(parts[0])}m ${parts[1]}s`;
+  return duration;
 }
 
 export default function ChannelPage({
@@ -81,6 +114,8 @@ export default function ChannelPage({
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [tab, setTab] = useState<Tab>("home");
+  const [sort, setSort] = useState<Sort>("recent");
+  const [copied, setCopied] = useState(false);
   const now = useNow(true);
 
   const load = useCallback(async () => {
@@ -129,40 +164,46 @@ export default function ChannelPage({
     () => streams.filter((s) => !s.isLive && s.status !== "upcoming"),
     [streams]
   );
+  const videos = useMemo(
+    () => (sort === "top" ? [...past].sort((a, b) => b.peakViewers - a.peakViewers) : past),
+    [past, sort]
+  );
   const nextUp = upcoming[0];
   const lastBroadcast = past[0];
 
-  // "Usually streams" — which weekday hours their past broadcasts started
-  // in. A schedule you can read even when nothing is booked.
+  // When their past broadcasts started — weekday by part of the day. A
+  // schedule you can read even when nothing is booked.
   const heat = useMemo(() => {
     const grid = Array.from({ length: 7 }, () => Array<number>(4).fill(0));
     past.forEach((s) => {
       if (!s.startedAt) return;
       const d = new Date(s.startedAt);
-      const day = (d.getDay() + 6) % 7;
-      const block = Math.floor(d.getHours() / 6);
-      grid[day][block] += 1;
+      grid[(d.getDay() + 6) % 7]![Math.floor(d.getHours() / 6)]! += 1;
     });
-    const max = Math.max(1, ...grid.flat());
-    return { grid, max, total: past.length };
+    const days = grid.map((row) => row.reduce((a, b) => a + b, 0));
+    let best = { day: 0, part: 0, n: 0 };
+    grid.forEach((row, day) =>
+      row.forEach((n, part) => {
+        if (n > best.n) best = { day, part, n };
+      })
+    );
+    // A habit rather than a one-off: the slot has two of their broadcasts,
+    // or a third of them, out of at least three.
+    const usual =
+      past.length >= 3 && (best.n >= 2 || best.n / past.length >= 0.34)
+        ? { day: best.day, part: best.part, phrase: `${DAY_NAMES[best.day]}s ${PART_PHRASES[best.part]}` }
+        : null;
+    return { grid, days, max: Math.max(1, ...grid.flat()), total: past.length, usual };
   }, [past]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen p-4 md:p-6">
-        <div className="w-full">
-          <div className="aspect-[6/1] animate-pulse rounded-sm bg-white/[0.04]" />
-          <div className="mt-5 flex gap-4">
-            <div className="size-20 animate-pulse rounded-full bg-white/[0.04]" />
-            <div className="flex-1 space-y-3 pt-2">
-              <div className="h-5 w-56 animate-pulse rounded bg-white/[0.04]" />
-              <div className="h-3.5 w-80 animate-pulse rounded bg-white/[0.04]" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // What they stream about, most-streamed first.
+  const topics = useMemo(() => {
+    const counts = new Map<string, number>();
+    streams.forEach((s) => counts.set(s.category, (counts.get(s.category) ?? 0) + 1));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 5);
+  }, [streams]);
+
+  if (loading) return <ChannelSkeleton />;
 
   if (notFound || !channel) {
     return (
@@ -178,158 +219,103 @@ export default function ChannelPage({
 
   const name = channel.displayName || channel.username;
   const memberSince = new Date(channel.createdAt).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const peak = past.reduce((m, s) => Math.max(m, s.peakViewers), 0);
+  const peak = Math.max(liveStream?.peakViewers ?? 0, ...past.map((s) => s.peakViewers));
+  const broadcasts = past.length + (liveStream ? 1 : 0);
+  const watchHref = liveStream ? `/stream/${liveStream._id}` : null;
+  // Off air with something to show, the masthead is a tile pair; on a phone
+  // it follows the name rather than leading — who this is comes first.
+  const offAirMasthead = !liveStream && Boolean(lastBroadcast || nextUp || heat.usual);
+
+  /** The native share sheet where there is one; the clipboard, said out loud, where there isn't. */
+  const share = () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      navigator.share({ title: name, text: `${name} on Xtream`, url }).catch(() => {});
+      return;
+    }
+    void navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  };
 
   const TABS: [Tab, string, typeof House][] = [
     ["home", "Home", House],
-    ["videos", `Videos`, VideoCamera],
+    ["videos", "Videos", VideoCamera],
     ["schedule", "Schedule", CalendarBlank],
     ["about", "About", Info],
   ];
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
-      <div className="w-full">
-        {/* Hero */}
-        {liveStream ? (
-          <Link
-            href={`/stream/${liveStream._id}`}
-            className="group relative block aspect-[16/6] overflow-hidden rounded-sm bg-white/[0.03] md:aspect-[16/5]"
-          >
-            <LivePreview
-              streamId={liveStream._id}
-              fallbackSrc={liveStream.previewUrl ?? null}
-              className="absolute inset-0"
-              poster={
-                <StreamArt src={liveStream.thumbnailUrl} category={liveStream.category} alt={liveStream.title} seed={liveStream._id + liveStream.title} size={{ w: 1280, h: 720 }} />
-              }
-            />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/5" />
-            <div className="absolute top-3 left-3 flex items-center gap-2">
-              <span className="flex items-center gap-1.5 rounded bg-red-600 px-2 py-1 text-[0.65rem] font-semibold tracking-wide text-white">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-white" />
-                </span>
-                LIVE
-              </span>
-              <span className="rounded bg-black/70 px-2 py-1 text-[0.65rem] font-medium text-white/90 tabular-nums">
-                {formatUptime(liveStream.startedAt, now)}
-              </span>
-            </div>
-            <span className="absolute top-3 right-3 flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[0.65rem] font-medium text-white/90 tabular-nums">
-              <Eye size={12} />
-              {formatNumber(liveStream.viewers)}
-            </span>
-            <div className="absolute inset-x-0 bottom-0 p-4 md:p-5">
-              <h2 className="max-w-3xl truncate text-base font-semibold text-white md:text-lg">{liveStream.title}</h2>
-              <p className="mt-1 text-xs text-white/70 md:text-sm">{liveStream.category}</p>
-            </div>
-          </Link>
+    <div className="min-h-screen px-4 pt-4 pb-16 md:px-8 md:pt-6">
+      <div className="mx-auto flex max-w-[1280px] flex-col">
+        {/* ── Masthead ── */}
+        {liveStream && watchHref ? (
+          <LiveHero stream={liveStream} href={watchHref} now={now} />
         ) : (
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            {/* Last broadcast, dimmed and dated — the channel's most recent self. */}
-            <Link
-              href={lastBroadcast ? `/stream/${lastBroadcast._id}` : `/c/${channel.username}`}
-              className="group relative block aspect-[16/7] overflow-hidden rounded-sm bg-white/[0.03] md:aspect-auto md:min-h-[220px]"
-            >
-              <div className="absolute inset-0 opacity-60 grayscale-[30%] transition-opacity group-hover:opacity-75">
-                <StreamArt
-                  src={lastBroadcast?.thumbnailUrl ?? null}
-                  category={lastBroadcast?.category ?? ""}
-                  alt={lastBroadcast?.title ?? `${channel.displayName || channel.username}'s channel`}
-                  seed={channel.username + channel.id}
-                  size={{ w: 1280, h: 720 }}
+          offAirMasthead && (
+            <div className="order-2 mt-6 grid grid-cols-1 gap-3 md:order-1 md:mt-0 lg:grid-cols-12">
+              {lastBroadcast && <LastLive stream={lastBroadcast} now={now} fallbackAt={channel.createdAt} className={cn("hidden md:block", nextUp || heat.usual ? "lg:col-span-8" : "lg:col-span-12")} />}
+              {(nextUp || heat.usual) && (
+                <NextUpTile
+                  next={nextUp ?? null}
+                  more={Math.max(0, upcoming.length - 1)}
+                  usual={heat.usual}
+                  days={heat.days}
+                  now={now}
+                  onMore={() => setTab("schedule")}
+                  className={lastBroadcast ? "lg:col-span-4" : "lg:col-span-12"}
                 />
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-              <span className="absolute top-3 left-3 rounded bg-black/70 px-2 py-1 text-[0.65rem] font-medium text-white/85">
-                {lastBroadcast ? `Last live ${timeAgo(lastBroadcast.endedAt ?? lastBroadcast.startedAt ?? channel.createdAt, now)}` : "Offline"}
-              </span>
-              {lastBroadcast && (
-                <div className="absolute inset-x-0 bottom-0 p-4 md:p-5">
-                  <p className="text-[0.65rem] font-medium tracking-wider text-white/60 uppercase">Last broadcast</p>
-                  <h2 className="mt-0.5 max-w-2xl truncate text-base font-semibold text-white">{lastBroadcast.title}</h2>
-                  <p className="mt-1 text-xs text-white/70 tabular-nums">
-                    {lastBroadcast.duration} · peaked at {formatNumber(lastBroadcast.peakViewers)} viewers
-                  </p>
-                </div>
               )}
-            </Link>
-
-            {/* Next up — a reason to come back, with the one action that helps. */}
-            <div className="flex flex-col justify-between rounded-sm border border-white/[0.06] p-5">
-              <div>
-                <p className="flex items-center gap-1.5 text-[0.65rem] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                  <Clock size={12} weight="bold" />
-                  Next up
-                </p>
-                {nextUp ? (
-                  <>
-                    <h3 className="mt-2 line-clamp-2 text-base font-semibold text-foreground">{nextUp.title}</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {nextUp.category} · <span className="text-foreground/90">{formatStartsIn(nextUp.scheduledStartAt!, now)}</span>
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground/60">
-                      {new Date(nextUp.scheduledStartAt!).toLocaleString(undefined, { weekday: "long", hour: "2-digit", minute: "2-digit" })}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="mt-2 text-base font-semibold text-foreground">Nothing scheduled</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {heat.total > 0 ? "See when they usually stream in the schedule tab." : "Follow to hear the moment they go live."}
-                    </p>
-                  </>
-                )}
-              </div>
-              <div className="mt-4 flex items-center gap-2">
-                {nextUp && <RemindButton streamId={nextUp._id} initial={nextUp.reminded ?? false} size="default" />}
-                {!nextUp && <FollowButton username={channel.username} initialFollowing={isFollowing} />}
-              </div>
             </div>
-          </div>
+          )
         )}
 
-        {/* Identity bar */}
-        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start">
-          <span className="relative w-fit shrink-0">
-            <UserAvatar src={channel.avatar} name={name} size={80} className={cn("size-20 ring-4", liveStream ? "ring-red-600" : "ring-white/[0.08]")} />
-            {liveStream && (
-              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded bg-red-600 px-1.5 py-0.5 text-[0.6rem] font-semibold tracking-wide text-white">LIVE</span>
+        {/* ── Who this is ── */}
+        <header
+          className={cn(
+            "flex flex-col items-center gap-5 text-center md:flex-row md:items-start md:justify-between md:gap-8 md:text-left",
+            liveStream || offAirMasthead ? "mt-6 md:mt-8" : "mt-2 md:mt-4",
+            offAirMasthead ? "order-1 md:order-2" : "order-2"
+          )}
+        >
+          <div className="flex min-w-0 flex-col items-center gap-4 md:flex-row md:items-center md:gap-6">
+            {watchHref ? (
+              <Link href={watchHref} aria-label={`Watch ${name} live`} className="relative shrink-0">
+                <UserAvatar src={channel.avatar} name={name} size={96} className="size-[88px] md:size-24" ring="live" />
+                <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-[5px] bg-chili px-1.5 py-px text-[10px] font-bold tracking-[0.06em] text-white">
+                  LIVE
+                </span>
+              </Link>
+            ) : (
+              <UserAvatar src={channel.avatar} name={name} size={96} className="size-[88px] md:size-24" />
             )}
-          </span>
-
-          <div className="min-w-0 flex-1">
-            <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight text-foreground">
-              {name}
-              {channel.verified && <SealCheck size={17} weight="fill" className="shrink-0 text-sky-400" aria-label="Verified streamer" />}
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">@{channel.username}</p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Users size={13} />
-                <span className="font-medium text-foreground/90 tabular-nums">{formatNumber(channel.followers)}</span> followers
-              </span>
-              <span className="flex items-center gap-1.5">
-                <VideoCamera size={13} />
-                <span className="font-medium text-foreground/90 tabular-nums">{past.length + (liveStream ? 1 : 0)}</span>
-                {past.length + (liveStream ? 1 : 0) === 1 ? "broadcast" : "broadcasts"}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <CalendarBlank size={13} />
-                Since {memberSince}
-              </span>
+            <div className="min-w-0">
+              <h1 className="flex min-w-0 items-center justify-center gap-2 font-wide text-[clamp(1.75rem,3.4vw,2.6rem)] leading-[1.05] font-bold tracking-[-0.04em] md:justify-start">
+                <span className="truncate">{name}</span>
+                {channel.verified && (
+                  <SealCheck size={22} weight="fill" className="shrink-0 text-sky-400" aria-label="Verified streamer" />
+                )}
+              </h1>
+              <p className="mt-1.5 text-[14px] text-muted-foreground">@{channel.username}</p>
+              <dl className="mt-3.5 flex items-start justify-center gap-7 md:justify-start md:gap-5">
+                <Count value={channel.followers} label={channel.followers === 1 ? "follower" : "followers"} />
+                {peak > 0 && <Count value={peak} label="peak viewers" />}
+                <Count value={broadcasts} label={broadcasts === 1 ? "broadcast" : "broadcasts"} />
+              </dl>
+              {channel.bio && (
+                <p className="mx-auto mt-3.5 line-clamp-3 max-w-[60ch] text-[14.5px] leading-relaxed text-foreground/75 md:mx-0">
+                  {channel.bio}
+                </p>
+              )}
             </div>
-            {channel.bio && <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">{channel.bio}</p>}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            {liveStream && (
-              <Link href={`/stream/${liveStream._id}`} className="flex h-9 items-center gap-2 rounded-sm bg-red-600 px-4 text-sm font-medium text-white transition-colors hover:bg-red-700">
-                <Broadcast size={15} weight="fill" />
+          <div className="flex w-full flex-wrap items-center justify-center gap-2 md:w-auto md:shrink-0 md:flex-nowrap md:justify-end md:pt-2">
+            {watchHref && (
+              <PillLink href={watchHref} variant="live" size="lg" icon={<Broadcast size={18} weight="fill" />} className="w-full md:hidden">
                 Watch live
-              </Link>
+              </PillLink>
             )}
             <FollowButton
               username={channel.username}
@@ -338,12 +324,24 @@ export default function ChannelPage({
                 setChannel((c) => (c ? { ...c, followers: Math.max(0, c.followers + (next ? 1 : -1)) } : c))
               }
             />
+            <Pill variant="glass" iconOnly aria-label={copied ? "Link copied" : "Share channel"} title={copied ? "Link copied" : "Share"} onClick={share} icon={copied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />} />
           </div>
-        </div>
+        </header>
 
-        {/* Tabs */}
+        {/* What they stream about — a way in, not a label. */}
+        {topics.length > 0 && (
+          // Centred under a centred phone header while it fits; from the start once it scrolls.
+          <ChipRow label="Streams about" className="order-3 mt-5 justify-center-safe md:mt-6 md:justify-start">
+            {topics.map((c) => (
+              <Chip key={c} href={`/browse?category=${encodeURIComponent(c)}`} live={liveStream?.category === c}>
+                {c}
+              </Chip>
+            ))}
+          </ChipRow>
+        )}
+
         <PillTabs
-          className="mt-8"
+          className="order-4 mt-8"
           label="Channel"
           items={TABS.map(([id, label, Icon]) => ({
             id,
@@ -355,40 +353,29 @@ export default function ChannelPage({
           onChange={setTab}
         />
 
-        <div className="mt-8 space-y-9">
+        <div className="order-5 mt-8 flex flex-col gap-10 md:gap-12">
           {tab === "home" && (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat icon={Users} value={formatNumber(channel.followers)} label="Followers" />
-                <Stat icon={Eye} value={formatNumber(peak || liveStream?.peakViewers || 0)} label="Peak viewers" />
-                <Stat icon={VideoCamera} value={String(past.length + (liveStream ? 1 : 0))} label="Broadcasts" />
-                <Stat icon={CalendarBlank} value={memberSince.split(" ")[1] ?? memberSince} label="Streaming since" />
-              </div>
-
-              {upcoming.length > 0 && (
-                <Shelf id="chan-upcoming" title="Coming up" accent={<Clock size={14} weight="bold" className="text-muted-foreground" />} href={undefined}>
-                  {upcoming.map((item, slot) => (
-                    <UpcomingCard key={item._id} item={item} impression={{ streamId: item._id, surface: "channel", row: "upcoming", slot }} />
+              {/* Live, the booking isn't in the masthead — list it here. Off
+                  air, the first is on the Next up tile; the rest follow. */}
+              {(liveStream ? upcoming : upcoming.slice(1)).length > 0 && (
+                <Shelf
+                  id="chan-events"
+                  title={liveStream ? "Events" : "More events"}
+                  reason={`Booked by ${name} — set a reminder and you're in the room when it starts`}
+                >
+                  {(liveStream ? upcoming : upcoming.slice(1)).map((item, slot) => (
+                    <EventCard key={item._id} item={item} impression={{ streamId: item._id, surface: "channel", row: "upcoming", slot }} />
                   ))}
                 </Shelf>
               )}
 
               {past.length > 0 && (
-                <section>
-                  <div className="mb-4 flex items-baseline justify-between">
-                    <h2 className="text-sm font-semibold tracking-tight text-foreground">Recent broadcasts</h2>
-                    {past.length > 4 && (
-                      <button type="button" onClick={() => setTab("videos")} className="text-xs text-muted-foreground transition-colors hover:text-foreground">
-                        See all {past.length}
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
-                    {past.slice(0, 4).map((s, slot) => (
-                      <StreamCard key={s._id} stream={toCard(s)} impression={{ streamId: s._id, surface: "channel", row: "recent", slot }} />
-                    ))}
-                  </div>
-                </section>
+                <Shelf id="chan-recent" title="Recent broadcasts" reason={`The last ${Math.min(past.length, 12)} on ${name}'s channel`} peek>
+                  {past.slice(0, 12).map((s, slot) => (
+                    <StreamCard key={s._id} stream={toCard(s)} impression={{ streamId: s._id, surface: "channel", row: "recent", slot }} />
+                  ))}
+                </Shelf>
               )}
 
               {also.length > 0 && (
@@ -404,103 +391,87 @@ export default function ChannelPage({
                 </Shelf>
               )}
 
-              {past.length === 0 && !liveStream && upcoming.length === 0 && (
-                <EmptyBroadcasts name={name} />
-              )}
+              {past.length === 0 && !liveStream && upcoming.length === 0 && <EmptyBroadcasts name={name} />}
             </>
           )}
 
-          {tab === "videos" && (
-            past.length > 0 ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
-                {past.map((s, slot) => (
-                  <StreamCard key={s._id} stream={toCard(s)} impression={{ streamId: s._id, surface: "channel", row: "videos", slot }} />
-                ))}
-              </div>
+          {tab === "videos" &&
+            (past.length > 0 ? (
+              <section aria-label="Past broadcasts">
+                <ChipRow label="Sort broadcasts">
+                  <Chip active={sort === "recent"} onClick={() => setSort("recent")}>
+                    Most recent
+                  </Chip>
+                  <Chip active={sort === "top"} onClick={() => setSort("top")}>
+                    Most watched
+                  </Chip>
+                </ChipRow>
+                <div className="mt-5 grid grid-cols-1 gap-x-3 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                  {videos.map((s, slot) => (
+                    <StreamCard key={s._id} stream={toCard(s)} impression={{ streamId: s._id, surface: "channel", row: "videos", slot }} />
+                  ))}
+                </div>
+              </section>
             ) : (
               <EmptyBroadcasts name={name} />
-            )
-          )}
+            ))}
 
           {tab === "schedule" && (
             <>
-              <section>
-                <h2 className="mb-4 text-sm font-semibold tracking-tight text-foreground">Scheduled</h2>
+              <section aria-labelledby="chan-booked">
+                <h2 id="chan-booked" className="mb-4 font-wide text-[20px] font-bold tracking-[-0.025em]">
+                  Booked
+                </h2>
                 {upcoming.length > 0 ? (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {upcoming.map((item, slot) => (
-                      <UpcomingCard key={item._id} item={item} impression={{ streamId: item._id, surface: "channel", row: "schedule", slot }} />
+                      <EventCard key={item._id} item={item} impression={{ streamId: item._id, surface: "channel", row: "schedule", slot }} />
                     ))}
                   </div>
                 ) : (
-                  <p className="rounded-sm border border-dashed border-white/[0.1] px-6 py-10 text-center text-sm text-muted-foreground/70">
-                    Nothing on the calendar yet. Follow to hear the moment they go live.
-                  </p>
+                  <div className={cn(TILE, "px-6 py-8")}>
+                    <p className="font-wide text-[18px] font-bold tracking-[-0.02em]">Nothing on the calendar yet.</p>
+                    <p className="mt-1.5 text-[14px] text-muted-foreground">Follow and you&apos;ll hear the moment {name} goes live.</p>
+                  </div>
                 )}
               </section>
 
-              {heat.total >= 3 && (
-                <section>
-                  <div className="mb-4 flex items-baseline justify-between">
-                    <h2 className="text-sm font-semibold tracking-tight text-foreground">Usually streams</h2>
-                    <span className="text-xs text-muted-foreground/60">From {heat.total} past broadcasts · your local time</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <div className="grid min-w-[520px] grid-cols-[3rem_repeat(7,minmax(0,1fr))] gap-1.5">
-                      <span />
-                      {DAYS.map((d) => (
-                        <span key={d} className="text-center text-[0.65rem] font-medium tracking-wider text-muted-foreground/70 uppercase">{d}</span>
-                      ))}
-                      {["Night", "Morning", "Afternoon", "Evening"].map((label, block) => (
-                        <div key={label} className="contents">
-                          <span className="flex items-center text-[0.65rem] text-muted-foreground/70">{label}</span>
-                          {DAYS.map((_, day) => {
-                            const n = heat.grid[day][block];
-                            const a = n / heat.max;
-                            return (
-                              <span
-                                key={day}
-                                title={`${DAYS[day]} ${label.toLowerCase()}: ${n} broadcast${n === 1 ? "" : "s"}`}
-                                className="h-9 rounded-sm border border-white/[0.06]"
-                                style={{ backgroundColor: n ? `rgba(220, 38, 38, ${0.15 + a * 0.6})` : "transparent" }}
-                              />
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-              )}
+              {heat.total >= 3 && <HabitTile heat={heat} />}
             </>
           )}
 
           {tab === "about" && (
-            <div className="grid gap-8 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <section>
-                <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">About {name}</h2>
-                <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+              <section className={cn(TILE, "flex flex-col p-6 md:p-7 lg:col-span-7")}>
+                <p className={EYEBROW}>About {name}</p>
+                <p className="mt-3 max-w-[62ch] text-[15px] leading-relaxed text-foreground/80">
                   {channel.bio || `${name} hasn't written a bio yet.`}
                 </p>
-                {streams.length > 0 && (
-                  <div className="mt-6">
-                    <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground/70 uppercase">Streams about</h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[...new Set(streams.map((s) => s.category))].slice(0, 6).map((c) => (
-                        <Link key={c} href={`/browse?category=${encodeURIComponent(c)}`} className="rounded-sm bg-white/[0.05] px-2.5 py-1 text-xs text-foreground/85 transition-colors hover:bg-white/[0.08]">
-                          {c}
-                        </Link>
-                      ))}
-                    </div>
+                <dl className="mt-6 grid gap-3 border-t border-white/[0.06] pt-5 text-[14px]">
+                  <div className="flex items-center gap-3">
+                    <dt className="w-32 shrink-0 text-muted-foreground">On Xtream since</dt>
+                    <dd className="font-semibold">{memberSince}</dd>
                   </div>
-                )}
+                  {heat.usual && (
+                    <div className="flex items-center gap-3">
+                      <dt className="w-32 shrink-0 text-muted-foreground">Usually live</dt>
+                      <dd className="font-semibold">{heat.usual.phrase}</dd>
+                    </div>
+                  )}
+                  {topics[0] && (
+                    <div className="flex items-center gap-3">
+                      <dt className="w-32 shrink-0 text-muted-foreground">Mostly streams</dt>
+                      <dd className="min-w-0 truncate font-semibold">{topics[0]}</dd>
+                    </div>
+                  )}
+                </dl>
               </section>
-              <section className="grid grid-cols-2 gap-3">
-                <Stat icon={Users} value={formatNumber(channel.followers)} label="Followers" />
-                <Stat icon={Users} value={formatNumber(channel.following)} label="Following" />
-                <Stat icon={Eye} value={formatNumber(peak)} label="Peak viewers" />
-                <Stat icon={ChartBar} value={String(past.length)} label="Past broadcasts" />
-              </section>
+              <div className="grid grid-cols-2 gap-3 lg:col-span-5">
+                <StatTile label="Followers" value={channel.followers} />
+                <StatTile label="Following" value={channel.following} />
+                <StatTile label="Peak viewers" value={peak} />
+                <StatTile label="Broadcasts" value={broadcasts} />
+              </div>
             </div>
           )}
         </div>
@@ -509,14 +480,214 @@ export default function ChannelPage({
   );
 }
 
-function Stat({ icon: Icon, value, label }: { icon: typeof Users; value: string; label: string }) {
+/* ------------------------------------------------------------------ */
+
+/** A number and what it counts: stacked and centred on a phone, one line on a wide screen. */
+function Count({ value, label }: { value: number; label: string }) {
   return (
-    <div className="rounded-sm border border-white/[0.06] px-4 py-3">
-      <p className="flex items-center gap-1.5 text-[0.65rem] font-medium tracking-wider text-muted-foreground/70 uppercase">
-        <Icon size={12} />
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-semibold tracking-tight text-foreground tabular-nums">{value}</p>
+    <div className="flex flex-col items-center gap-0.5 md:flex-row md:items-baseline md:gap-1.5">
+      <dd className="order-1 font-wide text-[18px] leading-none font-bold tracking-[-0.02em] tabular-nums md:text-[15px]">{formatNumber(value)}</dd>
+      <dt className="order-2 text-[12.5px] text-muted-foreground md:text-[14px]">{label}</dt>
+    </div>
+  );
+}
+
+/** On air: the broadcast is the hero, muted, one tap from the room. */
+function LiveHero({ stream, href, now }: { stream: RowItem; href: string; now: number }) {
+  return (
+    <Link href={href} className="group relative order-1 block aspect-video overflow-hidden rounded-xl bg-surface md:aspect-[21/8]">
+      <LivePreview
+        streamId={stream._id}
+        fallbackSrc={stream.previewUrl ?? null}
+        className="absolute inset-0"
+        poster={<StreamArt src={stream.thumbnailUrl} category={stream.category} alt={stream.title} seed={stream._id + stream.title} size={{ w: 1280, h: 720 }} />}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/30" />
+      <div className="absolute top-3 left-3 flex items-center gap-1.5 md:top-4 md:left-4">
+        <LiveBadge />
+        <span className="obj rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold text-white tabular-nums">
+          {formatUptime(stream.startedAt, now)}
+        </span>
+      </div>
+      <span className="obj absolute top-3 right-3 flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold text-white tabular-nums md:top-4 md:right-4">
+        <Eye size={13} />
+        {formatNumber(stream.viewers)}
+      </span>
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-6 p-4 md:p-6">
+        <div className="min-w-0">
+          <p className="truncate font-wide text-[17px] leading-tight font-bold tracking-[-0.02em] text-white md:text-[26px]">{stream.title}</p>
+          <p className="mt-1 text-[12.5px] text-white/70 md:text-[14px]">{stream.category}</p>
+        </div>
+        {/* The whole picture is the link; this is its label. */}
+        <span className={pillClass({ variant: "live", size: "lg", className: "hidden group-hover:brightness-110 md:inline-flex" })}>
+          <Broadcast size={18} weight="fill" />
+          Watch live
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+/** Off air: their most recent self, dimmed and dated. */
+function LastLive({ stream, now, fallbackAt, className }: { stream: RowItem; now: number; fallbackAt: string; className?: string }) {
+  return (
+    <Link href={`/stream/${stream._id}`} className={cn("group relative min-h-[300px] overflow-hidden rounded-xl bg-surface", className)}>
+      <div className="absolute inset-0 opacity-55 transition-opacity duration-300 group-hover:opacity-70">
+        <StreamArt src={stream.thumbnailUrl} category={stream.category} alt={stream.title} seed={stream._id + stream.title} size={{ w: 1280, h: 720 }} />
+      </div>
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+      <span className="obj absolute top-4 left-4 rounded-full px-2.5 py-1 text-[11.5px] font-semibold text-white/90">
+        Last live {timeAgo(stream.endedAt ?? stream.startedAt ?? fallbackAt, now)}
+      </span>
+      <div className="absolute inset-x-0 bottom-0 p-6">
+        <p className="caps font-mono text-[10.5px] text-white/60">Last broadcast</p>
+        <p className="mt-1.5 max-w-[40ch] truncate font-wide text-[24px] leading-tight font-bold tracking-[-0.025em] text-white">{stream.title}</p>
+        <p className="mt-1.5 text-[13.5px] text-white/70 tabular-nums">
+          {[spoken(stream.duration), stream.peakViewers ? `peaked at ${formatNumber(stream.peakViewers)} viewers` : "", stream.category].filter(Boolean).join(" · ")}
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+/**
+ * What's next, on the one solid Ember surface: the booking and its
+ * countdown with a reminder, or — nothing booked — when they usually go
+ * live, with the week drawn small.
+ */
+function NextUpTile({
+  next,
+  more,
+  usual,
+  days,
+  now,
+  onMore,
+  className,
+}: {
+  next: RowItem | null;
+  more: number;
+  usual: { day: number; phrase: string } | null;
+  days: number[];
+  now: number;
+  onMore: () => void;
+  className?: string;
+}) {
+  const busiest = Math.max(1, ...days);
+  return (
+    <div className={cn("relative isolate flex min-h-[260px] flex-col overflow-hidden rounded-xl bg-ember p-6 text-on-ember md:min-h-[300px] md:p-7", className)}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="caps font-mono text-[10.5px] text-on-ember/70">{next ? "Next up" : "Usually live"}</p>
+        {next && more > 0 && (
+          <button type="button" onClick={onMore} className="press rounded-full bg-on-ember/10 px-2.5 py-1 text-[11.5px] font-semibold text-on-ember/85 hover:text-on-ember">
+            +{more} more booked
+          </button>
+        )}
+      </div>
+
+      {next?.scheduledStartAt ? (
+        <>
+          <div className="mt-auto pt-6">
+            {/* Past its time and not on yet: a booking runs late, it doesn't read "Now". */}
+            {new Date(next.scheduledStartAt).getTime() <= now ? (
+              <>
+                <p className="font-money text-[clamp(2.1rem,3.4vw,2.75rem)] leading-none">Any minute</p>
+                <p className="mt-1.5 text-[13px] text-on-ember/65">they&apos;re due on</p>
+              </>
+            ) : (
+              <>
+                <p className="font-money text-[clamp(2.75rem,5vw,4rem)] leading-none tabular-nums" suppressHydrationWarning>
+                  {countdown(next.scheduledStartAt, now)}
+                </p>
+                <p className="mt-1.5 text-[13px] text-on-ember/65">until they&apos;re on</p>
+              </>
+            )}
+            <p className="mt-5 line-clamp-2 font-wide text-[19px] leading-tight font-bold tracking-[-0.02em]">{next.title}</p>
+            <p className="mt-1.5 text-[13.5px] text-on-ember/75" suppressHydrationWarning>
+              {new Date(next.scheduledStartAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" })} ·{" "}
+              {new Date(next.scheduledStartAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+            </p>
+          </div>
+          <div className="mt-6">
+            <RemindButton streamId={next._id} initial={next.reminded ?? false} size="lg" onEmber />
+          </div>
+        </>
+      ) : (
+        usual && (
+          <>
+            <p className="mt-auto pt-6 font-wide text-[clamp(1.6rem,2.6vw,2.1rem)] leading-[1.05] font-bold tracking-[-0.035em] text-balance">
+              {usual.phrase.charAt(0).toUpperCase() + usual.phrase.slice(1)}.
+            </p>
+            <p className="mt-2 text-[13.5px] text-on-ember/75">Nothing booked yet — follow to hear the moment they start.</p>
+            {/* Their week, drawn small: how often each day has had them on. */}
+            <div className="mt-6 grid grid-cols-7 gap-2" role="img" aria-label={days.map((n, i) => `${DAY_NAMES[i]}: ${n}`).join(", ")}>
+              {days.map((n, i) => (
+                <div key={DAYS[i]} className="flex flex-col items-center gap-1.5">
+                  <div className="relative h-10 w-full">
+                    <div
+                      className={cn("absolute inset-x-0 bottom-0 rounded-[4px]", i === usual.day ? "bg-on-ember" : n ? "bg-on-ember/40" : "bg-on-ember/12")}
+                      style={{ height: n ? `${24 + (n / busiest) * 76}%` : "3px" }}
+                    />
+                  </div>
+                  <span className={cn("text-[11px] font-semibold", i === usual.day ? "text-on-ember" : "text-on-ember/60")}>{DAYS[i]!.charAt(0)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )
+      )}
+    </div>
+  );
+}
+
+/** When they tend to be on — weekday by part of the day, in the viewer's time. */
+function HabitTile({ heat }: { heat: { grid: number[][]; max: number; total: number; usual: { day: number; part: number; phrase: string } | null } }) {
+  return (
+    <section className={cn(TILE, "p-6 md:p-7")} aria-labelledby="chan-habit">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className={EYEBROW}>Usually live</p>
+          <h2 id="chan-habit" className="mt-2 font-wide text-[22px] font-bold tracking-[-0.03em]">
+            {heat.usual ? heat.usual.phrase.charAt(0).toUpperCase() + heat.usual.phrase.slice(1) : "No regular slot yet"}
+          </h2>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground">From {heat.total} past broadcasts · your local time</p>
+      </div>
+      <div className="mt-6 overflow-x-auto">
+        <div className="grid min-w-[520px] grid-cols-[4.5rem_repeat(7,minmax(0,1fr))] gap-1.5">
+          <span />
+          {DAYS.map((d) => (
+            <span key={d} className="pb-1 text-center text-[11px] font-semibold text-muted-foreground">
+              {d}
+            </span>
+          ))}
+          {PARTS.map((label, part) => (
+            <div key={label} className="contents">
+              <span className="flex items-center text-[12px] text-muted-foreground">{label}</span>
+              {DAYS.map((_, day) => {
+                const n = heat.grid[day]![part]!;
+                const best = heat.usual?.day === day && heat.usual.part === part;
+                return (
+                  <span
+                    key={day}
+                    title={`${DAY_NAMES[day]} ${label.toLowerCase()}: ${n} broadcast${n === 1 ? "" : "s"}`}
+                    className={cn("h-10 rounded-[8px]", best ? "bg-ember" : n ? "" : "bg-white/[0.04]")}
+                    style={n && !best ? { backgroundColor: `color-mix(in oklab, var(--color-ember) ${22 + (n / heat.max) * 50}%, transparent)` } : undefined}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className={cn(TILE, "@container flex min-h-[132px] flex-col p-5 md:p-6")}>
+      <p className={EYEBROW}>{label}</p>
+      <p className="mt-auto pt-5 font-money text-[clamp(1.35rem,13cqw,2.4rem)] leading-none whitespace-nowrap tabular-nums">{formatNumber(value)}</p>
     </div>
   );
 }
@@ -526,10 +697,28 @@ function EmptyBroadcasts({ name }: { name: string }) {
   return (
     <Empty
       goLive={false}
-      className="rounded-sm border border-white/[0.06] py-14"
+      className="rounded-panel bg-surface py-14"
       icon={<VideoCamera size={32} />}
       title={`${name} hasn't streamed yet.`}
       body="Follow to get a notification when they go live."
     />
+  );
+}
+
+function ChannelSkeleton() {
+  return (
+    <div aria-busy className="min-h-screen animate-pulse px-4 pt-4 pb-16 md:px-8 md:pt-6">
+      <div className="mx-auto max-w-[1280px]">
+        <div className="aspect-video rounded-xl bg-surface md:aspect-[21/8]" />
+        <div className="mt-8 flex flex-col items-center gap-5 md:flex-row">
+          <div className="size-[88px] rounded-full bg-surface md:size-24" />
+          <div className="flex flex-col items-center gap-3 md:items-start">
+            <div className="h-8 w-56 rounded-[8px] bg-surface" />
+            <div className="h-4 w-32 rounded-[6px] bg-surface" />
+            <div className="h-4 w-72 rounded-[6px] bg-surface" />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

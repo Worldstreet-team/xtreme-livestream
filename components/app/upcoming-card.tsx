@@ -95,6 +95,7 @@ export function RemindButton({
   initial,
   size = "sm",
   onPicture = false,
+  onEmber = false,
   className,
 }: {
   streamId: string;
@@ -102,6 +103,8 @@ export function RemindButton({
   size?: "sm" | "default" | "lg";
   /** Over a picture: the white primary until set, then the object pill. */
   onPicture?: boolean;
+  /** On a solid Ember tile: the white primary until set, then the tile's own quiet ink. */
+  onEmber?: boolean;
   className?: string;
 }) {
   const { isAuthenticated } = useAuth();
@@ -139,10 +142,12 @@ export function RemindButton({
         "press flex shrink-0 items-center justify-center gap-1.5 rounded-full font-semibold whitespace-nowrap transition-colors disabled:opacity-60",
         size === "sm" ? "h-8 px-3 text-xs" : size === "lg" ? "h-11 px-5 text-[15px]" : "h-9 px-4 text-sm",
         on
-          ? onPicture
-            ? "obj text-white [&>svg]:text-ember-hi"
-            : "bg-ember/15 text-ember-hi"
-          : onPicture
+          ? onEmber
+            ? "bg-on-ember/10 text-on-ember hover:bg-on-ember/15"
+            : onPicture
+              ? "obj text-white [&>svg]:text-ember-hi"
+              : "bg-ember/15 text-ember-hi"
+          : onPicture || onEmber
             ? "bg-white text-[#0b0708] hover:bg-white/90"
             : "bg-control text-foreground hover:bg-control-hover",
         className
