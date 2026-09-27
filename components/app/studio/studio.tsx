@@ -79,6 +79,8 @@ import { SecondCameraPanel } from "@/components/app/second-camera-panel";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { SetsPanel } from "@/components/app/sets-panel";
+import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
+import { applyShield, getShieldSettings, setShieldSettings, useShieldSettings } from "@/lib/privacy-shield";
 import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
@@ -428,6 +430,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [phoneConnected, setPhoneConnected] = useState(false);
   // The published camera, as state: the face tracker follows it (the ref alone wouldn't tell it).
   const [liveCam, setLiveCam] = useState<LocalVideoTrack | null>(null);
+  // The privacy shield on a screen share: the share's track while there is
+  // one, the shield's settings (followed live), and whether the host is
+  // marking zones over the picture.
+  const [shieldTrack, setShieldTrack] = useState<LocalVideoTrack | null>(null);
+  const [editingZones, setEditingZones] = useState(false);
+  const shield = useShieldSettings();
+  useEffect(() => {
+    if (shieldTrack) void applyShield(shieldTrack, shield);
+  }, [shield, shieldTrack]);
   // Sound & look, kept per browser: the noise filter, Music mode and a voice
   // preset go through the audio desk; blur, a background and a colour look
   // ride the camera track as its processor.
@@ -1323,6 +1334,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * publisher and this tab only watches. Used to go live, to resume after a
    * reload, and by the rejoin loop after a drop (`rejoin`).
    */
+  /**
+   * Share the screen with the privacy shield on it from the first frame:
+   * the track is made, shielded, then published — publishing first would
+   * send a moment of the raw screen. Where the shield can't run, the screen
+   * goes out as it is (applyShield never throws).
+   */
+  const shareScreen = async (room: Room) => {
+    const { Track: LKTrack } = await import("livekit-client");
+    const tracks = await room.localParticipant.createScreenTracks({});
+    const screen = tracks.find((t) => t.kind === LKTrack.Kind.Video) as LocalVideoTrack | undefined;
+    if (screen) await applyShield(screen, getShieldSettings());
+    try {
+      const pubs = await Promise.all(tracks.map((t) => room.localParticipant.publishTrack(t)));
+      return pubs.find((p) => p.source === LKTrack.Source.ScreenShare) ?? pubs[0];
+    } catch (err) {
+      tracks.forEach((t) => t.stop());
+      throw err;
+    }
+  };
+
   const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
     const { Room: LKRoom, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason } = await import("livekit-client");
     const room = new LKRoom({
@@ -1466,7 +1497,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     // camera the preview and the look ride from now on.
     room.on(RoomEvent.LocalTrackPublished, (pub) => {
       const t = pub.track;
-      if (!t || t.kind !== Track.Kind.Video || pub.source !== Track.Source.Camera) return;
+      if (!t || t.kind !== Track.Kind.Video) return;
+      // A screen share: the shield's already on it (shareScreen) — this keeps
+      // the panel and the zones on the share, whichever way it started.
+      if (pub.source === Track.Source.ScreenShare) {
+        setShieldTrack(t as LocalVideoTrack);
+        void applyShield(t as LocalVideoTrack, getShieldSettings());
+        return;
+      }
+      if (pub.source !== Track.Source.Camera) return;
       videoTrackRef.current = t as LocalVideoTrack;
       setLiveCam(t as LocalVideoTrack);
       if (videoElRef.current) t.attach(videoElRef.current);
@@ -1508,6 +1547,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       if (publication.source === Track.Source.ScreenShare) {
         setScreenShareActive(false);
         setLocalScreen(null);
+        setShieldTrack(null);
+        setEditingZones(false);
       }
     });
 
@@ -1528,7 +1569,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         if (!rejoin || camOn) await room.localParticipant.setCameraEnabled(true);
       } else {
         try {
-          await room.localParticipant.setScreenShareEnabled(true);
+          await shareScreen(room);
         } catch (err) {
           // Going live, a refused share is a failed start. Rejoining, it's
           // the browser wanting a click first — the stage asks for one.
@@ -1813,7 +1854,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         setScreenShareActive(false);
         setLocalScreen(null);
       } else {
-        const pub = await roomRef.current.localParticipant.setScreenShareEnabled(true);
+        const pub = await shareScreen(roomRef.current);
         setScreenShareActive(true);
         // Beside a camera, the screen takes the preview's main picture —
         // what viewers see — with the camera in the corner.
@@ -2272,7 +2313,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     const room = roomRef.current;
     if (!room) return;
     try {
-      await room.localParticipant.setScreenShareEnabled(true);
+      await shareScreen(room);
       room.localParticipant.videoTrackPublications.forEach((pub) => {
         if (pub.track && videoElRef.current) {
           pub.track.attach(videoElRef.current);
@@ -2985,6 +3026,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </div>
       )}
 
+      {/* Sharing a screen: the privacy shield, set up before the share starts. */}
+      {source === "screen" && (
+        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
+          <PrivacyShieldPanel sharing={false} prewarm />
+        </div>
+      )}
+
       {/* A Set: the stream's personality, chosen before anyone sees it. */}
       {source === "camera" && <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">{setsPanel}</div>}
 
@@ -3574,6 +3622,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const priceStrip = layerOf(scene.layers, "prices")?.symbols ?? [];
   const scenesPanel = (
     <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
+      {/* A shared screen first: what it might show that viewers mustn't see. */}
+      {(shieldTrack || source === "screen") && (
+        <PrivacyShieldPanel sharing={Boolean(shieldTrack)} editingZones={editingZones} onEditZones={setEditingZones} prewarm={source === "screen" || screenShareActive} />
+      )}
       <DirectorSwitch
         on={directorOn}
         onToggle={setDirector}
@@ -3935,6 +3987,18 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                     )}
                   />
                   {phoneMain}
+                  {/* Privacy zones, drawn over the shared screen they cover. */}
+                  {editingZones && shieldTrack && (
+                    <PrivacyZonesEditor
+                      zones={shield.zones}
+                      onChange={(zones) => setShieldSettings({ zones })}
+                      aspect={(() => {
+                        const { width, height } = shieldTrack.mediaStreamTrack.getSettings();
+                        return width && height ? width / height : 16 / 9;
+                      })()}
+                      onDone={() => setEditingZones(false)}
+                    />
+                  )}
                   {/* The Set's gift effects round your face, as viewers see them — mirrored with a mirrored preview. */}
                   <GiftEffects
                     set={activeSet}
