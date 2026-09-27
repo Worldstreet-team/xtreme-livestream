@@ -14,6 +14,42 @@ import { recordViewers } from "../analytics.js";
 import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
 
 /**
+ * How long a stage guest — asking, backstage or on stage — who drops out of
+ * the room keeps their place: a reload, or a phone switching networks, is
+ * back inside it, and the page puts them back where they were.
+ */
+export const GUEST_GRACE = { ms: 20_000 };
+/** One pending check per room and guest: another leave inside the window doesn't stack a second. */
+const guestChecks = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Free a dropped guest's place once the grace is up — unless they're back by then. */
+function releaseGuestLater(roomName: string, identity: string) {
+  const key = `${roomName}:${identity}`;
+  if (guestChecks.has(key)) return;
+  guestChecks.set(
+    key,
+    setTimeout(() => {
+      guestChecks.delete(key);
+      void releaseGuestIfGone(roomName, identity).catch((error) => console.error("guest release failed:", error));
+    }, GUEST_GRACE.ms),
+  );
+}
+
+async function releaseGuestIfGone(roomName: string, identity: string) {
+  if (await isIdentityInRoom(roomName, identity)) return;
+  const stream = await Stream.findOne({ livekitRoomName: roomName, isLive: true });
+  const guest = stream?.guests?.find((g) => String(g.userId) === identity);
+  if (!stream || !guest) return;
+  await Stream.updateOne({ _id: stream._id }, { $pull: { guests: { userId: guest.userId } } });
+  void sendRoomData(stream.livekitRoomName, {
+    __evt: "guest_update",
+    action: "left",
+    userId: identity,
+    username: guest.username,
+  });
+}
+
+/**
  * Refresh a live stream's current/peak viewer counts and bank the viewer-time
  * accrued at the previous count. Viewer count is the room's participant count
  * minus the broadcaster.
@@ -169,26 +205,20 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
                 await markStreamEnded(stream);
               }
             } else {
-              void closeWatchSession(stream, identity).catch((error) =>
-                console.error("watch session close failed:", error),
-              );
-              // A stage guest who disconnects (tab closed, network died)
-              // can't call the leave endpoint — free their slot here so the
-              // stage doesn't fill with ghosts, and tell the room.
-              const guest = stream.guests?.find(
-                (g) => String(g.userId) === identity,
-              );
-              if (guest) {
-                await Stream.updateOne(
-                  { _id: stream._id },
-                  { $pull: { guests: { userId: guest.userId } } },
+              // A reload or a new tab: the same identity is already back in,
+              // and this is its old session leaving — not the person.
+              const back = await isIdentityInRoom(roomName, identity);
+              if (!back) {
+                void closeWatchSession(stream, identity).catch((error) =>
+                  console.error("watch session close failed:", error),
                 );
-                void sendRoomData(stream.livekitRoomName, {
-                  __evt: "guest_update",
-                  action: "left",
-                  userId: identity,
-                  username: guest.username,
-                });
+              }
+              // A stage guest who drops (tab closed, network died) can't call
+              // the leave endpoint — their place is freed so the stage
+              // doesn't fill with ghosts, but only once the grace is up: a
+              // reload is back inside it, and the page restores them.
+              if (!back && stream.guests?.some((g) => String(g.userId) === identity)) {
+                releaseGuestLater(roomName, identity);
               }
               await updateViewerCounts(stream);
             }

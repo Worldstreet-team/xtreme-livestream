@@ -75,11 +75,16 @@ vi.mock("../src/watch-sessions.js", () => ({
   closeAllWatchSessions: async () => {},
 }));
 
+const pulled = vi.hoisted(() => [] as unknown[]);
+
 vi.mock("../src/models.js", () => ({
   Stream: {
     findOne: async (filter: { livekitRoomName?: string; isLive?: boolean }) =>
       filter.livekitRoomName === ROOM && streamDoc.isLive ? streamDoc : null,
-    updateOne: async () => ({}),
+    updateOne: async (_filter: unknown, update: { $pull?: unknown }) => {
+      if (update.$pull) pulled.push(update.$pull);
+      return {};
+    },
   },
   User: {},
   Follow: {},
@@ -178,5 +183,41 @@ describe("LiveKit webhook: the host's feed dropping", () => {
 
     expect(ended).not.toHaveBeenCalled();
     expect(streamDoc.feedDroppedAt).toBeNull();
+  });
+
+  describe("a stage guest dropping out", () => {
+    const GUEST = "b".repeat(24);
+    const settle = () => new Promise((done) => setTimeout(done, 80));
+
+    beforeEach(async () => {
+      const { GUEST_GRACE } = await import("../src/routes/webhooks.js");
+      GUEST_GRACE.ms = 30;
+      pulled.length = 0;
+      streamDoc.guests = [{ userId: { toString: () => GUEST }, username: "tolu", status: "backstage" }];
+    });
+
+    it("keeps their place when their reloaded page is already back in", async () => {
+      state.inRoom = [GUEST];
+      await deliver("participant_left", GUEST);
+      await settle();
+      expect(pulled).toEqual([]);
+      expect(state.dataEvents).not.toContainEqual(expect.objectContaining({ __evt: "guest_update", action: "left" }));
+    });
+
+    it("keeps their place when they're back inside the grace", async () => {
+      await deliver("participant_left", GUEST);
+      state.inRoom = [GUEST];
+      await settle();
+      expect(pulled).toEqual([]);
+    });
+
+    it("frees their place, and tells the room, once they've stayed gone", async () => {
+      await deliver("participant_left", GUEST);
+      // Not at once: a reload may be a moment away.
+      expect(state.dataEvents).not.toContainEqual(expect.objectContaining({ action: "left" }));
+      await settle();
+      expect(pulled).toHaveLength(1);
+      expect(state.dataEvents).toContainEqual({ __evt: "guest_update", action: "left", userId: GUEST, username: "tolu" });
+    });
   });
 });
