@@ -32,14 +32,26 @@ export function GlassPopover({
   if (typeof document === "undefined") return null;
 
   const isMobile = window.innerWidth < 768;
+  // A trigger in the top half (the top bar's bell) opens downward, under
+  // it and lined up with its right edge; one lower down (the rail's
+  // account row) opens beside it, growing up from its foot.
+  const fromTop = anchor.top + anchor.height / 2 < window.innerHeight / 2;
   const style: React.CSSProperties = isMobile
     ? { position: "fixed", left: 16, right: 16, bottom: 24 }
-    : {
-        position: "fixed",
-        left: Math.min(anchor.right + 20, window.innerWidth - width - 16),
-        bottom: Math.max(12, window.innerHeight - anchor.bottom),
-        width,
-      };
+    : fromTop
+      ? {
+          position: "fixed",
+          top: anchor.bottom + 10,
+          left: Math.max(16, Math.min(anchor.right - width, window.innerWidth - width - 16)),
+          width,
+          maxHeight: `calc(100vh - ${Math.round(anchor.bottom + 26)}px)`,
+        }
+      : {
+          position: "fixed",
+          left: Math.min(anchor.right + 20, window.innerWidth - width - 16),
+          bottom: Math.max(12, window.innerHeight - anchor.bottom),
+          width,
+        };
 
   return createPortal(
     <div
