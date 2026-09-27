@@ -5,14 +5,13 @@ import { formatNumber } from "@/lib/categories";
 import type { CategorySummary } from "@/lib/discovery";
 import { cn } from "@/lib/utils";
 import { StreamArt } from "@/components/app/stream-art";
-import { twitchArtFor } from "@/lib/twitch-categories";
-import { categoryArt } from "@/lib/category-art";
 
 /**
  * A category as portrait box art, and two quiet lines under it: the name,
  * and how many are watching. Nothing on the art — the art is the sign.
  * (TikTok LIVE's category row was the owner's reference, 2026-09-23.) The
- * cover is real box art or a photograph, never a generated chart.
+ * cover is the category's own poster (lib/cover-art) — the same art in every
+ * grid, whether or not anyone is live — never a stretched live thumbnail.
  */
 export function CategoryCard({
   category,
@@ -26,7 +25,7 @@ export function CategoryCard({
     <Link href={href} className={cn("group block", className)}>
       <div className="relative aspect-[3/4] overflow-hidden rounded-sm bg-white/[0.03]">
         <StreamArt
-          src={twitchArtFor(category.category, 480, 640) ?? category.cover ?? categoryArt(category.category, { w: 480, h: 640 })}
+          src={null}
           category={category.category}
           alt={category.category}
           size={{ w: 480, h: 640 }}

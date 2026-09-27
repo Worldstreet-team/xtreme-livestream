@@ -7,13 +7,11 @@ import { cn } from "@/lib/utils";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 
 /**
- * The picture for a stream, category or channel surface — always a real
- * photograph if one can be had.
+ * The picture for a stream, category or channel surface.
  *
- * Order of preference: the stream's own thumbnail, then a real photo for
- * its category, then (only if the network has failed twice) the generated
- * chart. The chart used to be the first fallback, which is why a grid with
- * a few missing thumbnails read as a wall of synthetic candlesticks.
+ * Order of preference: the stream's own thumbnail, then its category's
+ * cover (our generated poster, lib/cover-art), then — only if both fail to
+ * load — the generated chart.
  */
 export function StreamArt({
   src,
@@ -45,9 +43,9 @@ export function StreamArt({
 }) {
   const primary = src ? apiUrl(src) : "";
   const fallback = categoryArt(category, size);
-  // Which source we're on: 0 = own thumbnail, 1 = category photo, 2 = chart.
+  // Which source we're on: 0 = own thumbnail, 1 = category cover, 2 = chart.
   // Reset when the thumbnail arrives late (a tile that mounted before its
-  // category loaded should switch to the live cover, not stay on the photo).
+  // category loaded should switch to the live cover, not stay on the poster).
   const [stage, setStage] = useState(primary ? 0 : 1);
   const [seen, setSeen] = useState(primary);
   if (seen !== primary) {
