@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
-import { GAME_LABEL, formatPoints, type LiveGameItem } from "@/lib/games";
+import { GAME_LABEL, formatPoints, questionOf, type LiveGameItem } from "@/lib/games";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Badge, LiveBadge } from "@/components/ui/badge";
@@ -259,7 +259,7 @@ export function RightRail() {
               </Link>
             ))}
             {games.map(({ game, stream }) => (
-              <Link key={`game-${game.id}`} href={`/stream/${stream.id}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5" title={game.question}>
+              <Link key={`game-${game.id}`} href={`/stream/${stream.id}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5" title={questionOf(game)}>
                 <Ring
                   avatar={stream.streamer.avatar}
                   name={stream.streamer.displayName}
@@ -458,7 +458,7 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
                   {GAME_LABEL[game.type]}
                 </Badge>
               </div>
-              <span className="relative line-clamp-2 text-[13.5px] font-semibold leading-snug">{game.question}</span>
+              <span className="relative line-clamp-2 text-[13.5px] font-semibold leading-snug">{questionOf(game)}</span>
               <span className="relative mt-1 truncate text-[11.5px] text-white/75">{stream.streamer.displayName} · {game.entries} in</span>
               <span className={cn(cta, "relative bg-white text-neutral-950")}><Play size={12} weight="fill" />Play</span>
             </Link>
@@ -501,7 +501,7 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
       </div>
       <div className="mt-2.5 flex items-center justify-center gap-1.5">
         {Array.from({ length: count }).map((_, i) => (
-          <button key={i} type="button" aria-label={i < games.length ? games[i]!.game.question : HOUSE[i - games.length]} aria-current={i === index} onClick={() => setIndex(i)} className={cn("h-1.5 rounded-full transition-all", i === index ? "w-4 bg-foreground" : "w-1.5 bg-white/25 hover:bg-white/45")} />
+          <button key={i} type="button" aria-label={i < games.length ? questionOf(games[i]!.game) : HOUSE[i - games.length]} aria-current={i === index} onClick={() => setIndex(i)} className={cn("h-1.5 rounded-full transition-all", i === index ? "w-4 bg-foreground" : "w-1.5 bg-white/25 hover:bg-white/45")} />
         ))}
       </div>
     </div>
