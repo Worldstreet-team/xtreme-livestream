@@ -39,6 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
+import { BattleResultSheet } from "@/components/app/battle-result-card";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
@@ -382,6 +383,9 @@ export default function StreamPage({
   // camera comes in, is the host's angle under this viewer's own pick.
   const phoneCameraRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneAvailable, setPhoneAvailable] = useState(false);
+  // A battle's result card, open: held here so it outlives the scoreboard,
+  // which lets an ended battle go a couple of minutes after the clock.
+  const [shareBattle, setShareBattle] = useState<BattleView | null>(null);
   // The phone's track comes and goes: a re-render of its own, never the host's element re-attached.
   const [, setPhoneEpoch] = useState(0);
   const anglePick = useAnglePick(id);
@@ -2649,6 +2653,7 @@ export default function StreamPage({
           <BattleBar
             battle={battle}
             streamId={id}
+            onShare={setShareBattle}
             className={band ? "top-[calc(var(--band-top)+var(--band-h)+10px)]" : "top-[calc(var(--band-top)+4px)]"}
             // Like and share ride in the scoreboard's row while the band is
             // up — the side rail would climb over the totals on a short phone.
@@ -2681,6 +2686,7 @@ export default function StreamPage({
             }
           />
         )}
+        {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
 
         {/* Light falls off at the top, so the bar reads on any picture. */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-32 bg-gradient-to-b from-black/60 to-transparent" />
@@ -3298,8 +3304,9 @@ export default function StreamPage({
 
             {/* The battle scoreboard, while a battle is on or just ended. */}
             {battle && (isBattleActive(battle) || battle.status === "ended") && (
-              <BattleBar battle={battle} streamId={id} />
+              <BattleBar battle={battle} streamId={id} onShare={setShareBattle} />
             )}
+            {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
 
             {/* Muted-start affordance — the one control that must never hide */}
             {muted && stream.isLive && hasVideo && !playbackError && (

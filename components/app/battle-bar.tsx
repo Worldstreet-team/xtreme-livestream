@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { Gift, Lightning, Trophy, ArrowSquareOut } from "@/components/icons";
+import { Gift, Lightning, Trophy, ArrowSquareOut, ShareNetwork } from "@/components/icons";
 import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleView } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Pill, PillLink } from "@/components/ui/pill";
+import { BattleResultSheet } from "@/components/app/battle-result-card";
 
 function usd(minor: number) {
+  // A million reads as one ("$9.9M"), not "$9876.5K".
+  if (minor >= 100_000_000) return `$${(minor / 100_000_000).toFixed(1)}M`;
   if (minor >= 100_000) return `$${(minor / 100_000).toFixed(1)}K`;
   // Under a dollar keeps its cents: a 30¢ bonus isn't "+$0".
   if (minor > 0 && minor < 100) return `$${(minor / 100).toFixed(2)}`;
@@ -26,13 +29,15 @@ function usd(minor: number) {
  *   C  the totals in thin, wide money numerals, with the lead called out
  * Below it, the one way to take part — back your side with a gift (a gift
  * moment, so heat) — and the door to the other side's room. The result
- * stays up for a while after the clock so nobody misses who won.
+ * stays up for a while after the clock so nobody misses who won, with the
+ * card to post it (Share result).
  */
 export function BattleBar({
   battle,
   streamId,
   actionsEnd,
   className,
+  onShare,
 }: {
   battle: BattleView;
   /** The stream this bar is rendered in — decides which side "you" are on. */
@@ -40,6 +45,12 @@ export function BattleBar({
   /** More controls at the end of the actions row (a phone's like and share, in a battle). */
   actionsEnd?: ReactNode;
   className?: string;
+  /**
+   * Open the result card somewhere that outlives the scoreboard — the watch
+   * page drops an ended battle after a while, and a sheet mid-post mustn't
+   * go with it. Unset, the scoreboard opens its own.
+   */
+  onShare?: (battle: BattleView) => void;
 }) {
   const now = useNow(isBattleActive(battle));
   const left = secondsLeft(battle, now);
@@ -62,6 +73,10 @@ export function BattleBar({
     if (battle.lateResetUsed) setFlashUntil(now + 3000);
   }
   const resetFlash = !ended && now < flashUntil;
+
+  // The result card, as it was when it was opened: the scoreboard carries on
+  // underneath (and may move to the next battle) while someone posts it.
+  const [sharing, setSharing] = useState<BattleView | null>(null);
 
   return (
     <div className={cn("pointer-events-none absolute inset-x-3 top-3 z-20 flex flex-col gap-2 md:inset-x-4 md:top-4", className)}>
@@ -120,7 +135,7 @@ export function BattleBar({
           <Backers backers={battle.host.top} ring="ring-chili" />
         </span>
         {ended ? (
-          <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold">
+          <span className="min-w-0 truncate rounded-full bg-black/55 px-2.5 py-0.5 text-[12px] font-semibold whitespace-nowrap">
             {tie ? "Nobody took it — a draw" : iWon ? `${teamName(me)} win${me.partner ? "" : "s"}` : `${teamName(them)} win${them.partner ? "" : "s"}`}
             {battle.bonusUsdMinor > 0 && !tie ? ` · +${usd(battle.bonusUsdMinor)} bonus` : ""}
           </span>
@@ -176,6 +191,17 @@ export function BattleBar({
           {actionsEnd && <div className="ml-auto flex shrink-0 items-center gap-1.5">{actionsEnd}</div>}
         </div>
       )}
+
+      {/* After the clock, the one thing to do here is post it. */}
+      {ended && (
+        <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+          <Pill size="sm" variant="primary" icon={<ShareNetwork size={14} weight="fill" />} onClick={() => (onShare ? onShare(battle) : setSharing(battle))}>
+            Share result
+          </Pill>
+          {actionsEnd && <div className="ml-auto flex shrink-0 items-center gap-1.5">{actionsEnd}</div>}
+        </div>
+      )}
+      {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree } from "@/components/icons";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree, ShareNetwork } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, teamName, type BattleMode, type BattleView } from "@/lib/battles";
+import { formatScorePair, winnerSide } from "@/lib/battle-result";
+import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleMode, type BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
 import { useNow } from "@/lib/use-now";
@@ -13,6 +14,21 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { Pill } from "@/components/ui/pill";
 import { LiveBadge } from "@/components/ui/badge";
 import { CapsuleTabs } from "@/components/ui/capsule-tabs";
+import { BattleResultSheet } from "@/components/app/battle-result-card";
+
+/** The host's own line about the battle that just ended: "You won", "$1,234 to $987". */
+function resultLine(b: BattleView, streamId: string) {
+  const mine = sideOf(b, streamId) ?? "host";
+  const theirs = mine === "host" ? "challenger" : "host";
+  const winner = winnerSide(b);
+  const scores = formatScorePair(b.host.usdMinor, b.challenger.usdMinor);
+  const me = b[mine];
+  return {
+    won: winner === mine,
+    said: winner === null ? "It's a draw" : winner === mine ? (me.partner ? `You and ${me.partner.displayName} won` : "You won") : `${teamName(b[theirs])} won`,
+    scores: `${scores[mine]} to ${scores[theirs]}`,
+  };
+}
 
 /**
  * The studio's battle controls: challenge a live creator, answer an invite,
@@ -81,6 +97,44 @@ export function BattlePanel({
   useEffect(() => {
     onBattle?.(active);
   }, [active, onBattle]);
+
+  // The battle that just ended, for the host to post: picked up the moment
+  // the live one drops out of `mine` (settled or cancelled — only a settled
+  // one has a result), or, when the studio opens, a result still fresh.
+  const [result, setResult] = useState<BattleView | null>(null);
+  const [sharing, setSharing] = useState<BattleView | null>(null);
+  const liveId = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${streamId}/battle`)
+      .then((r) => {
+        if (!cancelled && r.data.battle?.status === "ended") setResult(r.data.battle);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [streamId]);
+
+  useEffect(() => {
+    if (active) {
+      liveId.current = active.id;
+      return;
+    }
+    const id = liveId.current;
+    if (!id) return;
+    liveId.current = null;
+    let cancelled = false;
+    apiFetch<{ success: boolean; data: { battle: BattleView } }>(`/api/battles/${id}`)
+      .then((r) => {
+        if (!cancelled) setResult(r.data.battle.status === "ended" ? r.data.battle : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,12 +224,46 @@ export function BattlePanel({
         <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${active.id}/cancel`)} disabled={busy} title="End the battle early — no bonus">
           End
         </Pill>
+        {/* The last result stays open if the next battle starts under it. */}
+        {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
       </div>
     );
   }
 
+  const line = result ? resultLine(result, streamId) : null;
+
   return (
     <div className={cn("flex flex-col gap-2", inline ? "items-stretch" : "items-end")}>
+      {/* The last battle's result, with the card to post it, until it's put away. */}
+      {result && line && (
+        <div className={cn("flex items-start gap-2.5 rounded-sm bg-white/[0.05] p-2.5", inline ? "w-full" : "w-[360px]")}>
+          {line.won ? (
+            <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-foil text-[#1a1206]">
+              <Trophy size={11} weight="fill" />
+            </span>
+          ) : (
+            <Sword size={16} weight="fill" className="mt-0.5 shrink-0 text-muted-foreground" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm">
+              <span className="font-semibold text-foreground">{line.said}</span>
+              <span className="text-muted-foreground"> · {line.scores}</span>
+            </p>
+            <Pill size="sm" variant="primary" icon={<ShareNetwork size={14} weight="fill" />} onClick={() => setSharing(result)} className="mt-2">
+              Share the result
+            </Pill>
+          </div>
+          <button
+            type="button"
+            onClick={() => setResult(null)}
+            className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            aria-label="Put the result away"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+      {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
       <div className="flex flex-wrap items-center gap-2">
         {incoming.map((b) => (
           <div key={b.id} className="flex flex-wrap items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
