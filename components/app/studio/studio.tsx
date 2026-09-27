@@ -1897,6 +1897,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         case "start_screen_share":
         case "stop_screen_share": {
           if (!v.isLive) return { error: "Screen share is only available while live." };
+          // A screen shared beside the camera: when the screen is the stream (or an encoder is), there's no second one.
+          if (v.source !== "camera") return { error: v.source === "screen" ? "Your screen is already the stream's picture." : "Screen share isn't available with an encoder." };
           const wantOn = action === "start_screen_share";
           if (v.screenShareActive === wantOn) return { success: true, screenShareActive: wantOn, note: "already there" };
           await v.toggleScreenShare();
@@ -3803,7 +3805,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           {shareCopied ? "Link copied" : "Share the stream"}
         </button>
       )}
-      {source !== "obs" && (
+      {/* A screen beside the camera — when the screen is the stream, stopping it here would take the picture down. */}
+      {source === "camera" && (
         <button onClick={toggleScreenShare} className={cn("press flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold transition-colors", screenShareActive ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]")}>
           <MonitorArrowUp size={16} />
           {screenShareActive ? "Stop sharing your screen" : "Share your screen"}
@@ -4288,7 +4291,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               {source !== "obs" && dockButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", on: panel === "audio", children: <Faders size={20} /> })}
               {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
-              {source !== "obs" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
+              {source === "camera" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
               {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
               {vividOnAir && talkHold({})}
               {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", on: panel === "show", children: <Playlist size={20} /> })}
@@ -4313,9 +4316,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
             {roundButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", active: panel === "audio", children: <Faders size={22} /> })}
             {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
-            {source === "camera"
-              ? roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
-              : roundButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing" : "Share screen", active: screenShareActive, children: <MonitorArrowUp size={22} /> })}
+            {/* Phones can't share a screen; a camera flips. */}
+            {source === "camera" && roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })}
             {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", active: panel === "show", children: <Playlist size={21} /> })}
             {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
             {vividOnAir && talkHold({ phone: true })}
