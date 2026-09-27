@@ -488,10 +488,6 @@ import i_users_group_two_rounded_linear from "@iconify-icons/solar/users-group-t
 import i_users_group_two_rounded_outline from "@iconify-icons/solar/users-group-two-rounded-outline";
 import i_users_group_two_rounded_bold from "@iconify-icons/solar/users-group-two-rounded-bold";
 import i_users_group_two_rounded_bold_duotone from "@iconify-icons/solar/users-group-two-rounded-bold-duotone";
-import i_verified_check_linear from "@iconify-icons/solar/verified-check-linear";
-import i_verified_check_outline from "@iconify-icons/solar/verified-check-outline";
-import i_verified_check_bold from "@iconify-icons/solar/verified-check-bold";
-import i_verified_check_bold_duotone from "@iconify-icons/solar/verified-check-bold-duotone";
 import i_videocamera_linear from "@iconify-icons/solar/videocamera-linear";
 import i_videocamera_outline from "@iconify-icons/solar/videocamera-outline";
 import i_videocamera_bold from "@iconify-icons/solar/videocamera-bold";
@@ -766,7 +762,6 @@ const S_i_user_plus_rounded = { linear: i_user_plus_rounded_linear, outline: i_u
 const S_i_user_rounded = { linear: i_user_rounded_linear, outline: i_user_rounded_outline, bold: i_user_rounded_bold, duotone: i_user_rounded_bold_duotone };
 const S_i_users_group_rounded = { linear: i_users_group_rounded_linear, outline: i_users_group_rounded_outline, bold: i_users_group_rounded_bold, duotone: i_users_group_rounded_bold_duotone };
 const S_i_users_group_two_rounded = { linear: i_users_group_two_rounded_linear, outline: i_users_group_two_rounded_outline, bold: i_users_group_two_rounded_bold, duotone: i_users_group_two_rounded_bold_duotone };
-const S_i_verified_check = { linear: i_verified_check_linear, outline: i_verified_check_outline, bold: i_verified_check_bold, duotone: i_verified_check_bold_duotone };
 const S_i_videocamera = { linear: i_videocamera_linear, outline: i_videocamera_outline, bold: i_videocamera_bold, duotone: i_videocamera_bold_duotone };
 const S_i_videocamera_off = { linear: i_videocamera_off_linear, outline: i_videocamera_off_outline, bold: i_videocamera_off_bold, duotone: i_videocamera_off_bold_duotone };
 const S_i_volume_cross = { linear: i_volume_cross_linear, outline: i_volume_cross_outline, bold: i_volume_cross_bold, duotone: i_volume_cross_bold_duotone };
@@ -829,9 +824,11 @@ export const ChartLineUp: Icon = make(S_i_graph_new_up);
 export const ChatCircle: Icon = make(S_i_chat_round);
 export const ChatCircleDots: Icon = make(S_i_chat_round_dots);
 export const ChatText: Icon = make(S_i_chat_line);
-export const Check: Icon = make(S_i_check_read);
+// Our own single tick (owner, 2026-09-27: the old one was Solar's double
+// "read" tick). A short leg, a long one, round ends.
+export const Check: Icon = make(drawn('<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4.75 12.75l4.5 4.5L19.25 6.75"/>', '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M4.75 12.75l4.5 4.5L19.25 6.75"/>'));
 export const CheckCircle: Icon = make(S_i_check_circle);
-export const CheckIcon: Icon = make(S_i_check_read);
+export const CheckIcon: Icon = Check;
 export const Checks: Icon = make(S_i_check_read);
 export const Clock: Icon = make(S_i_clock_circle);
 export const ClockCounterClockwise: Icon = make(S_i_history);
@@ -914,7 +911,9 @@ export const Question: Icon = make(S_i_question_circle);
 export const QuestionIcon: Icon = make(S_i_question_circle);
 export const Receipt: Icon = make(S_i_bill_list);
 export const Rows: Icon = make(S_i_list);
-export const SealCheck: Icon = make(S_i_verified_check);
+// Verified: our own soft eight-lobed seal with a white tick knocked into it
+// (fill), or the seal and tick in line.
+export const SealCheck: Icon = make(drawn('<path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M12.00 1.45 L12.68 1.60 L13.32 2.01 L13.87 2.58 L14.36 3.19 L14.82 3.69 L15.31 4.01 L15.88 4.13 L16.56 4.10 L17.33 4.02 L18.13 4.01 L18.87 4.16 L19.46 4.54 L19.84 5.13 L19.99 5.87 L19.98 6.67 L19.90 7.44 L19.87 8.12 L19.99 8.69 L20.31 9.18 L20.81 9.64 L21.42 10.13 L21.99 10.68 L22.40 11.32 L22.55 12.00 L22.40 12.68 L21.99 13.32 L21.42 13.87 L20.81 14.36 L20.31 14.82 L19.99 15.31 L19.87 15.88 L19.90 16.56 L19.98 17.33 L19.99 18.13 L19.84 18.87 L19.46 19.46 L18.87 19.84 L18.13 19.99 L17.33 19.98 L16.56 19.90 L15.88 19.87 L15.31 19.99 L14.82 20.31 L14.36 20.81 L13.87 21.42 L13.32 21.99 L12.68 22.40 L12.00 22.55 L11.32 22.40 L10.68 21.99 L10.13 21.42 L9.64 20.81 L9.18 20.31 L8.69 19.99 L8.12 19.87 L7.44 19.90 L6.67 19.98 L5.87 19.99 L5.13 19.84 L4.54 19.46 L4.16 18.87 L4.01 18.13 L4.02 17.33 L4.10 16.56 L4.13 15.88 L4.01 15.31 L3.69 14.82 L3.19 14.36 L2.58 13.87 L2.01 13.32 L1.60 12.68 L1.45 12.00 L1.60 11.32 L2.01 10.68 L2.58 10.13 L3.19 9.64 L3.69 9.18 L4.01 8.69 L4.13 8.12 L4.10 7.44 L4.02 6.67 L4.01 5.87 L4.16 5.13 L4.54 4.54 L5.13 4.16 L5.87 4.01 L6.67 4.02 L7.44 4.10 L8.12 4.13 L8.69 4.01 L9.18 3.69 L9.64 3.19 L10.13 2.58 L10.68 2.01 L11.32 1.60Z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M8.1 12.3l2.6 2.6 5.2-5.3"/>', '<path fill="currentColor" d="M12.00 1.45 L12.68 1.60 L13.32 2.01 L13.87 2.58 L14.36 3.19 L14.82 3.69 L15.31 4.01 L15.88 4.13 L16.56 4.10 L17.33 4.02 L18.13 4.01 L18.87 4.16 L19.46 4.54 L19.84 5.13 L19.99 5.87 L19.98 6.67 L19.90 7.44 L19.87 8.12 L19.99 8.69 L20.31 9.18 L20.81 9.64 L21.42 10.13 L21.99 10.68 L22.40 11.32 L22.55 12.00 L22.40 12.68 L21.99 13.32 L21.42 13.87 L20.81 14.36 L20.31 14.82 L19.99 15.31 L19.87 15.88 L19.90 16.56 L19.98 17.33 L19.99 18.13 L19.84 18.87 L19.46 19.46 L18.87 19.84 L18.13 19.99 L17.33 19.98 L16.56 19.90 L15.88 19.87 L15.31 19.99 L14.82 20.31 L14.36 20.81 L13.87 21.42 L13.32 21.99 L12.68 22.40 L12.00 22.55 L11.32 22.40 L10.68 21.99 L10.13 21.42 L9.64 20.81 L9.18 20.31 L8.69 19.99 L8.12 19.87 L7.44 19.90 L6.67 19.98 L5.87 19.99 L5.13 19.84 L4.54 19.46 L4.16 18.87 L4.01 18.13 L4.02 17.33 L4.10 16.56 L4.13 15.88 L4.01 15.31 L3.69 14.82 L3.19 14.36 L2.58 13.87 L2.01 13.32 L1.60 12.68 L1.45 12.00 L1.60 11.32 L2.01 10.68 L2.58 10.13 L3.19 9.64 L3.69 9.18 L4.01 8.69 L4.13 8.12 L4.10 7.44 L4.02 6.67 L4.01 5.87 L4.16 5.13 L4.54 4.54 L5.13 4.16 L5.87 4.01 L6.67 4.02 L7.44 4.10 L8.12 4.13 L8.69 4.01 L9.18 3.69 L9.64 3.19 L10.13 2.58 L10.68 2.01 L11.32 1.60Z"/><path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.1 12.3l2.6 2.6 5.2-5.3"/>'));
 export const ShareFat: Icon = make(S_i_share);
 export const ShareNetwork: Icon = make(S_i_share_circle);
 export const Shield: Icon = make(S_i_shield);
