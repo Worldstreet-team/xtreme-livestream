@@ -71,6 +71,13 @@ const envSchema = z.object({
   // Seeded streams have no real room, so without this the reconciler ends
   // them on the first list request. Ignored when NODE_ENV=production.
   DEV_ASSUME_STREAMS_LIVE: booleanString,
+  /**
+   * Call receipts (calls.ts): creators making market calls on air, with a
+   * public record of how each went. Off until legal review — off, nothing
+   * can be called, the record reads as switched off, and the web hides
+   * every surface of it (GET /calls/enabled).
+   */
+  CALL_RECEIPTS: booleanString,
 });
 
 const parsed = envSchema.safeParse(process.env);

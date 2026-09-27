@@ -163,6 +163,30 @@ export async function getQuote(symbol: string, now = Date.now()): Promise<Market
   }
 }
 
+/**
+ * A market's price as of now, for a record that keeps it — a call's entry
+ * (calls.ts). Fetched afresh, or shared with a fetch already on its way,
+ * and never the cached or stale one a strip makes do with: a price even
+ * fifteen seconds old can be called against in a fast market. The strip
+ * gets the fresh one too. Null when there's no such market.
+ */
+export async function freshQuote(symbol: string): Promise<MarketQuote | null> {
+  const hit = quoteCache.get(symbol);
+  if (hit?.pending) return hit.pending;
+  const pending = fetchQuote(symbol);
+  quoteCache.set(symbol, { at: hit?.at ?? 0, quote: hit?.quote, pending });
+  try {
+    const quote = await pending;
+    quoteCache.set(symbol, { at: Date.now(), quote: quote ?? undefined });
+    return quote;
+  } catch (error) {
+    // The strip keeps what it had; the record waits for a real price.
+    if (hit?.quote) quoteCache.set(symbol, { at: hit.at, quote: hit.quote });
+    else quoteCache.delete(symbol);
+    throw error;
+  }
+}
+
 /** For tests: forget the quotes. */
 export function clearQuoteCache() {
   quoteCache.clear();

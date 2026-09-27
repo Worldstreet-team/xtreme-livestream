@@ -1,6 +1,7 @@
 import type mongoose from "mongoose";
 import type { SceneLayer, Scene as SceneWire } from "@xtreme/contracts";
 import { cardMoment, recordMoment } from "./analytics.js";
+import { resolveCallLayers } from "./calls.js";
 import { ApiError } from "./errors.js";
 import { sceneView } from "./featured.js";
 import { sendRoomData, setRoomScene } from "./livekit.js";
@@ -27,7 +28,8 @@ export async function putScene(streamId: Id, body: SceneBody, now = new Date()) 
     if (!stream.isLive) throw new ApiError(409, "Go live first", "NOT_LIVE");
     // A sponsor card is drawn from our records, never from what was sent —
     // and it's always the host's sponsor, whoever is producing.
-    const layers = await resolveSceneLayers(body.layers as SceneLayer[], stream.streamerId, stream, now);
+    // So is a call card: only a call made on this stream, as its record says.
+    const layers = await resolveCallLayers(await resolveSceneLayers(body.layers as SceneLayer[], stream.streamerId, stream, now), stream);
     const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
     const cardBefore = stream.scene?.card ?? null;
     const expected = stream.scene?.version ?? 0;

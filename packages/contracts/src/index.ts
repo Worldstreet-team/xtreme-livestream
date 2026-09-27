@@ -210,7 +210,7 @@ export const SCENE_CARDS = ["starting-soon", "brb", "ending"] as const;
  * each at most. They render as DOM on every screen — crisp at any quality
  * layer — in the creator's brand accent.
  */
-export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta", "sponsor", "prices"] as const;
+export const SCENE_LAYER_KINDS = ["lower-third", "banner", "ticker", "countdown", "logo", "cta", "sponsor", "prices", "call"] as const;
 /** The most markets a price strip shows at once. */
 export const MAX_PRICE_SYMBOLS = 5;
 export const LOGO_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
@@ -271,6 +271,21 @@ export const sceneLayerSchema = z.discriminatedUnion("kind", [
     logoUrl: z.string().max(300).nullable().default(null),
     /** Kept from viewers in Nigeria: a restricted category nobody has cleared. */
     restricted: z.boolean().default(false),
+  }),
+  /**
+   * A market call on screen (Phase 4, call receipts), with "Not financial
+   * advice" always attached. The client names the call; the API draws the
+   * rest from its record of it on every write, so a card can't say anything
+   * the record doesn't — and only a call made on this stream goes up.
+   */
+  z.object({
+    kind: z.literal("call"),
+    callId: objectIdSchema,
+    symbol: z.string().max(15).default(""),
+    direction: z.enum(["up", "down"]).default("up"),
+    entryPrice: z.number().min(0).default(0),
+    entryAt: z.string().max(40).default(""),
+    by: z.string().max(80).default(""),
   }),
 ]);
 
@@ -1341,6 +1356,91 @@ export interface Pagination {
   total: number;
   pages: number;
 }
+
+/* ------------------------------------------------------------------ */
+/* Call receipts (Phase 4)                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Call receipts: a creator on air says "SOL goes up from here" and taps
+ * Make a call. The API records the market, the direction, the price and
+ * the time itself — never what a client sends — puts a card on the stream
+ * (the `call` scene layer), and fills in how it went at 1 hour, 24 hours
+ * and 7 days from Coinbase's one-minute candles. Nobody can edit or delete
+ * a call; only a platform admin can hide one, and says why. Behind the
+ * API's CALL_RECEIPTS switch, off until legal review (`GET /calls/enabled`).
+ */
+export const CALL_DIRECTIONS = ["up", "down"] as const;
+export type CallDirection = (typeof CALL_DIRECTIONS)[number];
+/** When a call is checked, after it's made. */
+export const CALL_CHECKPOINTS = ["h1", "h24", "d7"] as const;
+export type CallCheckpoint = (typeof CALL_CHECKPOINTS)[number];
+export const CALL_CHECKPOINT_MS: Record<CallCheckpoint, number> = { h1: 3_600_000, h24: 86_400_000, d7: 7 * 86_400_000 };
+/** A channel's calls in any 24 hours, at most. */
+export const MAX_CALLS_PER_DAY = 20;
+/** How long before a channel can call the same market again. */
+export const CALL_MARKET_COOLDOWN_MS = 10 * 60_000;
+export const CALL_NOTE_MAX = 80;
+
+/** Making a call: the market and which way. The price and the time are the API's own. */
+export const callBodySchema = z.object({
+  symbol: marketSymbolSchema,
+  direction: z.enum(CALL_DIRECTIONS),
+  note: z.string().trim().max(CALL_NOTE_MAX).default(""),
+});
+
+export const callIdParamsSchema = z.object({ id: objectIdSchema });
+
+/** A channel's calls, newest first: `cursor` is the `next` of the page before. */
+export const callsQuerySchema = z.object({
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+/** A platform admin hiding a call (or putting it back): always with the reason. */
+export const callHideBodySchema = z.object({
+  reason: z.string().trim().min(3).max(200),
+});
+
+/** A checkpoint: that minute's closing price and the move since the call — or none, when Coinbase had no price for it. */
+export type CallOutcomeView =
+  | { at: string; price: number; changePct: number; unavailable: false }
+  | { at: string; price: null; changePct: null; unavailable: true };
+
+export interface CallView {
+  id: string;
+  streamId: string;
+  /** The channel's name when the call was made — what its card said. */
+  by: string;
+  symbol: string;
+  direction: CallDirection;
+  note: string;
+  entry: { price: number; at: string };
+  /** Null until the checkpoint's minute has closed and its price is in. */
+  outcomes: Record<CallCheckpoint, CallOutcomeView | null>;
+}
+
+/**
+ * A channel's record. "Right" is the price having moved the way it was
+ * called by the 24-hour check; the average move is in the called direction
+ * (negative: against it). Calls an admin hid are left out, and counted.
+ */
+export interface CallSummary {
+  total: number;
+  checked24h: number;
+  right24h: number;
+  /** right24h / checked24h, 0–1; null before any call is checked. */
+  rightShare24h: number | null;
+  avgMove24hPct: number | null;
+  hidden: number;
+}
+
+/** GET /users/:username/calls — the summary rides on the first page only. */
+export type CallsPage =
+  | { enabled: false }
+  | { enabled: true; calls: CallView[]; next: string | null; summary: CallSummary | null };
+
+export type CallLayer = Extract<SceneLayer, { kind: "call" }>;
 
 /* ------------------------------------------------------------------ */
 /* Market questions and the market as director (Phase 4)               */

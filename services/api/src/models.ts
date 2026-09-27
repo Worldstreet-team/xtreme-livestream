@@ -1868,3 +1868,95 @@ const controlKeySchema = new Schema<IControlKey>(
 );
 
 export const ControlKey = mongoose.model<IControlKey>("ControlKey", controlKeySchema);
+
+/* ------------------------------------------------------------------ */
+/* Call receipts                                                       */
+/* ------------------------------------------------------------------ */
+
+/** A call's checkpoint: that minute's closing price and the move since the call, or unavailable (no price for it). */
+export interface ICallOutcome {
+  price: number | null;
+  at: Date;
+  changePct: number | null;
+  unavailable: boolean;
+}
+
+/**
+ * A market call made on air (Phase 4, call receipts; calls.ts). What was
+ * called, and the price and time it was called at, are the API's own and
+ * can't change once written (`immutable`); the checkpoints are filled in
+ * once each by the outcome sweep. There's no edit and no delete — only a
+ * platform admin can hide a call, and says why.
+ */
+export interface ICall extends Document {
+  streamId: mongoose.Types.ObjectId;
+  streamerId: mongoose.Types.ObjectId;
+  /** Who pressed it: the host, or one of their producers. */
+  createdBy: mongoose.Types.ObjectId;
+  /** The channel's name when the call was made — what its card says. */
+  by: string;
+  symbol: string;
+  direction: "up" | "down";
+  note: string;
+  entry: { price: number; at: Date };
+  outcomes: { h1: ICallOutcome | null; h24: ICallOutcome | null; d7: ICallOutcome | null };
+  /** When the sweep next looks at it: the first open checkpoint, once its minute has closed. Null once all three are in. */
+  nextCheckAt: Date | null;
+  /** The ten-minute slot it was made in: a second call on the market racing this one is refused by the unique index. */
+  slot: number;
+  hidden: { at: Date; by: mongoose.Types.ObjectId; reason: string } | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const callOutcomeSchema = new Schema<ICallOutcome>(
+  {
+    price: { type: Number, default: null },
+    at: { type: Date, required: true },
+    changePct: { type: Number, default: null },
+    unavailable: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+const callSchema = new Schema<ICall>(
+  {
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true, immutable: true },
+    streamerId: { type: Schema.Types.ObjectId, ref: "User", required: true, immutable: true },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true, immutable: true },
+    by: { type: String, default: "", maxlength: 80, immutable: true },
+    symbol: { type: String, required: true, immutable: true },
+    direction: { type: String, enum: ["up", "down"], required: true, immutable: true },
+    note: { type: String, default: "", maxlength: 80, immutable: true },
+    entry: {
+      price: { type: Number, required: true, min: 0, immutable: true },
+      at: { type: Date, required: true, immutable: true },
+    },
+    outcomes: {
+      h1: { type: callOutcomeSchema, default: null },
+      h24: { type: callOutcomeSchema, default: null },
+      d7: { type: callOutcomeSchema, default: null },
+    },
+    nextCheckAt: { type: Date, default: null },
+    slot: { type: Number, required: true, immutable: true },
+    hidden: {
+      type: new Schema(
+        {
+          at: { type: Date, required: true },
+          by: { type: Schema.Types.ObjectId, ref: "User", required: true },
+          reason: { type: String, required: true, maxlength: 200 },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+  },
+  { timestamps: true },
+);
+// A channel's record, newest first; and its calls counted for the limits.
+callSchema.index({ streamerId: 1, createdAt: -1 });
+callSchema.index({ streamerId: 1, symbol: 1, slot: 1 }, { unique: true });
+callSchema.index({ streamId: 1 });
+callSchema.index({ nextCheckAt: 1 }, { partialFilterExpression: { nextCheckAt: { $type: "date" } } });
+
+export const Call = mongoose.model<ICall>("Call", callSchema);

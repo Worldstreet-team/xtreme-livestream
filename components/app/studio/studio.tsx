@@ -3589,6 +3589,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       <SceneGraphicsPanel
         layers={scene.layers}
         brand={brand}
+        // A market call is made on the live stream — never a practice run's, which the channel's record would keep.
+        streamId={isLive && !practice ? streamId : null}
         hostName={user?.displayName || user?.username || ""}
         streamTitle={title}
         people={liveGuests.map((g) => ({

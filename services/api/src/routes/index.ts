@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { adminRoutes } from "./admin.js";
+import { callRoutes } from "./calls.js";
 import { battleRoutes } from "./battles.js";
 import { cameraRoutes } from "./camera.js";
 import { gameRoutes } from "./games.js";
@@ -57,6 +58,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(adminRoutes);
   await fastify.register(marketRoutes);
   await fastify.register(marketDirectorRoutes);
+  await fastify.register(callRoutes);
   await fastify.register(notificationRoutes);
   await fastify.register(webhookRoutes);
 };

@@ -12,7 +12,8 @@ import { GiftArt } from "@/components/app/gift-art";
 import { QrCode } from "@/components/app/qr-code";
 import { MarketChart } from "@/components/app/market-chart";
 import { formatQuote, marketBase, useQuotes } from "@/lib/market";
-import { Fire } from "@/components/icons";
+import { formatCallPrice, formatCallTime, formatMove, moveSince, useCallsEnabled } from "@/lib/market-calls";
+import { ArrowDown, ArrowUp, Fire } from "@/components/icons";
 import {
   goalAmount,
   goalShowing,
@@ -454,11 +455,11 @@ function GraphicsAnnouncer({ scene }: { scene: Scene }) {
 }
 
 /**
- * The host's graphics, each in its place: the price strip, banner and
- * countdown at the top, the lower third and ticker at the bottom, the logo
- * in its corner.
+ * The host's graphics, each in its place: the price strip, a market call,
+ * the banner and countdown at the top, the lower third and ticker at the
+ * bottom, the logo in its corner.
  *
- * A card takes the lower third, the banner, the prices and a featured comment down with
+ * A card takes the lower third, the banner, the prices, a call and a featured comment down with
  * the picture they're about, and draws the countdown itself, big, as its
  * centrepiece; the ticker and logo stay over it. A battle owns the top of the frame, so
  * what's up there stands aside until it ends; and the corner camera keeps
@@ -506,6 +507,8 @@ function SceneGraphics({
   const countdown = carded || battle ? undefined : layerOf(layers, "countdown");
   // The price strip keeps the banner's hours: down under a card, and while a battle has the top.
   const prices = carded || battle ? undefined : layerOf(layers, "prices");
+  // So does a market call, under the strip.
+  const call = carded || battle ? undefined : layerOf(layers, "call");
   const ticker = layerOf(layers, "ticker");
   const logo = brand.logoUrl ? layerOf(layers, "logo") : undefined;
   let corner: LogoCorner | null = logo?.corner ?? null;
@@ -554,7 +557,7 @@ function SceneGraphics({
       <div className="relative size-full">
         {topLogo && logoImg(cn("absolute top-[var(--g-m)]", topLogo === "top-left" ? "left-[var(--g-m)]" : "right-[var(--g-m)]"))}
 
-        {(prices || banner || countdown || goalUp || heatUp) && (
+        {(prices || call || banner || countdown || goalUp || heatUp) && (
           <div
             className={cn(
               "absolute top-[var(--g-m)] flex flex-col items-center gap-[calc(var(--g-m)/2)]",
@@ -564,6 +567,7 @@ function SceneGraphics({
           >
             {/* Prices first, at the very top: a row of pills the banner and the rest sit under. */}
             {prices && <PricesStrip symbols={prices.symbols} />}
+            {call && <CallGraphic key={call.callId} call={call} fontClass={fontClass} />}
             {banner && (
               <p
                 key={banner.text}
@@ -893,6 +897,60 @@ function PricesStrip({ symbols }: { symbols: string[] }) {
       })}
       <span className="rounded-full bg-black/60 px-[0.7em] py-[0.42em] font-mono text-[0.72em] whitespace-nowrap text-white/65">
         {source} · {failed && "Paused · "}Not financial advice
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A market call (call receipts): what the host called and from where —
+ * "Ada K calls SOL up · from $142.10 · 20:14" — the mark in their accent,
+ * the move since from our shared feed (plain white: a fact, not a score),
+ * and "Not financial advice" on it always. The price and the time are the
+ * API's record of the call, not the host's say. No links, no buy buttons;
+ * with the platform's switch off it isn't drawn at all.
+ */
+function CallGraphic({ call, fontClass }: { call: Extract<SceneLayer, { kind: "call" }>; fontClass: string }) {
+  const on = useCallsEnabled();
+  const { quotes } = useQuotes(on ? [call.symbol] : []);
+  if (!on) return null;
+  const coin = marketBase(call.symbol);
+  const from = formatCallPrice(call.symbol, call.entryPrice);
+  const last = quotes[0]?.last;
+  const move = last ? moveSince(call.entryPrice, last) : null;
+  const Mark = call.direction === "up" ? ArrowUp : ArrowDown;
+  return (
+    <div
+      role="note"
+      aria-label={`${call.by || "The host"} calls ${coin} ${call.direction}, from ${from}. Not financial advice.`}
+      className="flex max-w-[min(100%,27em)] items-stretch overflow-hidden rounded-[clamp(8px,1cqw,14px)] bg-black/80 text-[clamp(12px,1.5cqw,18px)] text-white motion-safe:animate-[graphic-in-down_420ms_var(--ease-spring)_both]"
+    >
+      <span aria-hidden className="w-[clamp(3px,0.45cqw,6px)] shrink-0 bg-[var(--g-fill)]" />
+      <span className="flex min-w-0 flex-col gap-[0.45em] py-[0.55em] pr-[0.9em] pl-[0.6em]">
+        <span className="flex items-center gap-[0.4em] text-[max(10px,0.6em)] leading-none font-bold tracking-[0.1em] text-white/70 uppercase">
+          <span aria-hidden className="size-[0.5em] min-h-[5px] min-w-[5px] rounded-full bg-white/70" />
+          Call · Not financial advice
+        </span>
+        <span className="flex min-w-0 items-center gap-[0.6em]">
+          <span aria-hidden className="flex size-[2.1em] shrink-0 items-center justify-center rounded-[0.45em] bg-[var(--g-fill)] text-[var(--g-ink)]">
+            <Mark weight="fill" size="1.25em" />
+          </span>
+          <span className="min-w-0">
+            <span className={cn("block truncate leading-tight font-bold", fontClass)}>
+              {call.by ? `${call.by} calls` : "Calling"} {coin} {call.direction}
+            </span>
+            <span className="mt-[0.15em] flex flex-wrap items-baseline gap-x-[0.55em] text-[0.8em] leading-snug text-white/70">
+              <span className="whitespace-nowrap">
+                from <span className="font-money text-[1.08em] text-white">{from}</span> · {formatCallTime(call.entryAt)}
+              </span>
+              {move !== null && (
+                <span className="font-mono font-bold whitespace-nowrap text-white/85 tabular-nums">
+                  <span aria-hidden className="text-[0.75em]">{move > 0 ? "▲" : move < 0 ? "▼" : "·"}</span> {formatMove(move)} since
+                </span>
+              )}
+            </span>
+          </span>
+        </span>
       </span>
     </div>
   );

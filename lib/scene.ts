@@ -256,6 +256,16 @@ function readLayer(raw: unknown): SceneLayer | null {
       const logoUrl = typeof r.logoUrl === "string" && r.logoUrl.startsWith("/api/") ? r.logoUrl.slice(0, 300) : null;
       return { kind: "sponsor", source, sponsorId, name, line: text(r.line, 80), url, code: text(r.code, 24), logoUrl, restricted: r.restricted === true };
     }
+    case "call": {
+      // A market call (call receipts): drawn only when the record's whole — a price, a time, which way.
+      const callId = typeof r.callId === "string" && /^[a-f\d]{24}$/i.test(r.callId) ? r.callId : "";
+      const symbol = typeof r.symbol === "string" ? r.symbol.trim().toUpperCase() : "";
+      const direction = r.direction === "up" || r.direction === "down" ? r.direction : null;
+      const entryPrice = typeof r.entryPrice === "number" && Number.isFinite(r.entryPrice) && r.entryPrice > 0 ? r.entryPrice : 0;
+      const entryAt = typeof r.entryAt === "string" && !Number.isNaN(Date.parse(r.entryAt)) ? r.entryAt : "";
+      if (!callId || !MARKET_SYMBOL.test(symbol) || !direction || !entryPrice || !entryAt) return null;
+      return { kind: "call", callId, symbol, direction, entryPrice, entryAt, by: text(r.by, 80) };
+    }
     default:
       return null;
   }

@@ -6,6 +6,7 @@ import { connectDatabase, disconnectDatabase } from "./database.js";
 import { startSocialsRelaySweep } from "./socials-relay.js";
 import { startVelocitySweep } from "./velocity.js";
 import { startBattleSweep } from "./battles.js";
+import { startCallSweep } from "./calls.js";
 import { startDropSweep, startGameSweep } from "./games.js";
 import { startMarketAlertSweep } from "./market-alerts.js";
 import { startWatchDrip } from "./points.js";
@@ -51,6 +52,7 @@ try {
   startSponsorSweep();
   startGameSweep();
   startMarketAlertSweep();
+  startCallSweep();
   startDropSweep();
   startPayoutSweep();
   startWatchDrip();

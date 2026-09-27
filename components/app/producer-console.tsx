@@ -582,6 +582,8 @@ function LiveConsole({
         layers={scene.layers}
         brand={brand}
         brandKit={false}
+        // A producer can make the host's call too — never on a practice run.
+        streamId={stream.practice ? null : stream.id}
         hostName={hostName}
         streamTitle={stream.title}
         people={onStage.map((g) => ({ name: live.guests.find((t) => t.identity === g.userId)?.name || g.username, username: g.username }))}

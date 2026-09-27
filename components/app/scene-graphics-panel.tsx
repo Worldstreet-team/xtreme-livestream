@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, ImageSquare, Trash, Warning, X } from "@/components/icons";
 import { QrCode } from "@/components/app/qr-code";
+import { MakeACall } from "@/components/app/make-a-call";
 import { cn } from "@/lib/utils";
 import { apiUrl } from "@/lib/api-client";
 import { compressImage } from "@/lib/image-utils";
@@ -79,6 +80,7 @@ export function SceneGraphicsPanel({
   battle,
   sponsors = null,
   brandKit = true,
+  streamId = null,
   onLayers,
   onBrand,
 }: {
@@ -96,6 +98,8 @@ export function SceneGraphicsPanel({
   sponsors?: { own: SponsorView[]; campaigns: CampaignView[] } | null;
   /** The brand kit under the graphics — the creator's own; a producer uses it as it is. */
   brandKit?: boolean;
+  /** The live stream, which a market call is made on (call receipts). Unset, there's no Make a call. */
+  streamId?: string | null;
   /** Put a new set of graphics on air. */
   onLayers: (layers: SceneLayer[]) => void;
   /** Save part of the brand kit; rejects with a message worth showing. */
@@ -109,6 +113,7 @@ export function SceneGraphicsPanel({
   const cta = layerOf(layers, "cta");
   const sponsorUp = layerOf(layers, "sponsor");
   const prices = layerOf(layers, "prices");
+  const callUp = layerOf(layers, "call");
 
   // Drafts: null until typed in, so they follow what's on air (a resumed
   // stream's graphics) and the defaults until then.
@@ -416,6 +421,20 @@ export function SceneGraphicsPanel({
             </p>
           </GraphicCard>
 
+          {streamId && (
+            <MakeACall
+              // A new broadcast starts afresh: "Show again" is only ever this stream's call.
+              key={streamId}
+              streamId={streamId}
+              strip={prices?.symbols ?? []}
+              up={callUp}
+              carded={carded}
+              battle={battle}
+              onPut={(layer) => put(layer)}
+              onTake={() => take("call")}
+            />
+          )}
+
           <GraphicCard
             title="QR code"
             on={Boolean(cta)}
@@ -560,9 +579,9 @@ export function SceneGraphicsPanel({
         </div>
         <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">
           {battle
-            ? "A battle has the top of the picture — the banner, prices and countdown come back when it ends."
+            ? `A battle has the top of the picture — the banner, prices${callUp ? ", call" : ""} and countdown come back when it ends.`
             : carded
-              ? "A card is up: the lower third, banner and prices wait under it. The ticker, countdown and logo stay on top."
+              ? `A card is up: the lower third, banner${callUp ? ", prices and call wait" : " and prices wait"} under it. The ticker, countdown and logo stay on top.`
               : "Graphics draw sharp on every screen, whatever the viewer's connection."}
         </p>
       </section>

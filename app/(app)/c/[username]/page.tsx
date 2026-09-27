@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Broadcast,
   CalendarBlank,
+  ChartLineUp,
   Check,
   Eye,
   House,
@@ -20,6 +21,7 @@ import { RemindButton } from "@/components/app/upcoming-card";
 import { FollowButton } from "@/components/app/follow-button";
 import { MessageButton } from "@/components/app/message-button";
 import { StreamArt } from "@/components/app/stream-art";
+import { CallReceipts } from "@/components/app/call-receipts";
 import { Empty } from "@/components/app/empty";
 import { PillTabs } from "@/components/ui/tabs";
 import { LiveBadge } from "@/components/ui/badge";
@@ -32,6 +34,7 @@ import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
 import { formatUptime, toCard, type RowItem } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
+import { fetchCalls, type CallsPage } from "@/lib/market-calls";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +51,7 @@ import { cn } from "@/lib/utils";
  * name; the big tiles are the About tab's.
  */
 
-type Tab = "home" | "videos" | "schedule" | "about";
+type Tab = "home" | "videos" | "calls" | "schedule" | "about";
 type Sort = "recent" | "top";
 
 interface ChannelUser {
@@ -112,6 +115,8 @@ export default function ChannelPage({
   const [isFollowing, setIsFollowing] = useState(false);
   const [streams, setStreams] = useState<RowItem[]>([]);
   const [also, setAlso] = useState<RowItem[]>([]);
+  // Market calls (call receipts): null while switched off, or until they load.
+  const [calls, setCalls] = useState<Extract<CallsPage, { enabled: true }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [tab, setTab] = useState<Tab>("home");
@@ -132,6 +137,9 @@ export default function ChannelPage({
       setChannel(profile.data.user);
       setIsFollowing(profile.data.isFollowing);
       setStreams(streamList.data.streams);
+      fetchCalls(username)
+        .then((page) => setCalls(page.enabled ? page : null))
+        .catch(() => setCalls(null));
 
       const seed = streamList.data.streams[0];
       if (seed) {
@@ -240,9 +248,14 @@ export default function ChannelPage({
     });
   };
 
+  // Calls get a tab once there are some to show (and only while they're switched on).
+  const callCount = calls?.summary?.total ?? 0;
+  // None left to show while their tab is open (another channel's page, say): back to Home.
+  if (tab === "calls" && callCount === 0) setTab("home");
   const TABS: [Tab, string, typeof House][] = [
     ["home", "Home", House],
     ["videos", "Videos", VideoCamera],
+    ...(callCount > 0 ? [["calls", "Calls", ChartLineUp] as [Tab, string, typeof House]] : []),
     ["schedule", "Schedule", CalendarBlank],
     ["about", "About", Info],
   ];
@@ -349,7 +362,7 @@ export default function ChannelPage({
             id,
             label,
             icon: Icon,
-            count: id === "videos" ? past.length : id === "schedule" ? upcoming.length : null,
+            count: id === "videos" ? past.length : id === "schedule" ? upcoming.length : id === "calls" ? callCount : null,
           }))}
           value={tab}
           onChange={setTab}
@@ -417,6 +430,10 @@ export default function ChannelPage({
             ) : (
               <EmptyBroadcasts name={name} />
             ))}
+
+          {tab === "calls" && calls?.summary && callCount > 0 && (
+            <CallReceipts username={channel.username} name={name} calls={calls.calls} next={calls.next} summary={calls.summary} now={now} />
+          )}
 
           {tab === "schedule" && (
             <>
