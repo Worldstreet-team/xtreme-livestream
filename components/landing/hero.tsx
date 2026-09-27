@@ -1,93 +1,80 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Lightning, Play } from "@/components/icons";
+import Image from "next/image";
+import { ArrowUpRight } from "@/components/icons";
+import { PillLink } from "@/components/ui/pill";
+import { Eyebrow, GUTTER, Lines, delay } from "./story-ui";
 
 /**
- * The landing hero.
+ * The landing hero: the whole pitch in three beats, set big enough to be
+ * the picture's caption rather than a line on top of it.
  *
- * One headline, one line under it, two ways in — and nothing else. It was
- * carrying an early-access badge, a camera-effect toggle, two red glows and
- * a row of year-one target figures; all of it competed with the sentence
- * that actually has to land, and the figures were projections wearing the
- * clothes of achievements. Owner, 2026-09-22.
+ * The background is still the filming clip (`/promo/live-phones.mp4`),
+ * graded warm and held under a scrim that's heaviest where the type sits,
+ * so it reads as light and movement. Its first frame is the poster, and the
+ * whole picture for anyone who has asked their system for less motion.
  *
- * The background is the filming clip, held under a heavy scrim so it reads
- * as light and movement rather than footage the eye tries to watch.
+ * No figures here: the owner took the year-one targets off the hero
+ * (2026-09-22) because projections were wearing the clothes of results.
  */
 export function Hero() {
   return (
-    <section className="relative flex min-h-screen items-end justify-center overflow-hidden">
-      <div className="absolute inset-0">
-        {/* The grid is the ground the film sits on: it shows before the
-            first frame paints, and it is the whole background for anyone
-            who has asked their system for less motion. */}
-        <div
-          className="h-full w-full bg-[#030303]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-            backgroundSize: "28px 28px",
-          }}
-        />
-        <video
-          src="/promo/live-phones.mp4"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          aria-hidden
-          className="absolute inset-0 size-full object-cover motion-reduce:hidden"
-        />
-        {/* Footage is atmosphere, not the subject. It keeps most of its
-            light at the top and falls away to near-black at the foot,
-            where the copy sits — so the type never fights the picture. */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/65 to-black/95 motion-reduce:hidden" />
+    <section aria-labelledby="hero-title" className="relative isolate flex min-h-[100svh] flex-col justify-end overflow-hidden">
+      <div aria-hidden className="absolute inset-0 -z-10 overflow-hidden">
+        {/* The film arrives zoomed and settles, then drifts slower than
+            the page as you scroll away from it. It's taller than the frame
+            so the drift never shows an edge. */}
+        <div data-reveal="zoom" className="absolute inset-0">
+          <div data-parallax="0.2" className="absolute inset-x-0 -top-[12%] h-[124%]">
+            <Image src="/promo/live-phones-poster.jpg" alt="" fill priority sizes="100vw" className="object-cover" />
+            <video
+              id="hero-film"
+              src="/promo/live-phones.mp4"
+              poster="/promo/live-phones-poster.jpg"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              className="absolute inset-0 size-full object-cover motion-reduce:hidden"
+            />
+          </div>
+        </div>
+        {/* Warm the footage toward the ground, then scrim it: heaviest at
+            the left and the foot, where the words are. */}
+        <div className="absolute inset-0 bg-[#3a1208]/25 mix-blend-multiply" />
+        <div className="absolute inset-0 bg-gradient-to-r from-ground/95 via-ground/60 to-ground/10" />
+        <div className="absolute inset-0 bg-gradient-to-b from-ground/60 via-transparent via-40% to-ground" />
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-4 pt-28 pb-20 text-center sm:px-6 md:pb-28 lg:px-8">
-        {/* One sentence per line, and the size is chosen so the longer of
-            the two still fits the measure — `text-balance` is deliberately
-            absent, since it only fights an explicit break. */}
-        <h1 className="font-[family-name:var(--font-display)] text-[2.15rem] leading-[1.04] font-extrabold tracking-[-0.035em] text-white sm:text-[3rem] md:text-[4rem] lg:text-[4.75rem]">
-          Your bags are pumping.
-          <br />
-          Your stream should be too.
-        </h1>
+      <div className={`mx-auto flex w-full max-w-[90rem] flex-col gap-14 pt-32 pb-16 sm:pb-20 ${GUTTER}`}>
+        <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-7">
+            <Eyebrow>The live layer of WorldStreet</Eyebrow>
+            <h1
+              id="hero-title"
+              data-reveal="lines"
+              style={delay(150)}
+              className="font-wide text-[clamp(3.25rem,8vw,7.75rem)] leading-[0.88] font-bold tracking-[-0.05em] text-foreground"
+            >
+              <Lines lines={["Go live.", "Get backed.", "Get paid."]} />
+            </h1>
+          </div>
 
-        <p className="mt-7 max-w-[46ch] text-lg leading-relaxed text-white/75 sm:text-xl">
-          Go live, flex your alpha, and get tipped in crypto — all
-          while&nbsp;the&nbsp;charts do the talking.
-        </p>
-
-        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Button
-            asChild
-            size="lg"
-            className="h-12 gap-2 rounded-full bg-primary px-8 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/85"
-          >
-            <Link href="/studio">
-              <Lightning size={20} weight="fill" />
-              Start streaming
-            </Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="lg"
-            className="h-12 gap-2 rounded-full border-white/15 bg-white/5 px-8 text-base font-semibold text-white transition-colors hover:border-white/25 hover:bg-white/10"
-          >
-            <Link href="/explore">
-              <Play size={20} weight="fill" />
-              Explore streams
-            </Link>
-          </Button>
+          <div data-reveal="up" style={delay(650)} className="flex max-w-[23rem] flex-col gap-7 lg:pb-3">
+            <p className="text-[17px] leading-[1.5] text-foreground/85">
+              Xtream is where WorldStreet goes live: a studio, a scoreboard and a wallet in one room. Every gift, follow and battle win
+              counts.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <PillLink href="/studio" variant="primary" size="xl" trailing={<ArrowUpRight size={17} weight="bold" />}>
+                Start streaming
+              </PillLink>
+              <PillLink href="/explore" variant="glass" size="xl" className="bg-white/[0.12] hover:bg-white/[0.18]">
+                Watch live
+              </PillLink>
+            </div>
+          </div>
         </div>
       </div>
-
-      {/* Bottom fade into the page below. */}
-      <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-32 bg-gradient-to-t from-background to-transparent" />
     </section>
   );
 }

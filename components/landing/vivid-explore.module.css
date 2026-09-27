@@ -1,0 +1,132 @@
+/* The Vivid row's last card: "Explore more with Vivid", in motion.
+ *
+ * The owner's direction (2026-09-27): the dots all round the card turn into
+ * the word Vivid, and the type moves on the WorldSpace timing from the
+ * notebook (Motion Design Ideas, ideas.md):
+ *
+ *   idle  armed once the page has JS: ink dots drift all round the card, the
+ *         words wait. (No JS and the server paint show the finished card.)
+ *   in    M05, appended words: "Explore → Explore more → Explore more with",
+ *         one word every 340 ms, each rising 0.25 em and fading in over
+ *         260 ms while the line re-centres (FLIP, 320 ms, standard ease),
+ *         driven from chapter-vivid.tsx. Then the field empties into the
+ *         letters of "Vivid", letter by letter (M06 timing, vivid-dots.ts).
+ *         The word stays made of dots, one colour, ink.
+ *   done  the phrase folds away, so the dotted word glides up (the dots
+ *         follow it), and the button rises in under it.
+ *
+ * Reduced motion skips straight to the whole card, still, with the word set
+ * in type.
+ */
+
+.card {
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fold: cubic-bezier(0.65, 0, 0.35, 1);
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.dots {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.stack {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* The phrase sits in a grid track so it can fold to nothing. */
+.phrase {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.8s var(--fold),
+    opacity 0.5s var(--fold),
+    filter 0.5s var(--fold),
+    transform 0.8s var(--fold);
+}
+.phraseInner {
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+}
+/* One line that grows a word at a time. */
+.line {
+  display: flex;
+  justify-content: center;
+  gap: 0.26em;
+  white-space: nowrap;
+}
+.line > span {
+  display: inline-block;
+}
+
+.vivid {
+  display: inline-block;
+  padding: 0 0.04em 0.08em;
+}
+
+.cta {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    grid-template-rows 0.8s var(--fold),
+    opacity 0.5s var(--ease) 0.25s,
+    transform 0.7s var(--ease) 0.25s;
+}
+.ctaInner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding-top: 1.5rem;
+}
+
+/* While the dots are drawing it, the word stays in layout (they aim at it) but unseen. */
+.card[data-state="idle"] .vivid,
+.card[data-state="in"] .vivid,
+.card[data-state="done"] .vivid {
+  color: transparent;
+}
+
+/* ---- done: the phrase folds away, Vivid rises, the button arrives ---- */
+.card[data-state="done"] .phrase {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  filter: blur(6px);
+  transform: translateY(-24px);
+}
+.card[data-state="done"] .cta,
+.card:not([data-state]) .cta,
+.card[data-state="still"] .cta {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card *,
+  .card {
+    transition: none !important;
+    animation: none !important;
+  }
+  .dots {
+    display: none;
+  }
+}

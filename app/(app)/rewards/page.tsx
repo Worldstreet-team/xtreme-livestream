@@ -28,6 +28,7 @@ import { announcePoints, formatPoints } from "@/lib/games";
 import { cn } from "@/lib/utils";
 import { PillTabs } from "@/components/ui/tabs";
 import { Money } from "@/components/xtream/money";
+import { RewardArt } from "@/components/xtream/reward-art";
 import { useCountUp } from "@/lib/use-count-up";
 
 /**
@@ -331,7 +332,8 @@ function LevelTile({ level }: { level: Level }) {
     return () => clearTimeout(t);
   }, [pct]);
   return (
-    <div className={cn(TILE, "flex items-center gap-5 p-6 md:col-span-3 lg:col-span-4")}>
+    <div className={cn(TILE, "isolate flex min-h-[248px] items-center gap-5 p-6 pb-12 md:col-span-3 lg:col-span-4")}>
+      <RewardArt variant="ember" className="-right-5 -bottom-12 -z-10 w-28 md:w-32" />
       <div className="relative size-[132px] shrink-0">
         <svg viewBox="0 0 132 132" className="size-full -rotate-90" aria-hidden>
           <defs>
@@ -615,7 +617,8 @@ function RedeemTile({ balance, rules, waiting, onDone }: { balance: number; rule
           {note.text}
         </p>
       )}
-      <p className="mt-auto pt-5 text-[12.5px] leading-relaxed text-muted-foreground/80">
+      <RewardArt variant="value" className="-right-6 -bottom-5 w-32 md:-right-7 md:-bottom-8 md:w-44" />
+      <p className="relative mt-auto min-h-28 pt-5 pr-20 text-[12.5px] leading-relaxed text-muted-foreground/80 md:pr-28">
         In thousands, from {formatPoints(rules.minPoints)} · up to {formatPoints(rules.dailyCapPoints)} a day · once your account is {rules.minAccountAgeDays} days old.
         {!rules.treasuryReady && " Payouts queue until the treasury is connected."}
       </p>

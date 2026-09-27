@@ -1,0 +1,160 @@
+/* Landing motion. Declared in markup with data attributes, run by
+   <ScrollMotion>, which puts `lm-ready` on <html> once it's watching.
+   Everything below is gated on that class and on the visitor not having
+   asked for reduced motion, so the resting state is always the final one. */
+
+:root {
+  --lm-ease: cubic-bezier(0.16, 1, 0.3, 1); /* expo-out: fast arrival, long settle */
+  --lm-ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* A title line's mask. The padding keeps descenders out of the clip. */
+.lm-line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.1em;
+  margin-bottom: -0.1em;
+}
+.lm-line > span {
+  display: block;
+}
+
+/* A feature note's hairline, drawn as a pseudo-element so it can be drawn in. */
+.lm-rule {
+  position: relative;
+}
+.lm-rule::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  transform-origin: left center;
+}
+
+/* Tonight's film, and the scrubbed manifesto words: at rest, full and whole. */
+.lm-word {
+  display: inline;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* ---- one-shot reveals --------------------------------------------- */
+  .lm-ready [data-reveal="up"] {
+    opacity: 0;
+    transform: translate3d(0, 44px, 0);
+    transition:
+      opacity 1s var(--lm-ease),
+      transform 1.3s var(--lm-ease);
+    transition-delay: var(--d, 0ms);
+  }
+
+  .lm-ready [data-reveal="lines"] .lm-line > span {
+    transform: translate3d(0, 112%, 0) rotate(2.5deg);
+    transform-origin: 0 100%;
+    transition: transform 1.35s var(--lm-ease);
+    transition-delay: calc(var(--d, 0ms) + var(--i, 0) * 95ms);
+    will-change: transform;
+  }
+
+  .lm-ready [data-reveal="media"] {
+    clip-path: inset(10% 6% 10% 6% round 28px);
+    transform: translate3d(0, 64px, 0) scale(0.97);
+    transition:
+      clip-path 1.6s var(--lm-ease),
+      transform 1.6s var(--lm-ease);
+    transition-delay: var(--d, 0ms);
+  }
+
+  .lm-ready [data-reveal="stagger"] > * {
+    opacity: 0;
+    transform: translate3d(0, 32px, 0);
+    transition:
+      opacity 0.9s var(--lm-ease),
+      transform 1.1s var(--lm-ease);
+  }
+  .lm-ready [data-reveal="stagger"] > .lm-rule::before {
+    transform: scaleX(0);
+    transition: transform 1.2s var(--lm-ease-io);
+    transition-delay: inherit;
+  }
+  .lm-ready [data-reveal="stagger"] > :nth-child(2) { transition-delay: 90ms; }
+  .lm-ready [data-reveal="stagger"] > :nth-child(3) { transition-delay: 180ms; }
+  .lm-ready [data-reveal="stagger"] > :nth-child(4) { transition-delay: 270ms; }
+  .lm-ready [data-reveal="stagger"] > :nth-child(5) { transition-delay: 360ms; }
+  .lm-ready [data-reveal="stagger"] > :nth-child(6) { transition-delay: 450ms; }
+  .lm-ready [data-reveal="stagger"] > :nth-child(n + 7) { transition-delay: 540ms; }
+
+  .lm-ready [data-reveal="zoom"] {
+    transform: scale(1.14);
+    transition: transform 2.8s var(--lm-ease);
+  }
+
+  .lm-ready [data-reveal][data-in],
+  .lm-ready [data-reveal="stagger"][data-in] > * {
+    opacity: 1;
+    transform: none;
+  }
+  .lm-ready [data-reveal="media"][data-in] {
+    clip-path: inset(0 0 0 0 round 0);
+  }
+  .lm-ready [data-reveal="lines"][data-in] .lm-line > span,
+  .lm-ready [data-reveal="stagger"][data-in] > .lm-rule::before {
+    transform: none;
+  }
+
+  /* ---- scroll-scrubbed ----------------------------------------------- */
+  /* Manifesto: each word lights as the reading line passes it. */
+  .lm-ready [data-scrub="words"] .lm-word {
+    opacity: clamp(0.14, calc((var(--p, 1) * (var(--n) + 4) - var(--i)) / 4), 1);
+    transition: opacity 0.2s linear;
+  }
+
+  /* Tonight: the film starts as an inset card and opens to full bleed. */
+  .lm-ready [data-scrub="expand"] .lm-expand {
+    clip-path: inset(
+      calc((1 - var(--p, 1)) * 9%) calc((1 - var(--p, 1)) * 7%) calc((1 - var(--p, 1)) * 9%) calc((1 - var(--p, 1)) * 7%)
+        round calc((1 - var(--p, 1)) * 48px)
+    );
+  }
+  .lm-ready [data-scrub="expand"] .lm-expand-media {
+    transform: scale(calc(1.18 - var(--p, 1) * 0.18));
+  }
+  .lm-ready [data-scrub="expand"] .lm-expand-copy {
+    opacity: clamp(0, calc(var(--p, 1) * 2.2 - 0.9), 1);
+    transform: translate3d(0, calc((1 - var(--p, 1)) * 60px), 0);
+  }
+
+  /* ---- parallax ------------------------------------------------------- */
+  .lm-ready [data-parallax] {
+    translate: 0 calc(var(--pp, 0) * var(--speed, 0.15) * -1px);
+  }
+  .lm-ready [data-parallax="0.12"] { --speed: 0.12; }
+  .lm-ready [data-parallax="0.2"] { --speed: 0.2; }
+  .lm-ready [data-parallax="-0.2"] { --speed: -0.2; }
+  .lm-ready [data-parallax-x] {
+    translate: calc(var(--pp, 0) * 0.35px) 0;
+  }
+
+  /* ---- ambient -------------------------------------------------------- */
+  .lm-spin {
+    animation: lm-spin 140s linear infinite;
+  }
+  .lm-blink {
+    animation: lm-blink 6s var(--lm-ease-io) infinite;
+  }
+}
+
+@keyframes lm-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes lm-blink {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}

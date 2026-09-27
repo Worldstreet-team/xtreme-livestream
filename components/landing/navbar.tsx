@@ -2,215 +2,98 @@
 
 import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { SideMenu } from "./side-menu";
 import { BrandMark } from "@/components/ui/brand-mark";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { List, MagnifyingGlass, X } from "@/components/icons";
-import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { GoLiveLink } from "@/components/app/go-live-link";
+import { VividLauncher } from "@/components/vivid/vivid-voice-control";
+import { cn } from "@/lib/utils";
 
-
+/** The chapters, in the order the page tells them. */
 const navLinks = [
-  { label: "Home", href: "/" },
+  { label: "Studio", href: "#go-live" },
+  { label: "Battles", href: "#backed" },
+  { label: "Wallet", href: "#paid" },
+  { label: "Wolf race", href: "#wolf" },
+  { label: "Vivid", href: "#vivid" },
   { label: "Explore", href: "/explore" },
-  { label: "Top Streamers", href: "#top-streamers" },
-  { label: "About", href: "#about" },
 ];
 
+/**
+ * The landing nav. It floats on the hero film with no ground of its own,
+ * and picks up glass (the one place Afterglow allows it, a sticky header)
+ * once the page moves under it. Ask Vivid is the real launcher: the same
+ * session, capsule and sign-in hand-off as the app's top bar. On phones
+ * the links live in a frosted sheet that slides in from the side, with the
+ * chapters set in display type (side-menu.tsx).
+ */
 export function Navbar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const router = useRouter();
+  const [scrolled, setScrolled] = useState(false);
   const { user, isLoading, isAuthenticated } = useAuth();
 
-  const submitSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = query.trim();
-    router.push(q ? `/explore?search=${encodeURIComponent(q)}` : "/explore");
-    setMobileOpen(false);
-  };
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 group">
-          <BrandMark size={30} />
-          <span className="text-lg font-bold tracking-tight text-foreground">
-            Xtream <span className="text-primary">Worldstreet</span>
-          </span>
-        </Link>
-
-        {/* Desktop Nav */}
-        <div className="hidden items-center gap-1 md:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className="rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
-
-        {/* Desktop CTAs + User */}
-        <div className="hidden items-center gap-3 md:flex">
-          {/* Search */}
-          <form onSubmit={submitSearch} className="relative hidden lg:block">
-            <MagnifyingGlass
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search streams"
-              className="h-9 w-48 rounded-sm border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/50 focus:outline-none xl:w-56"
-            />
-          </form>
-
-          {!isLoading && !isAuthenticated && (
-            <Button
-              asChild
-              size="sm"
-              variant="outline"
-              className="border-white/10 bg-white/5 hover:bg-white/10"
-            >
-              <a href={SIGN_IN_URL}>Sign In</a>
-            </Button>
-          )}
-          <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/80">
-            <Link href="/studio">Start Streaming</Link>
-          </Button>
-
-          {/* User avatar */}
-          {isAuthenticated && user && (
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3 transition-all hover:border-white/20 hover:bg-white/10"
-            >
-              <UserAvatar
-                src={user.avatar}
-                name={user.displayName || user.username}
-                size={28}
-                className="size-7"
-              />
-              <span className="text-sm font-medium text-foreground">
-                {user.displayName}
-              </span>
-            </Link>
-          )}
-          {isAuthenticated && (
-            <a
-              href="https://dashboard.worldstreetgold.com"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Dashboard
-            </a>
-          )}
-          {isLoading && (
-            <div className="size-7 animate-pulse rounded-full bg-white/10" />
-          )}
-        </div>
-
-        {/* Mobile menu button */}
-        <button
-          className="flex size-9 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground md:hidden"
-          onClick={() => setMobileOpen(!mobileOpen)}
-        >
-          {mobileOpen ? <X size={22} /> : <List size={22} />}
-        </button>
-      </div>
-
-      {/* Mobile Nav */}
-      {mobileOpen && (
-        <div className="border-t border-white/5 bg-background/95 backdrop-blur-xl md:hidden">
-          <div className="flex flex-col gap-1 px-4 py-4">
-            {/* Mobile search */}
-            <form onSubmit={submitSearch} className="relative mb-2">
-              <MagnifyingGlass
-                size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search streams"
-                className="h-10 w-full rounded-sm border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/50 focus:outline-none"
-              />
-            </form>
-
+    <nav
+      data-landing-nav
+      className={cn(
+        "fixed inset-x-0 top-0 z-50 transition-[background-color,backdrop-filter,border-color] duration-300",
+        scrolled ? "border-b border-hairline bg-ground/75 backdrop-blur-xl" : "border-b border-transparent",
+      )}
+    >
+      <div className="mx-auto flex h-[72px] max-w-[90rem] items-center justify-between gap-6 px-5 sm:px-8 lg:px-20">
+        <div className="flex items-center gap-12">
+          <Link href="/" className="flex items-center gap-2.5" aria-label="Xtream home">
+            <BrandMark size={28} />
+            <span className="font-wide text-[21px] font-bold tracking-[-0.04em] text-foreground">Xtream</span>
+          </Link>
+          <div className="hidden items-center gap-7 lg:flex">
             {navLinks.map((link) => (
               <Link
                 key={link.label}
                 href={link.href}
-                className="rounded-sm px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
-                onClick={() => setMobileOpen(false)}
+                className="text-[14px] font-medium text-foreground/75 transition-colors hover:text-foreground"
               >
                 {link.label}
               </Link>
             ))}
-
-            {/* Mobile user info */}
-            {isAuthenticated && user && (
-              <Link
-                href="/dashboard"
-                className="mt-3 flex items-center gap-3 rounded-sm border-t border-white/5 px-3 py-3"
-                onClick={() => setMobileOpen(false)}
-              >
-                <UserAvatar
-                  src={user.avatar}
-                  name={user.displayName || user.username}
-                  size={32}
-                  className="size-8"
-                />
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {user.displayName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    @{user.username}
-                  </p>
-                </div>
-              </Link>
-            )}
-
-            {isAuthenticated && (
-              <a
-                href="https://dashboard.worldstreetgold.com"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-sm px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
-                onClick={() => setMobileOpen(false)}
-              >
-                Go to Dashboard
-              </a>
-            )}
-
-            <div className="flex flex-col gap-2 border-t border-white/5 pt-3">
-              {!isLoading && !isAuthenticated && (
-                <Button
-                  asChild
-                  size="sm"
-                  variant="outline"
-                  className="border-white/10 bg-white/5 hover:bg-white/10"
-                >
-                  <a href={SIGN_IN_URL}>Sign In</a>
-                </Button>
-              )}
-              <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/80">
-                <Link href="/studio">Start Streaming</Link>
-              </Button>
-            </div>
           </div>
         </div>
-      )}
+
+        <div className="hidden items-center gap-2 md:flex">
+          <VividLauncher variant="pill" />
+          {!isLoading && !isAuthenticated && (
+            <a
+              href={SIGN_IN_URL}
+              className="press flex h-11 items-center rounded-full px-4 text-[14px] font-semibold text-foreground hover:bg-white/[0.06]"
+            >
+              Sign in
+            </a>
+          )}
+          {isAuthenticated && user && (
+            <Link
+              href="/dashboard"
+              aria-label="Your channel"
+              className="press flex h-11 items-center gap-2 rounded-full bg-control py-1 pr-4 pl-1 hover:bg-control-hover"
+            >
+              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={32} />
+              <span className="max-w-[10rem] truncate text-[14px] font-semibold">{user.displayName || user.username}</span>
+            </Link>
+          )}
+          {isLoading && <div className="size-9 animate-pulse rounded-full bg-white/10" />}
+          <GoLiveLink className="w-auto px-5" />
+        </div>
+
+        {/* Phones: the hamburger opens the frosted menu (side-menu.tsx). */}
+        <SideMenu />
+      </div>
     </nav>
   );
 }

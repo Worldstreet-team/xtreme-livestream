@@ -1,0 +1,55 @@
+/* The word "Vivid" rides the orb's connect-shimmer (ported from worldwork).
+   `--vivid-k` is written every frame by the orb (0 = resting, 1 = full hue);
+   each stop is mixed that far from the foreground toward a colour, so at rest
+   the word is simply the foreground and at full swell it is a spectrum
+   drifting sideways. A solid background-color underneath keeps the letters
+   from ever vanishing, and matching first/last stops let it tile forever. */
+.vividWord {
+  --vivid-k: 0;
+  --vivid-base: var(--foreground);
+  background-color: var(--vivid-base);
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.72 0.2 25)) 0%,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.82 0.17 90)) 20%,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.8 0.16 160)) 40%,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.72 0.16 240)) 60%,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.7 0.2 320)) 80%,
+    color-mix(in oklab, var(--vivid-base) calc((1 - var(--vivid-k)) * 100%), oklch(0.72 0.2 25)) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: vivid-flow 6s linear infinite;
+}
+
+@keyframes vivid-flow {
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/* The Tonight deck drifts sideways, forever, and stops when you reach for it. */
+.marquee {
+  animation: marquee 60s linear infinite;
+}
+.marquee:hover,
+.marquee:focus-within {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vividWord,
+  .marquee {
+    animation: none;
+  }
+}

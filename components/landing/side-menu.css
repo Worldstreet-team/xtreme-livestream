@@ -1,0 +1,454 @@
+/* The landing's phone menu (side-menu.tsx). Global, prefixed `xm-`, because
+   it also moves the page behind it, which a module can't reach.
+
+   A frosted glass sheet slides in from the right on a strong in-out ease,
+   the page behind dims and drifts left, and the chapter words rise out of
+   their masks one after another. Closing is quicker (~60%): the words drop
+   back, then the sheet slides away. No borders anywhere; the glass is the
+   owner's call and the landing's only blur.
+
+   Motion is keyframes, not transitions: they run from the first frame the
+   sheet exists, with nothing waiting on a style flush. Every element's
+   resting style is its final state, so reduced motion (animation: none)
+   is simply the finished menu, faded in. */
+
+/* ---- the page behind (unlayered, to beat the nav's own transition) ---- */
+
+html[data-landing-menu] [data-landing-nav],
+html[data-landing-menu] [data-landing-nav] ~ * {
+  transition: transform 480ms cubic-bezier(0.76, 0, 0.24, 1);
+}
+html[data-landing-menu="open"] [data-landing-nav],
+html[data-landing-menu="open"] [data-landing-nav] ~ * {
+  transform: translate3d(-36px, 0, 0);
+  transition: transform 900ms cubic-bezier(0.76, 0, 0.24, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-landing-menu] [data-landing-nav],
+  html[data-landing-menu] [data-landing-nav] ~ * {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* A section the menu jumped to takes focus without a ring round the chapter. */
+[data-side-menu-target]:focus {
+  outline: none;
+}
+
+/* Ask Vivid as text: its pill ground is a utility, so this sits unlayered. */
+.xm-vivid > button {
+  height: 44px;
+  padding-right: 0;
+  background: transparent;
+  color: rgb(246 241 238 / 0.78);
+}
+.xm-vivid > button:hover {
+  background: transparent;
+}
+
+@layer components {
+  .xm-root {
+    --xm-ease: cubic-bezier(0.76, 0, 0.24, 1);
+    --xm-rise: cubic-bezier(0.16, 1, 0.3, 1);
+    --xm-drop: cubic-bezier(0.7, 0, 0.84, 0);
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    overflow: hidden;
+  }
+
+  .xm-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgb(8 5 6 / 0.5);
+    animation: xm-fade-in 820ms var(--xm-ease) both;
+  }
+  .xm-root[data-state="closing"] .xm-scrim {
+    animation: xm-fade-out 480ms var(--xm-ease) both;
+  }
+
+  /* ---- the sheet: frosted glass, edge to edge ---- */
+
+  .xm-panel {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    color: var(--foreground);
+    isolation: isolate;
+    background:
+      radial-gradient(120% 60% at 100% 0%, rgb(255 236 230 / 0.07), transparent 60%),
+      linear-gradient(180deg, rgb(26 17 18 / 0.3) 0%, rgb(14 9 10 / 0.46) 100%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+    animation: xm-sheet-in 820ms var(--xm-ease) both;
+  }
+  /* Frost: a fine grain over the blur, so it reads as glass, not tint. */
+  .xm-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.07;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .xm-root[data-state="closing"] .xm-panel {
+    animation: xm-sheet-out 460ms var(--xm-ease) 40ms both;
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .xm-panel {
+      background: rgb(17 11 12 / 0.97);
+    }
+  }
+
+  /* The close lands where the hamburger was: the nav's 72px row and gutter. */
+  .xm-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    height: 72px;
+    padding: 0 20px;
+  }
+  @media (min-width: 640px) {
+    .xm-head {
+      padding: 0 32px;
+    }
+  }
+
+  /* The words sit low, where the thumb is; the glass above stays open. */
+  .xm-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 24px 20px clamp(28px, 6svh, 56px);
+  }
+  @media (min-width: 640px) {
+    .xm-body {
+      padding-inline: 32px;
+    }
+  }
+
+  .xm-caption {
+    margin: 0 0 12px;
+    font-size: 11px;
+    color: rgb(246 241 238 / 0.5);
+  }
+
+  /* ---- the words, straight on the glass ---- */
+
+  .xm-link {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 0;
+    color: var(--foreground);
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 300ms ease;
+  }
+  .xm-link:focus-visible {
+    outline: none;
+  }
+
+  .xm-idx {
+    flex-shrink: 0;
+    padding-top: 7px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: rgb(246 241 238 / 0.6);
+    animation: xm-fade-in 700ms linear both;
+    animation-delay: calc(560ms + var(--i, 0) * 60ms);
+    transition: color 300ms ease;
+  }
+
+  .xm-word-wrap {
+    position: relative;
+    display: block;
+    min-width: 0;
+    transition: transform 520ms var(--xm-ease);
+  }
+
+  .xm-mask {
+    display: block;
+    overflow: hidden;
+    padding-bottom: 0.1em;
+    margin-bottom: -0.1em;
+  }
+
+  .xm-word {
+    display: block;
+    font-size: clamp(2.35rem, 12.2vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.045em;
+    white-space: nowrap;
+    transform-origin: 0 100%;
+    animation: xm-word-in 1000ms var(--xm-rise) both;
+    animation-delay: calc(300ms + var(--i, 0) * 60ms);
+  }
+
+  /* The underline draws in from the left, and out to the right. */
+  .xm-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -2px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: 100% 50%;
+    transition: transform 520ms var(--xm-ease);
+  }
+  .xm-link:focus-visible .xm-line {
+    transform: scaleX(1);
+    transform-origin: 0 50%;
+  }
+  .xm-link:active .xm-word-wrap {
+    transform: translate3d(6px, 0, 0);
+    transition-duration: 160ms;
+  }
+  .xm-link:active {
+    opacity: 0.7;
+  }
+  @media (hover: hover) {
+    .xm-link:hover .xm-line {
+      transform: scaleX(1);
+      transform-origin: 0 50%;
+    }
+    .xm-link:hover .xm-word-wrap {
+      transform: translate3d(8px, 0, 0);
+    }
+    .xm-link:hover .xm-idx {
+      color: var(--foreground);
+    }
+    .xm-list:hover .xm-link:not(:hover) {
+      opacity: 0.4;
+    }
+  }
+
+  /* You are here: an ember dot and index, the only heat. */
+  .xm-link[aria-current] .xm-idx {
+    color: var(--ember-hi);
+  }
+  .xm-link[aria-current] .xm-idx::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin: 0 6px 1px 0;
+    border-radius: 999px;
+    background: var(--ember);
+  }
+
+  /* ---- the foot ---- */
+
+  .xm-foot {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 20px calc(22px + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 640px) {
+    .xm-foot {
+      padding-inline: 32px;
+    }
+  }
+
+  .xm-meta {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  .xm-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    font-size: 15px;
+    font-weight: 600;
+    color: rgb(246 241 238 / 0.78);
+    transition: color 200ms ease;
+  }
+  .xm-text:hover,
+  .xm-text:active {
+    color: var(--foreground);
+  }
+  .xm-text:focus-visible {
+    outline: 2px solid var(--ember);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+  .xm-vivid {
+    display: flex;
+    margin-left: auto;
+  }
+
+  /* Logo, caption, foot: a soft rise, each on its own delay. */
+  .xm-rise {
+    animation: xm-rise-in 800ms var(--xm-rise) both;
+    animation-delay: var(--d, 0ms);
+  }
+
+  /* ---- closing: everything drops back quickly, words first ---- */
+
+  .xm-root[data-state="closing"] .xm-word {
+    animation: xm-word-out 280ms var(--xm-drop) both;
+    animation-delay: calc(var(--r, 0) * 18ms);
+  }
+  .xm-root[data-state="closing"] .xm-idx,
+  .xm-root[data-state="closing"] .xm-rise {
+    animation: xm-fade-out 180ms linear both;
+  }
+
+  /* ---- the toggle: two bars that cross ---- */
+
+  .xm-toggle {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    color: var(--foreground);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .xm-toggle:focus-visible {
+    outline: 2px solid var(--ember);
+    outline-offset: 2px;
+  }
+
+  .xm-bars {
+    position: relative;
+    width: 20px;
+    height: 14px;
+  }
+  .xm-bars > i {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 1.75px;
+    margin-top: -0.875px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform 380ms var(--xm-ease, cubic-bezier(0.76, 0, 0.24, 1));
+  }
+  .xm-bars > i:first-child {
+    transform: translateY(-4px);
+  }
+  .xm-bars > i:last-child {
+    transform: translateY(4px) scaleX(0.7);
+    transform-origin: 100% 50%;
+  }
+  @media (hover: hover) {
+    .xm-toggle:not(.xm-close):hover .xm-bars > i:last-child {
+      transform: translateY(4px);
+    }
+  }
+
+  .xm-close .xm-bars > i:first-child {
+    transform: rotate(45deg);
+    animation: xm-bar-a 620ms var(--xm-ease) 320ms both;
+  }
+  .xm-close .xm-bars > i:last-child {
+    transform: rotate(-45deg);
+    transform-origin: 50% 50%;
+    animation: xm-bar-b 620ms var(--xm-ease) 320ms both;
+  }
+  .xm-root[data-state="closing"] .xm-close .xm-bars > i:first-child {
+    animation: xm-bar-a 300ms var(--xm-ease) reverse both;
+  }
+  .xm-root[data-state="closing"] .xm-close .xm-bars > i:last-child {
+    animation: xm-bar-b 300ms var(--xm-ease) reverse both;
+  }
+
+  /* ---- less motion: the finished menu, faded in and out ---- */
+
+  @media (prefers-reduced-motion: reduce) {
+    .xm-root *,
+    .xm-root[data-state="closing"] * {
+      animation: none;
+    }
+    .xm-root .xm-scrim,
+    .xm-root .xm-panel {
+      animation: xm-fade-in 200ms linear both;
+    }
+    .xm-root[data-state="closing"] .xm-scrim,
+    .xm-root[data-state="closing"] .xm-panel {
+      animation: xm-fade-out 200ms linear both;
+    }
+    .xm-link,
+    .xm-word-wrap,
+    .xm-line,
+    .xm-bars > i {
+      transition: none;
+    }
+    .xm-link:active .xm-word-wrap {
+      transform: none;
+    }
+  }
+}
+
+@keyframes xm-sheet-in {
+  from {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+@keyframes xm-sheet-out {
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+@keyframes xm-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes xm-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes xm-word-in {
+  from {
+    transform: translate3d(0, 115%, 0) rotate(5deg);
+  }
+}
+@keyframes xm-word-out {
+  to {
+    transform: translate3d(0, 115%, 0);
+  }
+}
+@keyframes xm-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+}
+@keyframes xm-bar-a {
+  from {
+    transform: translateY(-4px);
+  }
+  to {
+    transform: rotate(45deg);
+  }
+}
+@keyframes xm-bar-b {
+  from {
+    /* the hamburger's short bar, right-aligned, from a centred origin */
+    transform: translate(3px, 4px) scaleX(0.7);
+  }
+  to {
+    transform: rotate(-45deg);
+  }
+}
