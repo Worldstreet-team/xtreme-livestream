@@ -1,6 +1,8 @@
 "use client";
 
-import type { AudioProcessorOptions, Track, TrackProcessor } from "livekit-client";
+import type { AudioProcessorOptions, Room, Track, TrackProcessor } from "livekit-client";
+import type { KrispNoiseFilterProcessor } from "@livekit/krisp-noise-filter";
+import { DEFAULT_VOICE, PRESET_CURVES, type VoiceSettings } from "@/lib/voice";
 
 /**
  * The audio desk (Phase 2): the studio's mic goes through a small mixing
@@ -8,12 +10,19 @@ import type { AudioProcessorOptions, Track, TrackProcessor } from "livekit-clien
  * LiveKit as the mic track's processor — so viewers hear the mix, and
  * nothing extra is installed.
  *
- *   mic → noise gate → voice polish (80 Hz cut, gentle compressor) → mic fader ─┐
- *   pads (eight sounds made right here — nothing to license) → pads fader ──────┤→ limiter → out
- *   music bed (a file of the host's own) → music fader → ducker ────────────────┘
+ *   mic → noise filter (Krisp, when it can run) → noise gate
+ *       → voice polish (80 Hz cut, the preset's shape, gentle compressor) → mic fader ─┐
+ *   pads (eight sounds made right here — nothing to license) → pads fader ─────────────┤→ limiter → out
+ *   music bed (a file of the host's own) → music fader → ducker ───────────────────────┘
  *
  * The ducker dips the music whenever the host talks. Pads and music also
  * play to the host's own speakers or headphones (the monitor) — never the mic.
+ *
+ * Your voice (Phase 1) rides on top: the noise filter is LiveKit's Krisp
+ * processor chained at the head of the graph; the presets are parameters
+ * of the polish stage; Music mode routes the mic straight past the gate,
+ * polish, filter and ducker, leaving the limiter as a safety; and Compare
+ * (`setBypass`) does the same while the host holds it.
  */
 
 export type PadId = "airhorn" | "applause" | "drumroll" | "kaching" | "badumtss" | "whoosh" | "levelup" | "sadtrombone";
@@ -258,8 +267,16 @@ export async function renderPad(id: PadId, rate: number): Promise<AudioBuffer> {
 /* ---------------- The desk ---------------- */
 
 interface Graph {
+  /** The mic as captured; the noise filter's clean track takes its place when chained. */
   source: MediaStreamAudioSourceNode;
   gate: AudioWorkletNode;
+  /** The polish stage, in order: rumble out, the preset's shape, the level steadied. */
+  highpass: BiquadFilterNode;
+  lowShelf: BiquadFilterNode;
+  peak: BiquadFilterNode;
+  highShelf: BiquadFilterNode;
+  lowpass: BiquadFilterNode;
+  compressor: DynamicsCompressorNode;
   polishWet: GainNode;
   polishDry: GainNode;
   micGain: GainNode;
@@ -273,6 +290,29 @@ interface Graph {
   outMeter: AnalyserNode;
   dest: MediaStreamAudioDestinationNode;
   all: AudioNode[];
+}
+
+/** Where the noise filter is: off by choice, waiting on the room, shaping the voice, or not possible here. */
+export type NoiseFilterState = "off" | "starting" | "on" | "unavailable";
+
+export interface DeskState {
+  noiseFilter: NoiseFilterState;
+  /** Why it's unavailable, when it is — for a log line, not a host. */
+  noiseFilterError: string | null;
+}
+
+/**
+ * Move a parameter without a click: a short glide, then land exactly (a
+ * glide alone only ever gets most of the way). Immediate at build time.
+ */
+function glide(param: AudioParam, value: number, t: number, immediate: boolean) {
+  param.cancelScheduledValues(t);
+  if (immediate) {
+    param.setValueAtTime(value, t);
+    return;
+  }
+  param.setTargetAtTime(value, t, 0.03);
+  param.setValueAtTime(value, t + 0.25);
 }
 
 /** Loudness of what an analyser hears, 0–1, on a scale that reads like a meter (−60 dB to 0). */
@@ -297,26 +337,61 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
   private musicUrl: string | null = null;
   private duckTimer: ReturnType<typeof setInterval> | null = null;
   private scratch = new Float32Array(1024);
+  private voiceSettings: VoiceSettings;
+  /** Compare held: the mic passes as it is. */
+  private bypass = false;
+  /** What LiveKit handed `init`, kept so the noise filter can be chained later. */
+  private initOpts: AudioProcessorOptions | null = null;
+  /** The room, once the track is published — Krisp can only switch on with it. */
+  private room: Room | null = null;
+  private krisp: { filter: KrispNoiseFilterProcessor; source: MediaStreamAudioSourceNode; published: boolean } | null = null;
+  private krispAttaching: Promise<void> | null = null;
+  /** Krisp calls in flight (switching it on asks LiveKit Cloud first). */
+  private krispBusy = 0;
+  private noise: NoiseFilterState = "off";
+  private noiseError: string | null = null;
 
-  constructor(settings: DeskSettings = DEFAULT_DESK) {
+  constructor(settings: DeskSettings = DEFAULT_DESK, voice: VoiceSettings = DEFAULT_VOICE) {
     this.settings = { ...settings, levels: { ...settings.levels } };
+    this.voiceSettings = { ...voice };
   }
 
   get current(): DeskSettings {
     return { ...this.settings, levels: { ...this.settings.levels } };
   }
 
-  async init({ track, audioContext }: AudioProcessorOptions) {
-    const ctx = audioContext;
+  get voice(): VoiceSettings {
+    return { ...this.voiceSettings };
+  }
+
+  /** What's shaping the voice right now, for the panel. */
+  get state(): DeskState {
+    return { noiseFilter: this.noise, noiseFilterError: this.noise === "unavailable" ? this.noiseError : null };
+  }
+
+  async init(opts: AudioProcessorOptions) {
+    const { track, audioContext: ctx } = opts;
     this.ctx = ctx;
+    this.initOpts = opts;
     await loadGate(ctx);
     const s = this.settings;
     const source = ctx.createMediaStreamSource(new MediaStream([track]));
     const gate = new AudioWorkletNode(ctx, "xtream-gate", { parameterData: { enabled: s.gate ? 1 : 0 } });
-    // Voice polish: rumble out, the level steadied, a little made up.
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = "highpass";
-    highpass.frequency.value = 80;
+    // Voice polish: rumble out, the preset's shape, the level steadied, a
+    // little made up. Every stage is always in the chain — a preset only
+    // moves their parameters (`applyPreset`), so nothing is rebuilt live.
+    const biquad = (type: BiquadFilterType, frequency: number) => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = frequency;
+      return f;
+    };
+    const highpass = biquad("highpass", 80);
+    const lowShelf = biquad("lowshelf", 180);
+    const peak = biquad("peaking", 3000);
+    const highShelf = biquad("highshelf", 7000);
+    // A low-pass at the very top of the band is a straight wire.
+    const lowpass = biquad("lowpass", ctx.sampleRate / 2);
     const compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -24;
     compressor.knee.value = 12;
@@ -352,7 +427,7 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
     const dest = ctx.createMediaStreamDestination();
 
     source.connect(gate);
-    gate.connect(highpass).connect(compressor).connect(polishWet).connect(micGain);
+    gate.connect(highpass).connect(lowShelf).connect(peak).connect(highShelf).connect(lowpass).connect(compressor).connect(polishWet).connect(micGain);
     gate.connect(polishDry).connect(micGain);
     micGain.connect(micMeter);
     micGain.connect(bus);
@@ -366,20 +441,30 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
     limiter.connect(outMeter);
 
     this.graph = {
-      source, gate, polishWet, polishDry, micGain, micMeter, pads, music, duck, monitor, bus, limiter, outMeter, dest,
-      all: [source, gate, highpass, compressor, polishWet, polishDry, micGain, micMeter, pads, music, duck, monitor, bus, limiter, outMeter, dest],
+      source, gate, highpass, lowShelf, peak, highShelf, lowpass, compressor, polishWet, polishDry, micGain, micMeter, pads, music, duck, monitor, bus, limiter, outMeter, dest,
+      all: [source, gate, highpass, lowShelf, peak, highShelf, lowpass, compressor, polishWet, polishDry, micGain, micMeter, pads, music, duck, monitor, bus, limiter, outMeter, dest],
     };
+    this.route(true);
+    this.applyPreset(true);
     if (this.musicNode) this.musicNode.connect(music);
     this.processedTrack = dest.stream.getAudioTracks()[0];
 
-    // The ducker: while the host talks, the music steps back.
+    // The ducker: while the host talks, the music steps back. (Not in
+    // Music mode — the mix is the show.) The same tick keeps the noise
+    // filter's state honest, since Krisp can switch itself off.
     this.duckTimer = setInterval(() => {
       const g = this.graph;
       if (!g || !this.ctx) return;
       const talking = meterLevel(g.micMeter, this.scratch) > 0.55;
-      const target = this.settings.duck && talking ? 0.3 : 1;
+      const target = this.settings.duck && !this.voiceSettings.musicMode && talking ? 0.3 : 1;
       g.duck.gain.setTargetAtTime(target, this.ctx.currentTime, target < 1 ? 0.06 : 0.4);
+      this.refreshNoise();
     }, 50);
+
+    // The noise filter, if wanted: it takes a moment (its model loads), so
+    // the mic goes out through the rest of the desk meanwhile.
+    if (this.wantsFilter()) void this.attachKrisp();
+    else this.refreshNoise();
   }
 
   async restart(opts: AudioProcessorOptions) {
@@ -390,6 +475,13 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
   async destroy() {
     await this.teardown();
     this.unloadMusic();
+    this.initOpts = null;
+  }
+
+  /** LiveKit tells the processor its room once the track is published; Krisp needs it to switch on. */
+  async onPublish(room: Room) {
+    this.room = room;
+    await this.syncKrisp();
   }
 
   private async teardown() {
@@ -400,9 +492,181 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
     this.processedTrack?.stop();
     this.processedTrack = undefined;
     this.graph = null;
+    const k = this.krisp;
+    this.krisp = null;
+    // Krisp puts the mic's own constraints back as it goes.
+    if (k) await k.filter.destroy().catch(() => {});
+  }
+
+  /* ---- The noise filter ---- */
+
+  /** The filter is wanted: on, and not in Music mode. (Compare only pauses it.) */
+  private wantsFilter() {
+    return this.voiceSettings.noiseFilter && !this.voiceSettings.musicMode;
+  }
+
+  private attachKrisp() {
+    if (!this.krispAttaching) {
+      this.krispAttaching = this.chainKrisp().finally(() => {
+        this.krispAttaching = null;
+        this.refreshNoise();
+      });
+    }
+    return this.krispAttaching;
+  }
+
+  /**
+   * Chain Krisp at the head of the graph: its clean track takes the raw
+   * one's place feeding the gate. Loaded only now (its bundle is big), and
+   * any failure — not supported here, the model didn't load, torn down
+   * meanwhile — leaves the desk running without it.
+   */
+  private async chainKrisp() {
+    const g = this.graph;
+    const ctx = this.ctx;
+    const opts = this.initOpts;
+    if (!g || !ctx || !opts || this.krisp) return;
+    this.noise = "starting";
+    this.noiseError = null;
+    let filter: KrispNoiseFilterProcessor | null = null;
+    try {
+      const { KrispNoiseFilter, isKrispNoiseFilterSupported } = await import("@livekit/krisp-noise-filter");
+      if (!isKrispNoiseFilterSupported()) throw new Error("This browser can't run it");
+      filter = KrispNoiseFilter();
+      await filter.init(opts);
+      const clean = filter.processedTrack;
+      if (!clean) throw new Error("It gave no track");
+      if (this.graph !== g) throw new Error("The desk was torn down while it loaded");
+      const source = ctx.createMediaStreamSource(new MediaStream([clean]));
+      source.connect(g.gate);
+      g.source.disconnect();
+      g.all.push(source);
+      this.krisp = { filter, source, published: false };
+    } catch (err) {
+      this.noiseError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      await filter?.destroy().catch(() => {});
+      return;
+    }
+    await this.syncKrisp();
+  }
+
+  /** Bring Krisp in line with the settings: on only once the room is known and the host wants it. */
+  private async syncKrisp() {
+    const k = this.krisp;
+    if (!k) return;
+    const want = this.wantsFilter() && !this.bypass;
+    this.krispBusy += 1;
+    try {
+      if (want) {
+        if (!this.room) return;
+        if (!k.published) {
+          k.published = true;
+          // Krisp checks with LiveKit Cloud that the filter is on for this project.
+          await k.filter.onPublish(this.room);
+        }
+        await k.filter.setEnabled(true);
+      } else {
+        await k.filter.setEnabled(false);
+      }
+    } catch (err) {
+      // Krisp said no; the state below says so.
+      this.noiseError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    } finally {
+      this.krispBusy -= 1;
+      this.refreshNoise();
+    }
+  }
+
+  private refreshNoise() {
+    if (!this.wantsFilter()) {
+      this.noise = "off";
+      return;
+    }
+    // Compare held: the filter is paused, not gone — the state stands.
+    if (this.bypass) return;
+    if (this.krispAttaching || this.krispBusy > 0) {
+      this.noise = "starting";
+      return;
+    }
+    const k = this.krisp;
+    if (!k) {
+      this.noise = "unavailable";
+      return;
+    }
+    if (!this.room) {
+      this.noise = "starting";
+      return;
+    }
+    if (k.filter.isEnabled()) {
+      this.noise = "on";
+      this.noiseError = null;
+    } else {
+      this.noise = "unavailable";
+      // Enabled once, then off by itself: Krisp gives up after its reports to LiveKit Cloud keep failing.
+      this.noiseError ??= "LiveKit Cloud didn't allow it, or stopped hearing from it";
+    }
+  }
+
+  /* ---- The routing ---- */
+
+  /**
+   * Which stages the mic passes through. Music mode and Compare route it
+   * straight: no gate, no polish, no ducking (the filter is paused by
+   * `syncKrisp`); the limiter stays, up at −1 dB in Music mode as a safety.
+   */
+  private route(immediate = false) {
+    const g = this.graph;
+    const ctx = this.ctx;
+    if (!g || !ctx) return;
+    const t = ctx.currentTime;
+    const straight = this.voiceSettings.musicMode || this.bypass;
+    const gate = this.settings.gate && !straight;
+    const polish = this.settings.polish && !straight;
+    g.gate.parameters.get("enabled")?.setValueAtTime(gate ? 1 : 0, t);
+    glide(g.polishWet.gain, polish ? 1 : 0, t, immediate);
+    glide(g.polishDry.gain, polish ? 0 : 1, t, immediate);
+    glide(g.limiter.threshold, this.voiceSettings.musicMode ? -1 : -2, t, immediate);
+  }
+
+  /** The preset's shape onto the polish stage — parameters only, never a rebuild. */
+  private applyPreset(immediate = false) {
+    const g = this.graph;
+    const ctx = this.ctx;
+    if (!g || !ctx) return;
+    const t = ctx.currentTime;
+    const c = PRESET_CURVES[this.voiceSettings.preset];
+    glide(g.highpass.frequency, c.highpass, t, immediate);
+    glide(g.lowShelf.frequency, c.lowShelf.frequency, t, immediate);
+    glide(g.lowShelf.gain, c.lowShelf.gain, t, immediate);
+    glide(g.peak.frequency, c.peak.frequency, t, immediate);
+    glide(g.peak.gain, c.peak.gain, t, immediate);
+    glide(g.peak.Q, c.peak.q, t, immediate);
+    glide(g.highShelf.frequency, c.highShelf.frequency, t, immediate);
+    glide(g.highShelf.gain, c.highShelf.gain, t, immediate);
+    glide(g.lowpass.frequency, c.lowpass ?? ctx.sampleRate / 2, t, immediate);
+    glide(g.compressor.threshold, c.compressor.threshold, t, immediate);
+    glide(g.compressor.ratio, c.compressor.ratio, t, immediate);
   }
 
   /* ---- The controls ---- */
+
+  /** Your voice settings, changed live: routing and the preset move at once; the filter follows. */
+  setVoice(next: VoiceSettings) {
+    this.voiceSettings = { ...next };
+    this.route();
+    this.applyPreset();
+    if (this.wantsFilter() && !this.krisp && this.graph) void this.attachKrisp();
+    else void this.syncKrisp();
+    this.refreshNoise();
+  }
+
+  /** Compare: while on, the mic goes out as it is — no gate, polish or filter. */
+  setBypass(on: boolean) {
+    if (this.bypass === on) return;
+    this.bypass = on;
+    this.route();
+    void this.syncKrisp();
+  }
 
   setLevel(which: keyof DeskLevels, value: number) {
     this.settings.levels[which] = value;
@@ -414,15 +678,12 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
 
   setGate(on: boolean) {
     this.settings.gate = on;
-    this.graph?.gate.parameters.get("enabled")?.setValueAtTime(on ? 1 : 0, this.ctx?.currentTime ?? 0);
+    this.route();
   }
 
   setPolish(on: boolean) {
     this.settings.polish = on;
-    const g = this.graph;
-    if (!g || !this.ctx) return;
-    g.polishWet.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.03);
-    g.polishDry.gain.setTargetAtTime(on ? 0 : 1, this.ctx.currentTime, 0.03);
+    this.route();
   }
 
   setDuck(on: boolean) {

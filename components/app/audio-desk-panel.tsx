@@ -4,10 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { Pause, Play, X } from "@/components/icons";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { PADS, type AudioDesk, type DeskLevels, type DeskSettings, type PadId } from "@/lib/audio-desk";
+import { PADS, type AudioDesk, type DeskLevels, type DeskSettings, type NoiseFilterState, type PadId } from "@/lib/audio-desk";
+import { presetLabel, type VoicePreset } from "@/lib/voice";
 import { cn } from "@/lib/utils";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
+
+/** The desk's header line: what's shaping the voice, for a host who opens it mid-stream. */
+const NOISE_LINE: Record<NoiseFilterState, string> = {
+  on: "Noise filter on",
+  off: "Noise filter off",
+  starting: "Noise filter starting…",
+  unavailable: "Noise filter isn't available here",
+};
 
 /** A fader: the level as a filled ember track and a white knob. */
 function Fader({ id, label, value, onChange, hint }: { id: string; label: string; value: number; onChange: (v: number) => void; hint?: string }) {
@@ -97,6 +106,8 @@ export function AudioDeskPanel({
   onGain: (identity: string, level: number) => void;
 }) {
   const [meters, setMeters] = useState({ mic: 0, out: 0 });
+  /** What's shaping the voice, as last read off the desk it came from. */
+  const [shaping, setShaping] = useState<{ desk: AudioDesk; noise: NoiseFilterState; preset: VoicePreset } | null>(null);
   const [pressed, setPressed] = useState<PadId | null>(null);
   const [track, setTrack] = useState<File | null>(null);
   const [rights, setRights] = useState(false);
@@ -104,17 +115,22 @@ export function AudioDeskPanel({
   const [musicError, setMusicError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // The meters, at the screen's pace, while the desk is on.
+  // The meters, at the screen's pace, while the desk is on — and the
+  // header line with them, since the noise filter can change its mind.
   useEffect(() => {
     if (!on || !desk) return;
     let raf = 0;
     const tick = () => {
       setMeters(desk.meters());
+      const noise = desk.state.noiseFilter;
+      const preset = desk.voice.preset;
+      setShaping((cur) => (cur && cur.desk === desk && cur.noise === noise && cur.preset === preset ? cur : { desk, noise, preset }));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [on, desk]);
+  const shapingNow = on && desk && shaping?.desk === desk ? shaping : null;
 
   const level = (which: keyof DeskLevels, v: number) => {
     desk?.setLevel(which, v);
@@ -150,6 +166,15 @@ export function AudioDeskPanel({
           disabled={starting}
           onCheckedChange={onToggle}
         />
+        {shapingNow && (
+          <p className="-mt-1 pb-2.5 text-[11.5px] text-muted-foreground">
+            <span className={cn("font-medium", shapingNow.noise === "on" ? "text-foreground/85" : shapingNow.noise === "unavailable" ? "text-warning" : undefined)}>
+              {NOISE_LINE[shapingNow.noise]}
+            </span>
+            <span aria-hidden> · </span>
+            {presetLabel(shapingNow.preset)} voice
+          </p>
+        )}
       </div>
 
       {on && (

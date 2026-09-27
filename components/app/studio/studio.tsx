@@ -76,6 +76,10 @@ import { ConsoleLink } from "@/components/app/console-link";
 import { LiveAudience } from "@/components/app/stream-recap";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { SecondCameraPanel } from "@/components/app/second-camera-panel";
+import { LookSetup } from "@/components/app/look-setup";
+import { SoundSetup } from "@/components/app/sound-setup";
+import { applyLook, deviceTest, isLooksSupported, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
+import { micCaptureOptions, micPublishOptions, noiseFilterSupported, saveVoiceSettings, useVoiceSettings, voiceNeedsDesk, type VoiceSettings } from "@/lib/voice";
 import { isCameraIdentity } from "@/lib/angles";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
@@ -97,6 +101,7 @@ import {
   DEFAULT_SCENE,
   LAYOUTS,
   newerScene,
+  ACCENTS,
   readBrand,
   readFeatureQueue,
   layerOf,
@@ -409,6 +414,27 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // program, never a guest. What viewers see of it is scene.angle.
   const phoneTrackRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneConnected, setPhoneConnected] = useState(false);
+  // Sound & look, kept per browser: the noise filter, Music mode and a voice
+  // preset go through the audio desk; blur, a background and a colour look
+  // ride the camera track as its processor.
+  const voice = useVoiceSettings();
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  const look = useLookSettings();
+  const lookImage = useLookImage();
+  const lookRef = useRef({ look, imageUrl: lookImage?.url ?? null });
+  lookRef.current = { look, imageUrl: lookImage?.url ?? null };
+  const brandRef = useRef(brand);
+  brandRef.current = brand;
+  // Both answers come from the browser, so they wait for the client.
+  const [looksSupported, setLooksSupported] = useState(false);
+  const [noiseFilterOk, setNoiseFilterOk] = useState(true);
+  useEffect(() => {
+    setLooksSupported(isLooksSupported());
+    setNoiseFilterOk(noiseFilterSupported());
+  }, []);
+  const [deviceOk, setDeviceOk] = useState<boolean | null>(null);
+  const [lookNote, setLookNote] = useState<string | null>(null);
   const guestIdentities = useMemo(() => stageTiles.filter((t) => t.identity !== interpreterId).map((t) => t.identity), [stageTiles, interpreterId]);
   const directorBlocked: DirectorBlock =
     guestIdentities.length === 0
@@ -625,6 +651,46 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
     };
   }, [source, orientation, facing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** The camera the look rides right now: the preview before going live, the published track after. Never a shared screen or an encoder's feed. */
+  const lookTrack = () => (source !== "camera" || localScreen ? null : isLive ? videoTrackRef.current : previewTrack);
+  /** Put the chosen look on a camera track; a background that can't start leaves the look on and says why. */
+  const applyLookTo = (track: LocalVideoTrack | null) => {
+    if (!track || !looksSupported) return;
+    const { look: settings, imageUrl } = lookRef.current;
+    const b = brandRef.current;
+    void applyLook(track, settings, { imageUrl, brand: { fill: ACCENTS[b.accent].fill, logoUrl: b.logoUrl } }).then((r) => {
+      if (!r.ok) {
+        setLookNote(r.reason);
+        setLookSettings(r.applied);
+      }
+    });
+  };
+  // The look follows its settings, the brand, and whichever camera track is current.
+  useEffect(() => {
+    applyLookTo(lookTrack());
+  }, [look.background, look.look, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeVoice = (next: VoiceSettings) => {
+    saveVoiceSettings(next);
+    // On air, the desk follows at once (the filter, the preset); Music mode's capture waits for the next stream.
+    deskRef.current?.setVoice(next);
+  };
+  /** A blur is tried on this device first, once: too slow, and it stays off with a word. */
+  const changeLook = async (next: LookSettings) => {
+    setLookNote(null);
+    if (next.background.startsWith("blur") && deviceOk === null) {
+      const track = lookTrack();
+      if (track) {
+        const t = await deviceTest(track);
+        setDeviceOk(t.ok);
+        if (!t.ok) {
+          setLookSettings({ ...next, background: "none" });
+          return;
+        }
+      }
+    }
+    setLookSettings(next);
+  };
 
   // Remember the shape; know the screen.
   useEffect(() => {
@@ -1381,7 +1447,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           setNeedsReshare(true);
         }
       }
-      if (!rejoin || micOn) await room.localParticipant.setMicrophoneEnabled(true);
+      // The mic as the voice settings want it: Music mode takes it raw, and in stereo.
+      if (!rejoin || micOn) {
+        await room.localParticipant.setMicrophoneEnabled(true, micCaptureOptions(voiceRef.current), micPublishOptions(voiceRef.current, saveData));
+      }
 
       // Attach local video to preview element
       const videoPubs = room.localParticipant.videoTrackPublications;
@@ -1391,6 +1460,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           videoTrackRef.current = pub.track as LocalVideoTrack;
         }
       });
+      // The look rides the published camera, not the preview it replaced.
+      if (src === "camera") applyLookTo(videoTrackRef.current);
 
       const audioPubs = room.localParticipant.audioTrackPublications;
       audioPubs.forEach((pub) => {
@@ -1398,8 +1469,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           audioTrackRef.current = pub.track as LocalAudioTrack;
         }
       });
-      // A rejoin publishes a new mic track: the desk goes back in its path.
-      if (deskOnRef.current) void startDesk();
+      // A rejoin publishes a new mic track: the desk goes back in its path —
+      // and the voice settings put it there in the first place.
+      if (deskOnRef.current || voiceNeedsDesk(voiceRef.current, { noiseFilter: noiseFilterOk })) void startDesk();
     }
     return room;
   };
@@ -1421,6 +1493,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     const src: SourceType = resume ? (resume.source ?? "obs") : source;
     setIsConnecting(true);
     setError(null);
+    // The desk's audio context has to start from a click: this is the click,
+    // before the joins that follow outlive the browser's grace for one.
+    if (src !== "obs" && !deskCtxRef.current && voiceNeedsDesk(voiceRef.current, { noiseFilter: noiseFilterOk })) {
+      try {
+        const ctx = new AudioContext({ latencyHint: "interactive" });
+        await ctx.resume();
+        deskCtxRef.current = ctx;
+      } catch {
+        // No desk, then: the mic goes out as it is.
+      }
+    }
 
     let createdStreamId: string | null = null;
 
@@ -2767,6 +2850,50 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       </div>
       </div>
 
+      {/* Sound & look: what shapes your voice and your picture, set before anyone hears or sees them. */}
+      {source !== "obs" && (
+        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
+          <p className={SETUP_LABEL}>Sound &amp; look</p>
+          <div className="mt-3 grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold">Sound</p>
+              <SoundSetup
+                className="mt-2.5"
+                settings={voice}
+                onChange={changeVoice}
+                supported={{ noiseFilter: noiseFilterOk }}
+                meter={() => (deskRef.current ? deskRef.current.meters().mic : null)}
+                compare={deskOn ? { start: () => deskRef.current?.setBypass(true), stop: () => deskRef.current?.setBypass(false) } : null}
+                live={isLive}
+              />
+            </div>
+            {source === "camera" && (
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold">Picture</p>
+                <LookSetup
+                  className="mt-2.5"
+                  settings={look}
+                  onChange={(next) => void changeLook(next)}
+                  supported={looksSupported}
+                  deviceOk={deviceOk}
+                  onPickImage={(f) => {
+                    setLookImage(f);
+                    setLookSettings({ background: "image" });
+                  }}
+                  imageUrl={lookImage?.url ?? null}
+                  compare={lookTrack() ? { start: () => setLookBypass(lookTrack()!, true), stop: () => setLookBypass(lookTrack()!, false) } : null}
+                />
+                {lookNote && (
+                  <p role="status" className="mt-2 text-[12px] leading-snug text-warning">
+                    {lookNote}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* The run of show: segments, the prompter's script, and what each puts on screen. */}
       <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
         {showPlanner ? (
@@ -3202,7 +3329,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         if (deskOnRef.current && ctx.state !== "running") void stopDesk();
       };
       track.setAudioContext(ctx);
-      const desk = new AudioDesk(deskSettings);
+      const desk = new AudioDesk(deskSettings, voiceRef.current);
       await track.setProcessor(desk);
       deskRef.current = desk;
       deskOnRef.current = true;
