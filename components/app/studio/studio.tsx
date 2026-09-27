@@ -42,6 +42,7 @@ import {
   Playlist,
   ClapperboardText,
   CaretRight,
+  Shield,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -80,13 +81,14 @@ import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effec
 import { SetStinger } from "@/components/app/set-stinger";
 import { SetsPanel } from "@/components/app/sets-panel";
 import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
+import { CollapsibleSection } from "@/components/app/collapsible-section";
 import { applyShield, getShieldSettings, getShieldStatus, setShieldSettings, shareShieldedScreen, useShieldSettings } from "@/lib/privacy-shield";
 import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
-import { applyLook, deviceTest, isLooksSupported, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
-import { micCaptureOptions, micPublishOptions, noiseFilterSupported, saveVoiceSettings, useVoiceSettings, voiceNeedsDesk, type VoiceSettings } from "@/lib/voice";
+import { applyLook, BACKGROUNDS, deviceTest, isLooksSupported, LOOKS, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
+import { micCaptureOptions, micPublishOptions, noiseFilterSupported, presetLabel, saveVoiceSettings, useVoiceSettings, voiceNeedsDesk, type VoiceSettings } from "@/lib/voice";
 import { isCameraIdentity } from "@/lib/angles";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
@@ -795,8 +797,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       onTry={tryEffect}
       face={faceState}
       soundsReady={deskOn}
+      headless
     />
   );
+  // What each folded section is set to, in a few words.
+  const setsSummary = activeSet?.name ?? "No set";
+  const shieldSummary = [shield.enabled ? "Checks on" : "Checks off", shield.zones.length ? `${shield.zones.length} covered ${shield.zones.length === 1 ? "area" : "areas"}` : null].filter(Boolean).join(" · ");
+  const secondCameraSummary = phoneConnected ? (scene.angle === "phone" ? "Phone on air" : "Phone connected") : "Add a phone as a second angle";
 
   // Remember the shape; know the screen.
   useEffect(() => {
@@ -3012,9 +3019,20 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
       {/* Sound & look: what shapes your voice and your picture, set before anyone hears or sees them. */}
       {source !== "obs" && (
-        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
-          <p className={SETUP_LABEL}>Sound &amp; look</p>
-          <div className="mt-3 grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
+        <CollapsibleSection
+          id="setup-sound-look"
+          title="Sound & look"
+          icon={Faders}
+          summary={[
+            voice.musicMode ? "Music mode" : voice.noiseFilter ? "Noise filter" : "No filter",
+            presetLabel(voice.preset),
+            ...(source === "camera"
+              ? [BACKGROUNDS.find((b) => b.id === look.background)?.label ?? "None", LOOKS.find((l) => l.id === look.look)?.label ?? "Natural"].filter((x) => x !== "None" && x !== "Natural")
+              : []),
+          ].join(" · ")}
+          className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2"
+        >
+          <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
             <div className="min-w-0">
               <p className="text-[13px] font-semibold">Sound</p>
               <SoundSetup
@@ -3051,24 +3069,28 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               </div>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* Sharing a screen: the privacy shield, set up before the share starts. */}
+      {/* Sharing a screen: the privacy shield, set up before the share starts — open, it's the one that matters. */}
       {source === "screen" && (
-        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
-          <PrivacyShieldPanel sharing={false} prewarm />
-        </div>
+        <CollapsibleSection id="setup-shield" title="Privacy shield" icon={Shield} summary={shieldSummary} defaultOpen className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2">
+          <PrivacyShieldPanel sharing={false} prewarm headless />
+        </CollapsibleSection>
       )}
 
       {/* A Set: the stream's personality, chosen before anyone sees it. */}
-      {source === "camera" && <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">{setsPanel}</div>}
+      {source === "camera" && (
+        <CollapsibleSection id="setup-sets" title="Sets" icon={Sparkle} summary={setsSummary} className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2">
+          {setsPanel}
+        </CollapsibleSection>
+      )}
 
       {/* A second camera pairs before going live too: the phone holds the code and sends the moment you do. */}
       {source !== "obs" && user && (
-        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
-          <SecondCameraPanel hostId={user.id} angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} phoneConnected={phoneConnected} />
-        </div>
+        <CollapsibleSection id="setup-second-camera" title="Second camera" icon={Camera} summary={secondCameraSummary} className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2">
+          <SecondCameraPanel hostId={user.id} angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} phoneConnected={phoneConnected} headless />
+        </CollapsibleSection>
       )}
 
       {/* The run of show: segments, the prompter's script, and what each puts on screen. */}
@@ -3248,12 +3270,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
       {/* A phone as a second camera: the code to scan, and what viewers see of it. */}
       {user && (
-        <SecondCameraPanel
-          hostId={user.id}
-          angle={scene.angle ?? "main"}
-          onAngle={(a) => void applyScene({ angle: a })}
-          phoneConnected={phoneConnected}
-        />
+        <CollapsibleSection id="live-second-camera" title="Second camera" icon={Camera} summary={secondCameraSummary}>
+          <SecondCameraPanel
+            hostId={user.id}
+            angle={scene.angle ?? "main"}
+            onAngle={(a) => void applyScene({ angle: a })}
+            phoneConnected={phoneConnected}
+            headless
+          />
+        </CollapsibleSection>
       )}
 
       {otherLive.length > 0 && (
@@ -3652,7 +3677,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     <div className="flex flex-col gap-6 px-4 pt-1 pb-6">
       {/* A shared screen first: what it might show that viewers mustn't see. */}
       {(shieldTrack || source === "screen") && (
-        <PrivacyShieldPanel sharing={Boolean(shieldTrack)} editingZones={editingZones} onEditZones={setEditingZones} prewarm={source === "screen" || screenShareActive} />
+        <CollapsibleSection id="live-shield" title="Privacy shield" icon={Shield} summary={shieldSummary} defaultOpen>
+          <PrivacyShieldPanel sharing={Boolean(shieldTrack)} editingZones={editingZones} onEditZones={setEditingZones} prewarm={source === "screen" || screenShareActive} headless />
+        </CollapsibleSection>
       )}
       <DirectorSwitch
         on={directorOn}
@@ -3753,7 +3780,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         onBrand={saveBrand}
       />
 
-      {setsPanel}
+      <CollapsibleSection id="live-sets" title="Sets" icon={Sparkle} summary={setsSummary}>
+        {setsPanel}
+      </CollapsibleSection>
     </div>
   );
 

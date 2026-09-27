@@ -48,6 +48,8 @@ export interface PrivacyShieldViewProps {
   onEditZones?: (on: boolean) => void;
   /** The time, for "just now" and countdowns. */
   now: number;
+  /** Inside a section that already names it: no title row of its own. */
+  headless?: boolean;
   className?: string;
 }
 
@@ -76,6 +78,7 @@ export function PrivacyShieldView({
   onEditZones,
   now,
   className,
+  headless = false,
 }: PrivacyShieldViewProps) {
   const titleId = useId();
   const on = settings.enabled && supported;
@@ -112,7 +115,7 @@ export function PrivacyShieldView({
 
   const heading = (
     <>
-      <div className="flex items-center justify-between gap-3">
+      <div className={cn("flex items-center justify-between gap-3", headless && "hidden")}>
         <p id={titleId} className="flex items-center gap-2 text-[13.5px] font-semibold">
           <Shield size={16} weight="fill" className="text-foreground/80" />
           Privacy shield
@@ -122,7 +125,7 @@ export function PrivacyShieldView({
           {state.text}
         </span>
       </div>
-      <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
+      <p className={cn("text-[12px] leading-snug text-muted-foreground", !headless && "mt-1")}>
         Covers what it recognises on your shared screen — a wallet&apos;s words, its keys, its QR codes — and the zones you mark. An assist, not a
         guarantee: it can take a second to catch something.
       </p>
@@ -341,6 +344,7 @@ export function PrivacyShieldPanel({
   onEditZones,
   prewarm = false,
   className,
+  headless = false,
 }: {
   sharing: boolean;
   editingZones?: boolean;
@@ -348,6 +352,8 @@ export function PrivacyShieldPanel({
   /** Load the shield's code and the text checks now (~7 MB the first time, cached after), so the first share's first read is quick. */
   prewarm?: boolean;
   className?: string;
+  /** Inside a section that already names it: no title row of its own. */
+  headless?: boolean;
 }) {
   const settings = useShieldSettings();
   const status = useShieldStatus();
@@ -371,6 +377,7 @@ export function PrivacyShieldPanel({
       onEditZones={onEditZones}
       now={now}
       className={className}
+      headless={headless}
     />
   );
 }

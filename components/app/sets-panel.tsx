@@ -41,6 +41,8 @@ export interface SetsPanelProps {
   /** Look, don't touch (a console without the rights). */
   disabled?: boolean;
   className?: string;
+  /** Inside a section that already names it: no title of its own. */
+  headless?: boolean;
 }
 
 function rememberLook(look: Look) {
@@ -97,7 +99,7 @@ const FACE_LINE: Record<FaceTrackState, string | null> = {
  * layout, gift sounds and effects; No set goes back. Every effect has a
  * Try button that plays it on your own preview only.
  */
-export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, onTry, face = "off", soundsReady = true, disabled = false, className }: SetsPanelProps) {
+export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, onTry, face = "off", soundsReady = true, disabled = false, className, headless = false }: SetsPanelProps) {
   const [busy, setBusy] = useState<SetId | "none" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const swatches = useMemo(() => Object.fromEntries(LOOKS.map((l) => [l.id, lookSwatch(l.id)])) as Record<Look, string>, []);
@@ -139,10 +141,10 @@ export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, o
     <section aria-labelledby="sets-title" className={cn("@container", className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p id="sets-title" className={LABEL}>
+          <p id="sets-title" className={cn(LABEL, headless && "sr-only")}>
             Sets
           </p>
-          <p className="mt-1.5 text-[12.5px] leading-snug text-muted-foreground">A colour, a look, a layout, gift sounds and effects around your face — on in one tap.</p>
+          <p className={cn("text-[12.5px] leading-snug text-muted-foreground", !headless && "mt-1.5")}>A colour, a look, a layout, gift sounds and effects around your face — on in one tap.</p>
         </div>
         <Pill size="sm" variant={active ? "glass" : "primary"} aria-pressed={!active} onClick={() => void apply(null)} disabled={disabled || busy !== null}>
           {busy === "none" ? "Taking it off…" : "No set"}

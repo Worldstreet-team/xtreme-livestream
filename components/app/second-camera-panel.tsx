@@ -34,6 +34,7 @@ export function SecondCameraPanel({
   onAngle,
   phoneConnected,
   disabled = false,
+  headless = false,
 }: {
   hostId: string;
   /** `scene.angle` as the studio holds it. */
@@ -44,6 +45,8 @@ export function SecondCameraPanel({
   phoneConnected: boolean;
   /** Everything off — the console is read-only, say. */
   disabled?: boolean;
+  /** Inside a section that already names it: no title of its own. */
+  headless?: boolean;
 }) {
   // The address as this browser reaches the app; empty on the server's paint.
   const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "");
@@ -93,11 +96,11 @@ export function SecondCameraPanel({
 
   return (
     <section aria-labelledby="second-camera-title" className="rounded-[14px] bg-white/[0.04] p-3.5" data-camera={cameraIdentityOf(hostId)}>
-      <p id="second-camera-title" className="flex items-center gap-2 text-[13.5px] font-semibold">
+      <p id="second-camera-title" className={cn("flex items-center gap-2 text-[13.5px] font-semibold", headless && "sr-only")}>
         <Camera size={16} className="text-ember-hi" />
         Second camera
       </p>
-      <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
+      <p className={cn("text-[12px] leading-snug text-muted-foreground", !headless && "mt-1")}>
         Point a phone at the action. It scans a code and sends its camera — no app, no sign-in, and its mic is never sent.
       </p>
 
