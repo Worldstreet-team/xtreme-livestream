@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:api": "npm run dev --workspace @xtreme/api",
-    "build": "next build",
+    "build": "npm run build --workspace @xtreme/contracts && next build",
     "build:api": "npm run build --workspace @xtreme/contracts && npm run build --workspace @xtreme/api",
     "start": "next start",
     "start:api": "npm run start --workspace @xtreme/api",
