@@ -366,6 +366,12 @@ export const brandBodySchema = z
     font: z.enum(BRAND_FONTS).optional(),
     logo: imageSourceSchema.optional(),
     presets: z.array(brandPresetSchema).max(MAX_BRAND_PRESETS).optional(),
+    /**
+     * The Set the stream wears (Phase 4): a pack's id, null for none. Any
+     * well-formed id is kept — clients read one they don't know as none —
+     * so a new set never waits on the API.
+     */
+    set: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).nullable().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: "Nothing to change" });
 

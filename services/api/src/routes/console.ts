@@ -37,7 +37,7 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
       const { dbUser } = await authenticate(request);
       const streamer = await User.findOne({ username: request.params.username })
         .select(
-          "username displayName avatar safety settings.featureSeconds settings.featureGiftsFromMinor settings.stageRequests settings.stageAccountDays brand.accent brand.lowerThird brand.font brand.logo brand.logoVersion",
+          "username displayName avatar safety settings.featureSeconds settings.featureGiftsFromMinor settings.stageRequests settings.stageAccountDays brand.accent brand.lowerThird brand.font brand.logo brand.logoVersion brand.set",
         )
         .lean();
       if (!streamer) throw new ApiError(404, "There's no channel by that name", "USER_NOT_FOUND");
@@ -55,6 +55,7 @@ export const consoleRoutes: FastifyPluginAsync = async (fastify) => {
           lowerThird: streamer.brand?.lowerThird ?? "bar",
           font: streamer.brand?.font ?? "wide",
           logoVersion: streamer.brand?.logo ? (streamer.brand.logoVersion ?? 0) : 0,
+          set: streamer.brand?.set ?? null,
         },
         // How long the host has lines stay up, so a producer's go up the same.
         featureSeconds: streamer.settings?.featureSeconds ?? 20,

@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
   events: [] as Array<{ room: string; payload: Record<string, unknown> }>,
   user: null as null | {
     _id: { toString: () => string };
-    brand?: { accent: string; lowerThird: string; logo: string; logoVersion: number };
+    brand?: { accent: string; lowerThird: string; logo: string; logoVersion: number; set?: string | null };
     save: () => Promise<void>;
   },
 }));
@@ -90,7 +90,7 @@ describe("brand kit", () => {
     const response = await patch({ accent: "sky", lowerThird: "pill" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().data.brand).toEqual({ accent: "sky", lowerThird: "pill", font: "wide", logoVersion: 0, logoUrl: null, presets: [] });
+    expect(response.json().data.brand).toEqual({ accent: "sky", lowerThird: "pill", font: "wide", logoVersion: 0, logoUrl: null, presets: [], set: null });
     expect(state.user?.save).toHaveBeenCalledTimes(1);
   });
 
@@ -116,8 +116,43 @@ describe("brand kit", () => {
     await patch({ accent: "mint" });
 
     expect(state.events).toEqual([
-      { room: "room-7", payload: { __evt: "brand", brand: { accent: "mint", lowerThird: "bar", font: "wide", logoVersion: 0, logoUrl: null, presets: [] } } },
+      { room: "room-7", payload: { __evt: "brand", brand: { accent: "mint", lowerThird: "bar", font: "wide", logoVersion: 0, logoUrl: null, presets: [], set: null } } },
     ]);
+  });
+
+  it("wears a Set and takes it off again, leaving the rest of the kit alone", async () => {
+    const on = await patch({ set: "owambe" });
+
+    expect(on.statusCode).toBe(200);
+    expect(on.json().data.brand).toMatchObject({ accent: "ember", lowerThird: "bar", set: "owambe" });
+
+    const off = await patch({ set: null });
+
+    expect(off.statusCode).toBe(200);
+    expect(off.json().data.brand.set).toBeNull();
+    expect(state.user?.save).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the Set when something else in the kit changes", async () => {
+    await patch({ set: "trading-desk" });
+    const response = await patch({ accent: "sky" });
+
+    expect(response.json().data.brand).toMatchObject({ accent: "sky", set: "trading-desk" });
+  });
+
+  it("tells a live room about a new Set at once", async () => {
+    state.live = { livekitRoomName: "room-9" };
+
+    await patch({ set: "game-night" });
+
+    expect(state.events).toHaveLength(1);
+    expect(state.events[0]).toMatchObject({ room: "room-9", payload: { __evt: "brand", brand: { set: "game-night" } } });
+  });
+
+  it("refuses a Set id that isn't one", async () => {
+    expect((await patch({ set: "Owambe!" })).statusCode).toBe(400);
+    expect((await patch({ set: "x".repeat(33) })).statusCode).toBe(400);
+    expect((await patch({ set: 7 })).statusCode).toBe(400);
   });
 
   it("stays quiet off air", async () => {

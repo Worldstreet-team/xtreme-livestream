@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type CSSProperties, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -40,6 +40,10 @@ import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
+import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
+import { SetStinger } from "@/components/app/set-stinger";
+import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
+import { brandWithSet, setById } from "@/lib/sets";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { PlayPanel } from "@/components/app/play-panel";
@@ -232,7 +236,7 @@ interface StreamData {
     followers: number;
     isLive: boolean;
     /** The brand kit the graphics wear — the logo as a version, never its bytes. */
-    brand?: { accent?: string; lowerThird?: string; logoVersion?: number; logoUrl?: string | null };
+    brand?: { accent?: string; lowerThird?: string; logoVersion?: number; logoUrl?: string | null; set?: string | null };
     /** Whether the request line is open ("off" hides Join; the API holds the rest of the rules). */
     settings?: { stageRequests?: string };
   };
@@ -400,6 +404,11 @@ export default function StreamPage({
 
   // ---- Gifts ----
   const giftOverlayRef = useRef<GiftOverlayHandle | null>(null);
+  // The Set's gift effects round the host's face: anchors from the host's
+  // studio (topic "anchors", theirs alone), drawn over their picture here.
+  const anchorFeed = useAnchorFeed();
+  const takeAnchors = useMemo(() => anchorsListener(anchorFeed, () => streamerIdRef.current), [anchorFeed]);
+  const effectsRef = useRef<GiftEffectsHandle | null>(null);
   const handleGiftOverlayReady = useCallback(
     (handle: GiftOverlayHandle) => {
       giftOverlayRef.current = handle;
@@ -1042,7 +1051,9 @@ export default function StreamPage({
       // The event carries the authoritative post-write count — client-sent
       // deltas could drift (drops, replays) and never reached viewers whose
       // sender had no data-publish rights (cross-platform, guests).
-      room.on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }) => {
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }, kind?: unknown, topic?: string) => {
+        // The host's face positions: binary, and many a second — never JSON.
+        if (takeAnchors(payload, from, kind, topic)) return;
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as {
             __evt?: string;
@@ -1265,6 +1276,8 @@ export default function StreamPage({
             const label = amountStr.endsWith(".00")
               ? `$${amountStr.slice(0, -3)}`
               : `$${amountStr}`;
+            // The Set's effect for this gift, round the host's face.
+            effectsRef.current?.gift({ emoji: data.emoji }, { id: String(data.id ?? "") });
             giftOverlayRef.current?.push({
               id: String(data.id ?? `tip-${Date.now()}-${Math.random()}`),
               username: data.username,
@@ -1341,7 +1354,7 @@ export default function StreamPage({
           : "Couldn't connect to this stream. It may have ended."
       );
     }
-  }, [stream?.isLive, id, connected, fetchStream, setBackstage]);
+  }, [stream?.isLive, id, connected, fetchStream, setBackstage, takeAnchors]);
 
   // Back online after a failed rejoin: go back in without waiting for a tap.
   useEffect(() => {
@@ -2182,7 +2195,10 @@ export default function StreamPage({
   const streamer = stream.streamerId;
 
   const hostName = streamer.displayName || streamer.username;
-  const brand = readBrand(streamer.brand, streamer._id);
+  // The Set the stream wears goes over the creator's own kit.
+  const ownBrand = readBrand(streamer.brand, streamer._id);
+  const brand = brandWithSet(ownBrand);
+  const activeSet = setById(ownBrand.set ?? null);
   // The request line: closed hides Join; the API holds the other rules and says why.
   const lineOpen = streamer.settings?.stageRequests !== "off";
 
@@ -2573,6 +2589,15 @@ export default function StreamPage({
                   )}
                 />
                 {phoneMain}
+                {/* The Set's gift effects, round the host's face — not over a shared screen or the phone cam. */}
+                <GiftEffects
+                  set={activeSet}
+                  anchors={hostFeeds.screen || phoneMain ? null : anchorFeed}
+                  fit={sharing || (feedPortrait && !hostFeeds.screen) ? "cover" : "contain"}
+                  onReady={(handle) => {
+                    effectsRef.current = handle;
+                  }}
+                />
               </div>
             }
             pip={
@@ -2594,6 +2619,7 @@ export default function StreamPage({
                 : { top: "124px", bottom: "calc(34dvh + 96px + env(safe-area-inset-bottom))" }
             }
           />
+          <SetStinger set={activeSet} trigger={scene.layout} />
         </div>
 
         {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
@@ -3269,6 +3295,15 @@ export default function StreamPage({
                         className={cn("size-full", sharing ? "object-cover" : "object-contain", phoneMain && "invisible")}
                       />
                       {phoneMain}
+                      {/* The Set's gift effects, round the host's face. */}
+                      <GiftEffects
+                        set={activeSet}
+                        anchors={hostFeeds.screen || phoneMain ? null : anchorFeed}
+                        fit={sharing ? "cover" : "contain"}
+                        onReady={(handle) => {
+                          effectsRef.current = handle;
+                        }}
+                      />
                     </div>
                   }
                   pip={
@@ -3295,6 +3330,7 @@ export default function StreamPage({
                 />
               );
             })()}
+            <SetStinger set={activeSet} trigger={(stream.scene ?? DEFAULT_SCENE).layout} />
 
             {/* Radio: the sound without the picture. */}
             {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}

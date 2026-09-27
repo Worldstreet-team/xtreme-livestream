@@ -25,6 +25,7 @@ import {
   type SceneLayout,
 } from "@xtreme/contracts";
 import { apiUrl } from "@/lib/api-client";
+import { readSetId, type SetId } from "@/lib/sets";
 
 /**
  * Scenes on the client: reading them off the wire, and the words for them.
@@ -294,9 +295,11 @@ export interface Brand {
   logoUrl: string | null;
   /** Graphics kept for reuse (only the creator's own brand carries them). */
   presets: BrandPreset[];
+  /** The Set the stream wears (lib/sets.ts) — its accent, lower third and face go over these with `brandWithSet`. */
+  set?: SetId | null;
 }
 
-export const DEFAULT_BRAND: Brand = { accent: "ember", lowerThird: "bar", font: "wide", logoUrl: null, presets: [] };
+export const DEFAULT_BRAND: Brand = { accent: "ember", lowerThird: "bar", font: "wide", logoUrl: null, presets: [], set: null };
 
 /** Each brand font as the class that sets it — faces the app already loads. */
 export const BRAND_FONT_CLASS: Record<BrandFont, string> = {
@@ -349,6 +352,8 @@ export function readBrand(raw: unknown, userId?: string): Brand {
     font: BRAND_FONTS.includes(r.font as BrandFont) ? (r.font as BrandFont) : "wide",
     logoUrl: path ? apiUrl(path) : null,
     presets: readPresets(r.presets),
+    // A set this build doesn't know reads as none.
+    set: readSetId(r.set),
   };
 }
 

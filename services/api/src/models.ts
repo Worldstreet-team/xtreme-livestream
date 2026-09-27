@@ -88,6 +88,8 @@ export interface IUser extends Document {
     logoVersion: number;
     /** Graphics kept for reuse (brandPresetSchema), newest last. */
     presets: Array<Record<string, unknown>>;
+    /** The Set the stream wears (the web's lib/sets.ts), or null. */
+    set?: string | null;
   };
   /**
    * The channel's safety kit: the chat filter's level per category, the
@@ -210,6 +212,7 @@ const userSchema = new Schema<IUser>(
       logo: { type: String, default: "" },
       logoVersion: { type: Number, default: 0 },
       presets: { type: [Schema.Types.Mixed], default: [] },
+      set: { type: String, default: null },
     },
     safety: {
       filters: {

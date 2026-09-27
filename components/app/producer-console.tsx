@@ -33,6 +33,11 @@ import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { newerGoal, newerHeat, readGoal, readHeat } from "@/lib/goals";
 import { AngleSwitch } from "@/components/app/second-camera-panel";
+import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
+import { SetStinger } from "@/components/app/set-stinger";
+import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
+import { brandWithSet, setById } from "@/lib/sets";
+import { RoomEvent } from "livekit-client";
 import { useConsole, useConsoleRoom, type ConsoleData, type ConsoleStream } from "@/lib/producer";
 import { applyCues, formatClock, readPosition, readSegments, type RundownPosition, type RundownSegment } from "@/lib/rundown";
 import { CARDS, DEFAULT_SCENE, guestsShown, layerOf, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, withLayer, type Scene } from "@/lib/scene";
@@ -272,6 +277,10 @@ function LiveConsole({
     }
   };
 
+  // The Set's gift effects on the program, as viewers see them: the host's
+  // face positions (topic "anchors") and the gifts, straight off the room.
+  const anchorFeed = useAnchorFeed();
+  const effectsRef = useRef<GiftEffectsHandle | null>(null);
   const live = useConsoleRoom({
     url,
     token,
@@ -284,6 +293,25 @@ function LiveConsole({
     onData,
     onClosed,
   });
+  useEffect(() => {
+    const room = live.room;
+    if (!room) return;
+    const takeAnchors = anchorsListener(anchorFeed, () => host.id);
+    const onData = (payload: Uint8Array, from?: { identity: string }, kind?: unknown, topic?: string) => {
+      if (takeAnchors(payload, from, kind, topic)) return;
+      try {
+        const data = JSON.parse(new TextDecoder().decode(payload)) as { __evt?: string; type?: string; emoji?: string; id?: string };
+        // A gift lands as a tip line: the Set's effect for it.
+        if (!data.__evt && data.type === "tip") effectsRef.current?.gift({ emoji: data.emoji }, { id: String(data.id ?? "") });
+      } catch {
+        // Not a line.
+      }
+    };
+    room.on(RoomEvent.DataReceived, onData);
+    return () => {
+      room.off(RoomEvent.DataReceived, onData);
+    };
+  }, [live.room, anchorFeed, host.id]);
 
   // Where the show is, and the host's rundown as it stands — again whenever they edit it.
   useEffect(() => {
@@ -507,14 +535,28 @@ function LiveConsole({
         forceAuto={Boolean(battleOn) || angle === "both"}
         host={{ name: hostName, avatar: host.avatar }}
         mainLabel={angle === "phone" ? "Phone cam" : hostName}
-        main={<TrackVideo track={mainTrack} fit={sharing ? "cover" : "contain"} />}
+        main={
+          <div className="relative size-full">
+            <TrackVideo track={mainTrack} fit={sharing ? "cover" : "contain"} />
+            {/* The Set's gift effects, round the host's face — not over a screen or the phone cam. */}
+            <GiftEffects
+              set={setById(brand.set ?? null)}
+              anchors={angle === "phone" || live.hostScreen ? null : anchorFeed}
+              fit={sharing ? "cover" : "contain"}
+              onReady={(handle) => {
+                effectsRef.current = handle;
+              }}
+            />
+          </div>
+        }
         pip={live.hostScreen && live.hostCamera ? <StageTile fill track={live.hostCamera} label={hostName} /> : undefined}
         pipClassName="top-3 right-3"
         guests={programOthers}
-        brand={brand}
+        brand={brandWithSet(brand)}
         goal={goal}
         heat={heat}
       />
+      <SetStinger set={setById(brand.set ?? null)} trigger={scene.layout} />
       {/* What the console knows that viewers don't: how it's joined, and whether the feed's there. */}
       <div className="pointer-events-none absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
         <span className="rounded-full bg-black/55 px-2 py-1 font-mono text-[10px] font-bold tracking-[0.08em] text-white/85">PROGRAM</span>

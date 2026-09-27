@@ -76,6 +76,11 @@ import { ConsoleLink } from "@/components/app/console-link";
 import { LiveAudience } from "@/components/app/stream-recap";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { SecondCameraPanel } from "@/components/app/second-camera-panel";
+import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
+import { SetStinger } from "@/components/app/set-stinger";
+import { SetsPanel } from "@/components/app/sets-panel";
+import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
+import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
 import { applyLook, deviceTest, isLooksSupported, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
@@ -421,6 +426,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // program, never a guest. What viewers see of it is scene.angle.
   const phoneTrackRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneConnected, setPhoneConnected] = useState(false);
+  // The published camera, as state: the face tracker follows it (the ref alone wouldn't tell it).
+  const [liveCam, setLiveCam] = useState<LocalVideoTrack | null>(null);
   // Sound & look, kept per browser: the noise filter, Music mode and a voice
   // preset go through the audio desk; blur, a background and a colour look
   // ride the camera track as its processor.
@@ -431,8 +438,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const lookImage = useLookImage();
   const lookRef = useRef({ look, imageUrl: lookImage?.url ?? null });
   lookRef.current = { look, imageUrl: lookImage?.url ?? null };
-  const brandRef = useRef(brand);
-  brandRef.current = brand;
+  // The brand as viewers see it: the Set the stream wears over the creator's own kit.
+  const shownBrand = useMemo(() => brandWithSet(brand), [brand]);
+  const brandRef = useRef(shownBrand);
+  brandRef.current = shownBrand;
   // Both answers come from the browser, so they wait for the client.
   const [looksSupported, setLooksSupported] = useState(false);
   const [noiseFilterOk, setNoiseFilterOk] = useState(true);
@@ -701,6 +710,56 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
     setLookSettings(next);
   };
+
+  // The Set the stream wears (gift-reactive Sets): its gift effects around
+  // the host's face — on every viewer's screen from the anchors the face
+  // tracker sends, and on this preview — its gift sounds, its stinger.
+  const activeSet = setById(brand.set ?? null);
+  const activeSetRef = useRef(activeSet);
+  activeSetRef.current = activeSet;
+  const faceFeed = useAnchorFeed();
+  const effectsRef = useRef<GiftEffectsHandle | null>(null);
+  const setSoundGate = useMemo(() => soundGate(), []);
+  // "Try it" in the Sets panel follows the face for a while too, so the crown lands on a head.
+  const [trying, setTrying] = useState(false);
+  const tryingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (tryingTimer.current) clearTimeout(tryingTimer.current);
+  }, []);
+  const tryEffect = (effect: Parameters<GiftEffectsHandle["play"]>[0]) => {
+    setTrying(true);
+    if (tryingTimer.current) clearTimeout(tryingTimer.current);
+    tryingTimer.current = setTimeout(() => setTrying(false), 20_000);
+    effectsRef.current?.play(effect);
+  };
+  // The camera is the main picture: not a shared screen, and not cut to the phone cam.
+  const cameraIsMain = source === "camera" && !localScreen && !(phoneConnected && scene.angle === "phone");
+  const faceCam = cameraIsMain ? (isLive ? liveCam : previewTrack) : null;
+  const faceState = useFaceAnchors({
+    track: faceCam,
+    room: isLive ? liveRoom : null,
+    feed: faceFeed,
+    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying),
+  });
+
+  /** The Sets (gift-reactive Sets): used from the setup screen before going live, and the Scenes panel after. */
+  const setsPanel = (
+    <SetsPanel
+      active={brand.set ?? null}
+      onBrand={setBrand}
+      look={look.look}
+      onLook={(next) => void changeLook({ ...look, look: next })}
+      // A set's layout needs a stream to lay out; before going live, the look and the effects are what it brings.
+      onLayout={(layout) => {
+        if (isLive) void applyScene(layout === "chart-face" && !scene.chart ? { layout, chart: DEFAULT_CHART } : { layout });
+      }}
+      // Its sounds are read from the set itself when a gift lands (the desk plays them).
+      onSounds={() => {}}
+      onTry={tryEffect}
+      face={faceState}
+      soundsReady={deskOn}
+    />
+  );
 
   // Remember the shape; know the screen.
   useEffect(() => {
@@ -1017,9 +1076,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           const id = String(data.id ?? `tip-${Date.now()}-${Math.random()}`);
           const cents = Math.round(parseFloat(amountStr) * 100) || 0;
           setSessionTipsMinor((t) => t + cents);
-          // A big gift: the desk's ka-ching, for everyone.
+          // The Set's effect for this gift, round the host's face on this preview (viewers draw their own).
+          effectsRef.current?.gift({ emoji: data.emoji }, { id });
+          // Its sound, when the set has one for this gift — else, for a big gift, the desk's ka-ching; for everyone either way.
+          const setPad = soundForGift(activeSetRef.current, { emoji: data.emoji });
           const from = deskMomentsRef.current.giftFromMinor;
-          if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
+          if (deskOnRef.current && setPad && setSoundGate(setPad)) void deskRef.current?.playPad(setPad);
+          else if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
           // …and, with the auto-director on, the host alone for their reaction.
           if (cents >= 2000) directorReactRef.current();
           playTipChime();
@@ -1041,7 +1104,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         // Not an event payload
       }
     },
-    [playTipChime, pushSuggestion]
+    [playTipChime, pushSuggestion, setSoundGate]
   );
   const handleStudioDataRef = useRef(handleStudioData);
   handleStudioDataRef.current = handleStudioData;
@@ -1405,6 +1468,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       const t = pub.track;
       if (!t || t.kind !== Track.Kind.Video || pub.source !== Track.Source.Camera) return;
       videoTrackRef.current = t as LocalVideoTrack;
+      setLiveCam(t as LocalVideoTrack);
       if (videoElRef.current) t.attach(videoElRef.current);
       applyLookTo(videoTrackRef.current);
     });
@@ -1483,6 +1547,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         if (pub.track && videoElRef.current) {
           pub.track.attach(videoElRef.current);
           videoTrackRef.current = pub.track as LocalVideoTrack;
+          if (pub.source === Track.Source.Camera) setLiveCam(pub.track as LocalVideoTrack);
         }
       });
       // The look rides the published camera, not the preview it replaced.
@@ -1693,6 +1758,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     setGuestTiles([]);
     phoneTrackRef.current = null;
     setPhoneConnected(false);
+    setLiveCam(null);
     setTipAlerts([]);
     setStageError(null);
     setIngressInfo(null);
@@ -2919,6 +2985,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </div>
       )}
 
+      {/* A Set: the stream's personality, chosen before anyone sees it. */}
+      {source === "camera" && <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">{setsPanel}</div>}
+
       {/* A second camera pairs before going live too: the phone holds the code and sends the moment you do. */}
       {source !== "obs" && user && (
         <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
@@ -3603,6 +3672,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         onLayers={(layers) => void applyScene({ layers })}
         onBrand={saveBrand}
       />
+
+      {setsPanel}
     </div>
   );
 
@@ -3864,11 +3935,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                     )}
                   />
                   {phoneMain}
+                  {/* The Set's gift effects round your face, as viewers see them — mirrored with a mirrored preview. */}
+                  <GiftEffects
+                    set={activeSet}
+                    anchors={cameraIsMain ? faceFeed : null}
+                    fit={localScreen || source === "screen" ? "contain" : "cover"}
+                    mirrored={source === "camera" && facing === "user" && !localScreen}
+                    delayMs={80}
+                    onReady={(handle) => {
+                      effectsRef.current = handle;
+                    }}
+                  />
                 </div>
               }
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
               guests={programOthers}
-              brand={brand}
+              brand={shownBrand}
               goal={goal}
               heat={heat}
               // Full-bleed on a phone: graphics keep between the live row and the room's drawer.
@@ -3878,6 +3960,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   : undefined
               }
             />
+            {/* The Set's stinger between layouts, over the whole picture. */}
+            <SetStinger set={activeSet} trigger={scene.layout} />
           </div>
         </div>
 
