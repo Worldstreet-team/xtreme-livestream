@@ -21,12 +21,12 @@ import { NotificationsBell } from "@/components/app/notifications-bell";
  *
  * Desktop: only controls (owner, 2026-09-24: "no isolated text, no live
  * now — just professional"): search dead centre with its ⌘K hint, then your
- * points, Ask Vivid, the bell and you. Go live lives in the rail (and the
- * phone drawer), not here (owner, 2026-09-24). It is always in
- * view (sticky glass) and it is the one place search lives.
+ * points, Ask Vivid, the bell and you. Go live lives in the rail, not here
+ * (owner, 2026-09-24); on phones it floats above the tab bar. It is always
+ * in view (sticky glass) and it is the one place search lives.
  *
  * Phones: your face (or the menu, signed out) and the brand on the left,
- * then Vivid's orb, the bell and Go live on the right — Vivid took search's
+ * then Vivid's orb and the bell on the right — Vivid took search's
  * seat (owner's pick 3B, 2026-09-23), and search opens from Browse as a
  * full-width row over this bar. Your face opens the account drawer; the
  * four places to go are on the tab bar below.

@@ -11,7 +11,7 @@ import { formatOnAir, liveActions, useLiveSession, type LiveSession } from "@/li
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 
-interface HeldStream {
+export interface HeldStream {
   id: string;
   title: string;
   source: string;
@@ -25,7 +25,7 @@ interface HeldStream {
  * Only asked for when your account says you're live and nothing here is on
  * air, then again every half minute and whenever you come back to the tab.
  */
-function useHeldStream(): HeldStream | null {
+export function useHeldStream(): HeldStream | null {
   const { user } = useAuth();
   const session = useLiveSession();
   const pathname = usePathname();
@@ -191,8 +191,8 @@ function LiveIcon({ session, now }: { session: LiveSession; now: number }) {
  * The phone's version of the held card — the minimized player covers the
  * live case — a pill above the tab bar: your stream is on hold, resume it.
  */
-export function HeldStreamPill() {
-  const held = useHeldStream();
+export function HeldStreamPill({ held }: { held: HeldStream | null }) {
+  // The shell asks once and shares the answer with the Go live button, which steps aside for this.
   if (!held) return null;
   const copy = heldCopy(held);
   return (

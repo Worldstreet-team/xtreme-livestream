@@ -19,7 +19,6 @@ import {
   SidebarSimple,
   SealCheck,
   House,
-  Broadcast,
   SquaresFour,
   CaretRight,
   CaretDown,
@@ -43,7 +42,10 @@ import { BalancePills } from "@/components/app/balance-pills";
 import { TopBar } from "@/components/app/topbar";
 import { RightRail } from "@/components/app/right-rail";
 import { StudioHost } from "@/components/app/studio/studio-host";
-import { HeldStreamPill, LiveSessionCard } from "@/components/app/studio/live-session-card";
+import { HeldStreamPill, LiveSessionCard, useHeldStream } from "@/components/app/studio/live-session-card";
+import { GoLiveFab, GoLiveRailButton } from "@/components/app/go-live-fab";
+import { LiveRingsBar } from "@/components/app/live-rings";
+import { StudioEdgeSwipe } from "@/components/app/studio-edge-swipe";
 import {
   GlassPopover,
   insideGlassPopover,
@@ -112,6 +114,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const roomy = useMinWidth(1280);
   // The phone drawer: opened from the top bar, closed by any link inside it.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // One look for a stream that's holding without this tab: its pill and the
+  // Go live button share the corner, so they share the answer too.
+  const held = useHeldStream();
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -158,6 +163,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             parent exactly its own height, so the bar scrolled away. */}
         <div data-app-chrome className={cn("sticky top-0 z-30", phoneChromeless && "hidden md:block")}>
           <TopBar onMenu={() => setMobileOpen(true)} />
+          {/* Phones, on Home, Browse and Messages: who's live, under the bar. */}
+          <LiveRingsBar />
         </div>
         <div className="flex min-h-0 flex-1 items-start">
           <div className="min-w-0 flex-1">
@@ -176,7 +183,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <>
           <MobileTabBar />
           <PhoneDrawer open={mobileOpen} onOpenChange={setMobileOpen} />
-          <HeldStreamPill />
+          <HeldStreamPill held={held} />
+          <GoLiveFab held={Boolean(held)} />
+          <StudioEdgeSwipe disabled={mobileOpen} />
         </>
       )}
     </div>
@@ -203,12 +212,13 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 /**
- * Making things — open to everyone, so a visitor sees they could. "Your
- * channel" is the channel and the dashboard in one place (owner,
- * 2026-09-24); the public page is a button inside it.
+ * Making things. Go live leads the group as its own button (open to
+ * everyone, so a visitor sees they could) — it offers Start now or Schedule
+ * live, which is where the Studio row used to go. "Your channel" is the
+ * channel and the dashboard in one place (owner, 2026-09-24); the public
+ * page is a button inside it.
  */
 const CREATE_NAV: NavItem[] = [
-  { label: "Studio", href: "/studio", icon: Broadcast, public: true },
   { label: "Your channel", href: "/dashboard", icon: ChartDonut, public: false },
 ];
 
@@ -388,6 +398,9 @@ export function Sidebar({
             {mainItems.map((item, i) => renderItem(item, i, 60))}
 
             <Eyebrow collapsed={narrow}>Create</Eyebrow>
+            <div className={cn("animate-rise", narrow ? "py-1" : "px-0.5 pt-0.5 pb-1.5")} style={{ animationDelay: "170ms" }}>
+              <GoLiveRailButton collapsed={narrow} />
+            </div>
             {createItems.map((item, i) => renderItem(item, i, 180))}
 
             {user && (

@@ -2,21 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HouseLine, Compass, PlayCircle, Broadcast, ChatCircleDots } from "@/components/icons";
+import { HouseLine, Compass, PlayCircle, ChatCircleDots } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-badge";
 
 /**
- * The phone's primary navigation: five tabs, Go live in the middle
- * (owner, 2026-09-24: Go live left the top bar; Following moved to the
- * drawer, Messages joined the bar).
- *
- * Home, Browse, Live feed, Following — the same four the desktop rail
- * leads with, so a viewer moving between a laptop and a phone finds the
- * same doors in the same order. Go live is not here: it is the red pill in
- * the top bar, where it reads as the one action rather than a fifth place
- * to go. Everything about you lives in the drawer the top bar opens.
+ * The phone's primary navigation: four tabs — Home, Browse, Live feed,
+ * Messages. Following lives in the drawer (owner, 2026-09-24), and Go live
+ * is not a tab: it floats above the bar's right end (`GoLiveFab`), where it
+ * reads as the one action rather than another place to go, and opens a
+ * choice of Start now or Schedule live.
  *
  * The bar wears the search button's tone as frosted glass (the owner's one
  * ask for blur, 2026-09-22) so the page shows through beneath it, and it
@@ -31,7 +27,6 @@ import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-b
 const TABS = [
   { label: "Home", href: "/explore", icon: HouseLine },
   { label: "Browse", href: "/browse", icon: Compass },
-  { label: "Go live", href: "/studio", icon: Broadcast, create: true },
   { label: "Live feed", href: "/feed", icon: PlayCircle },
   { label: "Messages", href: "/messages", icon: ChatCircleDots },
 ] as const;
@@ -49,26 +44,10 @@ export function MobileTabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {TABS.map((t) => {
         const active = is(t.href);
-        if ("create" in t) {
-          // Go live, in the middle, in heat — solid Chili once you're on air.
-          const live = user?.isLive ?? false;
-          return (
-            <Link key={t.href} href={t.href} aria-label={live ? "On air — open the studio" : "Go live"} className="press flex h-[58px] items-center justify-center">
-              <span
-                className={cn(
-                  "flex h-9 w-12 items-center justify-center rounded-[12px] text-white",
-                  "bg-chili",
-                )}
-              >
-                <t.icon size={20} weight="fill" aria-hidden />
-              </span>
-            </Link>
-          );
-        }
         return (
           <Link
             key={t.href}

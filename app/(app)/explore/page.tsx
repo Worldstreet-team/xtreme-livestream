@@ -12,7 +12,6 @@ import { Shelf, LiveDot } from "@/components/app/shelf";
 import { HomeStage } from "@/components/app/home-stage";
 import { PillTabs } from "@/components/ui/tabs";
 import { BattlesRow } from "@/components/app/battles-row";
-import { AvatarRingsRow, type RingItem } from "@/components/app/avatar-rings-row";
 import {
   POPULAR_CATEGORIES,
   CATEGORIES,
@@ -90,15 +89,6 @@ interface ChannelResult {
   stream: { id: string; title: string; viewers: number } | null;
 }
 
-interface FollowedChannel {
-  id: string;
-  username: string;
-  displayName: string;
-  avatar: string;
-  isLive: boolean;
-  stream: { id: string; viewers: number } | null;
-}
-
 function toStreamCard(s: APIStream) {
   return {
     id: s._id,
@@ -154,7 +144,6 @@ export default function ExplorePage() {
   // Rows mode
   const [home, setHome] = useState<HomePage | null>(null);
   const [homeLoading, setHomeLoading] = useState(true);
-  const [followed, setFollowed] = useState<FollowedChannel[]>([]);
 
   // Grid mode
   const [streams, setStreams] = useState<ReturnType<typeof toStreamCard>[]>([]);
@@ -223,27 +212,6 @@ export default function ExplorePage() {
     }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [filtered, fetchHome, isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await apiFetch<{ success: boolean; data: { channels: FollowedChannel[] } }>(
-          `/api/user/me/following`
-        );
-        if (!cancelled) setFollowed(res.data.channels);
-      } catch {
-        // Rings row simply doesn't render.
-      }
-    }
-    void load();
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [isAuthenticated]);
 
   /* ---------------- grid mode ---------------- */
 
@@ -341,18 +309,6 @@ export default function ExplorePage() {
       ? [selectedCategory, ...chipNames]
       : chipNames;
 
-  const rings: RingItem[] = followed
-    .filter((c) => c.isLive)
-    .map((c) => ({
-      id: c.id,
-      username: c.username,
-      displayName: c.displayName,
-      avatar: c.avatar,
-      isLive: true,
-      href: c.stream ? `/stream/${c.stream.id}` : `/c/${c.username}`,
-      viewers: c.stream?.viewers ?? null,
-    }));
-
   const suggestedCategories = matchCategories(search, liveCategories);
 
   // Category chips — strictly what is live right now, busiest first by
@@ -426,7 +382,7 @@ export default function ExplorePage() {
         {chipRow && <div className={filtered ? "mb-8" : "mb-5"}>{chipRow}</div>}
 
         {!filtered ? (
-          <RowsHome home={home} loading={homeLoading} rings={rings} />
+          <RowsHome home={home} loading={homeLoading} />
         ) : (
           <FilteredResults
             search={search}
@@ -448,7 +404,7 @@ export default function ExplorePage() {
 
 /* ------------------------------------------------------------------ */
 
-function RowsHome({ home, loading, rings }: { home: HomePage | null; loading: boolean; rings: RingItem[] }) {
+function RowsHome({ home, loading }: { home: HomePage | null; loading: boolean }) {
   const feed = useMemo(() => (home ? buildFeed(home) : null), [home]);
 
   if (loading || !home || !feed) {
@@ -482,24 +438,12 @@ function RowsHome({ home, loading, rings }: { home: HomePage | null; loading: bo
       </Shelf>
     ) : null;
 
-  const ringsRow =
-    rings.length > 0 ? (
-      <section aria-label="Your channels, live now">
-        <h2 className="mb-3 flex items-center gap-2 font-wide text-[16px] font-bold tracking-[-0.02em] text-foreground">
-          Following
-          <span className="font-sans text-[12.5px] font-semibold tracking-normal text-muted-foreground">{rings.length} live</span>
-        </h2>
-        <AvatarRingsRow items={rings} />
-      </section>
-    ) : null;
-
   return (
     <div className="space-y-7 md:space-y-10">
-      {/* Phones open on the faces you follow, then the feed — no hero
-          under 768 (owner, 2026-09-07). The stage and battles are
+      {/* Phones open on the live rings (the shell puts them under the top
+          bar — components/app/live-rings.tsx), then the chips and the feed —
+          no hero under 768 (owner, 2026-09-07). The stage and battles are
           desktop-only; the Wolf race lives on the rail. */}
-      {ringsRow && <div className="md:hidden">{ringsRow}</div>}
-
       <div className="hidden md:block">
         <HomeStage leads={home.leads} rows={home.rows} />
       </div>
@@ -510,7 +454,7 @@ function RowsHome({ home, loading, rings }: { home: HomePage | null; loading: bo
       </div>
 
       {/* Desktop's stage already carries a quiet night; phones get the
-          empty state, without a second Go live — that's in the top bar. */}
+          empty state, without a second Go live — that floats over the tab bar. */}
       {nothingLive && (
         <Empty
           className="md:hidden"
