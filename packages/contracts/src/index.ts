@@ -1167,6 +1167,39 @@ export const updateStreamBodySchema = createStreamBodySchema
     message: "At least one field is required",
   });
 
+/**
+ * Thumbnail candidates ("Pick a thumbnail"): frames the studio grabs while
+ * live, scores on the device, and offers the API one at a time. The API
+ * keeps the best few, spread across the broadcast; the host picks one after.
+ */
+export const THUMBNAIL_CANDIDATES_MAX = 3;
+
+/** One grabbed frame: a small JPEG/WebP (640 px wide, ~0.75 quality) and the studio's score for it. */
+export const thumbnailCandidateBodySchema = z.object({
+  image: z
+    .string()
+    .max(160_000)
+    .regex(/^data:image\/(jpeg|webp);base64,[A-Za-z0-9+/=]+$/, "Must be a base64 JPEG or WebP data URI"),
+  /** Sharpness and exposure (0–1 together), plus a bonus when a face was in shot. */
+  score: z.number().finite().min(0).max(2),
+});
+
+/** Make one of the kept frames the stream's thumbnail. */
+export const chooseThumbnailBodySchema = z.object({
+  candidateId: z.string().trim().min(1).max(64),
+});
+
+export interface ThumbnailCandidate {
+  id: string;
+  /** The frame itself, inline (the host's own route only). */
+  image: string;
+  score: number;
+  /** When it was grabbed (ISO). */
+  at: string;
+  /** Whether it's the stream's thumbnail right now. */
+  current: boolean;
+}
+
 /** How far ahead a stream can be booked. */
 export const SCHEDULE_HORIZON_MS = 365 * 24 * 60 * 60_000;
 

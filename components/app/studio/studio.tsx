@@ -54,6 +54,8 @@ import { VividLauncher } from "@/components/vivid/vivid-voice-control";
 import { VanishingPlaceholder } from "@/components/ui/vanishing-placeholder";
 import { categoryArt } from "@/lib/category-art";
 import { StreamArt } from "@/components/app/stream-art";
+import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
+import { offerThumbnailCandidate } from "@/lib/thumbnail-candidates";
 import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
@@ -640,6 +642,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   // Custom thumbnail (base64 data URI) chosen by the host
   const [customThumbnail, setCustomThumbnail] = useState<string | null>(null);
+  // The stream just ended here: its kept frames are offered as thumbnails on the setup screen.
+  const [endedStreamId, setEndedStreamId] = useState<string | null>(null);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
@@ -1798,6 +1802,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     roomRef.current = null;
     room?.disconnect();
 
+    if (streamId) setEndedStreamId(streamId);
     resetAfterLive();
   };
 
@@ -2400,6 +2405,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       if (getShieldStatus().slate) return false;
       const thumb = captureVideoFrame(el, 640, 0.75);
       if (!thumb) return false;
+      // The same frame, scored, is offered as a "Pick a thumbnail" choice for after the stream.
+      offerThumbnailCandidate(streamId, thumb, el, faceFeed.sample().face ? true : null);
       void apiFetch(`/api/streams/${streamId}`, {
         method: "PATCH",
         body: JSON.stringify({ thumbnail: thumb }),
@@ -2422,7 +2429,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       clearInterval(eager);
       clearInterval(steady);
     };
-  }, [isLive, streamId, source, camEnabled]);
+  }, [isLive, streamId, source, camEnabled, faceFeed]);
 
   // Warn before closing/refreshing the tab while live — leaving takes the
   // camera off the air (the stream holds for the grace window, then ends).
@@ -2794,6 +2801,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           </div>
         );
       })()}
+
+      {endedStreamId && (
+        <ThumbnailPicker streamId={endedStreamId} note="From the stream you just ended, picked for sharpness and light. Tap one to use it." onClose={() => setEndedStreamId(null)} className="@[620px]:col-span-2" />
+      )}
 
       {booking && (
         <div className="flex items-start gap-3 rounded-[12px] bg-ember/[0.1] px-4 py-3.5 @[620px]:col-span-2">

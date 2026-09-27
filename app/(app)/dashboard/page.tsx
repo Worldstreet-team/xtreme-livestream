@@ -18,6 +18,8 @@ import { Shelf } from "@/components/app/shelf";
 import { HealthReportTile } from "@/components/app/stream-health";
 import { BroadcastRecaps } from "@/components/app/broadcast-recaps";
 import { Takedowns } from "@/components/app/takedowns";
+import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
+import { Dialog, DialogContent, DialogTrigger, Pill } from "@/components/xtream";
 import { report as healthReport, type HealthWindow } from "@/lib/stream-health";
 
 /**
@@ -54,6 +56,8 @@ interface RecentStream {
   category: Category;
   /** API-relative path, or null when the stream has no thumbnail. */
   thumbnailUrl: string | null;
+  /** Frames the studio kept while live, to pick a thumbnail from (0–3). */
+  thumbnailCandidates?: number;
   viewers: number;
   peakViewers: number;
   avgViewers?: number;
@@ -507,11 +511,14 @@ function TopTile({ top }: { top: RecentStream[] }) {
 }
 
 function BroadcastCard({ stream: s }: { stream: RecentStream }) {
+  // A thumbnail picked here shows on the card straight away.
+  const [thumb, setThumb] = useState(s.thumbnailUrl);
   return (
     <article className="min-w-0">
       <div className="relative aspect-video overflow-hidden rounded-xl bg-surface">
         <RemoteImage
-          src={apiUrl(s.thumbnailUrl)}
+          key={thumb ?? ""}
+          src={apiUrl(thumb)}
           alt=""
           fill
           className="object-cover"
@@ -521,6 +528,18 @@ function BroadcastCard({ stream: s }: { stream: RecentStream }) {
           <span className="absolute right-2 bottom-2 rounded-[6px] bg-black/65 px-1.5 py-0.5 font-mono text-[11.5px] font-semibold text-white tabular-nums backdrop-blur-sm">
             {formatStreamDuration(s.duration)}
           </span>
+        )}
+        {(s.thumbnailCandidates ?? 0) > 0 && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Pill size="sm" className="absolute top-2 left-2 bg-black/65 text-white hover:bg-black/75">
+                Thumbnail
+              </Pill>
+            </DialogTrigger>
+            <DialogContent title="Pick a thumbnail" description="Frames from this broadcast, picked for sharpness and light. Tap one to use it.">
+              <ThumbnailPicker streamId={s.id} bare onPicked={setThumb} />
+            </DialogContent>
+          </Dialog>
         )}
       </div>
       <p className="mt-2.5 truncate text-[15px] font-bold">{s.title}</p>

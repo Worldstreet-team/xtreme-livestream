@@ -291,6 +291,16 @@ export interface IStream extends Document {
    */
   thumbnailVersion: number;
   /**
+   * Up to three frames the studio grabbed while live and scored itself
+   * (sharpness, exposure, a face), kept spread across the broadcast — the
+   * "Pick a thumbnail" choices after it ends. Offered one at a time as they
+   * are grabbed (thumbnail-candidates.ts decides what stays), so a studio
+   * reload loses nothing. `select: false`: the blobs never ride along with
+   * a list, a card or the stream page; only the host's own candidates
+   * route asks for them.
+   */
+  thumbnailCandidates: Array<{ id: string; image: string; score: number; at: Date }>;
+  /**
    * Optional looping clip the web app can play as a muted preview when the
    * room has no video to give — seeded streams in development, or a
    * broadcaster between encoder reconnects. Never a substitute for the
@@ -478,6 +488,11 @@ const streamSchema = new Schema<IStream>(
     thumbnail: { type: String, default: "" },
     previewUrl: { type: String },
     thumbnailVersion: { type: Number, default: 0 },
+    thumbnailCandidates: {
+      type: [{ _id: false, id: String, image: String, score: Number, at: Date }],
+      default: () => [],
+      select: false,
+    },
     isLive: { type: Boolean, default: true, index: true },
     livekitRoomName: { type: String, required: true, unique: true },
     source: { type: String, enum: ["camera", "screen", "obs"], default: "camera" },

@@ -88,7 +88,21 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         { gross: 0, net: 0, count: 0 },
       );
 
-      const recentStreams = pastStreams.slice(0, 10).map((stream) => {
+      const recent = pastStreams.slice(0, 10);
+      // How many frames each kept to pick a thumbnail from — counted in the
+      // database, so the frames themselves never leave it for this page.
+      const candidateCounts = new Map(
+        recent.length === 0
+          ? []
+          : (
+              await Stream.aggregate<{ _id: unknown; n: number }>([
+                { $match: { _id: { $in: recent.map((stream) => stream._id) } } },
+                { $project: { n: { $size: { $ifNull: ["$thumbnailCandidates", []] } } } },
+              ])
+            ).map((row) => [String(row._id), row.n]),
+      );
+
+      const recentStreams = recent.map((stream) => {
         const earned = giftsFor.get(String(stream._id))?.net ?? 0;
 
         return {
@@ -96,6 +110,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
           title: stream.title,
           category: stream.category,
           thumbnailUrl: thumbnailUrlFor(stream),
+          thumbnailCandidates: candidateCounts.get(String(stream._id)) ?? 0,
           viewers: stream.viewers,
           peakViewers: stream.peakViewers,
           avgViewers: averageViewers(stream),
