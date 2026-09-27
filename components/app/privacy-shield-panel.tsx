@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { Eye, EyeSlash, Plus, Shield, X } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
 import { SwitchField } from "@/components/ui/selection-controls";
@@ -27,13 +28,6 @@ import { cn } from "@/lib/utils";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 const noSubscribe = () => () => {};
-/**
- * The app's icons re-set their SVG's insides on every render, and a press
- * that starts on a node that's since been swapped never becomes a click —
- * this panel re-renders every second or so while it has news. The button,
- * not its icon, takes the pointer.
- */
-const ICON_PASS = "[&_kbd]:pointer-events-none [&_svg]:pointer-events-none";
 
 /* ---- the panel ---------------------------------------------------------- */
 
@@ -64,6 +58,10 @@ const ago = (ms: number) => (ms < 10_000 ? "just now" : ms < 60_000 ? `${Math.fl
  * shield just covered — with "Show anyway for 10 s" and "Keep hidden" —
  * the Shield switch and a switch per check, and the zones that are always
  * covered. A leaf: the studio (or `PrivacyShieldPanel`) passes the state.
+ *
+ * Its words never include "recovery phrase" or "private key": the studio
+ * can be in the very screen the shield reads, and the panel mustn't slate
+ * the share it's looking after.
  */
 export function PrivacyShieldView({
   settings,
@@ -100,13 +98,16 @@ export function PrivacyShieldView({
               ? { text: "Starting", dot: "animate-pulse bg-white/60" }
               : { text: "Off", dot: "bg-warning" };
 
+  const every = status.stats.readEveryMs;
   const reading =
     !on || !sharing
       ? null
       : status.reading === "loading"
         ? "Loading the text checks…"
         : status.reading === "ready"
-          ? "Reading your screen about once a second."
+          ? every <= 1200
+            ? "Reading your screen about once a second."
+            : `Reading your screen every ${Math.round(every / 100) / 10} s, to go easy on this computer.`
           : null;
 
   const heading = (
@@ -122,8 +123,8 @@ export function PrivacyShieldView({
         </span>
       </div>
       <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
-        Covers the recovery phrases, private keys and wallet QR codes it recognises on your shared screen, and the zones you mark. An assist, not a
-        guarantee — it can take a second to catch something.
+        Covers what it recognises on your shared screen — a wallet&apos;s words, its keys, its QR codes — and the zones you mark. An assist, not a
+        guarantee: it can take a second to catch something.
       </p>
     </>
   );
@@ -156,9 +157,9 @@ export function PrivacyShieldView({
         }
         aria-pressed={panic}
         aria-keyshortcuts={PANIC_KEY.toUpperCase()}
-        title={`${PANIC_KEY.toUpperCase()} hides or shows it too — anywhere in Xtream, unless you're typing`}
+        title={`While you share, ${PANIC_KEY.toUpperCase()} hides or shows it too — anywhere in Xtream, unless you're typing`}
         onClick={() => onPanic(!panic)}
-        className={cn("mt-3.5 w-full @[360px]:w-auto", ICON_PASS)}
+        className="mt-3.5 w-full @[360px]:w-auto"
       >
         {panic ? "Show my screen" : "Hide my screen"}
       </Pill>
@@ -180,7 +181,7 @@ export function PrivacyShieldView({
       <div className="mt-4 divide-y divide-white/[0.05] rounded-[12px] bg-white/[0.045] px-3.5 py-1">
         <SwitchField
           label="Shield"
-          description={settings.enabled ? "Checks your screen and covers your zones while you share." : "Off: nothing's checked or covered. Hide still works."}
+          description={settings.enabled ? "Reads your screen for what's below while you share." : "Off: nothing's read. Your zones and Hide still work."}
           checked={settings.enabled}
           onCheckedChange={(v) => onChange({ ...settings, enabled: v })}
         />
@@ -201,14 +202,14 @@ export function PrivacyShieldView({
         <div className="flex min-h-8 items-center justify-between gap-3">
           <p className={LABEL}>Your zones</p>
           {onEditZones && (
-            <Pill size="sm" variant={editingZones ? "primary" : "glass"} disabled={!on || !sharing} onClick={() => onEditZones(!editingZones)}>
+            <Pill size="sm" variant={editingZones ? "primary" : "glass"} disabled={!sharing} onClick={() => onEditZones(!editingZones)}>
               {editingZones ? "Done" : "Mark on the preview"}
             </Pill>
           )}
         </div>
         <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
           {zones.length
-            ? "Always covered while the shield's on."
+            ? "Always covered while you share, Shield switch on or off."
             : sharing
               ? "Parts of your screen that are always covered — a balance, a sidebar, your notifications. Draw them on the preview."
               : "Parts of your screen that are always covered — a balance, a sidebar, your notifications. Share your screen to draw them on it."}
@@ -224,7 +225,7 @@ export function PrivacyShieldView({
                   type="button"
                   aria-label={`Remove zone ${i + 1}`}
                   onClick={() => onChange({ ...settings, zones: zones.filter((x) => x.id !== z.id) })}
-                  className={cn("press ml-auto flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground", ICON_PASS)}
+                  className="press ml-auto flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
                 >
                   <X size={14} weight="bold" />
                 </button>
@@ -232,23 +233,27 @@ export function PrivacyShieldView({
             ))}
           </ul>
         )}
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Pill
-            size="sm"
-            variant="ghost"
-            icon={<Plus size={14} />}
-            disabled={!on || zones.length >= MAX_ZONES}
-            onClick={() => onChange({ ...settings, zones: [...zones, centredZone()] })}
-            className={ICON_PASS}
-          >
-            Add a zone
-          </Pill>
-          {zones.length > 1 && (
-            <Pill size="sm" variant="ghost" onClick={() => onChange({ ...settings, zones: [] })}>
-              Clear all
-            </Pill>
-          )}
-        </div>
+        {/* Only while sharing: a zone added blind, with no screen to see it on, lands anywhere. */}
+        {(sharing || zones.length > 1) && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {sharing && (
+              <Pill
+                size="sm"
+                variant="ghost"
+                icon={<Plus size={14} />}
+                disabled={zones.length >= MAX_ZONES}
+                onClick={() => onChange({ ...settings, zones: [...zones, centredZone()] })}
+              >
+                Add a zone
+              </Pill>
+            )}
+            {zones.length > 1 && (
+              <Pill size="sm" variant="ghost" onClick={() => onChange({ ...settings, zones: [] })}>
+                Clear all
+              </Pill>
+            )}
+          </div>
+        )}
       </div>
 
       {(status.reason || reading) && (
@@ -393,17 +398,85 @@ export interface PrivacyZonesEditorProps {
  * Zones, drawn over the program preview: drag across the picture to cover
  * part of it, drag a zone to move it, its corners to size it, × to remove
  * it. By keyboard: Tab to a zone, the arrows move it, Shift and the arrows
- * size it, Delete removes it; "Add a zone" puts one in the middle.
- * Coordinates in and out are the screen's 0..1 square. Lay it over the
- * preview's picture (its parent positioned, the same box as the video).
+ * size it, Delete removes it, Escape is Done; "Add a zone" puts one in the
+ * middle. Coordinates in and out are the screen's 0..1 square.
+ *
+ * Mount it where the preview's picture is (its parent positioned, the same
+ * box as the video). It marks that box and draws itself above the whole
+ * page, pinned to it — so the studio's top row and dock, which sit over
+ * the picture, don't cover its edges or its controls while it's up.
  */
-export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className }: PrivacyZonesEditorProps) {
+export function PrivacyZonesEditor(props: PrivacyZonesEditorProps) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<Box | null>(null);
+  // Follow the picture: a layout change, the stacked stage growing when live, a window resize.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = anchorRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const hidden = getComputedStyle(el).visibility === "hidden";
+        setBox((cur) =>
+          cur && cur.x === r.x && cur.y === r.y && cur.w === r.width && cur.h === r.height && cur.hidden === hidden
+            ? cur
+            : { x: r.x, y: r.y, w: r.width, h: r.height, hidden }
+        );
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <>
+      <div ref={anchorRef} aria-hidden className={cn("pointer-events-none absolute inset-0", props.className)} />
+      {/* Out of sight (the studio minimized): nothing to draw on. */}
+      {box && box.w > 0 && box.h > 0 && createPortal(box.hidden ? <NotInThisLayout box={box} onDone={props.onDone} /> : <ZonesLayer {...props} box={box} />, document.body)}
+    </>
+  );
+}
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** The picture's there but not shown — a layout that hides the screen (the chart with your face). */
+  hidden: boolean;
+}
+
+const pinned = (box: Box) => ({ left: box.x, top: box.y, width: box.w, height: box.h });
+
+/** The layout doesn't show the shared screen (the chart with your face): nothing to draw on, so say so. */
+function NotInThisLayout({ box, onDone }: { box: Box; onDone?: () => void }) {
+  return (
+    <div className="fixed z-[var(--layer-overlay)] flex items-end justify-center p-3" style={pinned(box)}>
+      <div role="status" className="flex max-w-[26rem] flex-col items-center gap-2 rounded-[14px] bg-black/85 px-4 py-3 text-center">
+        <p className="text-[13px] font-semibold text-white">Your screen isn&apos;t in this layout</p>
+        <p className="text-[12px] leading-snug text-white/70">Zones are drawn over your shared screen. Switch to a layout that shows it to mark them.</p>
+        {onDone && (
+          <Pill size="sm" variant="primary" onClick={onDone}>
+            Done
+          </Pill>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ZonesLayer({ zones, onChange, aspect, onDone, box }: PrivacyZonesEditorProps & { box: Box }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const hintId = useId();
   const [drag, setDrag] = useState<Drag | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const focusNext = useRef<string | null>(null);
   const full = zones.length >= MAX_ZONES;
+
+  // Up: the keyboard lands in the editor, so Tab reaches the zones at once.
+  useEffect(() => {
+    frameRef.current?.focus({ preventScroll: true });
+  }, []);
 
   // A zone just added by keyboard takes focus, so the arrows work on it at once.
   useEffect(() => {
@@ -510,8 +583,16 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
       remove(z.id);
       frameRef.current?.focus();
     } else if (e.key === "Escape") {
+      // Off the zone; Escape again (on the frame) is Done.
+      e.stopPropagation();
       setSelected(null);
-      (e.currentTarget as HTMLElement).blur();
+      frameRef.current?.focus();
+    }
+  };
+  const onFrameKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape" && e.target === e.currentTarget && onDone) {
+      e.preventDefault();
+      onDone();
     }
   };
 
@@ -521,17 +602,18 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
   const pct = (v: number) => `${v * 100}%`;
 
   return (
-    <div className={cn("absolute inset-0 z-20 [container-type:size]", className)}>
+    <div className="fixed z-[var(--layer-overlay)] [container-type:size]" style={pinned(box)}>
       <div
         ref={frameRef}
         role="group"
-        aria-label="Privacy zones on your shared screen — drag across it to cover a part"
+        aria-label="Privacy zones on your shared screen"
         aria-describedby={hintId}
         tabIndex={-1}
         onPointerDown={startDraw}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={() => setDrag(null)}
+        onKeyDown={onFrameKey}
         className={cn(
           "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 touch-none bg-black/15 outline-none select-none",
           "shadow-[inset_0_0_0_1.5px_rgba(255,255,255,0.55)]",
@@ -540,6 +622,10 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
         )}
         style={aspect ? { aspectRatio: String(aspect), width: `min(100cqw, calc(100cqh * ${aspect}))` } : undefined}
       >
+        <p id={hintId} className="sr-only">
+          Drag across your screen to cover part of it. Tab to a zone: the arrow keys move it, Shift and the arrow keys size it, Delete removes it. Escape
+          is Done.
+        </p>
         {shown.map((z, i) => {
           const on = selected === z.id;
           return (
@@ -551,7 +637,7 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
               aria-roledescription="zone"
               aria-label={`Zone ${i + 1}, ${describeZone(z)}`}
               onPointerDown={(e) => startMove(e, z)}
-              onFocus={() => setSelected(z.id)}
+              onFocus={(e) => e.target === e.currentTarget && setSelected(z.id)}
               onKeyDown={(e) => onZoneKey(e, z)}
               className={cn(
                 "group absolute cursor-move rounded-[6px] bg-black/60 outline-none",
@@ -568,7 +654,7 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
                 aria-label={`Remove zone ${i + 1}`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => remove(z.id)}
-                className={cn("press absolute top-1 right-1 flex size-6 items-center justify-center rounded-full bg-white text-[#0b0708] shadow-[0_1px_4px_rgba(0,0,0,0.4)]", ICON_PASS)}
+                className="press absolute top-1 right-1 flex size-6 items-center justify-center rounded-full bg-white text-[#0b0708] shadow-[0_1px_4px_rgba(0,0,0,0.4)]"
               >
                 <X size={12} weight="bold" />
               </button>
@@ -600,20 +686,26 @@ export function PrivacyZonesEditor({ zones, onChange, aspect, onDone, className 
           />
         )}
 
-        {/* What to do, and the way out — along the bottom, clear of the zones' own controls. */}
+        {/* What to do — mouse and keys — and the way out, along the bottom, clear of the zones' own controls. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center px-2">
-          <div className="pointer-events-auto flex max-w-full items-center gap-1.5 rounded-full bg-black/75 py-1 pr-1 pl-3.5" onPointerDown={(e) => e.stopPropagation()}>
-            <span id={hintId} className="hidden min-w-0 truncate text-[12px] font-medium text-white/85 @[420px]:inline">
+          <div
+            className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 rounded-[14px] bg-black/80 py-1.5 pr-1.5 pl-3.5"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <p aria-hidden className="hidden min-w-0 text-[12px] leading-snug font-medium text-white/85 @[420px]:block">
               {full ? `That's ${MAX_ZONES} zones — the most there can be.` : "Drag across your screen to cover part of it."}
-            </span>
-            <Pill size="sm" variant="glass" icon={<Plus size={14} />} onClick={add} disabled={full} className={ICON_PASS}>
-              Add a zone
-            </Pill>
-            {onDone && (
-              <Pill size="sm" variant="primary" onClick={onDone}>
-                Done
+              <span className="hidden text-white/60 @[700px]:inline"> Tab to a zone: arrows move it, Shift + arrows size it, Delete removes it.</span>
+            </p>
+            <div className="flex items-center gap-1.5">
+              <Pill size="sm" variant="glass" icon={<Plus size={14} />} onClick={add} disabled={full}>
+                Add a zone
               </Pill>
-            )}
+              {onDone && (
+                <Pill size="sm" variant="primary" onClick={onDone}>
+                  Done
+                </Pill>
+              )}
+            </div>
           </div>
         </div>
       </div>

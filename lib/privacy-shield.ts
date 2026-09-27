@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { LocalVideoTrack, Track, TrackProcessor } from "livekit-client";
+import type { LocalTrack, LocalTrackPublication, LocalVideoTrack, Room, Track, TrackProcessor } from "livekit-client";
 import type { TrackTransformerDestroyOptions, VideoTrackTransformer, VideoTransformerInitOptions } from "@livekit/track-processors";
 import {
   DEFAULT_DETECTORS,
@@ -11,24 +11,52 @@ import {
   NOTICE_TEXT,
   clampRect,
   scanScreen,
+  type CarriedFinding,
   type Detectors,
   type FindingKind,
   type Rect,
 } from "./privacy-shield-detect";
-import { acquireOcr, changed, detectQr, ocrError, ocrState, onOcrState, prewarmOcr, qrDetector, releaseOcr, scanSize, signature, toGrey, toPgm, type OcrEngine, type OcrState } from "./privacy-shield-ocr";
+import {
+  RETRY_AFTER_MS,
+  acquireOcr,
+  changed,
+  detectQr,
+  ocrError,
+  ocrState,
+  onOcrState,
+  prewarmOcr,
+  qrDetector,
+  releaseOcr,
+  restartOcr,
+  scanSize,
+  signature,
+  toGrey,
+  toPgm,
+  type OcrEngine,
+  type OcrState,
+} from "./privacy-shield-ocr";
 
 /**
  * The privacy shield (Phase 4): while the host shares their screen, solid
- * boxes over what it recognises — keys, wallet QR codes, the zones the
- * host marked — and the whole screen hidden behind a slate while a
- * recovery phrase or a key export page is up, or while the host hides it.
- * An assist, not a guarantee: the checks read the screen about once a
+ * boxes over what it recognises — keys, wallet QR codes — and over the
+ * zones the host marked, and the whole screen hidden behind a slate while
+ * a recovery phrase or a key export page is up, or while the host hides
+ * it. An assist, not a guarantee: the checks read the screen about once a
  * second, so something can show for a moment before it's covered.
  *
  * It rides the screen share as a LiveKit track processor, like the looks
  * ride the camera (lib/looks.ts), and never takes the share down: a paint
  * that fails sends the frame as it is and says so; a check that fails
- * leaves the zones and Hide working.
+ * leaves the zones and Hide working. The OCR runs in Tesseract's worker;
+ * copying a frame down for it and turning it grey (~5–7 ms a read) runs
+ * on the page's main thread, in a task of its own.
+ *
+ * A screen only sends a frame when something on it changes — a still one,
+ * a tab especially, sends none — so the shield keeps the last frame and
+ * sends it again, painted as things stand now, whenever that changes (Hide,
+ * a new find, a hold running out) and every 400 ms besides, and it reads
+ * that kept frame too: covering and checking never wait on the screen to
+ * move.
  */
 
 /* ---- the settings ------------------------------------------------------ */
@@ -38,20 +66,25 @@ export interface PrivacyZone extends Rect {
 }
 
 export interface ShieldSettings {
-  /** The checks and the zones. Hide works either way. */
+  /** The checks: reading the screen for secrets. Zones and Hide work either way. */
   enabled: boolean;
   detectors: Detectors;
-  /** Always covered while the shield's on, on the shared screen's 0..1 square. */
+  /** Always covered while a screen's shared, on the shared screen's 0..1 square — Shield switch on or off. */
   zones: PrivacyZone[];
 }
 
 export const DEFAULT_SHIELD_SETTINGS: ShieldSettings = { enabled: true, detectors: DEFAULT_DETECTORS, zones: [] };
 
+/**
+ * The checks, as the panel names them — never in the words the page check
+ * looks for ("recovery phrase", "private key"): the studio can be in the
+ * very screen the shield reads, and its own panel mustn't slate it.
+ */
 export const DETECTOR_LABELS: { id: keyof Detectors; label: string; hint: string }[] = [
-  { id: "phrases", label: "Recovery phrases", hint: "12 to 24 words hide the whole screen." },
-  { id: "keys", label: "Private keys", hint: "Keys, xprv keys and keypair files get a solid box." },
+  { id: "phrases", label: "Wallet words", hint: "A wallet's 12 to 24 words hide the whole screen." },
+  { id: "keys", label: "Keys", hint: "Hex, WIF and base58 keys, xprv keys and keypair files get a solid box." },
   { id: "qr", label: "Wallet QR codes", hint: "Addresses and payment requests. Your own links are left alone." },
-  { id: "pages", label: "Key export pages", hint: "“Secret Recovery Phrase”, “Export private key” and the like hide the whole screen." },
+  { id: "pages", label: "Export pages", hint: "A wallet page that reveals its words or exports its keys hides the whole screen." },
   { id: "balances", label: "Balances", hint: "Amounts beside a coin or currency on wallet screens. Prices on charts are left alone." },
 ];
 
@@ -157,7 +190,7 @@ export type SlateReason = "panic" | "secret" | "checking";
 export interface ShieldNotice {
   id: string;
   kind: FindingKind;
-  /** "Hidden: a recovery phrase". */
+  /** "Hidden: a wallet key". */
   text: string;
   /** When it was first seen (ms since the epoch). */
   at: number;
@@ -172,17 +205,20 @@ export interface ShieldNotice {
 export interface ShieldStats {
   /** Full reads of the screen so far. */
   scans: number;
-  /** Seconds skipped because the screen hadn't changed. */
+  /** Reads skipped because the screen hadn't changed. */
   still: number;
   /** The last read, from grabbing the frame to its findings. */
   lastScanMs: number;
+  /** How far apart reads start now: a second, or twice the last read on a slow machine. */
+  readEveryMs: number;
   /** What a frame costs on the way through, averaged, and the worst. */
   frameMs: number;
   maxFrameMs: number;
-  /** Frames painted (masked or slated) and passed through. */
+  /** Frames painted (masked or slated) and passed through; the kept frame sent again between frames. */
   painted: number;
   passed: number;
-  /** Main-thread time a read costs: copying the frame down, and running the detectors on what OCR found — the last one, and the worst. */
+  repaints: number;
+  /** Main-thread time a read costs: reading the copy back and turning it grey, and the detectors — the last, and the worst. */
   grabMs: number;
   maxGrabMs: number;
   detectMs: number;
@@ -204,10 +240,23 @@ export interface ShieldStatus {
   stats: ShieldStats;
 }
 
-const NO_STATS: ShieldStats = { scans: 0, still: 0, lastScanMs: 0, frameMs: 0, maxFrameMs: 0, painted: 0, passed: 0, grabMs: 0, maxGrabMs: 0, detectMs: 0 };
+const NO_STATS: ShieldStats = {
+  scans: 0,
+  still: 0,
+  lastScanMs: 0,
+  readEveryMs: 1000,
+  frameMs: 0,
+  maxFrameMs: 0,
+  painted: 0,
+  passed: 0,
+  repaints: 0,
+  grabMs: 0,
+  maxGrabMs: 0,
+  detectMs: 0,
+};
 const IDLE_STATUS: ShieldStatus = { phase: "idle", reason: null, reading: "idle", qr: null, panic: false, slate: null, notices: [], stats: NO_STATS };
 
-/** Hide, as a key: H, with nothing else held, anywhere but a text field, while a shield is on. */
+/** Hide, as a key: H, with nothing else held, while a screen is shared — anywhere in the app but a text field or a menu. */
 export const PANIC_KEY = "h";
 
 let panic = false;
@@ -217,6 +266,8 @@ let qrOk: boolean | null = null;
 let status: ShieldStatus = IDLE_STATUS;
 const statusListeners = new Set<(s: ShieldStatus) => void>();
 const liveTransformers = new Set<ShieldTransformer>();
+/** What the last share was covering, for the next one (a re-share, a rejoin) to start from. */
+let carried: CarriedFinding[] = [];
 
 function computeStatus(): ShieldStatus {
   const now = Date.now();
@@ -230,10 +281,12 @@ function computeStatus(): ShieldStatus {
     stats.scans += s.scans;
     stats.still += s.still;
     stats.lastScanMs = Math.max(stats.lastScanMs, s.lastScanMs);
+    stats.readEveryMs = Math.max(stats.readEveryMs, s.readEveryMs);
     stats.frameMs = Math.max(stats.frameMs, s.frameMs);
     stats.maxFrameMs = Math.max(stats.maxFrameMs, s.maxFrameMs);
     stats.painted += s.painted;
     stats.passed += s.passed;
+    stats.repaints += s.repaints;
     stats.grabMs = Math.max(stats.grabMs, s.grabMs);
     stats.maxGrabMs = Math.max(stats.maxGrabMs, s.maxGrabMs);
     stats.detectMs = Math.max(stats.detectMs, s.detectMs);
@@ -273,34 +326,85 @@ function setPhase(next: ShieldPhase, why: string | null = null) {
   emit();
 }
 
+/** Something went wrong, but the share carries on: the host is told once, not every frame. */
+function failNow(why: string) {
+  if (reason === why) return;
+  reason = why;
+  emit();
+}
+
+/** A passing trouble is over (the text checks came back): stop saying so. */
+function clearReason(why: string) {
+  if (reason !== why) return;
+  reason = null;
+  emit();
+}
+
+/** Every running shield looks at its plan now, rather than at its next tick. */
+function nudgeAll() {
+  for (const t of liveTransformers) t.nudge();
+}
+
 /* ---- Hide -------------------------------------------------------------- */
 
-/** Hide the shared screen behind the slate — now, from the next frame — or show it again. */
+/** Hide the shared screen behind the slate — on the next frame out, still screen or not — or show it again. */
 export function setPanic(on: boolean) {
   if (panic === on) return;
   panic = on;
   emit();
+  nudgeAll();
 }
 
 export const isPanic = () => panic;
 export const togglePanic = () => setPanic(!panic);
 
-function onPanicKey(e: KeyboardEvent) {
-  if (e.key.toLowerCase() !== PANIC_KEY || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-  const t = e.target as HTMLElement | null;
-  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+/** Where a letter key belongs to someone else: typing, and a menu's or a list's type-to-find. */
+const TYPES_HERE =
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menubar"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tree"], [role="treeitem"], [role="grid"], [role="spinbutton"]';
+
+/** A key event that means Hide: H alone, not already handled, not typing, not in a menu. */
+export function isHideKey(e: {
+  key?: unknown;
+  repeat?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  defaultPrevented?: boolean;
+  target?: unknown;
+}): boolean {
+  // Chrome's autofill sends keydown events with no key at all.
+  if (typeof e.key !== "string" || e.key.toLowerCase() !== PANIC_KEY) return false;
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return false;
+  const t = e.target as { isContentEditable?: boolean; closest?: (selector: string) => unknown } | null | undefined;
+  if (t?.isContentEditable) return false;
+  if (t && typeof t.closest === "function" && t.closest(TYPES_HERE)) return false;
+  return true;
+}
+
+function onHideKey(e: KeyboardEvent) {
+  if (!isHideKey(e)) return;
   e.preventDefault();
   togglePanic();
 }
 
 /** "Show anyway": the notice's find goes uncovered for 10 s; seen after that, it's covered again. */
 export function showAnyway(noticeId: string) {
-  for (const t of liveTransformers) if (t.showAnyway(noticeId)) return emit();
+  for (const t of liveTransformers) {
+    if (t.showAnyway(noticeId)) {
+      emit();
+      return nudgeAll();
+    }
+  }
 }
 
 /** "Keep hidden": the notice is acknowledged; its find stays covered. */
 export function keepHidden(noticeId: string) {
-  for (const t of liveTransformers) if (t.keep(noticeId)) return emit();
+  for (const t of liveTransformers) {
+    if (t.keep(noticeId)) {
+      emit();
+      return nudgeAll();
+    }
+  }
 }
 
 /* ---- support -------------------------------------------------------------- */
@@ -333,12 +437,43 @@ export function isShieldSupported(): boolean {
 
 export const UNSUPPORTED_REASON = "The privacy shield needs Chrome or Edge on a computer.";
 
+/* ---- what a frame wears ------------------------------------------------------ */
+
+/** What the frames going out wear: the slate, some boxes, or nothing at all. */
+export type Plan = { slate: SlateReason } | { slate: null; rects: Rect[] };
+
+/**
+ * The plan for this moment. Hide wins; then — with the checks on — a
+ * whole-screen find, then the start's "Screen share starting". The zones
+ * are covered whether the checks are on or not: they're the host's own
+ * choice, and a switch that's about checking shouldn't uncover them.
+ */
+export function coverPlan(o: { panic: boolean; settings: ShieldSettings; cover: { whole: boolean; rects: Rect[] }; checking: boolean }): Plan | null {
+  if (o.panic) return { slate: "panic" };
+  const s = o.settings;
+  if (s.enabled && o.cover.whole) return { slate: "secret" };
+  if (s.enabled && o.checking) return { slate: "checking" };
+  const rects = [...s.zones, ...(s.enabled ? o.cover.rects : [])];
+  return rects.length ? { slate: null, rects } : null;
+}
+
+/** A plan as a string, to tell whether what goes out has to change. */
+export function planKey(plan: Plan | null): string {
+  if (!plan) return "clear";
+  if (plan.slate) return `slate:${plan.slate}`;
+  return plan.rects.map((r) => `${r.x.toFixed(4)},${r.y.toFixed(4)},${r.w.toFixed(4)},${r.h.toFixed(4)}`).join("|");
+}
+
 /* ---- the transformer ------------------------------------------------------ */
 
-/** A read of the screen starts at most this often. */
+/** Reads start at least this far apart — and twice the last read's time on a slow machine, so a core isn't pinned. */
 const SCAN_EVERY_MS = 1000;
-/** A still screen is read again after this long anyway — well inside the hold, so nothing lapses. */
+/** A still screen is read again after this long anyway, if its picture moved at all — well inside the hold. */
 const FORCE_RESCAN_MS = 5000;
+/** How often a running shield looks at its plan and its kept frame. */
+const TICK_MS = 250;
+/** A still screen gets its last frame sent again this often, painted as things stand. */
+const RESEND_MS = 400;
 /**
  * A share starts behind "Screen share starting" until the first read is
  * done, for at most this long: what was on screen before the share began
@@ -348,7 +483,7 @@ const FORCE_RESCAN_MS = 5000;
  * 0 turns it off.
  */
 export const CHECK_FIRST_MS = 6000;
-/** Reads that fail this many times in a row stop; zones, QR codes and Hide carry on. */
+/** Reads that fail (or hang) this many times in a row stop; zones, QR codes and Hide carry on. */
 const MAX_READ_FAILURES = 3;
 
 const INK = "#0b0708";
@@ -364,11 +499,77 @@ const SLATE_COPY: Record<SlateReason, [string, string]> = {
   checking: ["Screen share starting", "One moment"],
 };
 
+const STALLED = "The text checks stalled — starting them again.";
+const TEXT_DOWN = "The text checks didn't load, so only zones, QR codes and Hide are working.";
+const TEXT_OFF = "The text checks stopped working, so only zones, QR codes and Hide are working.";
+
 type ShieldOptions = { settings: ShieldSettings };
-type Plan = { slate: SlateReason } | { slate: null; rects: Rect[] };
 
 const textChecksOn = (d: Detectors) => d.phrases || d.keys || d.pages || d.balances;
 const anyCheckOn = (d: Detectors) => textChecksOn(d) || d.qr;
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Run `fn` in a task of its own, soon. Not setTimeout: while the host is
+ * in another window, their studio tab is usually hidden, and Chrome holds
+ * a hidden tab's timers to once a second — a posted message isn't held.
+ */
+const later = (() => {
+  let port: MessagePort | null = null;
+  const queue: (() => void)[] = [];
+  return (fn: () => void) => {
+    if (typeof MessageChannel === "undefined") return void setTimeout(fn, 0);
+    if (!port) {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => queue.shift()?.();
+      port = ch.port2;
+    }
+    queue.push(fn);
+    port.postMessage(0);
+  };
+})();
+
+interface Ticker {
+  stop(): void;
+}
+
+/**
+ * A steady tick that keeps going in a hidden tab: a worker's timer (a
+ * page's own are held to once a second there), with the page's timer as
+ * the fallback where a worker can't start (a CSP without `worker-src blob:`).
+ */
+function startTicker(ms: number, onTick: () => void): Ticker {
+  let timer: ReturnType<typeof setInterval> | null = setInterval(onTick, ms);
+  let worker: Worker | null = null;
+  try {
+    const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms});`], { type: "text/javascript" }));
+    worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    worker.onmessage = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      onTick();
+    };
+    worker.onerror = () => {
+      worker?.terminate();
+      worker = null;
+      timer ??= setInterval(onTick, ms);
+    };
+  } catch {
+    // The page's timer carries on.
+  }
+  return {
+    stop() {
+      worker?.terminate();
+      worker = null;
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+  };
+}
 
 let transformerSeq = 0;
 
@@ -386,15 +587,31 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
   /** The first look at the screen is done (a full read, or all that can be read). */
   private looked = false;
   private slateKey = "";
+  // Sending: the last frame in, kept to send again (painted as things stand) between frames.
+  private controller: TransformStreamDefaultController<VideoFrame> | null = null;
+  private kept: VideoFrame | null = null;
+  private keptAt = 0;
+  /** Frames in so far: a read of the same frame twice learns nothing new. */
+  private inputs = 0;
+  /** The plan the last frame out wore, when it went, and its timestamp (µs). */
+  private sentKey = "";
+  private sentAt = 0;
+  private sentTs = -Infinity;
+  private ticker: Ticker | null = null;
+  private beatQueued = false;
   // Reading the screen.
   private busy = false;
   private lastStart = -Infinity;
-  private lastScanAt = 0;
+  private lastReadMs = 0;
+  private lastReadAt = 0;
+  private lastLookInput = -1;
   private lastSig: Float32Array | null = null;
   private scanCanvas: OffscreenCanvas | null = null;
   private scanCtx: OffscreenCanvasRenderingContext2D | null = null;
   private engine: OcrEngine | null = null;
   private engineHeld = false;
+  private engineToken = 0;
+  private engineRetryAt = 0;
   private readFailures = 0;
   private readsOff = false;
   /** Notices that have gone off screen, kept a little while so the host sees what happened. */
@@ -418,8 +635,14 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     this.startedAt = Date.now();
     this.looked = false;
     this.slateKey = "";
-    if (liveTransformers.size === 0) window.addEventListener("keydown", onPanicKey);
+    this.sentKey = "";
+    this.sentAt = 0;
+    this.sentTs = -Infinity;
+    this.lastLookInput = -1;
+    if (liveTransformers.size === 0) window.addEventListener("keydown", onHideKey);
     liveTransformers.add(this);
+    // What the last share was covering carries over: its first reads have to go the hold without it.
+    this.tracker.seed(carried, Date.now());
     // A new share starts clean; this one's own trouble is said after.
     setPhase("on");
     // No 2D canvas: frames go out as they are rather than the share stopping — and the host is told.
@@ -429,6 +652,7 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
       qrOk = Boolean(d);
       emit();
     });
+    this.ticker = startTicker(TICK_MS, () => this.beat());
   }
 
   async restart(opts: VideoTransformerInitOptions) {
@@ -439,7 +663,14 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
   async destroy(opts?: TrackTransformerDestroyOptions) {
     this.live = false;
     liveTransformers.delete(this);
-    if (liveTransformers.size === 0) window.removeEventListener("keydown", onPanicKey);
+    if (liveTransformers.size === 0) window.removeEventListener("keydown", onHideKey);
+    this.ticker?.stop();
+    this.ticker = null;
+    // Whatever this share was covering is where the next one starts.
+    this.remember();
+    this.kept?.close();
+    this.kept = null;
+    this.controller = null;
     if (!opts?.willProcessorRestart) {
       this.releaseEngine();
       this.tracker.clear();
@@ -454,7 +685,7 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     else emit();
   }
 
-  /** New settings, in place: a switched-off check forgets what it found at once. */
+  /** New settings, in place: a switched-off check forgets what it found at once, and the change goes out now. */
   update(next: Partial<ShieldOptions>) {
     const prev = this.options.settings;
     this.options = { ...this.options, ...next };
@@ -465,25 +696,40 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
       if (off.length) this.tracker.drop(off);
     }
     // Something new to look for: read the screen again rather than trusting "unchanged".
-    if (JSON.stringify(prev.detectors) !== JSON.stringify(cur.detectors) || prev.enabled !== cur.enabled) this.lastSig = null;
+    if (JSON.stringify(prev.detectors) !== JSON.stringify(cur.detectors) || prev.enabled !== cur.enabled) {
+      this.lastSig = null;
+      this.lastLookInput = -1;
+    }
     this.syncEngine();
     emit();
+    this.nudge();
   }
 
   /* -- the engine -- */
 
   private syncEngine() {
-    const want = this.live && this.options.settings.enabled && textChecksOn(this.options.settings.detectors) && !this.readsOff;
-    if (want && !this.engineHeld) {
+    const s = this.options.settings;
+    const want = this.live && s.enabled && textChecksOn(s.detectors) && !this.readsOff;
+    if (want && !this.engineHeld && Date.now() >= this.engineRetryAt) {
       this.engineHeld = true;
+      const token = ++this.engineToken;
       acquireOcr().then(
         (e) => {
-          if (this.engineHeld) this.engine = e;
+          if (!this.engineHeld || token !== this.engineToken) return;
+          this.engine = e;
+          // A text read can now see what a QR-only look couldn't: look again.
+          this.lastLookInput = -1;
+          this.nudge();
         },
         () => {
+          if (!this.engineHeld || token !== this.engineToken) return;
+          // Let go, and ask again once the wait's over — the engine tries a new load then.
+          this.releaseEngine();
+          this.engineRetryAt = Date.now() + RETRY_AFTER_MS;
           // The raw error (a CDN address, a status code) is for developers: `ocrError()` has it.
           if (ocrError()) console.warn("[privacy shield] text checks didn't load:", ocrError());
-          failNow("The text checks didn't load, so only zones, QR codes and Hide are working.");
+          failNow(TEXT_DOWN);
+          this.nudge();
         }
       );
     } else if (!want && this.engineHeld) {
@@ -494,6 +740,7 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
   private releaseEngine() {
     if (!this.engineHeld) return;
     this.engineHeld = false;
+    this.engineToken++;
     this.engine = null;
     releaseOcr();
   }
@@ -502,6 +749,7 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
 
   transform(frame: VideoFrame, controller: TransformStreamDefaultController<VideoFrame>) {
     const t0 = performance.now();
+    this.controller = controller;
     let sent = false;
     try {
       if (!this.live || frame.displayWidth === 0 || frame.displayHeight === 0) {
@@ -509,26 +757,15 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
         sent = true;
         return;
       }
+      this.inputs++;
+      // Kept to send again between frames, and to read: a still screen sends none.
+      this.kept?.close();
+      this.kept = frame.clone();
+      this.keptAt = t0;
       const now = Date.now();
-      this.maybeScan(frame, now);
-      const plan = this.plan(now);
-      if (!plan) {
-        this.stats.passed++;
-        controller.enqueue(frame);
-        sent = true;
-        return;
-      }
-      const out = this.paint(frame, plan);
-      if (out) {
-        frame.close();
-        sent = true;
-        this.stats.painted++;
-        controller.enqueue(out);
-      } else {
-        this.stats.passed++;
-        sent = true;
-        controller.enqueue(frame);
-      }
+      this.maybeRead(frame, now);
+      this.send(frame, this.plan(now), frame.timestamp, true);
+      sent = true;
     } catch (e) {
       failNow(`The shield hit a snag, so a frame went out as it is: ${message(e)}`);
       if (!sent) {
@@ -545,16 +782,81 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     }
   }
 
-  /** What this frame needs: the slate, some boxes, or nothing at all. */
+  /**
+   * One frame out: `src` painted as `plan` says (or as it is), stamped `ts`
+   * — never earlier than the last one out. `consume`: `src` is the frame
+   * that came in, and goes (out as it is, or closed once painted); a
+   * repaint of the kept frame leaves the kept frame be.
+   */
+  private send(src: VideoFrame, plan: Plan | null, ts: number, consume: boolean) {
+    const controller = this.controller;
+    if (!controller) {
+      if (consume) src.close();
+      return;
+    }
+    let out = plan ? this.paint(src, plan, ts) : null;
+    if (out) {
+      this.stats.painted++;
+      if (consume) src.close();
+    } else {
+      // Nothing to cover — or a paint that failed: the frame as it is, never a stopped share.
+      this.stats.passed++;
+      out = consume ? src : new VideoFrame(src, { timestamp: ts });
+    }
+    if (out.timestamp <= this.sentTs) {
+      const stamped = new VideoFrame(out, { timestamp: this.sentTs + 1 });
+      out.close();
+      out = stamped;
+    }
+    this.sentTs = out.timestamp;
+    this.sentAt = performance.now();
+    this.sentKey = planKey(plan);
+    try {
+      controller.enqueue(out);
+    } catch {
+      // The stream's closed — the share ended before LiveKit took the shield off: nothing more goes out.
+      out.close();
+      this.controller = null;
+    }
+  }
+
+  /** Look at the plan now (a tap from Hide, a find, a setting) rather than at the next tick. */
+  nudge() {
+    if (this.beatQueued || !this.live) return;
+    this.beatQueued = true;
+    later(() => {
+      this.beatQueued = false;
+      this.beat();
+    });
+  }
+
+  /**
+   * The tick: retry the text checks if they're due, read the kept frame
+   * if a read's due, and send the kept frame again if what it should wear
+   * has changed — or if nothing's gone out for `RESEND_MS` (a still
+   * screen) — stamped now.
+   */
+  private beat() {
+    if (!this.live) return;
+    try {
+      this.syncEngine();
+      const kept = this.kept;
+      if (!kept || !this.controller) return;
+      const now = Date.now();
+      this.maybeRead(kept, now);
+      const plan = this.plan(now);
+      const idle = performance.now() - this.sentAt >= RESEND_MS;
+      if (planKey(plan) === this.sentKey && !idle) return;
+      const ts = Math.max(this.sentTs + 1, kept.timestamp + Math.round((performance.now() - this.keptAt) * 1000));
+      this.send(kept, plan, ts, false);
+      this.stats.repaints++;
+    } catch (e) {
+      failNow(`The shield hit a snag: ${message(e)}`);
+    }
+  }
+
   private plan(now: number): Plan | null {
-    if (panic) return { slate: "panic" };
-    const s = this.options.settings;
-    if (!s.enabled) return null;
-    const cover = this.tracker.cover(now);
-    if (cover.whole) return { slate: "secret" };
-    if (this.checking(now)) return { slate: "checking" };
-    const rects = cover.rects.length || s.zones.length ? [...s.zones, ...cover.rects] : null;
-    return rects ? { slate: null, rects } : null;
+    return coverPlan({ panic, settings: this.options.settings, cover: this.tracker.cover(now), checking: this.checking(now) });
   }
 
   private checking(now: number) {
@@ -569,12 +871,12 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     return p && p.slate ? p.slate : null;
   }
 
-  private paint(frame: VideoFrame, plan: Plan): VideoFrame | null {
+  private paint(src: VideoFrame, plan: Plan, ts: number): VideoFrame | null {
     const canvas = this.canvas;
     const ctx = this.ctx;
     if (!canvas || !ctx) return null;
-    const w = frame.displayWidth;
-    const h = frame.displayHeight;
+    const w = src.displayWidth;
+    const h = src.displayHeight;
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -589,32 +891,45 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
       }
     } else {
       this.slateKey = "";
-      ctx.drawImage(frame, 0, 0, w, h);
+      ctx.drawImage(src, 0, 0, w, h);
       for (const r of plan.rects) drawMask(ctx, r, w, h);
     }
-    return new VideoFrame(canvas, { timestamp: frame.timestamp, duration: frame.duration ?? undefined });
+    return new VideoFrame(canvas, { timestamp: ts });
   }
 
   /* -- reading the screen -- */
 
-  private maybeScan(frame: VideoFrame, now: number) {
+  /** Reads start a second apart — or twice the last read's time, so a slow machine's core isn't pinned. */
+  private readGap() {
+    return Math.max(SCAN_EVERY_MS, 2 * this.lastReadMs);
+  }
+
+  private maybeRead(src: VideoFrame, now: number) {
     const s = this.options.settings;
-    if (!s.enabled || !anyCheckOn(s.detectors) || this.busy || now - this.lastStart < SCAN_EVERY_MS) return;
+    if (!s.enabled || !anyCheckOn(s.detectors) || this.busy || now - this.lastStart < this.readGap()) return;
     // A read of text needs the engine; until it's here, QR codes are still worth a look.
     const reading = Boolean(this.engine) && textChecksOn(s.detectors);
     if (!reading && !s.detectors.qr) return;
-    this.busy = true;
     this.lastStart = now;
+    // The very frame the last look read: what it saw is still there.
+    if (this.looked && this.inputs === this.lastLookInput) {
+      this.tracker.touch(now);
+      this.stats.still++;
+      this.remember();
+      return;
+    }
+    this.busy = true;
+    const input = this.inputs;
     let size: { width: number; height: number };
     try {
-      size = this.copyDown(frame);
+      size = this.copyDown(src);
     } catch (e) {
       this.busy = false;
       failNow(`The shield couldn't look at a frame: ${message(e)}`);
       return;
     }
-    // Reading the pixels back is the one heavy bit on this thread (~7 ms at 1600×900): its own task,
-    // so the frame this came from — and the ones behind it — go out without waiting on it.
+    // Reading the pixels back is the one heavy bit on this thread (~5–7 ms at 1600×900): its own
+    // task, so the frame this came from — and the ones behind it — go out without waiting on it.
     later(() => {
       // The share may have ended in the meantime.
       if (!this.live || !this.scanCtx) {
@@ -632,7 +947,7 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
         failNow(`The shield couldn't look at a frame: ${message(e)}`);
         return;
       }
-      void this.scan({ ...size, grey }, reading).finally(() => {
+      void this.read({ ...size, grey }, reading, input).finally(() => {
         this.busy = false;
       });
     });
@@ -659,53 +974,77 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     return { width, height };
   }
 
-  private async scan({ width, height, grey }: { width: number; height: number; grey: Uint8Array }, reading: boolean) {
+  private async read({ width, height, grey }: { width: number; height: number; grey: Uint8Array }, reading: boolean, input: number) {
     const t0 = performance.now();
     const s = this.options.settings;
     const sig = signature(grey, width, height);
     // A still screen: what the last read saw is still there.
-    if (reading && this.stats.scans > 0 && !changed(this.lastSig, sig) && Date.now() - this.lastScanAt < FORCE_RESCAN_MS) {
+    if (reading && this.stats.scans > 0 && !changed(this.lastSig, sig) && Date.now() - this.lastReadAt < FORCE_RESCAN_MS) {
       this.tracker.touch(Date.now());
       this.stats.still++;
+      this.lastLookInput = input;
+      this.remember();
       emit();
       return;
     }
+    const engine = this.engine;
     let words: Awaited<ReturnType<OcrEngine["recognize"]>> | null = null;
-    const [ocr, qr] = await Promise.all([
-      reading && this.engine
-        ? this.engine.recognize(toPgm(grey, width, height)).then(
-            (w) => ((words = w), null),
-            (e: unknown) => e
+    let failure: unknown = null;
+    const [, qr] = await Promise.all([
+      reading && engine
+        ? engine.recognize(toPgm(grey, width, height)).then(
+            (w) => void (words = w),
+            (e: unknown) => void (failure = e ?? new Error("the read failed"))
           )
-        : Promise.resolve(null),
+        : Promise.resolve(),
       s.detectors.qr && this.scanCanvas ? detectQr(this.scanCanvas) : Promise.resolve([]),
     ]);
     if (!this.live) return;
-    if (ocr) {
-      if (++this.readFailures >= MAX_READ_FAILURES) {
-        this.readsOff = true;
-        this.syncEngine();
-        console.warn("[privacy shield] text checks stopped:", ocr);
-        failNow("The text checks stopped working, so only zones, QR codes and Hide are working.");
-      }
-    } else if (reading) {
+    if (failure) this.readFailed(failure, engine);
+    else if (words) {
       this.readFailures = 0;
+      clearReason(STALLED);
     }
     const now = Date.now();
     const d0 = performance.now();
-    const found = scanScreen({ width, height, words: words ?? [], qr }, this.options.settings.detectors);
+    const found = scanScreen({ width, height, words: words ?? [], qr }, s.detectors);
     this.stats.detectMs = Math.round((performance.now() - d0) * 10) / 10;
-    // Without the text read, only QR finds are news; text finds carry on from the last read that had them.
-    this.tracker.update(words ? found : found.filter((f) => f.kind === "wallet-qr"), now);
+    // Each kind of find ages only on the read that can see it: a QR-only look (the text read down)
+    // doesn't let a phrase's hold run out.
+    this.tracker.update(found, now, { text: Boolean(words), qr: s.detectors.qr });
     if (words) {
       this.lastSig = sig;
-      this.lastScanAt = now;
+      this.lastReadAt = now;
       this.stats.scans++;
+      this.lastReadMs = performance.now() - t0;
     }
-    // The first look is done once text was read — or when no text read is coming (checks off, or they failed).
-    if (words || !textChecksOn(s.detectors) || this.readsOff || ocrState() === "failed") this.looked = true;
+    this.lastLookInput = input;
+    // The first look is done once text was read — or when no text read is coming (checks off, or down).
+    if (words || !textChecksOn(s.detectors) || this.readsOff || !this.engineHeld || ocrState() === "failed") this.looked = true;
     this.stats.lastScanMs = Math.round(performance.now() - t0);
+    this.stats.readEveryMs = Math.round(this.readGap());
+    this.remember();
     emit();
+    this.nudge();
+  }
+
+  /** A read that failed or hung: start the worker afresh — and after a few in a row, stop trying. */
+  private readFailed(failure: unknown, engine: OcrEngine | null) {
+    this.readFailures++;
+    console.warn("[privacy shield] a read failed:", failure);
+    restartOcr(engine);
+    this.releaseEngine();
+    if (this.readFailures >= MAX_READ_FAILURES) {
+      this.readsOff = true;
+      failNow(TEXT_OFF);
+    } else {
+      failNow(STALLED);
+    }
+  }
+
+  /** What's held now is where the next share (a re-share, a rejoin) starts. */
+  private remember() {
+    carried = this.tracker.carry();
   }
 
   /* -- notices -- */
@@ -743,35 +1082,6 @@ class ShieldTransformer implements VideoTrackTransformer<ShieldOptions> {
     const [t, h] = noticeId.split(":");
     return Number(t) === this.id && Number.isFinite(Number(h)) ? Number(h) : null;
   }
-}
-
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-/**
- * Run `fn` in a task of its own, soon. Not setTimeout: while the host is
- * in another window, their studio tab is usually hidden, and Chrome holds
- * a hidden tab's timers to once a second — a posted message isn't held.
- */
-const later = (() => {
-  let port: MessagePort | null = null;
-  const queue: (() => void)[] = [];
-  return (fn: () => void) => {
-    if (typeof MessageChannel === "undefined") return void setTimeout(fn, 0);
-    if (!port) {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = () => queue.shift()?.();
-      port = ch.port2;
-    }
-    queue.push(fn);
-    port.postMessage(0);
-  };
-})();
-
-/** Something went wrong, but the share carries on: the host is told once, not every frame. */
-function failNow(why: string) {
-  if (reason === why) return;
-  reason = why;
-  emit();
 }
 
 /* ---- painting -------------------------------------------------------- */
@@ -847,7 +1157,11 @@ export const SHIELD_PROCESSOR_NAME = "xtream-privacy-shield";
 type Processors = typeof import("@livekit/track-processors");
 let processorsPromise: Promise<Processors> | null = null;
 function loadProcessors() {
-  processorsPromise ??= import("@livekit/track-processors");
+  // A failed import (a flaky network) isn't cached for the session: the next share tries again.
+  processorsPromise ??= import("@livekit/track-processors").catch((e: unknown) => {
+    processorsPromise = null;
+    throw e;
+  });
   return processorsPromise;
 }
 
@@ -901,11 +1215,12 @@ const chains = new WeakMap<LocalVideoTrack, Promise<unknown>>();
 
 /**
  * Put the shield on a screen share, or give a running one new settings in
- * place. Call it when the share starts (and again on a re-share: a new
- * share is a new track) and whenever the settings change. Never throws and
- * never stops the share: when the shield can't go on, `reason` says why and
- * the screen goes out as it is. It stays on the track with the shield
- * switched off, too, so Hide works the instant it's pressed.
+ * place. Call it on a share's track before it's published (see
+ * `shareShieldedScreen`), and whenever the settings change. Never throws
+ * and never stops the share: when the shield can't go on, `reason` says
+ * why and the screen goes out as it is. It stays on the track with the
+ * Shield switch off too — the zones are still covered and Hide works the
+ * instant it's pressed.
  */
 export function applyShield(track: LocalVideoTrack, settings: ShieldSettings = getShieldSettings()): Promise<ShieldResult> {
   const run = (chains.get(track) ?? Promise.resolve()).catch(() => {}).then(() => applyNow(track, settings));
@@ -954,4 +1269,73 @@ export function prewarmShield() {
   void loadProcessors().catch(() => {});
   const s = getShieldSettings();
   if (s.enabled && textChecksOn(s.detectors)) prewarmOcr();
+}
+
+/* ---- sharing a screen with the shield on it ------------------------------ */
+
+// LiveKit's own names, as strings: this module only imports its types.
+const SCREEN_SHARE = "screen_share" as Track.Source;
+const VIDEO = "video" as Track.Kind;
+
+/** The part of a LiveKit room a share needs — a Room, or a stand-in in a test. */
+export interface ShareRoom {
+  localParticipant: {
+    getTrackPublication(source: Track.Source): LocalTrackPublication | undefined;
+    createScreenTracks(options?: object): Promise<LocalTrack[]>;
+    publishTrack(track: LocalTrack): Promise<LocalTrackPublication>;
+    unpublishTrack(track: LocalTrack): Promise<unknown>;
+  };
+}
+
+// One share at a time per room: a second tap, the dock and Vivid at once — they all wait for the first.
+const sharing = new WeakMap<object, Promise<LocalTrackPublication | undefined>>();
+
+/**
+ * Share the screen with the privacy shield on it from the first frame:
+ * the track is made, shielded, and only then published — publishing first
+ * would send a moment of the raw screen. LiveKit's `setScreenShareEnabled`
+ * guards, kept: a screen that's already shared is returned (unmuted), not
+ * shared twice, and a second call while the picker's open waits for the
+ * first rather than opening another. A share stopped from the browser's
+ * own bar while the shield went on isn't published at all.
+ */
+export function shareShieldedScreen(room: Room | ShareRoom): Promise<LocalTrackPublication | undefined> {
+  const pending = sharing.get(room);
+  if (pending) return pending;
+  const run = shareNow(room as ShareRoom).finally(() => {
+    if (sharing.get(room) === run) sharing.delete(room);
+  });
+  sharing.set(room, run);
+  return run;
+}
+
+async function shareNow(room: ShareRoom): Promise<LocalTrackPublication | undefined> {
+  const lp = room.localParticipant;
+  const existing = lp.getTrackPublication(SCREEN_SHARE);
+  if (existing?.track) {
+    await existing.unmute();
+    return existing;
+  }
+  const tracks = await lp.createScreenTracks({});
+  const screen = tracks.find((t) => t.kind === VIDEO) as LocalVideoTrack | undefined;
+  // The capture itself, from before the shield: its end is the share's end.
+  const raw = screen?.mediaStreamTrack;
+  const ended = () => raw?.readyState === "ended";
+  try {
+    if (screen) await applyShield(screen, getShieldSettings());
+    // Stopped from the browser's bar while the shield went on: LiveKit only hears a track end
+    // once it's published, so publishing it now would leave a dead share nobody takes down.
+    if (ended()) throw new Error("The screen share was stopped before it started.");
+    const pubs = await Promise.all(tracks.map((t) => lp.publishTrack(t)));
+    const pub = pubs.find((p) => p.source === SCREEN_SHARE) ?? pubs[0];
+    // Stopped during the publish itself: take it straight down again.
+    if (ended()) {
+      await Promise.all(tracks.map((t) => lp.unpublishTrack(t).catch(() => {})));
+      throw new Error("The screen share was stopped before it started.");
+    }
+    return pub;
+  } catch (err) {
+    tracks.forEach((t) => t.stop());
+    throw err;
+  }
 }

@@ -80,7 +80,7 @@ import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effec
 import { SetStinger } from "@/components/app/set-stinger";
 import { SetsPanel } from "@/components/app/sets-panel";
 import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
-import { applyShield, getShieldSettings, setShieldSettings, useShieldSettings } from "@/lib/privacy-shield";
+import { applyShield, getShieldSettings, getShieldStatus, setShieldSettings, shareShieldedScreen, useShieldSettings } from "@/lib/privacy-shield";
 import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
@@ -1346,21 +1346,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * Share the screen with the privacy shield on it from the first frame:
    * the track is made, shielded, then published — publishing first would
    * send a moment of the raw screen. Where the shield can't run, the screen
-   * goes out as it is (applyShield never throws).
+   * goes out as it is. With LiveKit's own guards kept: a screen that's
+   * already shared comes back as it is, a second press while the picker's
+   * open waits for the first, and a share stopped from the browser's bar
+   * mid-way is never published (lib/privacy-shield.ts).
    */
-  const shareScreen = async (room: Room) => {
-    const { Track: LKTrack } = await import("livekit-client");
-    const tracks = await room.localParticipant.createScreenTracks({});
-    const screen = tracks.find((t) => t.kind === LKTrack.Kind.Video) as LocalVideoTrack | undefined;
-    if (screen) await applyShield(screen, getShieldSettings());
-    try {
-      const pubs = await Promise.all(tracks.map((t) => room.localParticipant.publishTrack(t)));
-      return pubs.find((p) => p.source === LKTrack.Source.ScreenShare) ?? pubs[0];
-    } catch (err) {
-      tracks.forEach((t) => t.stop());
-      throw err;
-    }
-  };
+  const shareScreen = (room: Room) => shareShieldedScreen(room);
 
   const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
     const { Room: LKRoom, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason } = await import("livekit-client");
@@ -2374,6 +2365,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       // A disabled camera means the element is showing a frozen last frame —
       // keep the previous thumbnail rather than upload that.
       if (source === "camera" && !camEnabled) return false;
+      // Nor the privacy shield's slate ("Screen share starting", "Screen
+      // hidden"): the eager loop tries again in two seconds.
+      if (getShieldStatus().slate) return false;
       const thumb = captureVideoFrame(el, 640, 0.75);
       if (!thumb) return false;
       void apiFetch(`/api/streams/${streamId}`, {

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BIP39_ENGLISH } from "../../../lib/bip39-english";
 import {
   DEFAULT_DETECTORS,
+  CARRY_MS,
   FindingTracker,
   HOLD_MS,
+  NOTICE_TEXT,
   SHOW_ANYWAY_MS,
   clampRect,
   containRect,
@@ -20,7 +22,16 @@ import {
   type ScanInput,
 } from "../../../lib/privacy-shield-detect";
 import { changed, scanSize, signature, toGrey, toPgm } from "../../../lib/privacy-shield-ocr";
-import { DEFAULT_SHIELD_SETTINGS, readShieldSettings } from "../../../lib/privacy-shield";
+import {
+  DEFAULT_SHIELD_SETTINGS,
+  DETECTOR_LABELS,
+  coverPlan,
+  isHideKey,
+  planKey,
+  readShieldSettings,
+  shareShieldedScreen,
+  type ShareRoom,
+} from "../../../lib/privacy-shield";
 
 /**
  * The privacy shield's detectors (lib/privacy-shield-detect.ts — a web
@@ -70,6 +81,20 @@ function grid(phrase: string[], cols: number, order: "rows" | "columns", { left 
   };
   if (order === "rows") phrase.forEach((_, i) => at(i));
   else for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) if (r * cols + c < phrase.length) at(r * cols + c);
+  return { width: W, height: H, words };
+}
+
+/** Words placed where they sit on a screen: [text, x, y, size?] — for sidebars, buttons, headings side by side. */
+function screen(...items: [string, number, number, number?][]): ScanInput {
+  const words: OcrWord[] = [];
+  for (const [text, x0, y, size = 16] of items) {
+    let x = x0;
+    for (const t of text.split(/\s+/).filter(Boolean)) {
+      const w = t.length * size * 0.55;
+      words.push({ text: t, x0: x, y0: y, x1: x + w, y1: y + size });
+      x += w + size * 0.45;
+    }
+  }
   return { width: W, height: H, words };
 }
 
@@ -191,6 +216,13 @@ describe("recovery phrases", () => {
     expect(kinds(scanScreen(page([slop.join(" ")]), only({ phrases: true })))).toEqual(["phrase"]);
   });
 
+  it("in quotes, or given to a name, on one line", () => {
+    const P = PHRASE_12.join(" ");
+    for (const line of [`MNEMONIC="${P}"`, `const mnemonic = "${P}";`, `"${P}"`, `'${P}',`, `export WALLET_WORDS='${P}'`, `{ "mnemonic": "${P}" }`, `seed: ${P}`]) {
+      expect(kinds(scanScreen(page([line]), only({ phrases: true }))), line.slice(0, 24)).toEqual(["phrase"]);
+    }
+  });
+
   it("after a label, or at the end of a chat line", () => {
     expect(kinds(scanScreen(page([`Mnemonic: ${PHRASE_12.join(" ")}`]), only({ phrases: true })))).toEqual(["phrase"]);
     expect(kinds(scanScreen(page([`ok so my backup is ${PHRASE_12.join(" ")}`]), only({ phrases: true })))).toEqual(["phrase"]);
@@ -227,6 +259,20 @@ describe("recovery phrases", () => {
   it("aren't a menu of Title Case labels that happen to be list words", () => {
     const menu = "Home Market Trade Earn Swap Bridge Receive Sell Account Security History Spot Margin Grid Copy Help";
     expect(scanScreen(page([menu]), only({ phrases: true }))).toEqual([]);
+  });
+
+  it("aren't a typing test: a thousand screens of monkeytype's 200 commonest words", () => {
+    const words200 =
+      "the be of and a to in he have it that for they i with as not on she at by this we you do but from or which one would all will there say who make when can more if no man out other so what time up go about than into could state only new year some take come these know see use get like then first any work now may such give over think most even find day also after way many must look before great back through long where much should well people down own just because good each those feel seem how high too place little world very still nation hand old life tell write become here show house both between need mean call develop under last right move thing general school never same another begin while number part turn real leave might want point form off child few small since against ask late home interest large person end open public follow during present without again hold govern around possible head consider word program problem however lead system set order eye plan run keep face fact group play stand increase early course change help line".split(
+        " "
+      );
+    const r = rng(56);
+    let slated = 0;
+    for (let n = 0; n < 1000; n++) {
+      const lines = Array.from({ length: 3 }, () => Array.from({ length: 13 }, () => words200[Math.floor(r() * words200.length)]).join(" "));
+      if (scanScreen(page(lines, { size: 28 }), DEFAULT_DETECTORS).some((f) => f.whole)) slated++;
+    }
+    expect(slated).toBe(0);
   });
 
   it("aren't code, a log that repeats itself, or list words in the middle of a sentence", () => {
@@ -294,6 +340,24 @@ describe("private keys", () => {
     expect(scanScreen(page(["Address 0x52908400098527886E0F7030069857D2E4169EE7"]), only({ keys: true }))).toEqual([]);
   });
 
+  it("read snake_case labels: ETH_PRIVKEY=, WALLET_SEED=", () => {
+    expect(kinds(scanScreen(page([`ETH_PRIVKEY=0x${hex64}`]), only({ keys: true })))).toEqual(["private-key"]);
+    expect(kinds(scanScreen(page([`WALLET_SEED=0x${hex64}`]), only({ keys: true })))).toEqual(["private-key"]);
+    // "priv" inside "privacy" is no label.
+    expect(scanScreen(page([`privacy_policy_hash=0x${hex64}`]), only({ keys: true }))).toEqual([]);
+  });
+
+  it("leave checksums, digests and an explorer's padded words alone", () => {
+    const padded = "000000000000000000000000" + hex64.slice(0, 40); // an address as input or log data
+    expect(scanScreen(page(["Input Data", `[0]: ${padded}`, `[1]: 0000000000000000000000000000000000000000000000000de0b6b3a7640000`]), only({ keys: true }))).toEqual([]);
+    expect(scanScreen(page(["$ shasum -a 256 wallet-app.dmg", `${hex64}  wallet-app.dmg`]), only({ keys: true }))).toEqual([]);
+    expect(scanScreen(page([`Digest: sha256:${hex64}`]), only({ keys: true }))).toEqual([]);
+    expect(scanScreen(page([`sha256:${hex64}`]), only({ keys: true }))).toEqual([]);
+    expect(scanScreen(page(["Checksum", hex64]), only({ keys: true }))).toEqual([]);
+    // Labelled a key, twelve zeros or not, it's covered.
+    expect(kinds(scanScreen(page(["Private key", padded]), only({ keys: true })))).toEqual(["private-key"]);
+  });
+
   it("keyShape tells the shapes apart", () => {
     expect(keyShape(hex64).kind).toBe("private-key");
     expect(keyShape(`0x${hex64}`).kind).toBe("tx-hash");
@@ -325,28 +389,69 @@ describe("extended private keys", () => {
 });
 
 describe("key export pages", () => {
-  it("hide the whole screen for a Secret Recovery Phrase or export page", () => {
-    for (const heading of ["Secret Recovery Phrase", "Reveal Secret Recovery Phrase", "Export private key", "Show private key", "Backup Seed Phrase"]) {
-      const found = scanScreen(page([{ text: heading, size: 26 }, "Make sure nobody is looking at your screen."]), only({ pages: true }));
+  const pages = only({ pages: true });
+
+  it("hide the whole screen when the reveal is a heading or a button of its own", () => {
+    for (const heading of ["Reveal Secret Recovery Phrase", "Export private key", "Show private key", "View recovery phrase", "Reveal your seed phrase"]) {
+      const found = scanScreen(page([{ text: heading, size: 26 }, "Make sure nobody is looking at your screen."]), pages);
       expect(kinds(found), heading).toEqual(["key-page"]);
       expect(found[0].whole).toBe(true);
     }
+    // A button, alone on its row.
+    expect(kinds(scanScreen(screen(["Settings", 40, 60], ["Security", 40, 100], ["Export private key", 400, 300]), pages))).toEqual(["key-page"]);
   });
 
-  it("a plain title with Reveal near it", () => {
-    expect(kinds(scanScreen(page(["Seed phrase", "", "Reveal"]), only({ pages: true })))).toEqual(["key-page"]);
-    expect(kinds(scanScreen(page(["Private key", "Enter your password to continue"]), only({ pages: true })))).toEqual(["key-page"]);
+  it("a heading with a Reveal, Show or Export button by it, or a key under it", () => {
+    expect(kinds(scanScreen(page([{ text: "Secret Recovery Phrase", size: 26 }, "Make sure nobody is looking at your screen.", "", "Reveal"]), pages))).toEqual(["key-page"]);
+    expect(kinds(scanScreen(page(["Seed phrase", "", "Reveal"]), pages))).toEqual(["key-page"]);
+    expect(kinds(scanScreen(screen(["Private key", 400, 200, 22], ["Show", 400, 300]), pages))).toEqual(["key-page"]);
+    expect(kinds(scanScreen(page([{ text: "Your Private Key", size: 24 }, hex64]), only({ pages: true, keys: true })))).toEqual(["key-page", "private-key"]);
+  });
+
+  it("a blurred phrase's own prompt: Tap to reveal your recovery phrase — and a four-word button", () => {
+    expect(kinds(scanScreen(screen(["Tap to reveal your recovery phrase", 500, 300]), pages))).toEqual(["key-page"]);
+    expect(kinds(scanScreen(screen(["Seed phrase", 400, 200, 22], ["Hold to reveal SRP", 400, 320]), pages))).toEqual(["key-page"]);
   });
 
   it("read through OCR slop", () => {
-    expect(kinds(scanScreen(page([{ text: "Secret Recovcry Phrase", size: 26 }]), only({ pages: true })))).toEqual(["key-page"]);
+    expect(kinds(scanScreen(page([{ text: "Reveal Secret Recovcry Phrase", size: 26 }]), pages))).toEqual(["key-page"]);
   });
 
   it("aren't a warning in a sentence, or a title with nothing to reveal", () => {
-    expect(
-      scanScreen(page(["Never share your seed phrase with anyone. Scammers will ask for it in DMs, and support never will."]), only({ pages: true }))
-    ).toEqual([]);
-    expect(scanScreen(page(["Private key", "", "Learn how wallets keep them safe"]), only({ pages: true }))).toEqual([]);
+    expect(scanScreen(page(["Never share your seed phrase with anyone. Scammers will ask for it in DMs, and support never will."]), pages)).toEqual([]);
+    expect(scanScreen(page(["Private key", "", "Learn how wallets keep them safe"]), pages)).toEqual([]);
+    // A docs heading on its own is a docs heading.
+    expect(scanScreen(page([{ text: "Secret Recovery Phrase", size: 26 }, "A Secret Recovery Phrase is the master key to a wallet."]), pages)).toEqual([]);
+  });
+
+  it("aren't a docs sidebar, a code block's Copy, a cloud console, or a wallet's backup reminder", () => {
+    // Docs: "Seed phrase" in the sidebar, View on GitHub (and Show more) elsewhere.
+    const docs = screen(
+      ["Wallets", 40, 100],
+      ["Seed phrase", 40, 140],
+      ["Hardware", 40, 180],
+      ["Show more", 40, 220],
+      ["How wallets derive addresses", 400, 100, 26],
+      ["View on GitHub", 1200, 100],
+      ["Every address comes from the same root, which is why losing it loses everything.", 400, 160]
+    );
+    expect(scanScreen(docs, pages)).toEqual([]);
+    // A "Private key" heading with a Copy button on its code block.
+    expect(scanScreen(screen(["Private key", 400, 100, 26], ["Copy", 1100, 160], ["const key = loadFromVault();", 420, 170]), pages)).toEqual([]);
+    // A cloud console's key pair form.
+    expect(scanScreen(screen(["Private key file format", 400, 100, 22], ["PEM", 420, 150], ["PPK", 520, 150], ["View details", 400, 220]), pages)).toEqual([]);
+    // A wallet's banner, and its button.
+    expect(scanScreen(screen(["Back up your recovery phrase", 400, 100, 20], ["Back up now", 400, 150]), pages)).toEqual([]);
+    // Someone typing it in chat, name first.
+    expect(scanScreen(screen(["fan123: Export private key", 1300, 700]), pages)).toEqual([]);
+  });
+
+  it("never take the shield's own panel for one — the studio can be in the capture", () => {
+    const rows: [string, number, number, number?][] = [["Privacy shield", 1300, 60], ["Hide my screen", 1300, 100]];
+    let y = 140;
+    for (const n of Object.values(NOTICE_TEXT)) rows.push([n, 1300, (y += 40)], ["Keep hidden", 1300, (y += 30)], ["Show anyway for 10 s", 1420, y]);
+    for (const d of DETECTOR_LABELS) rows.push([d.label, 1300, (y += 40)], [d.hint, 1300, (y += 24)]);
+    expect(scanScreen(screen(...rows), DEFAULT_DETECTORS)).toEqual([]);
   });
 });
 
@@ -447,6 +552,40 @@ describe("holding what was found", () => {
     const c = t.cover(20_000);
     expect(c.whole).toBe(true);
     expect(c.rects).toHaveLength(0);
+  });
+
+  it("doesn't age text finds on QR-only reads — the text read being down isn't the phrase going away", () => {
+    const t = new FindingTracker();
+    t.update([phrase], 0);
+    for (let now = 1000; now <= 30_000; now += 1000) t.update([], now, { text: false, qr: true });
+    expect(t.cover(30_000).whole).toBe(true);
+    // Text reads back: now it ages.
+    t.update([], 31_000);
+    t.update([], 31_000 + HOLD_MS + 1);
+    expect(t.cover(31_000 + HOLD_MS + 1).whole).toBe(false);
+  });
+
+  it("carries a share's finds to the next — a re-share or a rejoin — for its first reads to confirm", () => {
+    const first = new FindingTracker();
+    first.update([phrase, key], 0);
+    const carried = first.carry();
+    // The next share, twenty seconds on: covered before it has read anything.
+    const next = new FindingTracker();
+    next.seed(carried, 20_000);
+    expect(next.cover(20_000)).toEqual({ whole: true, rects: [key.rect] });
+    // One read that misses them isn't enough; the hold's worth of reads is.
+    next.update([], 21_000);
+    expect(next.cover(21_000).whole).toBe(true);
+    next.update([], 20_000 + HOLD_MS + 1);
+    expect(next.cover(20_000 + HOLD_MS + 1)).toEqual({ whole: false, rects: [] });
+    // Too long ago, and it doesn't carry.
+    const late = new FindingTracker();
+    late.seed(carried, CARRY_MS + 1);
+    expect(late.held).toHaveLength(0);
+    // Seen again, it's the same find, not two.
+    next.seed(carried, 25_000);
+    next.seed(carried, 25_000);
+    expect(next.held.filter((h) => h.kind === "phrase")).toHaveLength(1);
   });
 
   it("slates once for a page, however many headings say so", () => {
@@ -556,5 +695,134 @@ describe("frames for reading", () => {
     expect(changed(a, signature(blank.slice(), w, h))).toBe(false);
     expect(changed(a, signature(typed, w, h))).toBe(true);
     expect(changed(null, a)).toBe(true);
+  });
+});
+
+describe("what a frame wears", () => {
+  const zone = { id: "z1", x: 0.1, y: 0.1, w: 0.2, h: 0.1 };
+  const cover = { whole: false, rects: [{ x: 0.5, y: 0.5, w: 0.2, h: 0.05 }] };
+  const on = { ...DEFAULT_SHIELD_SETTINGS, zones: [zone] };
+
+  it("covers the zones with the Shield switch off — they're the host's own choice", () => {
+    const off = { ...on, enabled: false };
+    expect(coverPlan({ panic: false, settings: off, cover, checking: false })).toEqual({ slate: null, rects: [zone] });
+    expect(coverPlan({ panic: false, settings: off, cover: { whole: true, rects: [] }, checking: true })).toEqual({ slate: null, rects: [zone] });
+    expect(coverPlan({ panic: false, settings: { ...off, zones: [] }, cover, checking: false })).toBeNull();
+  });
+
+  it("puts Hide first, then a whole-screen find, then the start's slate, then the boxes", () => {
+    expect(coverPlan({ panic: true, settings: on, cover: { whole: true, rects: [] }, checking: true })).toEqual({ slate: "panic" });
+    expect(coverPlan({ panic: false, settings: on, cover: { whole: true, rects: [] }, checking: true })).toEqual({ slate: "secret" });
+    expect(coverPlan({ panic: false, settings: on, cover, checking: true })).toEqual({ slate: "checking" });
+    expect(coverPlan({ panic: false, settings: on, cover, checking: false })).toEqual({ slate: null, rects: [zone, ...cover.rects] });
+  });
+
+  it("tells plans apart, so a change goes out at once", () => {
+    const a = coverPlan({ panic: false, settings: on, cover, checking: false });
+    const b = coverPlan({ panic: false, settings: on, cover: { whole: false, rects: [] }, checking: false });
+    expect(planKey(a)).not.toBe(planKey(b));
+    expect(planKey(null)).toBe("clear");
+    expect(planKey({ slate: "panic" })).toBe("slate:panic");
+  });
+});
+
+describe("the Hide key", () => {
+  const target = (el: { tag?: string; editable?: boolean; inside?: string[] } = {}) => ({
+    tagName: el.tag ?? "DIV",
+    isContentEditable: Boolean(el.editable),
+    closest: (selector: string) => (el.inside ?? []).some((role) => selector.includes(role)) || (el.tag && selector.includes(el.tag.toLowerCase())) ? {} : null,
+  });
+
+  it("is H on its own, not typed, not handled already", () => {
+    expect(isHideKey({ key: "h", target: target() })).toBe(true);
+    expect(isHideKey({ key: "H", target: target() })).toBe(true);
+    expect(isHideKey({ key: "g", target: target() })).toBe(false);
+    expect(isHideKey({ key: "h", metaKey: true, target: target() })).toBe(false);
+    expect(isHideKey({ key: "h", repeat: true, target: target() })).toBe(false);
+    expect(isHideKey({ key: "h", defaultPrevented: true, target: target() })).toBe(false);
+  });
+
+  it("survives Chrome's autofill keydown, which has no key at all", () => {
+    expect(isHideKey({ target: target() })).toBe(false);
+    expect(isHideKey({ key: undefined, target: target() })).toBe(false);
+  });
+
+  it("stays out of text fields and a menu's or a list's type-to-find", () => {
+    expect(isHideKey({ key: "h", target: target({ tag: "INPUT" }) })).toBe(false);
+    expect(isHideKey({ key: "h", target: target({ tag: "TEXTAREA" }) })).toBe(false);
+    expect(isHideKey({ key: "h", target: target({ editable: true }) })).toBe(false);
+    expect(isHideKey({ key: "h", target: target({ inside: ['role="listbox"'] }) })).toBe(false);
+    expect(isHideKey({ key: "h", target: target({ inside: ['role="menu"'] }) })).toBe(false);
+    expect(isHideKey({ key: "h", target: target({ inside: ['role="combobox"'] }) })).toBe(false);
+  });
+});
+
+describe("sharing a screen with the shield on it", () => {
+  /** A LiveKit room, as far as a share goes: tracks made, published and taken down, on demand. */
+  function fakeRoom({ existing = false } = {}) {
+    const calls = { create: 0, publish: 0, unpublish: 0, unmute: 0 };
+    let raw = { readyState: "live" as "live" | "ended" };
+    let pickerOpen: (() => void) | null = null;
+    const video = () => ({ kind: "video", mediaStreamTrack: raw, stop: vi.fn(), getProcessor: () => undefined });
+    const pub = (track: unknown) => ({ source: "screen_share", track, unmute: async () => void calls.unmute++ });
+    const room = {
+      published: existing ? pub(video()) : undefined,
+      localParticipant: {
+        getTrackPublication: () => room.published,
+        createScreenTracks: async () => {
+          calls.create++;
+          await new Promise<void>((r) => (pickerOpen = r));
+          return [video()];
+        },
+        publishTrack: async (track: unknown) => {
+          calls.publish++;
+          return (room.published = pub(track));
+        },
+        unpublishTrack: async () => void calls.unpublish++,
+      },
+    };
+    return {
+      room: room as unknown as ShareRoom,
+      calls,
+      pick: async () => {
+        while (!pickerOpen) await new Promise((r) => setTimeout(r, 1));
+        const open = pickerOpen;
+        pickerOpen = null;
+        open();
+      },
+      stopFromBrowserBar: () => void (raw = { readyState: "ended" }),
+      raw: () => raw,
+    };
+  }
+
+  it("returns the share that's there, unmuted — never a second", async () => {
+    const f = fakeRoom({ existing: true });
+    const pub = await shareShieldedScreen(f.room);
+    expect(pub?.source).toBe("screen_share");
+    expect(f.calls).toMatchObject({ create: 0, publish: 0, unmute: 1 });
+  });
+
+  it("makes a second press wait for the first: one picker, one share", async () => {
+    const f = fakeRoom();
+    const a = shareShieldedScreen(f.room);
+    const b = shareShieldedScreen(f.room);
+    await f.pick();
+    const [pa, pb] = await Promise.all([a, b]);
+    expect(pa).toBe(pb);
+    expect(f.calls).toMatchObject({ create: 1, publish: 1 });
+  });
+
+  it("never publishes a share stopped from the browser's bar while the shield went on", async () => {
+    const f = fakeRoom();
+    const run = shareShieldedScreen(f.room);
+    f.stopFromBrowserBar();
+    await f.pick();
+    await expect(run).rejects.toThrow(/stopped/);
+    expect(f.calls.publish).toBe(0);
+    // And a later press starts afresh.
+    const again = shareShieldedScreen(f.room);
+    await f.pick();
+    await expect(again).rejects.toThrow(/stopped/);
+    expect(f.calls.create).toBe(2);
   });
 });

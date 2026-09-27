@@ -1,18 +1,20 @@
 /**
  * The privacy shield's eyes (Phase 4): what on a shared screen is a secret.
- * Words and QR codes in — read off a downscaled frame by Tesseract and the
- * browser's BarcodeDetector (lib/privacy-shield-ocr.ts) — findings out, as
- * boxes on the frame's 0..1 square. Pure, so it runs in Node for the tests;
- * lib/privacy-shield.ts paints what it finds.
+ * Words and QR codes in — read off a downscaled frame by Tesseract (in a
+ * worker) and the browser's BarcodeDetector (lib/privacy-shield-ocr.ts) —
+ * findings out, as boxes on the frame's 0..1 square. Pure, so it runs in
+ * Node for the tests; lib/privacy-shield.ts paints what it finds.
  *
  * What counts, and how it's treated:
  *   - A recovery phrase — a run of 8+ BIP-39 English words in reading
  *     order, list numbers and bullets skipped, OCR slop allowed (a misread
  *     letter, "rn" for "m", a word or two garbled) — hides the whole screen.
- *   - A page about revealing one — "Secret Recovery Phrase", "Export
- *     private key", "Reveal" near "Seed phrase" — hides the whole screen too:
+ *   - A page about revealing one — "Reveal Secret Recovery Phrase" or
+ *     "Export private key" as a heading or a button, or a "Seed phrase"
+ *     heading with a Reveal button by it — hides the whole screen too:
  *     that's the page right before the words appear, so the slate is
- *     already up when detection's second of lag would matter most.
+ *     already up when detection's second of lag would matter most. The
+ *     same words in a sentence, a docs sidebar or a chat line don't.
  *   - Private keys get a solid box: 64 hex characters, WIF (5, K or L;
  *     51–52 characters), Solana-style base58 of 87–88, a Solana keypair's
  *     byte array, and extended private keys (xprv, yprv, zprv, tprv…).
@@ -24,11 +26,14 @@
  * Public data stays on screen. A 0x-prefixed 64-hex string is what an
  * explorer shows for a transaction or block hash (and what an Aptos or Sui
  * address looks like) — public, so it's left alone unless the words beside
- * it say "private" or "secret". A bare 64-hex string is how wallets show a
- * private key, so it's covered — unless the words beside it say it's a
- * transaction or block hash (a Bitcoin explorer shows txids bare); 87–88
- * base58 the same way (a Solana signature is that long too). Over-covering
- * is the cheaper mistake, so anything in doubt is covered.
+ * it say "private" or "secret". So is a 64-hex word that starts with twelve
+ * or more zeros (an explorer's input or log data: an address or an amount,
+ * padded — no key starts that way). A bare 64-hex string is how wallets
+ * show a private key, so it's covered — unless the words beside it say
+ * it's a transaction or block hash, a checksum or a digest (a Bitcoin
+ * explorer shows txids bare, `shasum -a 256` and Docker show digests bare);
+ * 87–88 base58 the same way (a Solana signature is that long too).
+ * Over-covering is the cheaper mistake, so anything in doubt is covered.
  */
 
 import { BIP39_ENGLISH } from "./bip39-english";
@@ -96,12 +101,16 @@ export interface Detectors {
 
 export const DEFAULT_DETECTORS: Detectors = { phrases: true, keys: true, qr: true, pages: true, balances: false };
 
-/** What the host is told, in so many words. */
+/**
+ * What the host is told, in so many words — and never the words the page
+ * check looks for ("recovery phrase", "private key"): the studio can be
+ * in the very screen it's reading, and its own notice mustn't slate it.
+ */
 export const NOTICE_TEXT: Record<FindingKind, string> = {
-  phrase: "Hidden: a recovery phrase",
-  "key-page": "Hidden: a key export page",
-  "private-key": "Hidden: a private key",
-  "extended-key": "Hidden: an extended private key",
+  phrase: "Hidden: a wallet's word list",
+  "key-page": "Hidden: a wallet's export page",
+  "private-key": "Hidden: a wallet key",
+  "extended-key": "Hidden: an xprv wallet key",
   "wallet-qr": "Hidden: a wallet QR code",
   balance: "Hidden: a balance",
 };
@@ -131,12 +140,14 @@ for (const w of BIP39_ENGLISH) {
 const AS_LETTER: Record<string, string> = { "0": "o", "1": "l", "|": "l", "!": "l", "5": "s", "$": "s", "4": "a", "@": "a", "3": "e", "8": "b", "9": "g", "6": "b", "7": "t", "2": "z" };
 
 /**
- * The list's words that are also English's glue — "that", "this", "you",
- * "can", "will", "only" — and code's commonest ("true", "type", "error").
- * A sentence that strings eight list words together leans on these; a
- * real phrase, drawn at random, almost never does (66 of the 2048 are
- * here: the chance that half of a 12-word phrase is from here is under
- * one in a million). The rest of these are English that a misread list
+ * English's commonest words — its glue ("that", "this", "you", "can"),
+ * the 200 a typing test deals out (monkeytype's "english"), and code's
+ * commonest ("true", "type", "error"). 137 of them are on the list, so a
+ * sentence, a typing test or a log that strings eight list words together
+ * leans on these; a real phrase, drawn at random, rarely does: a run more
+ * than 60% from here is taken for English, and the chance of that for a
+ * wallet's phrase is under 1 in 15,000 for 8 visible words and under one
+ * in a million for 12. The rest of these are English that a misread list
  * word can't be ("value" isn't a botched "valve").
  */
 const EVERYDAY = new Set(
@@ -146,7 +157,12 @@ const EVERYDAY = new Set(
     "good some could them see other than then now look only come its over think also back after use two how our work first well way " +
     "even new want because any these give day most us is are was were has had been being did does done said made went got let may " +
     "might must shall should very much many more such own same too here where why each few both those every again still never always " +
-    "often down off once under while true false type error message value name string number null class return function default const case"
+    "often down off once under while true false type error message value name string number null class return function default const case " +
+    // monkeytype's english 200, less what's above
+    "man state great through long feel seem high place little world nation hand old life tell write become show house between need mean " +
+    "call develop last right move thing general school another begin part turn real leave point form child small since against ask late " +
+    "home interest large person end open public follow during present without hold govern around possible head consider word program " +
+    "problem however lead system set order eye plan run keep face fact group play stand increase early course change help line find"
   ).split(" ")
 );
 
@@ -193,6 +209,8 @@ interface W {
   cy: number;
   h: number;
   row: number;
+  /** The element it belongs to: the words beside it on its row at a word's spacing — a heading, a button, a sentence. */
+  seg: number;
 }
 
 interface Layout {
@@ -201,6 +219,8 @@ interface Layout {
   words: W[];
   /** Words grouped into rows by where they sit, top to bottom, each left to right. */
   rows: W[][];
+  /** Each row cut into elements at the gaps wider than a space: a sidebar item, a button, a heading, a line of prose. */
+  segs: W[][];
   /** The typical word height — the unit for "near" and "beside". */
   unit: number;
 }
@@ -233,6 +253,7 @@ function buildLayout(input: ScanInput): Layout {
       cy: (ow.y0 + ow.y1) / 2,
       h: ow.y1 - ow.y0,
       row: -1,
+      seg: -1,
     });
   });
   const unit = Math.max(4, median(words.map((w) => w.h)));
@@ -259,7 +280,22 @@ function buildLayout(input: ScanInput): Layout {
   }
   const sorted = rows.sort((a, b) => a.cy - b.cy).map((r) => r.words.sort((a, b) => a.x0 - b.x0));
   sorted.forEach((row, r) => row.forEach((w) => (w.row = r)));
-  return { width: input.width, height: input.height, words, rows: sorted, unit };
+  // Elements: a gap wider than a space and a half at the words' own size starts a new one.
+  const segs: W[][] = [];
+  for (const row of sorted) {
+    let seg: W[] = [];
+    for (const w of row) {
+      const prev = seg[seg.length - 1];
+      if (prev && w.x0 - prev.x1 > Math.max(unit, (prev.h + w.h) / 2) * 1.4) {
+        segs.push(seg);
+        seg = [];
+      }
+      w.seg = segs.length;
+      seg.push(w);
+    }
+    if (seg.length) segs.push(seg);
+  }
+  return { width: input.width, height: input.height, words, rows: sorted, segs, unit };
 }
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
@@ -294,8 +330,19 @@ interface Classed {
 /** A list number ("1", "12.", "#3", "07)") or a bullet: invisible to a run. */
 const isFiller = (clean: string, raw: string) => /^#?\d{1,2}[.):]?$/.test(clean) || /^[•·\-–—|*°¦:.,]+$/.test(raw);
 
+/**
+ * The word a token stands for: a label or an assignment it came with
+ * dropped (MNEMONIC="scheme → scheme, seed:scheme, key=scheme), and the
+ * quotes a phrase has at its two ends — the first word's opening one, the
+ * last word's closing one.
+ */
+function coreOf(t: string): string {
+  const pre = /^[A-Za-z_][\w.-]*[:=]+["'“‘`]?(.*[A-Za-z].*)$/.exec(t);
+  return pre ? cleanToken(pre[1]) : t;
+}
+
 function classify(w: W): Classed {
-  const t = w.clean;
+  const t = coreOf(w.clean);
   if (isFiller(t, w.raw)) return { cls: "skip", title: false, everyday: false };
   // "1.abandon", "12)zoo": the number came along with the word.
   const numbered = /^#?\d{1,2}[.):]?([A-Za-z][A-Za-z0-9|$@!]{2,})$/.exec(t);
@@ -303,9 +350,11 @@ function classify(w: W): Classed {
   const title = /^[A-Z][a-z]+$/.test(word);
   const lower = word.toLowerCase();
   const everyday = EVERYDAY.has(lower);
-  // Quotes, colons and brackets are code and prose ("message":, 'Bar',), never a phrase on a wallet's screen.
+  // Code and prose, never a phrase on a wallet's screen: a word in quotes on both sides ("message":,
+  // 'Bar',) — a quoted phrase has its quotes at its ends — or with brackets or an operator inside.
   const rawBody = numbered ? w.raw.replace(/^#?\d{1,2}[.):]?/, "") : w.raw;
-  if (/["'“”‘’`:=()[\]{}<>]/.test(rawBody)) return { cls: "stop", title, everyday };
+  if (/^["'“‘`].+["'”’`][,;:)\]}]*$/.test(rawBody)) return { cls: "stop", title, everyday };
+  if (/["'“”‘’`:=()[\]{}<>]/.test(word)) return { cls: "stop", title, everyday };
   const m = matchBip39(word);
   if (m) return { cls: m, title, everyday };
   // Two words run together ("abandonability").
@@ -337,7 +386,9 @@ function embedded(L: Layout, run: W[], cls: Map<W, Classed>): boolean {
   const first = words[0];
   const last = words[words.length - 1];
   const tight = L.unit * 1.5;
-  const wordish = (w: W | undefined) => Boolean(w && /[a-z]{2,}/i.test(w.clean) && cls.get(w)?.cls === "stop" && !LEADS_A_PHRASE.test(w.clean));
+  // A neighbour that's a list word itself (quoted on its own, say) is part of the phrase's world, not a sentence's.
+  const wordish = (w: W | undefined) =>
+    Boolean(w && /[a-z]{2,}/i.test(w.clean) && cls.get(w)?.cls === "stop" && !LEADS_A_PHRASE.test(coreOf(w.clean)) && !WORDS.has(coreOf(w.clean).toLowerCase()));
   const row = (w: W) => L.rows[w.row] ?? [];
   const before = row(first).filter((w) => w.x1 <= first.x0 + 1).pop();
   const after = row(last).find((w) => w.x0 >= last.x1 - 1);
@@ -358,11 +409,13 @@ function phraseRuns(seq: W[], cls: Map<W, Classed>): W[][] {
   /** List numbers since the last word: part of the phrase's box once a word follows them. */
   let fillers: W[] = [];
   const close = () => {
-    // Eight words, mostly read cleanly, few in Title Case, not leaning on English's glue, and not
-    // the same few words over and over (a menu, a log): a random 12-word phrase repeats three
-    // words about once in 30,000 — the famous all-"abandon" test phrases are public anyway.
-    const distinct = new Set(run.filter((w) => cls.get(w)?.cls !== "skip").map((w) => w.clean.toLowerCase())).size;
-    if (matched >= 8 && exact >= 0.6 * matched && titles <= 0.25 * matched && everyday < 0.5 * matched && distinct >= 0.8 * matched) out.push(run);
+    // Eight words, mostly read cleanly (a phrase on a wallet's screen reads clean; a misread letter
+    // turns English into list words — "there" is a letter from "theme"), few in Title Case, no more
+    // than 60% English's commonest, and not the same few words over and over (a menu, a log): a
+    // random 12-word phrase repeats three words about once in 30,000 — the famous all-"abandon"
+    // test phrases are public anyway.
+    const distinct = new Set(run.filter((w) => cls.get(w)?.cls !== "skip").map((w) => coreOf(w.clean).toLowerCase())).size;
+    if (matched >= 8 && exact >= 0.7 * matched && titles <= 0.25 * matched && everyday <= 0.6 * matched && distinct >= 0.8 * matched) out.push(run);
     run = [];
     matched = exact = titles = everyday = gaps = 0;
     pending = null;
@@ -502,7 +555,12 @@ export function keyShape(raw: string): { kind: KeyKind; bareHex?: boolean; base5
   const hex = asHex(s);
   // Read cleanly as 66 hex starting 02 or 03, it's a compressed public key — public by design.
   const publicKey = hex === s && s.length === 66 && /^0[23]/.test(s);
-  if (hex && hex.length >= 62 && hex.length <= 67 && /\d/.test(hex) && /[a-f]/i.test(hex) && !publicKey) return { kind: "private-key", bareHex: true };
+  if (hex && hex.length >= 62 && hex.length <= 67 && /\d/.test(hex) && /[a-f]/i.test(hex) && !publicKey) {
+    // Twelve zeros up front is an explorer's padded word — an address or an amount in input or log
+    // data. A key starts that way once in 2^48: public, like a 0x hash, unless labelled a key.
+    if (/^0{12}/.test(hex)) return { kind: "tx-hash" };
+    return { kind: "private-key", bareHex: true };
+  }
   if (/^[5KLc9]/.test(s) && badBase58(s) <= 2 && /^[0-9A-Za-z]+$/.test(s)) {
     const n = s.length;
     const wif = ((s[0] === "5" || s[0] === "9") && n >= 50 && n <= 52) || ((s[0] === "K" || s[0] === "L" || s[0] === "c") && n >= 51 && n <= 53);
@@ -512,8 +570,14 @@ export function keyShape(raw: string): { kind: KeyKind; bareHex?: boolean; base5
   return { kind: null };
 }
 
-const KEY_WORDS = /\b(private|secret|priv|privkey|wif|mnemonic|seed|keystore|export)\b|private_?key|secret_?key/i;
-const TX_WORDS = /\b(tx|txn|txid|txhash|transaction|transactions|hash|signature|sig|block|blockhash|parent|root|receipt)\b/i;
+/**
+ * Words that say a string is a key. A letter can't touch either end, but
+ * an underscore or a digit can: ETH_PRIVKEY=0x…, WALLET_SEED=…, PRIVATE_KEY.
+ */
+const KEY_WORDS = /(?:^|[^a-z])(private|secret|priv|privkey|wif|mnemonic|seed|keystore|export)(?:$|[^a-z])|private_?key|secret_?key/i;
+/** Words that say it's public: a transaction, a block, a signature — or a checksum or a digest (shasum, Docker, a download page). */
+const PUBLIC_WORDS =
+  /(?:^|[^a-z])(tx|txn|txid|txhash|transaction|transactions|hash|hashes|signature|sig|block|blockhash|parent|root|receipt|topic|topics|sha1|sha256|sha512|shasum|sha256sum|md5|digest|checksum|commit)(?:$|[^a-z])|sha-256/i;
 
 /** The words beside a string: its own row, and the rows just above it (where a label sits). */
 function contextOf(L: Layout, row: number, box: Box, self: W[]): string {
@@ -549,7 +613,7 @@ function findKeys(L: Layout): Finding[] {
     const inToken = parts.map((p) => p.raw).join(" ");
     const beside = contextOf(L, row, box, parts) + " " + inToken.replace(/[0-9a-fA-F]{20,}/g, " ");
     const keyish = KEY_WORDS.test(beside);
-    const txish = TX_WORDS.test(beside) || /\/(tx|txid|block|transaction)\//i.test(inToken);
+    const txish = PUBLIC_WORDS.test(beside) || /\/(tx|txid|block|transaction)\/|sha256:|sha512:/i.test(inToken);
     if (shape.kind === "tx-hash") return keyish ? "private-key" : null;
     if ((shape.bareHex || shape.base58Long) && txish && !keyish) return null;
     return "private-key";
@@ -638,11 +702,24 @@ const NOUNS: string[][] = [
   ["secret", "key"],
   ["mnemonic"],
 ];
-/** Words that make a title an action: "Reveal Secret Recovery Phrase", "Export private key". */
-const VERBS = new Set(["reveal", "show", "export", "view", "display", "copy", "backup", "hide", "unhide"]);
+/**
+ * Verbs that make a heading or a button the reveal itself, right before
+ * the noun: "Reveal Secret Recovery Phrase", "Export private key", "View
+ * recovery phrase", "Copy private key". "Back up" isn't one — a wallet's
+ * "Back up your recovery phrase" banner is a reminder, not the words.
+ */
+const VERBS = new Set(["reveal", "show", "export", "view", "display", "copy", "hide", "unhide"]);
 const FILLERS = new Set(["your", "my", "the", "this", "wallet", "account", "a"]);
-/** Words that, near a title, mean the reveal is one click away. */
-const NEAR_ACTION = /^(reveal|show|export|view|copy|hide|unhide|password|revealed)$/;
+/**
+ * A button by a heading that means the reveal is one click away. Not
+ * View, Copy or Password on their own — docs, code blocks and sign-ins
+ * have those everywhere.
+ */
+const NEAR_ACTION = new Set(["reveal", "show", "export", "hide", "unhide"]);
+/** How a blurred phrase asks to be revealed: "Tap to reveal", "Click to show", "Hold to reveal". */
+const PRESS = new Set(["tap", "click", "hold", "press"]);
+/** What makes an action a link somewhere else: "Show more", "View on GitHub", "Show code". */
+const NOT_A_REVEAL = new Set(["more", "less", "all", "details", "advanced", "options", "settings", "menu", "everything", "results", "history", "filters", "on", "github", "docs", "code", "source", "example", "examples", "replies", "comments"]);
 
 /** A word as the title check reads it: lower case, look-alike digits as letters, punctuation off. */
 const titleWord = (raw: string) =>
@@ -660,36 +737,51 @@ function sameWord(a: string, b: string) {
   return true;
 }
 
+/**
+ * A page that reveals or exports a wallet's secrets. Two ways: the reveal
+ * as a heading or a button of its own ("Export private key" — the whole
+ * element, not a sentence or a chat line with a name before it); or a
+ * heading of its own ("Seed phrase", "Your Private Key") with a Reveal,
+ * Show or Export button just under or beside it, or a key-like string.
+ */
 function findPages(L: Layout, keyish: Box[]): Finding[] {
   const out: Box[] = [];
+  // Near a heading: under it or beside it, within a card's reach — not anywhere on the page.
   const near = (a: Box, b: Box) => {
-    const dx = (a.x0 + a.x1) / 2 - (b.x0 + b.x1) / 2;
-    const dy = (a.y0 + a.y1) / 2 - (b.y0 + b.y1) / 2;
-    return Math.hypot(dx, dy) <= 0.35 * Math.max(L.width, L.height);
+    const u = L.unit;
+    const cx = (a.x0 + a.x1) / 2;
+    const cy = (a.y0 + a.y1) / 2;
+    return cy >= b.y0 - 3 * u && cy <= b.y1 + 30 * u && cx >= b.x0 - 12 * u && cx <= b.x1 + 30 * u;
   };
-  const actions = L.words.filter((w) => NEAR_ACTION.test(titleWord(w.raw)));
+  // Buttons: an action word in a short element of its own — "Reveal", "Show key", "Hold to reveal SRP".
+  const buttons = L.segs.filter((seg) => {
+    const ws = seg.map((w) => titleWord(w.raw));
+    return seg.length <= 4 && ws.some((w) => NEAR_ACTION.has(w)) && !ws.some((w) => NOT_A_REVEAL.has(w));
+  });
 
-  for (const row of L.rows) {
-    const words = row.map((w) => titleWord(w.raw));
+  for (const seg of L.segs) {
+    const words = seg.map((w) => titleWord(w.raw));
     for (const noun of NOUNS) {
       for (let j = 0; j + noun.length <= words.length; j++) {
         if (!noun.every((n, k) => sameWord(words[j + k], n))) continue;
-        const span = row.slice(j, j + noun.length);
+        const span = seg.slice(j, j + noun.length);
         const box = union(span);
-        // "Export private key", "Reveal your Secret Recovery Phrase": the action is the title.
-        let verbAt = j - 1;
-        if (verbAt >= 0 && FILLERS.has(words[verbAt])) verbAt--;
-        const verb = verbAt >= 0 && VERBS.has(words[verbAt]);
-        // "back up" and "write down" come in two words.
-        const twoWord = j >= 2 && ((words[j - 2] === "back" && words[j - 1] === "up") || (words[j - 2] === "write" && words[j - 1] === "down"));
-        // A heading or a button reads as one on its own row, or stands taller than the text around it.
-        const others = row.filter((w) => !span.includes(w) && /[a-z]/i.test(w.raw)).length;
+        // A verb right before it, one filler word between at most ("Reveal your Secret Recovery Phrase") —
+        // and a blur's "Tap to reveal your recovery phrase", "Click to show", "Hold to reveal" whole.
+        let v = j - 1;
+        if (v >= 0 && FILLERS.has(words[v])) v--;
+        const verb = v >= 0 && VERBS.has(words[v]);
+        if (verb && v >= 2 && words[v - 1] === "to" && PRESS.has(words[v - 2])) v -= 2;
+        const start = verb ? v : j >= 1 && FILLERS.has(words[j - 1]) ? j - 1 : j;
+        // The rest of its element: none for a heading or a button; a sentence, a longer menu
+        // item or a chat line with its sender's name has some.
+        const others = seg.length - (j + noun.length - start);
         const tall = median(span.map((w) => w.h)) >= 1.25 * L.unit;
-        const titleLike = others <= 2 || tall;
-        const strong = (verb || twoWord) && others <= 4;
-        const nearAction = actions.some((a) => !span.includes(a) && near(a, box));
-        const nearSecret = keyish.some((k) => near(k, box));
-        if (strong || (titleLike && (nearAction || nearSecret || noun.length === 3))) out.push(box);
+        const strong = verb && (others === 0 || (tall && others <= 1));
+        const heading = others === 0 || (tall && others <= 2);
+        const button = buttons.some((b) => !b.some((w) => span.includes(w)) && near(union(b), box));
+        const secret = keyish.some((k) => near(k, box));
+        if (strong || (heading && (button || secret))) out.push(box);
       }
     }
   }
@@ -848,28 +940,53 @@ const unionRect = (a: Rect, b: Rect): Rect => {
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
 };
 
+/** Which read sees a kind: the text read (Tesseract) or the QR read (BarcodeDetector). */
+const readOf = (kind: FindingKind): "text" | "qr" => (kind === "wallet-qr" ? "qr" : "text");
+
+/** What a read covered: the text, the QR codes, or both. */
+export interface ReadDone {
+  text: boolean;
+  qr: boolean;
+}
+
+/** A find carried from one share to the next: what it was and where, and when it was last seen. */
+export interface CarriedFinding {
+  kind: FindingKind;
+  rect: Rect;
+  whole: boolean;
+  lastSeen: number;
+}
+
+/** A re-share or a rejoin picks up what the last share was covering, if it was seen this recently. */
+export const CARRY_MS = 30_000;
+
 /**
  * What's been found, held: each find stays covered until reads of the
  * screen have gone `HOLD_MS` without seeing it, so a missed read (OCR isn't
  * the same twice) or a scroll doesn't flash it back on. The hold runs on
- * reads, not the clock: a still screen sends no frames and gets no reads,
- * and the first frame after a quiet spell must still be covered. A find
- * seen again in the same place — or, for the whole-screen kinds, anywhere
- * — is the same find.
+ * reads, not the clock — a still screen sends no frames and gets no reads,
+ * and the first frame after a quiet spell must still be covered — and on
+ * the read that can see the find: QR-only reads (while the text read is
+ * down) don't age a phrase or a key they can't see. A find seen again in
+ * the same place — or, for the whole-screen kinds, anywhere — is the same
+ * find.
  */
 export class FindingTracker {
   held: HeldFinding[] = [];
   private nextId = 1;
-  private lastScan = -Infinity;
+  /** When each read last ran — each kind of find ages only on the read that can see it. */
+  private lastRead = { text: -Infinity, qr: -Infinity };
 
   constructor(private readonly holdMs = HOLD_MS) {}
 
-  /** A scan's findings; returns the ones that are new. */
-  update(findings: Finding[], now: number): HeldFinding[] {
-    this.lastScan = Math.max(this.lastScan, now);
+  /** A read's findings — `read` says which reads ran (both, unless one is down); returns the finds that are new. */
+  update(findings: Finding[], now: number, read: ReadDone = { text: true, qr: true }): HeldFinding[] {
+    if (read.text) this.lastRead.text = Math.max(this.lastRead.text, now);
+    if (read.qr) this.lastRead.qr = Math.max(this.lastRead.qr, now);
     // One whole-screen find per kind is plenty: the heading and the button on one page are one notice.
     const merged: Finding[] = [];
     for (const f of findings) {
+      if (!read[readOf(f.kind)]) continue;
       const twin = f.whole ? merged.find((m) => m.whole && m.kind === f.kind) : null;
       if (twin) twin.rect = unionRect(twin.rect, f.rect);
       else merged.push({ ...f });
@@ -877,7 +994,7 @@ export class FindingTracker {
     const fresh: HeldFinding[] = [];
     const matched = new Set<HeldFinding>();
     for (const f of merged) {
-      // The same find: same kind, still held, not already claimed by this scan, and — for boxes — in the same place.
+      // The same find: same kind, not already claimed by this read, and — for boxes — in the same place.
       let same: HeldFinding | null = null;
       let best = 0.3;
       for (const h of this.held) {
@@ -907,16 +1024,17 @@ export class FindingTracker {
     return fresh;
   }
 
-  /** The screen hasn't changed since the last scan: what that scan saw is still there. */
+  /** The screen hasn't changed since the last read: what that read saw is still there. */
   touch(now: number) {
-    for (const h of this.held) if (h.lastSeen >= this.lastScan) h.lastSeen = now;
-    this.lastScan = Math.max(this.lastScan, now);
+    for (const h of this.held) if (h.lastSeen >= this.lastRead[readOf(h.kind)]) h.lastSeen = now;
+    this.lastRead.text = Math.max(this.lastRead.text, now);
+    this.lastRead.qr = Math.max(this.lastRead.qr, now);
     this.prune();
   }
 
-  /** Let go of finds the reads have gone the hold without seeing. */
+  /** Let go of finds the reads that can see them have gone the hold without seeing. */
   private prune() {
-    this.held = this.held.filter((h) => this.lastScan - h.lastSeen <= this.holdMs);
+    this.held = this.held.filter((h) => this.lastRead[readOf(h.kind)] - h.lastSeen <= this.holdMs);
   }
 
   /** Forget a detector's finds at once — it was switched off. */
@@ -926,7 +1044,26 @@ export class FindingTracker {
 
   clear() {
     this.held = [];
-    this.lastScan = -Infinity;
+    this.lastRead = { text: -Infinity, qr: -Infinity };
+  }
+
+  /**
+   * Start from what an earlier share was covering (a re-share, a rejoin):
+   * finds seen within `CARRY_MS` are held again from `now`, so the new
+   * share's first reads have to go the hold without seeing them before
+   * they come off — one read that misses them isn't enough.
+   */
+  seed(carried: CarriedFinding[], now: number) {
+    for (const c of carried) {
+      if (now - c.lastSeen > CARRY_MS) continue;
+      if (this.held.some((h) => h.kind === c.kind && (c.whole || overlap(h.rect, c.rect) >= 0.3))) continue;
+      this.held.push({ id: this.nextId++, kind: c.kind, rect: c.rect, whole: c.whole, firstSeen: now, lastSeen: now, shownUntil: 0, kept: false });
+    }
+  }
+
+  /** What to carry to the next share: every find held now, with when it was last seen. */
+  carry(): CarriedFinding[] {
+    return this.held.map((h) => ({ kind: h.kind, rect: h.rect, whole: h.whole, lastSeen: h.lastSeen }));
   }
 
   showAnyway(id: number, now: number, ms = SHOW_ANYWAY_MS): boolean {

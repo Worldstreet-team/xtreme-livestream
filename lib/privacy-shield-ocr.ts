@@ -3,7 +3,10 @@
  * thread, and the browser's BarcodeDetector — the parts of the shield that
  * need a browser. A frame reaches them downscaled (at most 1600 px wide),
  * grey, and as a PGM: raw bytes with a header, so there's nothing to
- * encode on this side and nothing to decode on the worker's.
+ * encode on this side and nothing to decode on the worker's. The OCR runs
+ * in the worker; copying the frame down and turning it grey (~5–7 ms a
+ * read at 1600×900) happen on the page's main thread, in a task of their
+ * own (lib/privacy-shield.ts).
  *
  * The frame helpers are pure and run in Node for the tests; Tesseract is a
  * dynamic import, so the studio's bundle only carries it once a screen is
@@ -77,37 +80,64 @@ export function changed(before: Float32Array | null, after: Float32Array, thresh
 /* ---- Tesseract ----------------------------------------------------------- */
 
 /**
- * Where Tesseract's files come from. Empty means tesseract.js's defaults:
- * its worker script, the wasm core and the English model (~3 MB, cached in
- * IndexedDB after the first load) from cdn.jsdelivr.net. A strict CSP or an
- * offline host means no text checks — zones, QR codes and Hide still work,
- * and the panel says so. To self-host, copy node_modules/tesseract.js/dist/
- * worker.min.js, node_modules/tesseract.js-core and eng.traineddata.gz
- * (from @tesseract.js-data/eng) under /public and point these at them.
+ * Where Tesseract's files come from — the one line to change to self-host
+ * them. null: tesseract.js's defaults, its worker script, the wasm core and
+ * the English model (~7 MB the first time, cached by the browser and in
+ * IndexedDB after) from cdn.jsdelivr.net. A strict CSP or an offline host
+ * then means no text checks — zones, QR codes and Hide still work, and the
+ * panel says so. To self-host, copy under public/tesseract/:
+ *   - node_modules/tesseract.js/dist/worker.min.js → worker.min.js
+ *   - node_modules/tesseract.js-core/tesseract-core*.{js,wasm} → core/
+ *   - eng.traineddata.gz (@tesseract.js-data/eng, 4.0.0_best_int) → lang/
+ * and set this to "/tesseract".
  */
-export const OCR_ASSETS: { workerPath?: string; corePath?: string; langPath?: string } = {};
+export const TESSERACT_HOME: string | null = null;
+
+/** What tesseract.js is told about where its files are. */
+export const OCR_ASSETS: { workerPath?: string; corePath?: string; langPath?: string } = TESSERACT_HOME
+  ? { workerPath: `${TESSERACT_HOME}/worker.min.js`, corePath: `${TESSERACT_HOME}/core`, langPath: `${TESSERACT_HOME}/lang` }
+  : {};
 
 /** How OCR reads a screen: as scattered text, which is what an app's window is — not one column of prose. */
 const PAGE_SEG_MODE = "11";
 /** The worker, the core and the model have this long to arrive. */
-const LOAD_TIMEOUT_MS = 45_000;
+export const LOAD_TIMEOUT_MS = 45_000;
 /** A failed load is tried again after this long, not on every frame. */
-const RETRY_AFTER_MS = 60_000;
+export const RETRY_AFTER_MS = 60_000;
 /** Nothing shielded for this long: the worker goes, and its memory with it. */
-const IDLE_MS = 30_000;
+export const IDLE_MS = 30_000;
+/**
+ * A read that takes longer than this has hung — tesseract.js never settles
+ * a read whose worker died — and the worker is started afresh.
+ */
+export const READ_TIMEOUT_MS = 10_000;
 
 export type OcrState = "idle" | "loading" | "ready" | "failed";
 
 export interface OcrEngine {
-  /** Words and their boxes, in reading order, off a PGM. */
+  /** Words and their boxes, in reading order, off a PGM. Rejects after `READ_TIMEOUT_MS` rather than hang. */
   recognize(pgm: Uint8Array): Promise<OcrWord[]>;
 }
 
 type TesseractWorker = import("tesseract.js").Worker;
+type Tesseract = typeof import("tesseract.js");
 type Block = { paragraphs?: { lines?: { words?: { text: string; confidence: number; bbox: { x0: number; y0: number; x1: number; y1: number } }[] }[] }[] };
 
-let enginePromise: Promise<OcrEngine> | null = null;
-let worker: TesseractWorker | null = null;
+/**
+ * One load of the worker. A load that's given up on — timed out, failed,
+ * let go while idle, replaced after a hung read — is `dropped`, and a
+ * worker that turns up for it after that is ended on arrival, so no
+ * worker is ever left running with nothing holding it.
+ */
+interface Load {
+  gen: number;
+  promise: Promise<OcrEngine>;
+  worker: TesseractWorker | null;
+  dropped: boolean;
+}
+
+let generation = 0;
+let current: Load | null = null;
 let state: OcrState = "idle";
 let failedAt = 0;
 let lastError: string | null = null;
@@ -144,10 +174,16 @@ function withTimeout<T>(p: Promise<T>, ms: number, why: string): Promise<T> {
   });
 }
 
-type Tesseract = typeof import("tesseract.js");
+/** Give up on a load: it stops counting, and its worker — now or whenever it arrives — is ended. */
+function drop(load: Load) {
+  load.dropped = true;
+  if (current === load) current = null;
+  const w = load.worker;
+  load.worker = null;
+  if (w) void w.terminate().catch(() => {});
+}
 
-async function load(): Promise<OcrEngine> {
-  setState("loading");
+async function openWorker(load: Load): Promise<TesseractWorker> {
   // A CommonJS package: bundlers hand it over as the namespace or under `default`.
   const mod = (await import("tesseract.js")) as Tesseract & { default?: Tesseract };
   const T: Tesseract = "createWorker" in mod && typeof mod.createWorker === "function" ? mod : (mod.default as Tesseract);
@@ -164,14 +200,55 @@ async function load(): Promise<OcrEngine> {
       failure.reject(lastError);
     },
   });
-  const w = await withTimeout(Promise.race([created, failed]), LOAD_TIMEOUT_MS, "Text checks didn't load in time.");
+  // However this load ends, a worker that arrives after it was given up on is ended.
+  created.then(
+    (w) => {
+      if (load.dropped) void w.terminate().catch(() => {});
+    },
+    () => {}
+  );
+  const w = await withTimeout(Promise.race([created, failed]), LOAD_TIMEOUT_MS, "The text checks didn't load in time.");
+  if (load.dropped) throw new Error("given up on");
   await w.setParameters({ tessedit_pageseg_mode: PAGE_SEG_MODE as Tesseract["PSM"][keyof Tesseract["PSM"]], user_defined_dpi: "96" });
-  worker = w;
-  setState("ready");
+  return w;
+}
+
+function start(): Load {
+  const load: Load = { gen: ++generation, promise: Promise.resolve(null as unknown as OcrEngine), worker: null, dropped: false };
+  current = load;
+  setState("loading");
+  load.promise = openWorker(load).then(
+    (w) => {
+      if (load.dropped) {
+        void w.terminate().catch(() => {});
+        throw new Error("given up on");
+      }
+      load.worker = w;
+      setState("ready");
+      return engineFor(load, w);
+    },
+    (e: unknown) => {
+      lastError = e instanceof Error ? e.message : String(e);
+      if (current === load) {
+        // Given up on: its worker, should it still come, is ended on arrival — and the next ask
+        // after RETRY_AFTER_MS starts a new load rather than getting this failure back.
+        drop(load);
+        failedAt = Date.now();
+        setState("failed");
+      }
+      throw e;
+    }
+  );
+  load.promise.catch(() => {});
+  return load;
+}
+
+function engineFor(load: Load, w: TesseractWorker): OcrEngine {
   return {
     async recognize(pgm) {
+      if (load.dropped) throw new Error("the text checks were restarted");
       // The typings stop at encoded images; raw PGM bytes are what the worker reads best.
-      const r = await w.recognize(pgm as unknown as Buffer, {}, { text: false, blocks: true });
+      const r = await withTimeout(w.recognize(pgm as unknown as Buffer, {}, { text: false, blocks: true }), READ_TIMEOUT_MS, "A read hung.");
       const words: OcrWord[] = [];
       for (const block of (r.data.blocks ?? []) as Block[]) {
         for (const par of block.paragraphs ?? []) {
@@ -191,7 +268,8 @@ async function load(): Promise<OcrEngine> {
 /**
  * The shared OCR engine: one worker for every shielded track, loaded on
  * the first ask and let go 30 s after the last `releaseOcr`. Rejects when
- * it can't load (then again, at most once a minute).
+ * it can't load — and after a failure, asking again more than a minute
+ * later tries again.
  */
 export function acquireOcr(): Promise<OcrEngine> {
   users++;
@@ -199,16 +277,8 @@ export function acquireOcr(): Promise<OcrEngine> {
     clearTimeout(idleTimer);
     idleTimer = null;
   }
-  if (state === "failed" && Date.now() - failedAt > RETRY_AFTER_MS) enginePromise = null;
-  if (!enginePromise) {
-    enginePromise = load().catch((e) => {
-      lastError = e instanceof Error ? e.message : String(e);
-      failedAt = Date.now();
-      setState("failed");
-      throw e;
-    });
-  }
-  return enginePromise;
+  if (!current && state === "failed" && Date.now() - failedAt < RETRY_AFTER_MS) return Promise.reject(new Error(lastError ?? "The text checks didn't load."));
+  return (current ?? start()).promise;
 }
 
 export function releaseOcr() {
@@ -217,12 +287,25 @@ export function releaseOcr() {
   idleTimer = setTimeout(() => {
     idleTimer = null;
     if (users > 0) return;
-    const w = worker;
-    worker = null;
-    enginePromise = null;
+    // Loaded or still loading, it goes: a load that's still coming is ended when it arrives.
+    if (current) drop(current);
     if (state !== "failed") setState("idle");
-    void w?.terminate().catch(() => {});
   }, IDLE_MS);
+}
+
+/**
+ * A read hung, or the worker's gone: end this worker and start afresh on
+ * the next ask. Only the engine that's current — an older one's already gone.
+ */
+export function restartOcr(engine: OcrEngine | null) {
+  const load = current;
+  if (!load || !engine) return;
+  void load.promise.then((e) => {
+    if (e === engine && current === load) {
+      drop(load);
+      setState("idle");
+    }
+  }, () => {});
 }
 
 /** Start loading Tesseract before the share, so the first check isn't the slow one. */
@@ -230,6 +313,19 @@ export function prewarmOcr() {
   if (typeof window === "undefined") return;
   acquireOcr().catch(() => {});
   releaseOcr();
+}
+
+/** For the tests: forget every load and start clean. */
+export function resetOcrForTests() {
+  if (current) drop(current);
+  current = null;
+  generation = 0;
+  users = 0;
+  failedAt = 0;
+  lastError = null;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+  state = "idle";
 }
 
 /* ---- QR codes ------------------------------------------------------------ */
