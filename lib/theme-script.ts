@@ -10,8 +10,15 @@ export type Theme = "light" | "dark";
 export const THEME_KEY = "xtream:theme";
 export const THEME_EVENT = "xtream:theme";
 
-/** Paths that are always dark, whatever the choice. */
-export const DARK_ROOMS = ["/stream/", "/studio", "/produce", "/camera/", "/feed"];
+/**
+ * Paths that are always dark, whatever the choice: the rooms that are about
+ * the picture, and pages with their own look that the theme doesn't touch —
+ * the landing (owner, 2026-09-27: "the light theme and dark theme don't
+ * affect the landing page") and sign-in, whose card is drawn dark.
+ */
+export const DARK_ROOMS = ["/stream/", "/studio", "/produce", "/camera/", "/feed", "/sign-in", "/sign-up"];
+/** The same, for exactly this path and nothing under it. */
+export const DARK_PAGES = ["/"];
 
 export const THEME_CHOICES: { id: ThemeChoice; label: string }[] = [
   { id: "system", label: "System" },
@@ -20,11 +27,11 @@ export const THEME_CHOICES: { id: ThemeChoice; label: string }[] = [
 ];
 
 export function isDarkRoom(pathname: string) {
-  return DARK_ROOMS.some((p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p));
+  return DARK_PAGES.includes(pathname) || DARK_ROOMS.some((p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p));
 }
 
 /**
  * Runs in <head> before first paint, so a light page never flashes dark
  * (and the other way round). Kept in step with readChoice/resolveTheme.
  */
-export const THEME_SCRIPT = `(function(){try{var c="system";try{c=localStorage.getItem(${JSON.stringify(THEME_KEY)})||"system"}catch(e){}var p=location.pathname,r=${JSON.stringify(DARK_ROOMS)}.some(function(x){return p===x.replace(/\\/$/,"")||p.indexOf(x)===0});var t=r?"dark":c==="light"||c==="dark"?c:(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var d=document.documentElement;d.dataset.theme=t;d.style.colorScheme=t;d.classList.toggle("dark",t==="dark")}catch(e){}})();`;
+export const THEME_SCRIPT = `(function(){try{var c="system";try{c=localStorage.getItem(${JSON.stringify(THEME_KEY)})||"system"}catch(e){}var p=location.pathname,r=${JSON.stringify(DARK_PAGES)}.indexOf(p)>-1||${JSON.stringify(DARK_ROOMS)}.some(function(x){return p===x.replace(/\\/$/,"")||p.indexOf(x)===0});var t=r?"dark":c==="light"||c==="dark"?c:(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var d=document.documentElement;d.dataset.theme=t;d.style.colorScheme=t;d.classList.toggle("dark",t==="dark")}catch(e){}})();`;
