@@ -174,9 +174,30 @@ interface StageUser {
 /** The shot a scene frames — what a hand on the controls changes, as opposed to its graphics. */
 const framing = (s: Scene) => `${s.layout}|${s.card ?? ""}|${s.spotlight ?? ""}`;
 
+/**
+ * A phone or tablet: its camera turns with it, so a landscape-shaped
+ * request comes back upright when it's held upright. (iPadOS says it's a
+ * Mac; its touch points give it away.)
+ */
+function cameraTurnsWithDevice() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * The camera picture to ask for. Cameras only capture landscape shapes, and
+ * a phone browser answers a tall request (720×1280) by cutting a narrow
+ * strip from the middle of the sensor — a face filling the screen, where
+ * Instagram shows the room. So a phone always asks for the landscape shape
+ * and lets the phone stand it upright: a portrait stream still comes out
+ * tall, with the camera's whole view. A desktop webcam doesn't turn, so a
+ * portrait stream there is a crop of its landscape picture, as before.
+ */
 function captureResolution(o: Orientation, saveData = false) {
   const [long, short] = saveData ? [960, 540] : [1280, 720];
-  return o === "portrait" ? { width: short, height: long, frameRate: 30 } : { width: long, height: short, frameRate: 30 };
+  const tall = o === "portrait" && !cameraTurnsWithDevice();
+  return tall ? { width: short, height: long, frameRate: 30 } : { width: long, height: short, frameRate: 30 };
 }
 
 /**
