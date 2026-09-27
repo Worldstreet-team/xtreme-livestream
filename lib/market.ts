@@ -35,6 +35,8 @@ export function marketBase(symbol: string) {
 
 /** Prices at the scale they're read at: 83,741.2 · 2,713.88 · 0.1734. */
 export function formatPrice(n: number) {
+  // Below a cent (PEPE, SHIB) four decimals read as nothing: significant figures instead.
+  if (n > 0 && n < 0.01) return n.toLocaleString("en-US", { minimumSignificantDigits: 2, maximumSignificantDigits: 4 });
   const digits = n >= 1000 ? 1 : n >= 1 ? 2 : 4;
   return n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

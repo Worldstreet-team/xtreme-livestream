@@ -313,7 +313,7 @@ export default function ChannelPage({
               </h1>
               <p className="mt-1.5 text-[14px] text-muted-foreground">@{channel.username}</p>
               <dl className="mt-3.5 flex items-start justify-center gap-7 md:justify-start md:gap-5">
-                <Count value={channel.followers} label={channel.followers === 1 ? "follower" : "followers"} />
+                <Count value={channel.followers} label={channel.followers === 1 ? "ally" : "allies"} />
                 {peak > 0 && <Count value={peak} label="peak viewers" />}
                 <Count value={broadcasts} label={broadcasts === 1 ? "broadcast" : "broadcasts"} />
               </dl>
@@ -486,7 +486,7 @@ export default function ChannelPage({
                 </dl>
               </section>
               <div className="grid grid-cols-2 gap-3 lg:col-span-5">
-                <StatTile label="Followers" value={channel.followers} />
+                <StatTile label="Allies" value={channel.followers} />
                 <StatTile label="Following" value={channel.following} />
                 <StatTile label="Peak viewers" value={peak} />
                 <StatTile label="Broadcasts" value={broadcasts} />

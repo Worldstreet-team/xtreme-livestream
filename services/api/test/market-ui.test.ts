@@ -72,7 +72,9 @@ describe("prices in words", () => {
     expect(formatPrice(184.256)).toBe("184.26");
     expect(formatPrice(1)).toBe("1.00");
     expect(formatPrice(0.1734)).toBe("0.1734");
-    expect(formatPrice(0.00012345)).toBe("0.0001");
+    // Below a cent, significant figures: four decimals would read PEPE as nothing.
+    expect(formatPrice(0.00012345)).toBe("0.0001235");
+    expect(formatPrice(0.0000112)).toBe("0.0000112");
   });
 
   it("puts a dollar sign on dollar markets and names any other quote", () => {
