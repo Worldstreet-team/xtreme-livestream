@@ -16,6 +16,7 @@ const isPublicRoute = createRouteMatcher([
   "/c/(.*)",                 // Public channel pages (following still requires auth)
   "/browse(.*)",             // Public category directory
   "/feed",                   // Public vertical live feed (muted previews)
+  "/camera/(.*)",            // A second phone as a camera: the scanned code is its key, it has no account
   "/api/webhooks/(.*)",      // Server-to-server webhooks (verified by signature)
   "/sign-in(.*)",            // Local standalone sign-in (non-satellite dev)
   "/sign-up(.*)",

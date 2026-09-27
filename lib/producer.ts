@@ -123,10 +123,12 @@ export interface ConsoleRoom {
   connected: boolean;
   hostCamera: RemoteTrack | undefined;
   hostScreen: RemoteTrack | undefined;
+  /** The host's second phone as a camera (`cam-<hostId>`), while it's sending. */
+  phoneCamera: RemoteTrack | undefined;
   guests: ConsoleGuest[];
 }
 
-const EMPTY: Omit<ConsoleRoom, "room" | "connected"> = { hostCamera: undefined, hostScreen: undefined, guests: [] };
+const EMPTY: Omit<ConsoleRoom, "room" | "connected"> = { hostCamera: undefined, hostScreen: undefined, phoneCamera: undefined, guests: [] };
 
 /**
  * The console's view of the room: the host's camera and screen, the guests'
@@ -174,10 +176,16 @@ export function useConsoleRoom({
       if (!alive) return;
       let hostCamera: RemoteTrack | undefined;
       let hostScreen: RemoteTrack | undefined;
+      let phoneCamera: RemoteTrack | undefined;
       const guests: ConsoleGuest[] = [];
       for (const p of r.remoteParticipants.values()) {
         if (crew(p.identity)) continue;
         const videos = [...p.videoTrackPublications.values()].filter((pub) => pub.track && !pub.isMuted);
+        // The host's phone cam is their second angle, never a guest.
+        if (p.identity === `cam-${hostId}`) {
+          phoneCamera = (videos.find((pub) => pub.source === Track.Source.Camera) ?? videos[0])?.track;
+          continue;
+        }
         if (p.identity === hostId || p.identity === `obs-${hostId}`) {
           const screen = videos.find((pub) => pub.source === Track.Source.ScreenShare);
           const camera = videos.find((pub) => pub.source !== Track.Source.ScreenShare);
@@ -189,7 +197,7 @@ export function useConsoleRoom({
           guests.push({ identity: p.identity, name: p.name || p.identity, track: camera?.track });
         }
       }
-      setSeen({ hostCamera, hostScreen, guests });
+      setSeen({ hostCamera, hostScreen, phoneCamera, guests });
     };
 
     r.on(RoomEvent.TrackSubscribed, sync)

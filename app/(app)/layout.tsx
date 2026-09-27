@@ -18,6 +18,8 @@ function isPublicPath(pathname: string) {
     pathname.startsWith("/browse/") ||
     pathname === "/feed" ||
     pathname.startsWith("/stream/") ||
+    // A second phone as a camera has no account: the code it scanned is its key.
+    pathname.startsWith("/camera/") ||
     // Channel pages are how a stream gets shared and how a streamer gets
     // discovered — gating them behind sign-in would make every link a
     // dead end for the visitor most worth converting.

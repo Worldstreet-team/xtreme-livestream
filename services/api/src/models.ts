@@ -335,6 +335,8 @@ export interface IStream extends Document {
     spotlight?: string | null;
     /** A sign-language interpreter on stage, kept on screen in a corner (null: none). */
     interpreter?: string | null;
+    /** Which camera the program shows while a phone camera (`cam-<hostId>`) is in: the studio's, the phone, or both. */
+    angle?: "main" | "phone" | "both";
     version: number;
   };
   viewers: number;
@@ -491,6 +493,7 @@ const streamSchema = new Schema<IStream>(
       gains: { type: Schema.Types.Mixed, default: () => ({}) },
       spotlight: { type: String, default: null },
       interpreter: { type: String, default: null },
+      angle: { type: String, enum: ["main", "phone", "both"], default: "main" },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },

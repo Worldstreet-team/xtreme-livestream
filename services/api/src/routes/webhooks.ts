@@ -11,6 +11,7 @@ import {
 } from "../stream-service.js";
 import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
 import { recordViewers } from "../analytics.js";
+import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
 
 /**
  * Refresh a live stream's current/peak viewer counts and bank the viewer-time
@@ -39,7 +40,9 @@ async function updateViewerCounts(
         p.identity !== `obs-${bid}` &&
         p.identity !== `mon-${bid}` &&
         // A producer's console (producer mode) is crew, not audience.
-        !p.identity.startsWith("prod-"),
+        !isConsoleIdentity(p.identity) &&
+        // The host's phone cam (cam-<id>) is a feed, like the encoder.
+        !isCameraIdentity(p.identity),
     ).length;
   } catch {
     viewers =
@@ -128,7 +131,9 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           identity !== bid &&
           identity !== `obs-${bid}` &&
           identity !== `mon-${bid}` &&
-          !identity.startsWith("prod-")
+          !isConsoleIdentity(identity) &&
+          // The phone cam arriving is a second feed, not an arrival.
+          !isCameraIdentity(identity)
         ) {
           // The identity is the viewer's user id. Recording it is what turns
           // "how many are watching" into "who watches what", which every

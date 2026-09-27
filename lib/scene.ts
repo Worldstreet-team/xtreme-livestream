@@ -4,10 +4,12 @@ import {
   CHART_INTERVALS,
   LOGO_CORNERS,
   LOWER_THIRD_STYLES,
+  SCENE_ANGLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
   MAX_PRICE_SYMBOLS,
   MAX_SCENE_GAINS,
+  type SceneAngle,
   type BrandAccent,
   type BrandFont,
   type BrandPreset,
@@ -31,7 +33,7 @@ import { apiUrl } from "@/lib/api-client";
  * `__evt: scene` data event.
  */
 
-export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
+export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneAngle, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
 export const DEFAULT_SCENE: Scene = {
   layout: "auto",
@@ -42,6 +44,7 @@ export const DEFAULT_SCENE: Scene = {
   gains: {},
   spotlight: null,
   interpreter: null,
+  angle: "main",
   featured: null,
   version: 0,
 };
@@ -80,6 +83,8 @@ export function readScene(raw: unknown): Scene | null {
     gains: readGains(r.gains),
     spotlight: typeof r.spotlight === "string" && /^[\w.:-]{1,64}$/.test(r.spotlight) ? r.spotlight : null,
     interpreter: typeof r.interpreter === "string" && /^[\w.:-]{1,64}$/.test(r.interpreter) ? r.interpreter : null,
+    // Which camera, while a phone cam is in: main unless the host cut away.
+    angle: SCENE_ANGLES.includes(r.angle as SceneAngle) ? (r.angle as SceneAngle) : "main",
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };

@@ -75,6 +75,8 @@ import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
 import { LiveAudience } from "@/components/app/stream-recap";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
+import { SecondCameraPanel } from "@/components/app/second-camera-panel";
+import { isCameraIdentity } from "@/lib/angles";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
@@ -403,6 +405,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // director and the panels all leave them out until they're put on.
   const backstageIds = useMemo(() => new Set(backstageGuests.map((g) => g.userId)), [backstageGuests]);
   const stageTiles = useMemo(() => guestTiles.filter((t) => !backstageIds.has(t.identity)), [guestTiles, backstageIds]);
+  // The phone cam (cam-<my id>), while it's sending: an angle for the
+  // program, never a guest. What viewers see of it is scene.angle.
+  const phoneTrackRef = useRef<AttachableVideoTrack | null>(null);
+  const [phoneConnected, setPhoneConnected] = useState(false);
   const guestIdentities = useMemo(() => stageTiles.filter((t) => t.identity !== interpreterId).map((t) => t.identity), [stageTiles, interpreterId]);
   const directorBlocked: DirectorBlock =
     guestIdentities.length === 0
@@ -1199,7 +1205,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       let n = 0;
       room.remoteParticipants.forEach((p) => {
         // Neither the RTMP encoder nor the host's own monitor tab counts.
-        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-") && !p.identity.startsWith("prod-"))
+        if (!p.identity.startsWith("obs-") && !p.identity.startsWith("mon-") && !p.identity.startsWith("prod-") && !isCameraIdentity(p.identity))
           n += 1;
       });
       return n;
@@ -1210,7 +1216,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         participant.identity.startsWith("obs-") ||
         participant.identity.startsWith("mon-") ||
         // A producer's console joins hidden, but never counts as a viewer either way.
-        participant.identity.startsWith("prod-")
+        participant.identity.startsWith("prod-") ||
+        // The phone cam is a feed, not an arrival.
+        isCameraIdentity(participant.identity)
       )
         return;
       setConnectedViewers((prev) => [
@@ -1224,6 +1232,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       setViewerCount(countViewers());
+      if (isCameraIdentity(participant.identity)) {
+        phoneTrackRef.current = null;
+        setPhoneConnected(false);
+      }
       setConnectedViewers((prev) =>
         prev.filter((v) => v.identity !== participant.identity)
       );
@@ -1241,6 +1253,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         if (track.kind === Track.Kind.Video && videoElRef.current) {
           track.attach(videoElRef.current);
           setObsFeedActive(true);
+        }
+        return;
+      }
+      // The phone cam: kept for the program, never a guest tile, never heard.
+      if (isCameraIdentity(participant.identity)) {
+        if (track.kind === Track.Kind.Video) {
+          phoneTrackRef.current = track as unknown as AttachableVideoTrack;
+          setPhoneConnected(true);
         }
         return;
       }
@@ -1278,6 +1298,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       if (!track) return;
       if (participant.identity === `obs-${user?.id}`) {
         if (track.kind === Track.Kind.Video) setObsFeedActive(false);
+        return;
+      }
+      if (isCameraIdentity(participant.identity)) {
+        track.detach().forEach((el) => el.remove());
+        if (track.kind === Track.Kind.Video) {
+          phoneTrackRef.current = null;
+          setPhoneConnected(false);
+        }
         return;
       }
       track.detach().forEach((el) => el.remove());
@@ -1555,6 +1583,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     setStageRequests([]);
     setLiveGuests([]);
     setGuestTiles([]);
+    phoneTrackRef.current = null;
+    setPhoneConnected(false);
     setTipAlerts([]);
     setStageError(null);
     setIngressInfo(null);
@@ -2300,6 +2330,20 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       : []),
     ...stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
   ];
+  // The phone cam in the program, as the scene has it: first among the
+  // others for Both, full-frame for Phone — over your own picture, which
+  // stays put underneath so a cut back is instant.
+  const angle = phoneConnected && phoneTrackRef.current ? (scene.angle ?? "main") : "main";
+  const programOthers: SceneCell[] =
+    angle === "both" && phoneTrackRef.current
+      ? [{ key: "phone-cam", node: <StageTile fill track={phoneTrackRef.current} label="Phone cam" /> }, ...stageOthers]
+      : stageOthers;
+  const phoneMain =
+    angle === "phone" && phoneTrackRef.current ? (
+      <div className="absolute inset-0">
+        <StageTile fill track={phoneTrackRef.current} label="Phone cam" />
+      </div>
+    ) : null;
   const idle = !isLive && (source !== "camera" || !previewTrack);
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
 
@@ -2898,6 +2942,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         )}
       </div>
 
+      {/* A phone as a second camera: the code to scan, and what viewers see of it. */}
+      {user && (
+        <SecondCameraPanel
+          hostId={user.id}
+          angle={scene.angle ?? "main"}
+          onAngle={(a) => void applyScene({ angle: a })}
+          phoneConnected={phoneConnected}
+          disabled={!isLive}
+        />
+      )}
+
       {otherLive.length > 0 && (
         <div>
           <h3 className={cn(SETUP_LABEL, "mb-2")}>Live now — invite to co-live</h3>
@@ -2933,7 +2988,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
   const applyScene = async (
-    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight" | "interpreter">>,
+    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight" | "interpreter" | "angle">>,
     /** The auto-director's own cuts don't pause it; anyone else's framing does. */
     by: "host" | "director" = "host",
   ): Promise<string | null> => {
@@ -2958,6 +3013,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
           interpreter: next.interpreter ?? null,
+          angle: next.angle ?? "main",
         }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
@@ -3609,24 +3665,28 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             <SceneRenderer
               scene={scene}
               portrait={orientation === "portrait"}
-              forceAuto={Boolean(opponentStreamId)}
+              forceAuto={Boolean(opponentStreamId) || angle === "both"}
               host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
               mainLabel="You"
               main={
-                <video
-                  ref={videoElRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className={cn(
-                    "size-full",
-                    localScreen || source === "screen" ? "object-contain" : "object-cover",
-                    source === "camera" && facing === "user" && !localScreen && "-scale-x-100"
-                  )}
-                />
+                <div className="relative size-full">
+                  <video
+                    ref={videoElRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className={cn(
+                      "size-full",
+                      localScreen || source === "screen" ? "object-contain" : "object-cover",
+                      source === "camera" && facing === "user" && !localScreen && "-scale-x-100",
+                      phoneMain && "invisible"
+                    )}
+                  />
+                  {phoneMain}
+                </div>
               }
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
-              guests={stageOthers}
+              guests={programOthers}
               brand={brand}
               goal={goal}
               heat={heat}

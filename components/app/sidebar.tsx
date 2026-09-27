@@ -82,11 +82,13 @@ const PHONE_CHROMELESS = [
   "/studio",
   // A producer's console is a control surface, like the studio.
   "/produce/",
+  // A phone that's a second camera is a viewfinder too.
+  "/camera/",
   // An open thread is its own screen on a phone: its header has the way
   // back, and a tab bar under the composer would sit under the keyboard.
   "/messages/",
 ];
-const NO_RAIL = ["/stream/", "/feed", "/studio", "/produce/", "/dashboard", "/settings", "/wallet", "/messages"];
+const NO_RAIL = ["/stream/", "/feed", "/studio", "/produce/", "/camera/", "/dashboard", "/settings", "/wallet", "/messages"];
 
 /** True from the `lg` breakpoint up; false for the server paint. */
 function useMinWidth(px: number) {

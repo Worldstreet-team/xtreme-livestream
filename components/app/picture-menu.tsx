@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Check, MonitorPlay, Waveform } from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
@@ -10,7 +11,18 @@ import { nairaAmount, nairaPerHour, NAIRA_PER_GB, PICTURE_MODES, type PictureMod
  * 360p) or Radio (just the sound), each with what an hour roughly costs in
  * naira — the number people on mobile data actually weigh.
  */
-export function PictureMenu({ mode, onPick, className }: { mode: PictureMode; onPick: (mode: PictureMode) => void; className?: string }) {
+export function PictureMenu({
+  mode,
+  onPick,
+  className,
+  children,
+}: {
+  mode: PictureMode;
+  onPick: (mode: PictureMode) => void;
+  className?: string;
+  /** More of the picture to choose — the angle, while a phone camera is in the room. */
+  children?: ReactNode;
+}) {
   return (
     <div role="radiogroup" aria-label="Picture" className={cn("flex flex-col gap-1", className)}>
       {PICTURE_MODES.map((m) => {
@@ -42,6 +54,7 @@ export function PictureMenu({ mode, onPick, className }: { mode: PictureMode; on
         );
       })}
       <p className="px-3 pt-1 text-[11px] text-white/45">Estimates at about ₦{NAIRA_PER_GB} a gigabyte.</p>
+      {children && <div className="mt-2 border-t border-white/[0.08] px-1.5 pt-3 pb-1">{children}</div>}
     </div>
   );
 }

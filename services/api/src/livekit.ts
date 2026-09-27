@@ -4,6 +4,7 @@ import {
   IngressInput,
   RoomServiceClient,
   WebhookReceiver,
+  type TrackSource,
 } from "livekit-server-sdk";
 import { config } from "./config.js";
 import { publishFeed } from "./control-feed.js";
@@ -172,6 +173,12 @@ export async function createToken(
     roomCreate?: boolean;
     /** Invisible to the room's other participants (a producer's console). */
     hidden?: boolean;
+    /**
+     * Only these kinds of track may be published (a phone cam: the camera,
+     * never a mic). LiveKit enforces it on the token, so a client can't
+     * publish more by asking.
+     */
+    canPublishSources?: PublishSource[];
   } = {},
 ) {
   const {
@@ -180,6 +187,7 @@ export async function createToken(
     canPublishData = true,
     roomCreate = false,
     hidden = false,
+    canPublishSources,
   } = options;
 
   const token = new AccessToken(
@@ -200,10 +208,23 @@ export async function createToken(
     canSubscribe,
     canPublishData,
     ...(hidden ? { hidden: true } : {}),
+    ...(canPublishSources ? { canPublishSources: canPublishSources.map((s) => TRACK_SOURCES[s]) } : {}),
   });
 
   return token.toJwt();
 }
+
+/** The kinds of track a token can be limited to, in LiveKit's words. */
+export type PublishSource = "camera" | "microphone" | "screen_share" | "screen_share_audio";
+// The protocol's TrackSource enum by value (CAMERA = 1 … SCREEN_SHARE_AUDIO
+// = 4), typed but not imported at runtime: tests that mock the SDK don't
+// carry the enum.
+const TRACK_SOURCES: Record<PublishSource, TrackSource> = {
+  camera: 1 as TrackSource,
+  microphone: 2 as TrackSource,
+  screen_share: 3 as TrackSource,
+  screen_share_audio: 4 as TrackSource,
+};
 
 /**
  * Flip a connected participant's publish rights at runtime — the mechanism

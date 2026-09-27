@@ -58,6 +58,8 @@ import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamH
 import type { TopFan } from "@/components/app/chat/chat-lines";
 import { readFan, type FanStanding } from "@/components/app/chat/lines";
 import { DEFAULT_SCENE, gainFor, guestsShown, layerOf, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { AnglePicker } from "@/components/app/angle-picker";
+import { isCameraIdentity, resolveAngle, setAnglePick, useAnglePick, type ResolvedAngle } from "@/lib/angles";
 import { useRestrictedRegion, useSponsoredQuest } from "@/lib/sponsors";
 import { SponsorPanel } from "@/components/app/sponsor-panel";
 import { cn } from "@/lib/utils";
@@ -84,6 +86,18 @@ import {
   type FloatingHeartsHandle,
 } from "@/components/app/floating-hearts";
 import { readStageLine } from "@/components/app/stage-line";
+
+/** How sharp a camera comes in, in LiveKit's words: the angle says which tile gets which. */
+const QUALITY = { high: VideoQuality.HIGH, medium: VideoQuality.MEDIUM, low: VideoQuality.LOW } as const;
+
+/** Who's watching: everyone in the room but the feeds and the crew's own surfaces (the encoder, a monitor, a console, the phone cam). */
+function audienceOf(room: { remoteParticipants: Map<string, { identity: string }> }) {
+  let n = 0;
+  room.remoteParticipants.forEach((p) => {
+    if (!/^(obs|mon|prod|cam)-/.test(p.identity)) n += 1;
+  });
+  return n;
+}
 
 const REPORT_REASONS: Array<{ value: string; label: string }> = [
   { value: "spam", label: "Spam or misleading" },
@@ -363,6 +377,15 @@ export default function StreamPage({
    */
   const backstageIdsRef = useRef<Set<string>>(new Set());
   const [backstageIds, setBackstageIds] = useState<Set<string>>(() => new Set());
+  // The host's phone cam (cam-<id>): on offer while it's publishing, and its
+  // track while this viewer takes it. What's shown, and how sharp each
+  // camera comes in, is the host's angle under this viewer's own pick.
+  const phoneCameraRef = useRef<AttachableVideoTrack | null>(null);
+  const [phoneAvailable, setPhoneAvailable] = useState(false);
+  const anglePick = useAnglePick(id);
+  const resolved = resolveAngle((stream?.scene ?? DEFAULT_SCENE).angle ?? "main", anglePick, phoneAvailable);
+  const resolvedRef = useRef<ResolvedAngle>(resolved);
+  resolvedRef.current = resolved;
   const streamerIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
   /** Latest publish/stop functions, reachable from LiveKit callbacks. */
@@ -560,19 +583,26 @@ export default function StreamPage({
   useEffect(() => {
     const room = roomRef.current;
     if (!room || !connected) return;
+    const hostId = streamerIdRef.current;
     room.remoteParticipants.forEach((participant) => {
       // Backstage stays unsubscribed whatever the picture setting.
       if (backstageIdsRef.current.has(participant.identity)) return;
+      const phone = isCameraIdentity(participant.identity);
+      const host = participant.identity === hostId || participant.identity === `obs-${hostId}`;
       participant.videoTrackPublications.forEach((pub) => {
-        if (pictureMode === "radio") {
+        // Radio takes no picture; the phone cam only while it's on screen.
+        if (pictureMode === "radio" || (phone && resolved.phone === "off")) {
           pub.setSubscribed(false);
           return;
         }
         pub.setSubscribed(true);
-        pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : VideoQuality.HIGH);
+        // Data saver takes the smallest of everything; otherwise the angle
+        // says how sharp each camera comes in.
+        const wanted = phone ? resolved.phone : host ? resolved.main : "high";
+        pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : QUALITY[wanted === "off" ? "low" : wanted]);
       });
     });
-  }, [pictureMode, connected]);
+  }, [pictureMode, connected, resolved.show, resolved.main, resolved.phone]);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -806,6 +836,13 @@ export default function StreamPage({
         participant: { identity: string; name?: string }
       ) => {
         if (track.kind === Track.Kind.Video) {
+          // The host's phone cam is their second angle: kept for the
+          // program, never a guest tile.
+          if (isCameraIdentity(participant.identity)) {
+            phoneCameraRef.current = track;
+            setHostTrackEpoch((n) => n + 1);
+            return;
+          }
           // The host's feed arrives as their user id (browser publish) or
           // as obs-<id> (RTMP encoder) — both are the main video, never a
           // guest tile.
@@ -857,8 +894,17 @@ export default function StreamPage({
       // Backstage publishes for the crew, not the room: drop the
       // subscription the moment the track is announced, before any of it
       // arrives. (The viewer token auto-subscribes; this is the opt-out.)
+      // The phone cam is taken only while it's on this viewer's screen.
+      const wantPhone = () => resolvedRef.current.phone !== "off" && pictureModeRef.current !== "radio";
       room.on(RoomEvent.TrackPublished, (publication, participant) => {
         if (backstageIdsRef.current.has(participant.identity)) publication.setSubscribed(false);
+        if (isCameraIdentity(participant.identity)) {
+          setPhoneAvailable(true);
+          publication.setSubscribed(wantPhone());
+        }
+      });
+      room.on(RoomEvent.TrackUnpublished, (_publication, participant) => {
+        if (isCameraIdentity(participant.identity)) setPhoneAvailable(false);
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
@@ -867,6 +913,18 @@ export default function StreamPage({
         // mid-wait): let go now, and take nothing from it.
         if (backstageIdsRef.current.has(participant.identity)) {
           publication.setSubscribed(false);
+          return;
+        }
+        // The phone cam: subscribed before this viewer's pick was known —
+        // let go, or take it at the size the pick asks for.
+        if (isCameraIdentity(participant.identity)) {
+          if (!wantPhone()) {
+            publication.setSubscribed(false);
+            return;
+          }
+          const wanted = resolvedRef.current.phone;
+          if (track.kind === Track.Kind.Video) publication.setVideoQuality(pictureModeRef.current === "saver" ? VideoQuality.LOW : QUALITY[wanted === "off" ? "low" : wanted]);
+          addTrack(track, participant);
           return;
         }
         // Radio takes no picture; Data saver takes the smallest.
@@ -890,6 +948,11 @@ export default function StreamPage({
         if (track.kind === Track.Kind.Audio) detached.forEach((el) => el.remove());
         audioElsRef.current.delete(track);
         if (track.kind === Track.Kind.Video) {
+          if (isCameraIdentity(participant.identity)) {
+            phoneCameraRef.current = null;
+            setHostTrackEpoch((n) => n + 1);
+            return;
+          }
           const hostId = streamerIdRef.current;
           if (
             participant.identity === hostId ||
@@ -912,10 +975,14 @@ export default function StreamPage({
       });
 
       room.on(RoomEvent.ParticipantConnected, () => {
-        setViewerCount(room.remoteParticipants.size);
+        setViewerCount(audienceOf(room));
       });
-      room.on(RoomEvent.ParticipantDisconnected, () => {
-        setViewerCount(room.remoteParticipants.size);
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        setViewerCount(audienceOf(room));
+        if (isCameraIdentity(participant.identity)) {
+          phoneCameraRef.current = null;
+          setPhoneAvailable(false);
+        }
       });
       // Surface MY downlink health — viewers blame the streamer for what is
       // usually their own wifi; a quiet chip says which it is.
@@ -1238,7 +1305,13 @@ export default function StreamPage({
       setConnected(true);
       setRejoining(false);
       setPlayingElsewhere(false);
-      setViewerCount(room.remoteParticipants.size);
+      setViewerCount(audienceOf(room));
+      // A phone cam already in the room is an angle on offer.
+      let phone = false;
+      room.remoteParticipants.forEach((p) => {
+        if (isCameraIdentity(p.identity) && p.videoTrackPublications.size > 0) phone = true;
+      });
+      setPhoneAvailable(phone);
 
       // Attach any already-published tracks
       room.remoteParticipants.forEach((participant) => {
@@ -2426,6 +2499,21 @@ export default function StreamPage({
     return [...(opponent ? [opponentCell(opponent)] : []), ...onStage.map(guestCell), ...(me ? [me] : [])];
   };
 
+  /** The phone cam as the first tile when the picture is both cameras. */
+  const withPhone = (cells: SceneCell[]): SceneCell[] =>
+    resolved.show === "both" && phoneCameraRef.current
+      ? [{ key: "phone-cam", node: <StageTile fill track={phoneCameraRef.current} label="Phone cam" /> }, ...cells]
+      : cells;
+  /** The phone full-frame, over the host's own video element — which stays put, so a cut back is instant. */
+  const phoneMain =
+    resolved.show === "phone" && phoneCameraRef.current ? (
+      <div className="absolute inset-0">
+        <StageTile fill track={phoneCameraRef.current} label="Phone cam" />
+      </div>
+    ) : null;
+  /** Both cameras want a split whatever the layout says. */
+  const layoutShown = (layout: Scene["layout"]) => (resolved.show === "both" ? "auto" : layout);
+
   /** Backstage, from my side: the mirror, the meter, the way out. */
   const backstagePanel = (
     <BackstagePanel
@@ -2441,8 +2529,8 @@ export default function StreamPage({
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
     const scene = stream.scene ?? DEFAULT_SCENE;
-    const others = stageCells();
-    const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
+    const others = withPhone(stageCells());
+    const sharing = guestsShown(layoutShown(scene.layout), others.length, Boolean(opponent)) > 0;
     // A battle on an upright phone, TikTok's way: the two sides side by side
     // in a band under the header, the scoreboard and "Back" right under
     // them where a thumb reaches, the chat in what's left.
@@ -2460,22 +2548,26 @@ export default function StreamPage({
           <SceneRenderer
             scene={scene}
             portrait={band ? false : portraitScreen}
-            forceAuto={Boolean(opponent)}
+            forceAuto={Boolean(opponent) || resolved.show === "both"}
             stage={band ? { top: "var(--band-top)", height: "var(--band-h)" } : undefined}
             host={{ name: hostName, avatar: streamer.avatar }}
             mainLabel={hostName}
             main={
-              <video
-                ref={videoElRef}
-                autoPlay
-                playsInline
-                className={cn(
-                  "size-full",
-                  // Portrait phones fill the frame; landscape feeds and a
-                  // shared screen letterbox rather than lose their edges.
-                  sharing || (feedPortrait && !hostFeeds.screen) ? "object-cover" : "object-contain"
-                )}
-              />
+              <div className="relative size-full">
+                <video
+                  ref={videoElRef}
+                  autoPlay
+                  playsInline
+                  className={cn(
+                    "size-full",
+                    // Portrait phones fill the frame; landscape feeds and a
+                    // shared screen letterbox rather than lose their edges.
+                    sharing || (feedPortrait && !hostFeeds.screen) ? "object-cover" : "object-contain",
+                    phoneMain && "invisible"
+                  )}
+                />
+                {phoneMain}
+              </div>
             }
             pip={
               hostFeeds.screen && hostFeeds.camera ? (
@@ -2930,7 +3022,9 @@ export default function StreamPage({
               <h3 id="picture-sheet-title" className="mb-2 px-3 font-wide text-[18px] font-bold tracking-[-0.02em] text-foreground">
                 Picture
               </h3>
-              <PictureMenu mode={pictureMode} onPick={pickPicture} />
+              <PictureMenu mode={pictureMode} onPick={pickPicture}>
+                {phoneAvailable && <AnglePicker pick={anglePick} onPick={(p) => setAnglePick(id, p)} phoneAvailable />}
+              </PictureMenu>
             </div>
           </div>
         )}
@@ -3148,23 +3242,26 @@ export default function StreamPage({
                 layout changes, so the track never re-attaches. */}
             {(() => {
               const scene = stream.scene ?? DEFAULT_SCENE;
-              const others = stageCells();
-              const sharing = guestsShown(scene.layout, others.length, Boolean(opponent)) > 0;
+              const others = withPhone(stageCells());
+              const sharing = guestsShown(layoutShown(scene.layout), others.length, Boolean(opponent)) > 0;
               return (
                 <SceneRenderer
                   scene={scene}
                   // The desktop player is always wider than it is tall.
                   portrait={false}
-                  forceAuto={Boolean(opponent)}
+                  forceAuto={Boolean(opponent) || resolved.show === "both"}
                   host={{ name: hostName, avatar: streamer.avatar }}
                   mainLabel={hostName}
                   main={
-                    <video
-                      ref={videoElRef}
-                      autoPlay
-                      playsInline
-                      className={cn("size-full", sharing ? "object-cover" : "object-contain")}
-                    />
+                    <div className="relative size-full">
+                      <video
+                        ref={videoElRef}
+                        autoPlay
+                        playsInline
+                        className={cn("size-full", sharing ? "object-cover" : "object-contain", phoneMain && "invisible")}
+                      />
+                      {phoneMain}
+                    </div>
                   }
                   pip={
                     hostFeeds.screen && hostFeeds.camera ? (
@@ -3349,7 +3446,9 @@ export default function StreamPage({
                   {showPicture && (
                     <div className="absolute right-0 bottom-full z-30 mb-2 w-[320px] animate-in rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-bottom-1">
                       <p className="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wide text-white/60 uppercase">Picture</p>
-                      <PictureMenu mode={pictureMode} onPick={pickPicture} />
+                      <PictureMenu mode={pictureMode} onPick={pickPicture}>
+                {phoneAvailable && <AnglePicker pick={anglePick} onPick={(p) => setAnglePick(id, p)} phoneAvailable />}
+              </PictureMenu>
                     </div>
                   )}
                 </div>

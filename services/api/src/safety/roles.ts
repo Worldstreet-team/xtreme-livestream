@@ -88,3 +88,11 @@ export const consoleIdentity = (userId: unknown) => `prod-${String(userId)}`;
 export const isConsoleIdentity = (identity: string) => identity.startsWith("prod-");
 /** Every console that could be open on a channel: the host's second device and each producer's. */
 export const consoleIdentities = (streamer: Streamer) => moderatorIdentities(streamer).filter(isConsoleIdentity);
+
+/**
+ * The host's second phone as a camera (`cam-<hostId>`): the same account,
+ * publishing its camera and nothing else. A feed, like the encoder — never
+ * a viewer, never a guest, and not crew either: it hears nothing.
+ */
+export const cameraIdentity = (userId: unknown) => `cam-${String(userId)}`;
+export const isCameraIdentity = (identity: string) => identity.startsWith("cam-");

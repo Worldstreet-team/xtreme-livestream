@@ -276,6 +276,12 @@ export const sceneLayerSchema = z.discriminatedUnion("kind", [
 
 /** Guest faders a scene can carry. */
 export const MAX_SCENE_GAINS = 8;
+/**
+ * Which camera the program shows when the host has a second phone in the
+ * room as a camera (`cam-<hostId>`): the studio's own (`main`), the phone
+ * full-frame (`phone`), or the two side by side (`both`).
+ */
+export const SCENE_ANGLES = ["main", "phone", "both"] as const;
 export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
@@ -308,6 +314,13 @@ export const sceneBodySchema = z.object({
    * layouts and the auto-director leave them out. Null for none.
    */
   interpreter: z.string().regex(/^[\w.:-]{1,64}$/).nullable().default(null),
+  /**
+   * The angle, when a phone camera is in the room (SCENE_ANGLES). Optional
+   * on the wire — a client that sends the whole scene without it keeps
+   * working, and the stored angle stands; the API reads it as `main` when
+   * nothing has been stored.
+   */
+  angle: z.enum(SCENE_ANGLES).optional(),
 });
 
 /**
@@ -381,6 +394,7 @@ export const featuredItemSchema = z.object({
 });
 
 export type SceneLayout = (typeof SCENE_LAYOUTS)[number];
+export type SceneAngle = (typeof SCENE_ANGLES)[number];
 export type ChartInterval = (typeof CHART_INTERVALS)[number];
 export type SceneChart = z.infer<typeof sceneChartSchema>;
 export type SceneCard = (typeof SCENE_CARDS)[number];

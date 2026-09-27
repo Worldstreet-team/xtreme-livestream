@@ -32,6 +32,7 @@ import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/compon
 import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { newerGoal, newerHeat, readGoal, readHeat } from "@/lib/goals";
+import { AngleSwitch } from "@/components/app/second-camera-panel";
 import { useConsole, useConsoleRoom, type ConsoleData, type ConsoleStream } from "@/lib/producer";
 import { applyCues, formatClock, readPosition, readSegments, type RundownPosition, type RundownSegment } from "@/lib/rundown";
 import { CARDS, DEFAULT_SCENE, guestsShown, layerOf, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, withLayer, type Scene } from "@/lib/scene";
@@ -52,7 +53,7 @@ const MAX_BACKSTAGE = 4;
 
 type Tab = "scenes" | "show" | "stage" | "chat";
 type StageUser = { userId: string; username: string; avatar: string; standing?: StageStanding | null };
-type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight" | "interpreter">>;
+type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight" | "interpreter" | "angle">>;
 
 /**
  * Producer mode (Phase 3): the console at /produce/<channel>. The host on a
@@ -331,6 +332,7 @@ function LiveConsole({
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
           interpreter: next.interpreter ?? null,
+          angle: next.angle ?? "main",
         }),
       });
       const saved = readScene(r.data.scene);
@@ -482,21 +484,26 @@ function LiveConsole({
       ...stageGuests.map(guestCell),
     ];
   })();
-  const sharing = guestsShown(scene.layout, others.length, Boolean(battleOn)) > 0;
-  const mainTrack = live.hostScreen ?? live.hostCamera;
+  // The host's phone cam in the program, as the scene has it: first among
+  // the others for Both, full-frame for Phone.
+  const angle = live.phoneCamera ? (scene.angle ?? "main") : "main";
+  const programOthers =
+    angle === "both" && live.phoneCamera ? [{ key: "phone-cam", node: <StageTile fill track={live.phoneCamera} label="Phone cam" /> }, ...others] : others;
+  const sharing = guestsShown(angle === "both" ? "auto" : scene.layout, programOthers.length, Boolean(battleOn)) > 0;
+  const mainTrack = angle === "phone" && live.phoneCamera ? live.phoneCamera : (live.hostScreen ?? live.hostCamera);
 
   const program = (
     <div className="relative aspect-video w-full overflow-hidden rounded-[16px] bg-black desk:rounded-[18px]">
       <SceneRenderer
         scene={scene}
         portrait={false}
-        forceAuto={Boolean(battleOn)}
+        forceAuto={Boolean(battleOn) || angle === "both"}
         host={{ name: hostName, avatar: host.avatar }}
-        mainLabel={hostName}
+        mainLabel={angle === "phone" ? "Phone cam" : hostName}
         main={<TrackVideo track={mainTrack} fit={sharing ? "cover" : "contain"} />}
         pip={live.hostScreen && live.hostCamera ? <StageTile fill track={live.hostCamera} label={hostName} /> : undefined}
         pipClassName="top-3 right-3"
-        guests={others}
+        guests={programOthers}
         brand={brand}
         goal={goal}
         heat={heat}
@@ -696,6 +703,11 @@ function LiveConsole({
               </div>
             ))}
           </div>
+        )}
+
+        {/* The host's phone cam is in: what the program shows of it is the console's to change too. */}
+        {live.phoneCamera && (
+          <AngleSwitch className="mt-5 border-t border-white/[0.06] pt-4" angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} enabled />
         )}
       </section>
       <p className="text-[12px] leading-relaxed text-muted-foreground/70">

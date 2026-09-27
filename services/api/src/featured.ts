@@ -64,6 +64,8 @@ export function sceneView(scene: Partial<IStream["scene"]> | undefined | null) {
     gains: scene?.gains ?? {},
     spotlight: scene?.spotlight ?? null,
     interpreter: scene?.interpreter ?? null,
+    // Streams from before the phone cam carry no angle: they show the main camera.
+    angle: scene?.angle ?? "main",
     featured: scene?.featured ?? null,
     version: scene?.version ?? 0,
   };

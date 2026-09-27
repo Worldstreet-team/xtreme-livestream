@@ -48,6 +48,9 @@ export async function putScene(streamId: Id, body: SceneBody, now = new Date()) 
           "scene.gains": body.gains,
           "scene.spotlight": body.spotlight,
           "scene.interpreter": body.interpreter,
+          // Optional on the wire: a client that doesn't know about the phone
+          // cam sends no angle, and must not knock the phone off the program.
+          "scene.angle": body.angle ?? stream.scene?.angle ?? "main",
         },
         $inc: { "scene.version": 1 },
       },
