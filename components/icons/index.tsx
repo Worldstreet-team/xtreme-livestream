@@ -612,6 +612,18 @@ function pick(set: Set, weight: IconWeight): IconData {
   return set.linear;
 }
 
+/**
+ * One \{ __html \} per icon body, made once: React 19 rewrites an element's
+ * innerHTML whenever that object is new, and a rewritten glyph drops a press
+ * that started on it — a re-render mid-press would lose the click.
+ */
+const htmlOf = new WeakMap<object, { __html: string }>();
+function htmlFor(d: { body: string }) {
+  let h = htmlOf.get(d);
+  if (!h) htmlOf.set(d, (h = { __html: d.body }));
+  return h;
+}
+
 function make(set: Set): Icon {
   const Cmp = ({ size = "1em", weight = "regular", color = "currentColor", mirrored, className, style, ...rest }: IconProps) => {
     const d = pick(set, weight);
@@ -627,7 +639,7 @@ function make(set: Set): Icon {
         style={st}
         aria-hidden={rest["aria-label"] ? undefined : true}
         {...rest}
-        dangerouslySetInnerHTML={{ __html: d.body }}
+        dangerouslySetInnerHTML={htmlFor(d)}
       />
     );
   };
