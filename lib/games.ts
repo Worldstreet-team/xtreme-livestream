@@ -4,6 +4,10 @@
  * arithmetic.
  */
 
+import { marketQuestionText, type MarketOracleView } from "@xtreme/contracts";
+
+export type { MarketOracleView };
+
 export type GameStatus = "open" | "locked" | "settled" | "cancelled";
 export type GameType = "prediction" | "raffle" | "quiz";
 
@@ -40,7 +44,18 @@ export interface GameView {
   settledAt: string | null;
   /** A vote, not a bet: picks carry no stake and nobody wins points. */
   voteOnly?: boolean;
+  /** A market question ("SOL above $150.00 at 20:30?"): settles itself from Coinbase, and is always a vote. */
+  oracle?: MarketOracleView | null;
   mine?: { outcome: string; stakePoints: number; wonPoints: number } | null;
+}
+
+/**
+ * A game's question as this screen says it: a market question in this
+ * device's own time (written from its oracle, as the API wrote the stored
+ * one on the host's clock), anything else as the host typed it.
+ */
+export function questionOf(g: Pick<GameView, "question" | "oracle">, now = Date.now()) {
+  return g.oracle ? marketQuestionText(g.oracle, { now }) : g.question;
 }
 
 /** An unsettled game gives every stake and ticket back after this long. */

@@ -1293,6 +1293,13 @@ export interface IGame extends Document {
    * nothing. For outcomes the host controls, and where staking isn't wanted.
    */
   voteOnly: boolean;
+  /**
+   * A market question (Phase 4): "SOL above $150.00 at 20:30?", settled by
+   * the game sweep from Coinbase's price at `at` (market-oracle.ts) — never
+   * by hand, and always a vote. `price` is what it settled on; `failed`
+   * says why it was called off when the feed never answered.
+   */
+  oracle?: { symbol: string; above: number; at: Date; price: number | null; failed: string | null } | null;
   settledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1309,6 +1316,19 @@ const gameSchema = new Schema<IGame>(
     correctOutcome: { type: String, default: null },
     winners: { type: [Schema.Types.ObjectId], default: [] },
     voteOnly: { type: Boolean, default: false },
+    oracle: {
+      type: new Schema(
+        {
+          symbol: { type: String, required: true, maxlength: 20 },
+          above: { type: Number, required: true },
+          at: { type: Date, required: true },
+          price: { type: Number, default: null },
+          failed: { type: String, default: null, maxlength: 200 },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     status: { type: String, enum: ["open", "locked", "settled", "cancelled"], default: "open" },
     question: { type: String, required: true, maxlength: 140 },
     outcomes: [
@@ -1351,7 +1371,8 @@ const gameEntrySchema = new Schema<IGameEntry>(
     streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     outcome: { type: String, required: true },
-    stakePoints: { type: Number, required: true, min: 1 },
+    // 0 for a vote or a quiz answer — nothing staked (a floor of 1 refused every one of those).
+    stakePoints: { type: Number, required: true, min: 0 },
     wonPoints: { type: Number, default: 0 },
   },
   { timestamps: true },

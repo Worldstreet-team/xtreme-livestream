@@ -15,6 +15,7 @@ import { analyticsRoutes } from "./analytics.js";
 import { controlRoutes } from "./control.js";
 import { appealRoutes } from "./appeals.js";
 import { guestRoutes } from "./guests.js";
+import { marketDirectorRoutes } from "./market-director.js";
 import { marketRoutes } from "./market.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
@@ -55,6 +56,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(safetyRoutes);
   await fastify.register(adminRoutes);
   await fastify.register(marketRoutes);
+  await fastify.register(marketDirectorRoutes);
   await fastify.register(notificationRoutes);
   await fastify.register(webhookRoutes);
 };

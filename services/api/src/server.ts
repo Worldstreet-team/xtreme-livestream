@@ -7,6 +7,7 @@ import { startSocialsRelaySweep } from "./socials-relay.js";
 import { startVelocitySweep } from "./velocity.js";
 import { startBattleSweep } from "./battles.js";
 import { startDropSweep, startGameSweep } from "./games.js";
+import { startMarketAlertSweep } from "./market-alerts.js";
 import { startWatchDrip } from "./points.js";
 import { startPayoutSweep } from "./rewards.js";
 import { startRequestSweep } from "./requests.js";
@@ -49,6 +50,7 @@ try {
   startRequestSweep();
   startSponsorSweep();
   startGameSweep();
+  startMarketAlertSweep();
   startDropSweep();
   startPayoutSweep();
   startWatchDrip();

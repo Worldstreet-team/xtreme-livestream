@@ -1,35 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check } from "@/components/icons";
+import { formatMarketTime, type MarketOracleBody, type MarketQuestionPreset } from "@xtreme/contracts";
+import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check, ChartLineUp } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
-import { GAME_LABEL, STALE_REFUND_HOURS, formatPoints, holdsStakes, pickShare, secondsToClose, type GameType, type GameView } from "@/lib/games";
+import { GAME_LABEL, STALE_REFUND_HOURS, formatPoints, holdsStakes, pickShare, questionOf, secondsToClose, type GameType, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/pill";
 import { PillTabs } from "@/components/ui/tabs";
 import { SwitchField } from "@/components/ui/selection-controls";
+import { MarketQuestionForm } from "@/components/app/market-question-form";
+
+/** What the host can open: the three game types, and the market question (a prediction the market settles). */
+type Template = GameType | "market";
 
 /**
  * The host's side of games, in the studio. Pick a type — prediction,
- * raffle or quiz — fill in the two or three things it needs, open it, watch
- * it build, then settle: tap the outcome that happened, draw the raffle,
- * or let the quiz reveal itself. Cancel refunds everyone.
+ * raffle, quiz, or a market question — fill in the two or three things it
+ * needs, open it, watch it build, then settle: tap the outcome that
+ * happened, draw the raffle, or let the quiz reveal itself. A market
+ * question settles itself from Coinbase. Cancel refunds everyone.
  */
 export function GamesPanel({
   streamId,
   inline = false,
+  markets = [],
+  marketPreset = null,
 }: {
   streamId: string;
   /** Inside a sheet or tab: full width, form open from the start, no toggle. */
   inline?: boolean;
+  /** Markets a market question offers first: the price strip's, chat's tickers, the chart's. */
+  markets?: string[];
+  /** A market question to fill in (a market move's "Ask chat") — opens the Market template with it; a new object each time. */
+  marketPreset?: MarketQuestionPreset | null;
 }) {
   const [game, setGame] = useState<GameView | null>(null);
-  const [open, setOpen] = useState(inline);
+  const [open, setOpen] = useState(inline || Boolean(marketPreset));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [type, setType] = useState<GameType>("prediction");
+  const [type, setType] = useState<Template>(marketPreset ? "market" : "prediction");
   const [question, setQuestion] = useState("");
   const [outcomes, setOutcomes] = useState(["Yes", "No"]);
   const [correct, setCorrect] = useState(0);
@@ -55,6 +67,16 @@ export function GamesPanel({
     };
   }, [streamId]);
 
+  // "Ask chat" on a market move: the Market template, filled in, for the host to open.
+  const [seenPreset, setSeenPreset] = useState(marketPreset);
+  if (marketPreset !== seenPreset) {
+    setSeenPreset(marketPreset);
+    if (marketPreset) {
+      setType("market");
+      setOpen(true);
+    }
+  }
+
   const post = async (path: string, body?: unknown) => {
     setBusy(true);
     setError(null);
@@ -75,11 +97,22 @@ export function GamesPanel({
     const left = secondsToClose(game, now);
     const isRaffle = game.type === "raffle";
     const isQuiz = game.type === "quiz";
+    const market = game.oracle ?? null;
     return (
       <div className="flex max-w-[460px] flex-col gap-2 rounded-sm bg-white/[0.05] px-3 py-2.5">
         <div className="flex items-center gap-2">
-          {isRaffle ? <Ticket size={14} weight="fill" className="text-amber-300" /> : isQuiz ? <Question size={14} weight="fill" className="text-amber-300" /> : <Sparkle size={14} weight="fill" className="text-amber-300" />}
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{game.question}</span>
+          {market ? (
+            <ChartLineUp size={14} weight="fill" className="shrink-0 text-amber-300" />
+          ) : isRaffle ? (
+            <Ticket size={14} weight="fill" className="text-amber-300" />
+          ) : isQuiz ? (
+            <Question size={14} weight="fill" className="text-amber-300" />
+          ) : (
+            <Sparkle size={14} weight="fill" className="text-amber-300" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={questionOf(game)}>
+            {questionOf(game)}
+          </span>
           <span className="flex items-center gap-1 text-[11.5px] text-muted-foreground tabular-nums">
             <Coins size={11} weight="fill" className="text-amber-300" />
             {isRaffle ? formatPoints(game.poolPoints + game.prizePoints) : isQuiz ? `${formatPoints(game.prizePoints)} each` : game.voteOnly ? "Vote" : formatPoints(game.poolPoints)} · {game.entries} in
@@ -88,27 +121,46 @@ export function GamesPanel({
             {game.status === "open" ? formatClock(left) : "Locked"}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {isRaffle ? (
-            <Pill size="sm" variant="soft" tone="green" icon={<Trophy size={12} weight="fill" />} onClick={() => post(`/api/games/${game.id}/settle`)} disabled={busy}>
-              Draw {game.winnersCount} winner{game.winnersCount === 1 ? "" : "s"}
-            </Pill>
-          ) : isQuiz ? (
-            <span className="text-[11.5px] text-muted-foreground">Reveals itself when the clock hits zero.</span>
-          ) : (
-            <>
-              <span className="text-[11px] text-muted-foreground">Settle:</span>
+        {market ? (
+          // Nobody settles a market question — the market does, at its minute.
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
               {game.outcomes.map((o) => (
-                <Pill key={o.id} size="sm" variant="soft" tone="green" icon={<Trophy size={12} weight="fill" />} onClick={() => post(`/api/games/${game.id}/settle`, { winningOutcome: o.id })} disabled={busy}>
-                  {o.label} <span className="ml-1 text-[10.5px] opacity-70 tabular-nums">{Math.round((game.voteOnly ? pickShare(game, o.id) : game.poolPoints ? o.points / game.poolPoints : 1 / game.outcomes.length) * 100)}%</span>
-                </Pill>
+                <span key={o.id} className="rounded-full bg-white/[0.07] px-2.5 py-1 text-[11.5px] font-semibold text-foreground/85 tabular-nums">
+                  {o.label} <span className="ml-0.5 opacity-70">{Math.round(pickShare(game, o.id) * 100)}%</span>
+                </span>
               ))}
-            </>
-          )}
-          <Pill size="sm" variant="ghost" icon={<X size={12} />} onClick={() => post(`/api/games/${game.id}/cancel`)} disabled={busy} className="ml-auto">
-            Cancel &amp; refund
-          </Pill>
-        </div>
+              <Pill size="sm" variant="ghost" icon={<X size={12} />} onClick={() => post(`/api/games/${game.id}/cancel`)} disabled={busy} className="ml-auto">
+                Call it off
+              </Pill>
+            </div>
+            <p className="text-[11px] text-muted-foreground/70">
+              Votes close {formatMarketTime(game.closesAt)} · settles itself at {formatMarketTime(market.at)} from Coinbase — nobody settles it by hand.
+            </p>
+          </>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {isRaffle ? (
+              <Pill size="sm" variant="soft" tone="green" icon={<Trophy size={12} weight="fill" />} onClick={() => post(`/api/games/${game.id}/settle`)} disabled={busy}>
+                Draw {game.winnersCount} winner{game.winnersCount === 1 ? "" : "s"}
+              </Pill>
+            ) : isQuiz ? (
+              <span className="text-[11.5px] text-muted-foreground">Reveals itself when the clock hits zero.</span>
+            ) : (
+              <>
+                <span className="text-[11px] text-muted-foreground">Settle:</span>
+                {game.outcomes.map((o) => (
+                  <Pill key={o.id} size="sm" variant="soft" tone="green" icon={<Trophy size={12} weight="fill" />} onClick={() => post(`/api/games/${game.id}/settle`, { winningOutcome: o.id })} disabled={busy}>
+                    {o.label} <span className="ml-1 text-[10.5px] opacity-70 tabular-nums">{Math.round((game.voteOnly ? pickShare(game, o.id) : game.poolPoints ? o.points / game.poolPoints : 1 / game.outcomes.length) * 100)}%</span>
+                  </Pill>
+                ))}
+              </>
+            )}
+            <Pill size="sm" variant="ghost" icon={<X size={12} />} onClick={() => post(`/api/games/${game.id}/cancel`)} disabled={busy} className="ml-auto">
+              Cancel &amp; refund
+            </Pill>
+          </div>
+        )}
         {holdsStakes(game) && (
           <p className="text-[11px] text-muted-foreground/70">
             Settle within {STALE_REFUND_HOURS} hours — after that every stake goes back on its own.
@@ -130,7 +182,7 @@ export function GamesPanel({
       )}
       {error && <p className="text-xs text-red-400">{error}</p>}
       {open && (
-        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[380px] border border-white/[0.08] bg-popover shadow-2xl")}>
+        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[380px] max-w-full border border-white/[0.08] bg-popover shadow-2xl")}>
           <PillTabs
             size="sm"
             label="Game type"
@@ -139,115 +191,127 @@ export function GamesPanel({
               { id: "prediction" as const, label: "Prediction", icon: Sparkle },
               { id: "raffle" as const, label: "Raffle", icon: Ticket },
               { id: "quiz" as const, label: "Quiz", icon: Question },
+              { id: "market" as const, label: "Market", icon: ChartLineUp },
             ]}
             value={type}
             onChange={setType}
           />
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            maxLength={140}
-            placeholder={type === "prediction" ? "Do we win this match?" : type === "raffle" ? "Signed jersey giveaway" : "Which year did we first go live?"}
-            className="h-9 w-full rounded-sm bg-white/[0.06] px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
-          />
-
-          {type !== "raffle" && (
-            <div className="mt-2 flex flex-col gap-1.5">
-              {outcomes.map((o, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  {type === "quiz" ? (
-                    <button
-                      type="button"
-                      onClick={() => setCorrect(i)}
-                      aria-pressed={correct === i}
-                      title="Mark as the right answer"
-                      className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase", correct === i ? "bg-emerald-400 text-neutral-950" : "bg-white/[0.1] text-foreground")}
-                    >
-                      {correct === i ? <Check size={11} weight="bold" /> : String.fromCharCode(97 + i)}
-                    </button>
-                  ) : (
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/[0.1] text-[10px] font-bold uppercase">{String.fromCharCode(97 + i)}</span>
-                  )}
-                  <input
-                    value={o}
-                    onChange={(e) => setOutcomes((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
-                    maxLength={40}
-                    className="h-8 min-w-0 flex-1 rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]"
-                  />
-                  {outcomes.length > 2 && (
-                    <button type="button" onClick={() => setOutcomes((arr) => arr.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-foreground" aria-label="Remove outcome">
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              {outcomes.length < 4 && (
-                <button type="button" onClick={() => setOutcomes((arr) => [...arr, ""])} className="flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground">
-                  <Plus size={12} weight="bold" /> Add {type === "quiz" ? "answer" : "outcome"}
-                </button>
-              )}
-              {type === "quiz" && <p className="text-[11px] text-muted-foreground/60">Tap the circle to mark the right answer. Viewers never see it until the reveal.</p>}
-            </div>
-          )}
-
-          {type === "raffle" && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-muted-foreground">
-                Ticket (pts, 0 = free)
-                <input type="number" min={0} max={1000} value={ticket} onChange={(e) => setTicket(Math.max(0, Number(e.target.value) || 0))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
-              </label>
-              <label className="text-[11px] text-muted-foreground">
-                Winners drawn
-                <input type="number" min={1} max={10} value={winnersCount} onChange={(e) => setWinnersCount(Math.min(10, Math.max(1, Number(e.target.value) || 1)))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
-              </label>
-            </div>
-          )}
-          {type === "prediction" && (
-            <div className="mt-2">
-              <SwitchField
-                label="Vote only — no points at stake"
-                description="Use it when the outcome is up to you. Viewers pick; nobody stakes or wins points."
-                checked={voteOnly}
-                onCheckedChange={setVoteOnly}
+          {type === "market" ? (
+            <MarketQuestionForm
+              markets={markets}
+              preset={marketPreset}
+              busy={busy}
+              onOpen={(oracle: MarketOracleBody) => post(`/api/streams/${streamId}/games`, { type: "prediction", oracle })}
+            />
+          ) : (
+            <>
+              <input
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                maxLength={140}
+                placeholder={type === "prediction" ? "Do we win this match?" : type === "raffle" ? "Signed jersey giveaway" : "Which year did we first go live?"}
+                className="h-9 w-full rounded-sm bg-white/[0.06] px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
               />
-            </div>
-          )}
-          {type !== "prediction" && (
-            <label className="mt-2 block text-[11px] text-muted-foreground">
-              {type === "raffle" ? "Prize added to the pot (pts)" : "Points per correct answer"}
-              <input type="number" min={0} max={10000} value={prize} onChange={(e) => setPrize(Math.max(0, Number(e.target.value) || 0))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
-            </label>
-          )}
 
-          <div className="mt-3 flex items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">Open for</span>
-            {[60, 120, 300].map((s) => (
-              <button key={s} type="button" onClick={() => setDuration(s)} aria-pressed={duration === s} className={cn("h-7 rounded-full px-2.5 text-[11.5px] font-semibold", duration === s ? "bg-white text-neutral-950" : "bg-control text-foreground/90")}>
-                {s / 60} min
-              </button>
-            ))}
-            <Pill
-              size="sm"
-              variant="primary"
-              className="ml-auto"
-              disabled={busy || !canOpen}
-              onClick={() =>
-                post(`/api/streams/${streamId}/games`, {
-                  type,
-                  question: question.trim(),
-                  outcomes: type === "raffle" ? [] : outcomes.map((o) => o.trim()),
-                  durationSec: duration,
-                  ticketPoints: ticket,
-                  winnersCount,
-                  prizePoints: type === "prediction" ? 0 : prize,
-                  correctIndex: type === "quiz" ? correct : null,
-                  voteOnly: type === "prediction" && voteOnly,
-                })
-              }
-            >
-              Open {type === "prediction" && voteOnly ? "vote" : GAME_LABEL[type].toLowerCase()}
-            </Pill>
-          </div>
+              {type !== "raffle" && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {outcomes.map((o, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      {type === "quiz" ? (
+                        <button
+                          type="button"
+                          onClick={() => setCorrect(i)}
+                          aria-pressed={correct === i}
+                          title="Mark as the right answer"
+                          className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase", correct === i ? "bg-emerald-400 text-neutral-950" : "bg-white/[0.1] text-foreground")}
+                        >
+                          {correct === i ? <Check size={11} weight="bold" /> : String.fromCharCode(97 + i)}
+                        </button>
+                      ) : (
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/[0.1] text-[10px] font-bold uppercase">{String.fromCharCode(97 + i)}</span>
+                      )}
+                      <input
+                        value={o}
+                        onChange={(e) => setOutcomes((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
+                        maxLength={40}
+                        className="h-8 min-w-0 flex-1 rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]"
+                      />
+                      {outcomes.length > 2 && (
+                        <button type="button" onClick={() => setOutcomes((arr) => arr.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-foreground" aria-label="Remove outcome">
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {outcomes.length < 4 && (
+                    <button type="button" onClick={() => setOutcomes((arr) => [...arr, ""])} className="flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground">
+                      <Plus size={12} weight="bold" /> Add {type === "quiz" ? "answer" : "outcome"}
+                    </button>
+                  )}
+                  {type === "quiz" && <p className="text-[11px] text-muted-foreground/60">Tap the circle to mark the right answer. Viewers never see it until the reveal.</p>}
+                </div>
+              )}
+
+              {type === "raffle" && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="text-[11px] text-muted-foreground">
+                    Ticket (pts, 0 = free)
+                    <input type="number" min={0} max={1000} value={ticket} onChange={(e) => setTicket(Math.max(0, Number(e.target.value) || 0))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
+                  </label>
+                  <label className="text-[11px] text-muted-foreground">
+                    Winners drawn
+                    <input type="number" min={1} max={10} value={winnersCount} onChange={(e) => setWinnersCount(Math.min(10, Math.max(1, Number(e.target.value) || 1)))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
+                  </label>
+                </div>
+              )}
+              {type === "prediction" && (
+                <div className="mt-2">
+                  <SwitchField
+                    label="Vote only — no points at stake"
+                    description="Use it when the outcome is up to you. Viewers pick; nobody stakes or wins points."
+                    checked={voteOnly}
+                    onCheckedChange={setVoteOnly}
+                  />
+                </div>
+              )}
+              {type !== "prediction" && (
+                <label className="mt-2 block text-[11px] text-muted-foreground">
+                  {type === "raffle" ? "Prize added to the pot (pts)" : "Points per correct answer"}
+                  <input type="number" min={0} max={10000} value={prize} onChange={(e) => setPrize(Math.max(0, Number(e.target.value) || 0))} className="mt-1 h-8 w-full rounded-sm bg-white/[0.06] px-2.5 text-sm text-foreground outline-none focus:bg-white/[0.09]" />
+                </label>
+              )}
+
+              <div className="mt-3 flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Open for</span>
+                {[60, 120, 300].map((s) => (
+                  <button key={s} type="button" onClick={() => setDuration(s)} aria-pressed={duration === s} className={cn("h-7 rounded-full px-2.5 text-[11.5px] font-semibold", duration === s ? "bg-white text-neutral-950" : "bg-control text-foreground/90")}>
+                    {s / 60} min
+                  </button>
+                ))}
+                <Pill
+                  size="sm"
+                  variant="primary"
+                  className="ml-auto"
+                  disabled={busy || !canOpen}
+                  onClick={() =>
+                    post(`/api/streams/${streamId}/games`, {
+                      type,
+                      question: question.trim(),
+                      outcomes: type === "raffle" ? [] : outcomes.map((o) => o.trim()),
+                      durationSec: duration,
+                      ticketPoints: ticket,
+                      winnersCount,
+                      prizePoints: type === "prediction" ? 0 : prize,
+                      correctIndex: type === "quiz" ? correct : null,
+                      voteOnly: type === "prediction" && voteOnly,
+                    })
+                  }
+                >
+                  Open {type === "prediction" && voteOnly ? "vote" : GAME_LABEL[type].toLowerCase()}
+                </Pill>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

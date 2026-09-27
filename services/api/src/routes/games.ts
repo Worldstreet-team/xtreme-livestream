@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { streamIdParamsSchema } from "@xtreme/contracts";
+import { marketOracleBodySchema, streamIdParamsSchema } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { Game, GameEntry, PointsLedger, Stream, User } from "../models.js";
@@ -13,10 +13,12 @@ import {
   createGame,
   currentGameForStream,
   enterGame,
+  isVote,
   liveGames,
   settleGame,
   toGameView,
 } from "../games.js";
+import { prepareMarketQuestion } from "../market-oracle.js";
 import { InsufficientPointsError, ensureWelcomeGrant } from "../points.js";
 import { readyCount } from "../quests.js";
 import { thumbnailUrlFor } from "../stream-service.js";
@@ -42,7 +44,8 @@ function toPayoutView(p: IPayout, titles: Map<string, string> = new Map()) {
 const createGameBodySchema = z
   .object({
     type: z.enum(["prediction", "raffle", "quiz"]).default("prediction"),
-    question: z.string().trim().min(3).max(140),
+    /** Written by the API for a market question — whatever's sent then is ignored. */
+    question: z.string().trim().min(3).max(140).optional(),
     outcomes: z.array(z.string().trim().min(1).max(40)).max(4).default([]),
     /** How long entries stay open. */
     durationSec: z.number().int().min(30).max(600).default(120),
@@ -56,8 +59,15 @@ const createGameBodySchema = z
     correctIndex: z.number().int().min(0).max(3).nullable().default(null),
     /** Prediction: a vote — no stakes, no payouts. */
     voteOnly: z.boolean().default(false),
+    /**
+     * A market question (Phase 4): "SOL above $150.00 at 20:30?" — Yes/No,
+     * worded, timed and settled by the API from Coinbase; always a vote.
+     */
+    oracle: marketOracleBodySchema.optional(),
   })
-  .refine((b) => b.type === "raffle" || b.outcomes.length >= 2, { message: "At least two outcomes", path: ["outcomes"] })
+  .refine((b) => !b.oracle || b.type === "prediction", { message: "A market question is a prediction", path: ["type"] })
+  .refine((b) => Boolean(b.oracle) || Boolean(b.question), { message: "Ask a question", path: ["question"] })
+  .refine((b) => b.type === "raffle" || Boolean(b.oracle) || b.outcomes.length >= 2, { message: "At least two outcomes", path: ["outcomes"] })
   .refine((b) => b.type !== "quiz" || (b.correctIndex !== null && b.correctIndex < b.outcomes.length), { message: "Mark the right answer", path: ["correctIndex"] });
 const enterBodySchema = z.object({
   outcome: z.string().min(1).max(8).default("ticket"),
@@ -84,7 +94,15 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       if (await Game.exists({ streamId: stream._id, status: { $in: ["open", "locked"] } })) {
         throw new ApiError(409, "Settle the running game before starting another", "GAME_RUNNING");
       }
-      const game = await createGame(stream, dbUser._id, request.body);
+      const { oracle, question, ...body } = request.body;
+      // A market question: its words, its Yes/No and its clock are the API's.
+      const market = oracle ? await prepareMarketQuestion(oracle) : null;
+      const game = await createGame(stream, dbUser._id, {
+        ...body,
+        question: market ? market.question : question!,
+        outcomes: market ? ["Yes", "No"] : body.outcomes,
+        market: market ? { oracle: market.oracle, closesAt: market.closesAt } : null,
+      });
       return { success: true, data: { game: await toGameView(game) } };
     },
   );
@@ -150,7 +168,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const game = await Game.findById(request.params.id);
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (game.hostId.equals(dbUser._id)) throw new ApiError(400, "The host can't play their own game", "HOST_ENTRY");
-      if (game.type === "prediction" && !game.voteOnly && (request.body.stakePoints < MIN_STAKE || request.body.stakePoints > MAX_STAKE)) {
+      if (game.type === "prediction" && !isVote(game) && (request.body.stakePoints < MIN_STAKE || request.body.stakePoints > MAX_STAKE)) {
         throw new ApiError(400, `Stake between ${MIN_STAKE} and ${MAX_STAKE} points`, "BAD_STAKE");
       }
       try {
@@ -183,6 +201,9 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const game = await Game.findById(request.params.id);
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (!game.hostId.equals(dbUser._id)) throw new ApiError(403, "Only the host settles", "NOT_HOST");
+      if (game.oracle) {
+        throw new ApiError(409, "A market question settles itself from Coinbase's price — nobody settles it by hand", "SETTLES_ITSELF");
+      }
       try {
         await settleGame(game, request.body.winningOutcome ?? null, dbUser._id);
         await audit(dbUser._id, "game.settle", "game", game._id as mongoose.Types.ObjectId, { type: game.type, winningOutcome: game.winningOutcome, poolPoints: game.poolPoints, entries: game.entries });
@@ -191,6 +212,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
         if (code === "NOT_SETTLEABLE") throw new ApiError(409, "This game is already settled", "GAME_SETTLED");
         if (code === "SETTLER_ENTERED") throw new ApiError(409, "You have points in this game — someone without a stake has to settle it", "SETTLER_ENTERED");
         if (code === "BAD_OUTCOME") throw new ApiError(400, "Pick the outcome that happened", "BAD_OUTCOME");
+        if (code === "SETTLES_ITSELF") throw new ApiError(409, "A market question settles itself from Coinbase's price — nobody settles it by hand", "SETTLES_ITSELF");
         throw error;
       }
       return { success: true, data: { game: await toGameView(game) } };

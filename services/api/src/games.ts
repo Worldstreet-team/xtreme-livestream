@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
+import type { MarketOracleView } from "@xtreme/contracts";
 import { ChatMessage, Game, GameEntry, Stream, User, WatchSession, type GameType, type IGame, type IStream } from "./models.js";
 import { sendRoomData } from "./livekit.js";
+import { ORACLE_GIVE_UP_MS, ORACLE_READY_MS, ORACLE_RETRY_MS, priceAt } from "./market-oracle.js";
 import { awardPoints } from "./points.js";
 import { audit } from "./rewards.js";
 
@@ -51,8 +53,21 @@ export interface GameView {
   settledAt: string | null;
   /** A vote, not a bet: no stakes, no payouts. */
   voteOnly: boolean;
+  /** A market question: what settles it, and — once it has — the price it settled on. */
+  oracle: MarketOracleView | null;
   /** The caller's own entry, when they have one. */
   mine?: { outcome: string; stakePoints: number; wonPoints: number } | null;
+}
+
+/**
+ * Market questions are votes, always: nothing is staked on one and nothing
+ * is paid out, until the legal footing for points on a market outcome is
+ * settled — a prize on where a price lands is too close to a bet to switch
+ * on by default. Enforced here, on entry and at creation, whatever the
+ * stored flag says.
+ */
+export function isVote(g: Pick<IGame, "type" | "voteOnly" | "oracle">) {
+  return g.type === "prediction" && (Boolean(g.voteOnly) || Boolean(g.oracle));
 }
 
 export async function toGameView(g: IGame, mine?: { outcome: string; stakePoints: number; wonPoints: number } | null): Promise<GameView> {
@@ -77,17 +92,35 @@ export async function toGameView(g: IGame, mine?: { outcome: string; stakePoints
     correctOutcome: g.status === "settled" ? g.correctOutcome : null,
     winners: winners.map((u) => ({ userId: String(u._id), username: u.username, displayName: u.displayName || u.username, avatar: u.avatar })),
     settledAt: g.settledAt ? g.settledAt.toISOString() : null,
-    voteOnly: Boolean(g.voteOnly),
+    voteOnly: isVote(g),
+    oracle: g.oracle
+      ? {
+          symbol: g.oracle.symbol,
+          above: g.oracle.above,
+          at: new Date(g.oracle.at).toISOString(),
+          source: "Coinbase",
+          price: g.oracle.price ?? null,
+          failed: g.oracle.failed ?? null,
+        }
+      : null,
     ...(mine !== undefined ? { mine } : {}),
   };
 }
 
-/** The game a stream is running now (open or locked), or the one it settled in the last two minutes. */
+/**
+ * The game a stream is running now (open or locked), or the one it settled
+ * in the last two minutes — or a market question the feed let down, called
+ * off in the last two, so the room reads why.
+ */
 export async function currentGameForStream(streamId: mongoose.Types.ObjectId | string) {
   const id = new mongoose.Types.ObjectId(String(streamId));
   return (
     (await Game.findOne({ streamId: id, status: { $in: ["open", "locked"] } }).sort({ createdAt: -1 })) ??
-    (await Game.findOne({ streamId: id, status: "settled", settledAt: { $gte: new Date(Date.now() - 120_000) } }).sort({ settledAt: -1 }))
+    (await Game.findOne({
+      streamId: id,
+      $or: [{ status: "settled" }, { status: "cancelled", "oracle.failed": { $type: "string" } }],
+      settledAt: { $gte: new Date(Date.now() - 120_000) },
+    }).sort({ settledAt: -1 }))
   );
 }
 
@@ -113,6 +146,11 @@ export interface CreateGameInput {
   correctIndex: number | null;
   /** Prediction: run it as a vote — no stakes, no payouts. */
   voteOnly?: boolean;
+  /**
+   * A market question (market-oracle.ts `prepareMarketQuestion`): its
+   * oracle, and when its votes close — which replaces `durationSec`.
+   */
+  market?: { oracle: { symbol: string; above: number; at: Date }; closesAt: Date } | null;
 }
 
 export async function createGame(stream: IStream, hostId: mongoose.Types.ObjectId, input: CreateGameInput) {
@@ -130,13 +168,15 @@ export async function createGame(stream: IStream, hostId: mongoose.Types.ObjectI
     status: "open",
     question: input.question,
     outcomes,
-    closesAt: new Date(Date.now() + input.durationSec * 1000),
+    closesAt: input.market?.closesAt ?? new Date(Date.now() + input.durationSec * 1000),
     ticketPoints: input.type === "raffle" ? input.ticketPoints : 0,
     winnersCount: input.type === "raffle" ? Math.max(1, input.winnersCount) : 1,
-    prizePoints: input.prizePoints,
+    prizePoints: input.market ? 0 : input.prizePoints,
     correctOutcome:
       input.type === "quiz" && input.correctIndex !== null && input.correctIndex < input.outcomes.length ? idAt(input.correctIndex) : null,
-    voteOnly: input.type === "prediction" && Boolean(input.voteOnly),
+    // A market question is a vote whatever the body asked for (see isVote).
+    voteOnly: input.type === "prediction" && (Boolean(input.voteOnly) || Boolean(input.market)),
+    oracle: input.type === "prediction" && input.market ? { ...input.market.oracle, price: null, failed: null } : null,
   });
   await fanOutGame(game, stream);
   return game;
@@ -149,8 +189,8 @@ export async function enterGame(game: IGame, userId: mongoose.Types.ObjectId, ou
   if (!game.outcomes.some((o) => o.id === pick)) throw new Error("BAD_OUTCOME");
   if (await GameEntry.exists({ gameId: game._id, userId })) throw new Error("ALREADY_IN");
 
-  // A vote-only prediction takes the pick and nothing else.
-  const cost = game.type === "prediction" ? (game.voteOnly ? 0 : stake) : game.type === "raffle" ? game.ticketPoints : 0;
+  // A vote-only prediction — every market question among them — takes the pick and nothing else.
+  const cost = game.type === "prediction" ? (isVote(game) ? 0 : stake) : game.type === "raffle" ? game.ticketPoints : 0;
   const reason = game.type === "raffle" ? "raffle_ticket" : "game_stake";
   if (cost > 0) await awardPoints(userId, -cost, reason, game._id as mongoose.Types.ObjectId); // throws InsufficientPointsError
   try {
@@ -177,9 +217,13 @@ export async function enterGame(game: IGame, userId: mongoose.Types.ObjectId, ou
  * `settlerId` is whoever is declaring the outcome. Someone with points in a
  * game never settles it — the host can't enter their own games, and the same
  * rule holds for anyone else ever given the button.
+ *
+ * A market question is settled by the market alone (`via: "market"`, the
+ * game sweep): not the host, not a moderator, not any caller added later.
  */
-export async function settleGame(game: IGame, winningOutcome: string | null, settlerId?: mongoose.Types.ObjectId) {
+export async function settleGame(game: IGame, winningOutcome: string | null, settlerId?: mongoose.Types.ObjectId, via?: "market") {
   if (!["open", "locked"].includes(game.status)) throw new Error("NOT_SETTLEABLE");
+  if (game.oracle && via !== "market") throw new Error("SETTLES_ITSELF");
   if (settlerId && (await GameEntry.exists({ gameId: game._id, userId: settlerId }))) throw new Error("SETTLER_ENTERED");
   const ref = game._id as mongoose.Types.ObjectId;
 
@@ -284,9 +328,62 @@ export async function refundStaleGames(now = Date.now()) {
   return refunded;
 }
 
+const oracleTries = new Map<string, number>();
+
+/** "SOL-USD" → "SOL". */
+const baseOf = (symbol: string) => symbol.split("-")[0] ?? symbol;
+
+/**
+ * Market questions whose minute is over: settled from Coinbase's price at
+ * that minute (Yes when it closed above the line), retried every quarter of
+ * a minute while the candle isn't out, and called off — with the reason on
+ * the game — when the feed still hasn't answered half an hour on. Returns
+ * how many it settled or called off.
+ */
+export async function settleMarketQuestions(now = Date.now()) {
+  const due = await Game.find({
+    status: { $in: ["open", "locked"] },
+    "oracle.at": { $lte: new Date(now - ORACLE_READY_MS) },
+  });
+  let done = 0;
+  for (const g of due) {
+    const o = g.oracle;
+    if (!o) continue;
+    const key = String(g._id);
+    if (now - (oracleTries.get(key) ?? -Infinity) < ORACLE_RETRY_MS) continue;
+    oracleTries.set(key, now);
+    if (oracleTries.size > 1000) oracleTries.delete(oracleTries.keys().next().value!);
+    try {
+      const price = await priceAt(o.symbol, o.at, now);
+      if (price !== null) {
+        o.price = price;
+        await settleGame(g, price > o.above ? "a" : "b", undefined, "market");
+        await audit(null, "game.market_settle", "game", g._id as mongoose.Types.ObjectId, { symbol: o.symbol, above: o.above, at: o.at, price, entries: g.entries });
+        oracleTries.delete(key);
+        done += 1;
+      } else if (now - new Date(o.at).getTime() >= ORACLE_GIVE_UP_MS) {
+        o.failed = `Coinbase never gave ${baseOf(o.symbol)}'s price for that minute`;
+        await cancelGame(g);
+        await audit(null, "game.market_called_off", "game", g._id as mongoose.Types.ObjectId, { symbol: o.symbol, above: o.above, at: o.at, entries: g.entries });
+        oracleTries.delete(key);
+        done += 1;
+      }
+    } catch (error) {
+      console.error("market question settle failed:", error);
+    }
+  }
+  return done;
+}
+
+/** For tests: forget when each market question was last tried. */
+export function clearMarketQuestionTries() {
+  oracleTries.clear();
+}
+
 /**
  * Once a second: close windows that ran out; quizzes settle themselves the
- * moment they close. Once a minute: refund games nobody settled in a day.
+ * moment they close. Every ten seconds: settle the market questions whose
+ * minute is over. Once a minute: refund games nobody settled in a day.
  */
 export function startGameSweep() {
   const tick = async () => {
@@ -302,6 +399,7 @@ export function startGameSweep() {
     }
   };
   setInterval(() => void tick().catch((e) => console.error("game sweep failed:", e)), 1000);
+  setInterval(() => void settleMarketQuestions().catch((e) => console.error("market question sweep failed:", e)), 10_000);
   setInterval(() => void refundStaleGames().catch((e) => console.error("stale game sweep failed:", e)), 60_000);
 }
 

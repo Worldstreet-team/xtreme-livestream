@@ -40,6 +40,8 @@ import { serverNow, serverOffset } from "@/lib/server-clock";
 import { MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
 import { readTickers, type Trending } from "@/lib/market";
 import { TickerChips } from "@/components/app/ticker-chips";
+import { MarketSuggestions } from "@/components/app/market-suggestions";
+import { useMarketSuggestions } from "@/lib/market-suggestions";
 import { cueSponsorsOf } from "@/lib/sponsors";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -183,6 +185,8 @@ function LiveConsole({
   );
   /** What chat's talking about ($cashtags), for a chart in one tap (market layer). */
   const [tickers, setTickers] = useState<Trending[]>([]);
+  // The market as director: the same suggestions the host's studio gets.
+  const marketSuggestions = useMarketSuggestions(stream.id);
   const [stageLine, setStageLine] = useState(() => readStageLine(host.stageLine));
   const [stageBusy, setStageBusy] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
@@ -261,6 +265,9 @@ function LiveConsole({
       }
       case "tickers":
         setTickers(readTickers(evt.tickers));
+        return;
+      case "suggestion":
+        marketSuggestions.push(evt.suggestion);
         return;
     }
   };
@@ -543,6 +550,14 @@ function LiveConsole({
             layers: withLayer(scene.layers, "prices", { kind: "prices", symbols: [...priceStrip.filter((x) => x !== symbol), symbol].slice(-MAX_PRICE_SYMBOLS) }),
           })
         }
+      />
+      {/* No "Ask chat" here: opening a question is the host's. */}
+      <MarketSuggestions
+        suggestions={marketSuggestions.suggestions}
+        charted={scene.layout === "chart-face" ? (scene.chart?.symbol ?? null) : null}
+        onChart={(symbol, interval) => void applyScene({ layout: "chart-face", chart: { symbol, interval } })}
+        onBanner={(text) => void applyScene({ layers: withLayer(scene.layers, "banner", { kind: "banner", text }) })}
+        onDismiss={marketSuggestions.dismiss}
       />
       <LayoutAndCards
         crew

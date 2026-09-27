@@ -114,6 +114,8 @@ import {
 import { MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
 import { readTickers, type Trending } from "@/lib/market";
 import { TickerChips } from "@/components/app/ticker-chips";
+import { MarketSuggestions } from "@/components/app/market-suggestions";
+import { useMarketSuggestions, type MarketQuestionPreset } from "@/lib/market-suggestions";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
@@ -376,6 +378,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   backstageRef.current = backstageGuests;
   /** What chat's talking about ($cashtags), for a chart in one tap (market layer). */
   const [tickers, setTickers] = useState<Trending[]>([]);
+  // The market as director: moments the markets the show cares about just
+  // had, for one-tap actions; and a market question one of them filled in.
+  const marketSuggestions = useMarketSuggestions(isLive ? streamId : null);
+  const pushSuggestion = marketSuggestions.push;
+  const [marketPreset, setMarketPreset] = useState<MarketQuestionPreset | null>(null);
   /** userId currently being approved/denied/removed, for per-row spinners. */
   const [stageBusyId, setStageBusyId] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
@@ -997,6 +1004,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           setTickers(readTickers((data as { tickers?: unknown }).tickers));
           return;
         }
+        // A market the show cares about just moved: a suggestion for the Scenes panel.
+        if (data.__evt === "suggestion") {
+          pushSuggestion((data as { suggestion?: unknown }).suggestion);
+          return;
+        }
         if (!data.__evt && data.type === "tip" && data.username) {
           const amountStr = data.tipAmount ?? "0";
           const label = amountStr.endsWith(".00")
@@ -1029,7 +1041,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         // Not an event payload
       }
     },
-    [playTipChime]
+    [playTipChime, pushSuggestion]
   );
   const handleStudioDataRef = useRef(handleStudioData);
   handleStudioDataRef.current = handleStudioData;
@@ -3516,6 +3528,19 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         }
       />
 
+      <MarketSuggestions
+        suggestions={marketSuggestions.suggestions}
+        charted={scene.layout === "chart-face" ? (scene.chart?.symbol ?? null) : null}
+        onChart={(symbol, interval) => void applyScene({ layout: "chart-face", chart: { symbol, interval } })}
+        onBanner={(text) => void applyScene({ layers: withLayer(scene.layers, "banner", { kind: "banner", text }) })}
+        onPredict={(preset) => {
+          // A fresh object each time, so the same preset twice still opens the form.
+          setMarketPreset({ ...preset });
+          setPanel("games");
+        }}
+        onDismiss={marketSuggestions.dismiss}
+      />
+
       <LayoutAndCards
         scene={scene}
         battle={Boolean(battle)}
@@ -3713,7 +3738,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         )}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pb-4", panel !== "games" && "hidden")}>
-        {streamId && <GamesPanel inline streamId={streamId} />}
+        {streamId && (
+          <GamesPanel
+            inline
+            streamId={streamId}
+            // What a market question offers first: the price strip, chat's tickers, the chart.
+            markets={[...new Set([...priceStrip, ...tickers.map((t) => t.symbol), ...(scene.chart ? [scene.chart.symbol] : [])])]}
+            marketPreset={marketPreset}
+          />
+        )}
       </div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", panel !== "more" && "hidden")}>{morePanel}</div>
       <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-5", panel !== "show" && "hidden")}>{runOfShow}</div>

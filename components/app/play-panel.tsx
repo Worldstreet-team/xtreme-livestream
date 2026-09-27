@@ -2,10 +2,11 @@
 
 import { SIGN_IN_URL } from "@/lib/auth-urls";
 import { useEffect, useState } from "react";
-import { Coins, Lock, Trophy, Check, X, Sparkle, Ticket, Question } from "@/components/icons";
+import { formatMarketTime, marketResultText } from "@xtreme/contracts";
+import { Coins, Lock, Trophy, Check, X, Sparkle, Ticket, Question, ChartLineUp } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { GAME_LABEL, STAKES, STALE_REFUND_HOURS, announcePoints, formatPoints, holdsStakes, outcomeShare, payoutMultiplier, pickShare, secondsToClose, type GameView } from "@/lib/games";
+import { GAME_LABEL, STAKES, STALE_REFUND_HOURS, announcePoints, formatPoints, holdsStakes, outcomeShare, payoutMultiplier, pickShare, questionOf, secondsToClose, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,9 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
   const [stake, setStake] = useState(50);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const Icon = ICON[game.type];
+  // A market question: settled by Coinbase's price at its minute, always a vote.
+  const market = game.oracle ?? null;
+  const Icon = market ? ChartLineUp : ICON[game.type];
 
   useEffect(() => {
     if (game.mine) setPick(game.mine.outcome);
@@ -79,25 +82,31 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
   return (
     <section className="shrink-0 border-b border-white/[0.06] bg-card px-3.5 py-3" aria-label={GAME_LABEL[game.type]}>
       <div className="mb-2 flex items-center gap-2">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-amber-300 uppercase">
+        {/* Gold is for points; a vote has none, so it wears no gold. */}
+        <span
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase",
+            isVote ? "text-foreground/75" : "text-amber-300"
+          )}
+        >
           <Icon size={12} weight="fill" />
-          {isVote ? "Vote" : GAME_LABEL[game.type]}
+          {market ? "Market vote" : isVote ? "Vote" : GAME_LABEL[game.type]}
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-muted-foreground tabular-nums">
-          <Coins size={12} weight="fill" className="text-amber-300" />
+          {!isVote && <Coins size={12} weight="fill" className="text-amber-300" />}
           {potLabel}
         </span>
         <span
           className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
+            "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold whitespace-nowrap tabular-nums",
             settled ? "bg-white/[0.1] text-foreground" : open ? "bg-white text-neutral-950" : "bg-white/[0.1] text-muted-foreground"
           )}
         >
-          {settled ? "Result" : open ? formatClock(left) : game.status === "cancelled" ? "Cancelled" : "Locked"}
+          {settled ? "Result" : open ? formatClock(left) : game.status === "cancelled" ? (isVote ? "Called off" : "Cancelled") : "Locked"}
         </span>
       </div>
 
-      <p className="text-[14px] font-semibold leading-snug text-foreground">{game.question}</p>
+      <p className="text-[14px] font-semibold leading-snug text-foreground">{questionOf(game)}</p>
 
       {!isRaffle && (
         <div className="mt-2.5 flex flex-col gap-1.5">
@@ -150,6 +159,20 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
         </div>
       )}
 
+      {/* Where a market question's answer comes from — and, once it's in, the price it settled on. */}
+      {market && (
+        <p className="mt-2.5 text-[12px] text-muted-foreground tabular-nums">
+          {settled && market.price !== null ? (
+            <span className="font-medium text-foreground/85">{marketResultText({ symbol: market.symbol, at: market.at, price: market.price })}</span>
+          ) : game.status === "cancelled" ? (
+            `Was to settle at ${formatMarketTime(market.at)} from Coinbase`
+          ) : (
+            `Settles itself at ${formatMarketTime(market.at)} from Coinbase`
+          )}
+          <span className="text-muted-foreground/70"> · Not financial advice</span>
+        </p>
+      )}
+
       {settled ? (
         <p className={cn("mt-2.5 text-[12.5px] font-medium", won ? "text-emerald-300" : "text-muted-foreground")}>
           {game.mine
@@ -167,7 +190,9 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
             : "Settled."}
         </p>
       ) : game.status === "cancelled" ? (
-        <p className="mt-2.5 text-[12.5px] text-muted-foreground">Cancelled — every stake refunded.</p>
+        <p className="mt-2.5 text-[12.5px] text-muted-foreground">
+          {market?.failed ? `Called off — ${market.failed}.` : isVote ? "Called off." : "Cancelled — every stake refunded."}
+        </p>
       ) : entered ? (
         <p className="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
           <Lock size={12} />
@@ -206,7 +231,7 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
       ) : (
         <p className="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
           <Lock size={12} />
-          {isRaffle ? "Entries closed — drawing soon." : "Entries closed — waiting on the result."}
+          {isRaffle ? "Entries closed — drawing soon." : market ? "Votes closed — the market decides." : "Entries closed — waiting on the result."}
         </p>
       )}
       {/* The promise that makes staking safe: held points never get stuck. */}

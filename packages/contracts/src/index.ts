@@ -1341,3 +1341,208 @@ export interface Pagination {
   total: number;
   pages: number;
 }
+
+/* ------------------------------------------------------------------ */
+/* Market questions and the market as director (Phase 4)               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Market questions: a prediction that asks where a price will be — "SOL
+ * above $150.00 at 20:30?" — and settles itself from Coinbase's price at
+ * that minute; nobody settles one by hand. Its words are written from the
+ * oracle, never typed, and it's a vote, always: nothing is staked or paid
+ * on a market outcome until the legal footing for points on one is settled.
+ *
+ * The market as director: the API watches the markets a show cares about —
+ * the chart, the price strip, what chat's naming — and tells the host's
+ * studio (and their producers' consoles) when one moves: a suggestion with
+ * one-tap actions. Nothing goes on screen by itself.
+ */
+
+/** How far out a market question can be decided: five minutes to a day. */
+export const MARKET_QUESTION_MIN_MS = 5 * 60_000;
+export const MARKET_QUESTION_MAX_MS = 24 * 60 * 60_000;
+
+/** The create-game body's `oracle`: which market, above what, and when. */
+export const marketOracleBodySchema = z.object({
+  symbol: marketSymbolSchema.refine((s) => s.endsWith("-USD"), "A US-dollar market, like SOL-USD"),
+  above: z.number().positive().max(1e12),
+  /** When it's decided, read to the minute: 5 minutes to 24 hours from now. */
+  at: z.string().datetime(),
+  /** The host's clock (an IANA zone such as "Africa/Lagos"), for the stored question's "at 20:30". */
+  tz: z.string().trim().max(64).optional(),
+});
+export type MarketOracleBody = z.infer<typeof marketOracleBodySchema>;
+
+/** A market question as a game view carries it. */
+export interface MarketOracleView {
+  symbol: string;
+  above: number;
+  /** The minute it's decided (ISO): its price is the close of Coinbase's 1-minute candle that starts here. */
+  at: string;
+  source: "Coinbase";
+  /** The price it settled on, once it has. */
+  price: number | null;
+  /** Why it was called off, when the feed never gave a price. */
+  failed: string | null;
+}
+
+/** The order of magnitude of a price (84,466 → 4), exact at the powers of ten whatever log10's rounding. */
+function magnitudeOf(price: number) {
+  let m = Math.floor(Math.log10(price));
+  if (10 ** (m + 1) <= price) m += 1;
+  else if (10 ** m > price) m -= 1;
+  return m;
+}
+
+/** `n` to a multiple of `step`, without float dust (0.1 × 3 is 0.3 here). */
+export function roundTo(n: number, step: number, mode: "nearest" | "down" | "up" = "nearest") {
+  const k = n / step;
+  const i = mode === "down" ? Math.floor(k + 1e-9) : mode === "up" ? Math.ceil(k - 1e-9) : Math.round(k);
+  const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  return Number((i * step).toFixed(Math.min(20, decimals)));
+}
+
+/**
+ * The step a market's round numbers come in, from the size of its price —
+ * a unit of its second digit: BTC by $1,000, ETH by $100, SOL by $10, XRP
+ * by 10¢, DOGE by a tenth of a cent. What the director calls a round
+ * number crossed, and what a suggested question is asked around.
+ */
+export function roundStep(price: number): number {
+  if (!Number.isFinite(price) || price <= 0) return 1;
+  return roundTo(10 ** (magnitudeOf(price) - 1), 10 ** (magnitudeOf(price) - 1));
+}
+
+/**
+ * Where a market question's line starts: the price at its nearest round
+ * number when that's within half a per cent — a real question over the next
+ * quarter of an hour — and otherwise at the next digit down. BTC at 84,466
+ * asks about 84,500; ETH at 2,702 about 2,700; SOL at 121.46 about 121.
+ */
+export function marketThreshold(price: number): number {
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  const step = roundStep(price);
+  const round = roundTo(price, step);
+  return Math.abs(round - price) / price <= 0.005 ? round : roundTo(price, step / 10);
+}
+
+/**
+ * A market price as a question says it: whole dollars in the thousands
+ * (cents when there are some), cents above a dollar, and below one enough
+ * digits to see it move — "$84,500", "$150.00", "$0.0967", "$0.00000437".
+ */
+export function formatMarketUsd(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "$—";
+  if (n >= 1000) {
+    const cents = Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2;
+    return `$${n.toLocaleString("en-US", { minimumFractionDigits: cents, maximumFractionDigits: cents })}`;
+  }
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n === 0) return "$0.00";
+  const decimals = Math.min(12, Math.max(2, 3 - Math.floor(Math.log10(n))));
+  return `$${n.toFixed(decimals).replace(/(\.\d{2}\d*?)0+$/, "$1")}`;
+}
+
+/** "20:30" on the given clock — the device's own when none is given (or it isn't a clock we know). */
+export function formatMarketTime(at: string | number | Date, timeZone?: string): string {
+  const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  try {
+    return new Intl.DateTimeFormat("en-GB", { ...options, ...(timeZone ? { timeZone } : {}) }).format(new Date(at));
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", options).format(new Date(at));
+  }
+}
+
+function dayOf(at: string | number | Date, timeZone?: string) {
+  const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit" };
+  try {
+    return new Intl.DateTimeFormat("en-GB", { ...options, ...(timeZone ? { timeZone } : {}) }).format(new Date(at));
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", options).format(new Date(at));
+  }
+}
+
+/**
+ * A market question's words, written from its oracle: "SOL above $150.00
+ * at 20:30?" — with the day when it isn't today ("… at 09:00 on Sunday?").
+ * The API stores it on the host's clock; screens write it on their own.
+ */
+export function marketQuestionText(
+  o: { symbol: string; above: number; at: string | number | Date },
+  opts: { timeZone?: string; now?: number } = {},
+): string {
+  const base = o.symbol.split("-")[0] ?? o.symbol;
+  const now = opts.now ?? Date.now();
+  let day = "";
+  if (dayOf(o.at, opts.timeZone) !== dayOf(now, opts.timeZone)) {
+    try {
+      day = ` on ${new Intl.DateTimeFormat("en-GB", { weekday: "long", ...(opts.timeZone ? { timeZone: opts.timeZone } : {}) }).format(new Date(o.at))}`;
+    } catch {
+      day = ` on ${new Intl.DateTimeFormat("en-GB", { weekday: "long" }).format(new Date(o.at))}`;
+    }
+  }
+  return `${base} above ${formatMarketUsd(o.above)} at ${formatMarketTime(o.at, opts.timeZone)}${day}?`;
+}
+
+/** What a settled market question says it settled on: "SOL was $151.20 at 20:30 · Coinbase". */
+export function marketResultText(o: { symbol: string; at: string | number | Date; price: number }, opts: { timeZone?: string } = {}): string {
+  const base = o.symbol.split("-")[0] ?? o.symbol;
+  return `${base} was ${formatMarketUsd(o.price)} at ${formatMarketTime(o.at, opts.timeZone)} · Coinbase`;
+}
+
+/**
+ * When votes on a market question close: with a tenth of the wait still to
+ * go — a minute at least, half an hour at most. The nearer the minute, the
+ * more the chart gives the answer away (a price's spread narrows with the
+ * square root of the time left), so the last vote in still faces about a
+ * third of the uncertainty the first one did: a call, not a read of the
+ * chart. A day-long question still takes votes for most of the day.
+ */
+export function marketQuestionClosesAt(atMs: number, nowMs: number): number {
+  const leadMin = Math.min(30, Math.max(1, Math.round((atMs - nowMs) / 10 / 60_000)));
+  return atMs - leadMin * 60_000;
+}
+
+/** What the director noticed: a quick move, a round number crossed, or a new high or low for the stream. */
+export const MARKET_SUGGESTION_KINDS = ["move", "round", "high", "low"] as const;
+export type MarketSuggestionKind = (typeof MARKET_SUGGESTION_KINDS)[number];
+/** The most suggestions GET /streams/:id/suggestions hands back — the newest. */
+export const MAX_MARKET_SUGGESTIONS = 5;
+
+/** A market question filled in for the host to open: decided `minutes` from when they do. */
+export interface MarketQuestionPreset {
+  symbol: string;
+  above: number;
+  minutes: number;
+}
+
+/**
+ * A market moment for the host (`__evt: "suggestion"` to the host and their
+ * consoles; GET /streams/:id/suggestions): what happened, in a line, and
+ * one-tap ways to use it. Nothing here goes on screen until someone taps.
+ */
+export interface MarketSuggestion {
+  id: string;
+  kind: MarketSuggestionKind;
+  symbol: string;
+  /** "SOL +3.4% in 15 min", "BTC crossed $85,000", "ETH at the stream's high". */
+  text: string;
+  /** The price when it was noticed. */
+  price: number;
+  /** The move behind it, in per cent, over `windowMin` minutes. */
+  changePct: number;
+  windowMin: number;
+  /** A round number crossed: which. */
+  level: number | null;
+  /** When it was noticed (ISO). */
+  at: string;
+  actions: {
+    /** Chart + face on the market, at a zoom that shows the move. */
+    chart: SceneChart;
+    /** A banner line, "Not financial advice" included. */
+    banner: string;
+    /** A market question around the nearest round number; null for a market no question can settle on. */
+    question: MarketQuestionPreset | null;
+  };
+}
