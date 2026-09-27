@@ -1,0 +1,64 @@
+/*
+ * What the podium art needs on top of the kit (primitives.module.css):
+ *
+ * 1. Paint for the solid Ember board. The kit's paint is the page's ink,
+ *    which doesn't read on Ember; on the board, lines, leaves and confetti
+ *    are Ember's own ink (`--on-ember`) instead. The kit's tokens are not
+ *    touched.
+ * 2. Entrances that wait. The kit's entrances play on mount; the rail's
+ *    board builds itself when it scrolls into view, so these play when an
+ *    ancestor's `data-play` turns "go" (lib/use-play-on-view.ts). Timings
+ *    come from lib/motion.ts through the --mo-* properties.
+ *
+ * Transform and opacity only; a plain fade under prefers-reduced-motion.
+ */
+
+/* ---- paint on Ember ----------------------------------------------------- */
+
+.emberInk { fill: var(--on-ember); }
+.emberLine { fill: none; stroke: color-mix(in srgb, var(--on-ember) 58%, transparent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.emberLeaf { fill: color-mix(in srgb, var(--on-ember) 58%, transparent); }
+.emberStem { fill: none; stroke: color-mix(in srgb, var(--on-ember) 30%, transparent); stroke-width: 2; stroke-linecap: round; }
+/* A hole punched in the ink back to the board: the crown's jewels. */
+.emberHole { fill: var(--ember); }
+
+/* Neutral grounds: laurel leaves in the kit's line ink, solid. */
+.leaf { fill: color-mix(in srgb, var(--tint) 34%, transparent); }
+.stem { fill: none; stroke: color-mix(in srgb, var(--tint) 17%, transparent); stroke-width: 2; stroke-linecap: round; }
+/* The crown's jewels on an Ember crown. */
+.onEmberFill { fill: var(--on-ember); }
+
+/* ---- entrances that wait for data-play ---------------------------------- */
+
+@keyframes pd-grow { from { opacity: 0; transform: scale(0); } }
+@keyframes pd-drop {
+  from { opacity: 0; transform: translateY(-14px) rotate(-16deg) scale(0.7); }
+  40% { opacity: 1; }
+}
+/* Confetti leaves the centre and lands where it rests. */
+@keyframes pd-burst {
+  from { opacity: 0; transform: translate(var(--bx, 0px), var(--by, 0px)) rotate(var(--br, 90deg)) scale(0.3); }
+  30% { opacity: 1; }
+}
+@keyframes pd-fade { from { opacity: 0; } }
+
+[data-play="idle"] .grow,
+[data-play="idle"] .drop,
+[data-play="idle"] .burst,
+[data-play="idle"] .fadeIn { opacity: 0; }
+
+/* Leaves grow from their stems: the origin is the leaf's base. */
+svg .grow { transform-origin: 0% 50%; }
+[data-play="go"] .grow { animation: pd-grow 520ms var(--mo-ease-settle, cubic-bezier(0.34, 1.45, 0.64, 1)) var(--d, 0ms) backwards; }
+[data-play="go"] .drop { animation: pd-drop var(--mo-crown, 620ms) var(--mo-ease-settle, cubic-bezier(0.34, 1.45, 0.64, 1)) var(--d, 0ms) backwards; }
+[data-play="go"] .burst { animation: pd-burst var(--mo-reveal, 900ms) var(--mo-ease-unfold, cubic-bezier(0.16, 1, 0.3, 1)) var(--d, 0ms) backwards; }
+[data-play="go"] .fadeIn { animation: pd-fade 520ms linear var(--d, 0ms) backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-play="go"] .grow,
+  [data-play="go"] .drop,
+  [data-play="go"] .burst,
+  [data-play="go"] .fadeIn {
+    animation: pd-fade var(--mo-fade, 160ms) linear backwards !important;
+  }
+}

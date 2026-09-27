@@ -1,0 +1,351 @@
+/*
+ * The unfold language, in CSS. Timings come from lib/motion.ts through the
+ * --mo-* custom properties that MOTION_VARS puts on each root; the
+ * fallbacks here only matter if a root forgets them.
+ *
+ * transform, opacity and clip-path only. Entrances use a `backwards` fill,
+ * never `both`/`forwards`, so an element leaves its animation layer when it
+ * lands (a forwards fill keeps Chrome's layer, and images that decode into
+ * it afterwards sit black).
+ */
+
+/* ---- the window: desktop unfold ------------------------------------- */
+
+/* The window unfolds out of a small rounded square at its top-right corner
+   (the bell, or the board's corner): the clip opens down and left while
+   the whole thing lifts from 96% and settles. */
+@keyframes unfold {
+  0% {
+    clip-path: inset(0 0 calc(100% - 44px) calc(100% - 44px) round 22px);
+    transform: translateY(-6px) scale(0.96);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    clip-path: inset(0 0 0 0 round 12px);
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes fold {
+  from {
+    clip-path: inset(0 0 0 0 round 12px);
+    transform: none;
+    opacity: 1;
+  }
+  to {
+    clip-path: inset(0 0 calc(100% - 44px) calc(100% - 44px) round 22px);
+    transform: translateY(-4px) scale(0.97);
+    opacity: 0;
+  }
+}
+/* The drop shadow can't ride the clipped panel (clip-path clips shadows),
+   so it lives on a plate behind it that arrives once the panel has mostly
+   opened, and leaves first. */
+@keyframes plate-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.desk {
+  position: fixed;
+  z-index: 80;
+  transform-origin: top right;
+}
+.plate {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  box-shadow: var(--elevation-popover);
+  pointer-events: none;
+  animation: plate-in calc(var(--mo-unfold, 560ms) * 0.4) var(--mo-ease-unfold) calc(var(--mo-unfold, 560ms) * 0.6) backwards;
+}
+.deskPanel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  transform-origin: top right;
+  animation: unfold var(--mo-unfold, 560ms) var(--mo-ease-unfold, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+.desk[data-closing] .deskPanel {
+  animation: fold var(--mo-fold, 200ms) var(--mo-ease-fold, cubic-bezier(0.7, 0, 0.84, 0)) forwards;
+}
+.desk[data-closing] .plate {
+  animation: fade-out calc(var(--mo-fold, 200ms) * 0.6) linear forwards;
+}
+
+/* ---- the window: phone slide-in ------------------------------------- */
+
+/* Driven by data-shown rather than keyframes, so a finger can hold the
+   panel part-way (swipe to dismiss) and the release animates from there. */
+.phone {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.5);
+  opacity: 0;
+  transition: opacity var(--mo-slideOut, 260ms) linear;
+}
+.phone[data-shown] .scrim {
+  opacity: 1;
+  transition-duration: var(--mo-slide, 480ms);
+}
+.sheet {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  display: flex;
+  /* A sliver of the page stays showing under the scrim, so it reads as a panel over it. */
+  width: min(calc(100% - 36px), 420px);
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateX(104%);
+  transition: transform var(--mo-slideOut, 260ms) var(--mo-ease-fold);
+  touch-action: pan-y;
+}
+.phone[data-shown] .sheet {
+  transform: translateX(var(--drag, 0px));
+  transition: transform var(--mo-slide, 480ms) var(--mo-ease-unfold);
+}
+.phone[data-dragging] .sheet {
+  transition: none;
+}
+
+/* ---- rows: a staggered settle ---------------------------------------- */
+
+@keyframes row-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes row-in-side {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+}
+.row {
+  animation: row-in-down var(--mo-row, 460ms) var(--mo-ease-unfold) var(--delay, 0ms) backwards;
+}
+.phone .row {
+  animation-name: row-in-side;
+}
+
+/* ---- the podium ------------------------------------------------------ */
+
+@keyframes step-rise {
+  from {
+    transform: translateY(72px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+/* #1 lifts last and a little further, settling with a small bump. */
+@keyframes step-lift {
+  from {
+    transform: translateY(96px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+}
+@keyframes rows-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.podium[data-play="idle"] .step,
+.podium[data-play="idle"] .podiumRow {
+  opacity: 0;
+}
+.podium[data-play="go"] .step {
+  animation: step-rise var(--mo-rise, 640ms) var(--mo-ease-unfold) var(--delay, 0ms) backwards;
+}
+.podium[data-play="go"] .step[data-first] {
+  animation-name: step-lift;
+  animation-timing-function: var(--mo-ease-settle);
+}
+.podium[data-play="go"] .podiumRow {
+  animation: rows-in var(--mo-row, 460ms) var(--mo-ease-unfold) var(--delay, 0ms) backwards;
+}
+
+/* ---- the highlight: a mask that opens, and a slow hover -------------- */
+
+@keyframes mask-open {
+  from {
+    clip-path: inset(100% 0 0 0 round 10px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 10px);
+  }
+}
+@keyframes pic-settle {
+  from {
+    transform: scale(1.14);
+  }
+}
+@keyframes meta-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.highlight[data-play="idle"] {
+  clip-path: inset(100% 0 0 0 round 10px);
+}
+.highlight[data-play="go"] {
+  animation: mask-open var(--mo-reveal, 900ms) var(--mo-ease-unfold) backwards;
+}
+/* The picture arrives zoomed and settles as the mask opens… */
+.highlight[data-play="go"] .picWrap {
+  animation: pic-settle calc(var(--mo-reveal, 900ms) * 1.5) var(--mo-ease-unfold) backwards;
+}
+.highlight[data-play="go"] .caption {
+  animation: meta-in var(--mo-row, 460ms) var(--mo-ease-unfold) calc(var(--mo-reveal, 900ms) * 0.45) backwards;
+}
+/* …then pushes in slowly while you hover. The wrapper settles, the picture
+   inside it pushes, so the two never fight over one transform. */
+.pic {
+  transition: transform var(--mo-push, 1600ms) var(--mo-ease-drift);
+}
+.highlight:hover .pic,
+.highlight:focus-visible .pic {
+  transform: scale(1.08);
+}
+/* The caption rides up to make room for the second line. */
+.caption {
+  transition: transform var(--mo-hover, 420ms) var(--mo-ease-unfold);
+  transform: translateY(var(--meta-h, 18px));
+}
+.meta {
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--mo-hover, 420ms) var(--mo-ease-unfold),
+    transform var(--mo-hover, 420ms) var(--mo-ease-unfold);
+}
+.highlight:hover .caption,
+.highlight:focus-visible .caption {
+  transform: none;
+}
+.highlight:hover .meta,
+.highlight:focus-visible .meta {
+  opacity: 1;
+  transform: none;
+  transition-delay: 60ms;
+}
+/* The play mark draws in: its ring opens like an iris, then the triangle
+   wipes in from the left. */
+.playRing {
+  clip-path: circle(0% at 50% 50%);
+  transition: clip-path var(--mo-hover, 420ms) var(--mo-ease-unfold);
+}
+.playTri {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path var(--mo-hover, 420ms) var(--mo-ease-unfold);
+}
+.highlight:hover .playRing,
+.highlight:focus-visible .playRing {
+  clip-path: circle(50% at 50% 50%);
+}
+.highlight:hover .playTri,
+.highlight:focus-visible .playTri {
+  clip-path: inset(0 0 0 0);
+  transition-delay: 140ms;
+}
+/* Hover on a phone is a sticky tap; there the second line just shows. */
+@media (hover: none) {
+  .caption {
+    transform: none;
+  }
+  .meta {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- less motion: everything is a plain fade ------------------------ */
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deskPanel,
+  .plate,
+  .row,
+  .podium[data-play="go"] .step,
+  .podium[data-play="go"] .podiumRow,
+  .highlight[data-play="go"],
+  .highlight[data-play="go"] .caption {
+    animation: fade var(--mo-fade, 160ms) linear backwards !important;
+  }
+  .highlight[data-play="go"] .picWrap {
+    animation: none;
+  }
+  .highlight[data-play="idle"] {
+    clip-path: none;
+    opacity: 0;
+  }
+  .desk[data-closing] .deskPanel,
+  .desk[data-closing] .plate {
+    animation: fade-out var(--mo-fade, 160ms) linear forwards !important;
+  }
+  .sheet,
+  .phone[data-shown] .sheet {
+    transform: none;
+    opacity: 0;
+    transition: opacity var(--mo-fade, 160ms) linear;
+  }
+  .phone[data-shown] .sheet {
+    opacity: 1;
+  }
+  .pic,
+  .caption,
+  .meta,
+  .playRing,
+  .playTri {
+    transition-duration: var(--mo-fade, 160ms);
+  }
+  .highlight:hover .pic {
+    transform: none;
+  }
+  .caption {
+    transform: none;
+  }
+  .playRing,
+  .playTri {
+    clip-path: none;
+    opacity: 0;
+    transition-property: opacity;
+  }
+  .highlight:hover .playRing,
+  .highlight:hover .playTri {
+    opacity: 1;
+  }
+}

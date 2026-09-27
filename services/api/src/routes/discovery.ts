@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
+import { z } from "zod";
 import {
   impressionsBodySchema,
   onboardingBodySchema,
@@ -56,9 +57,14 @@ export const discoveryRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Discovery"],
         summary: "Top gifters across the platform over the last seven days",
+        // The rail's podium asks for five (the default); the full board
+        // behind it asks for twenty.
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(50).default(5),
+        }),
       },
     },
-    async () => {
+    async (request) => {
       // A rolling week, platform-wide: the rail's leaderboard is about the
       // community's biggest supporters right now, not one stream's.
       const top = await GiftTransaction.aggregate<{
@@ -69,7 +75,7 @@ export const discoveryRoutes: FastifyPluginAsync = async (fastify) => {
         { $match: { createdAt: { $gte: new Date(Date.now() - SEVEN_DAYS_MS) } } },
         { $group: { _id: "$senderId", totalUsdMinor: { $sum: "$grossUsdMinor" }, count: { $sum: 1 } } },
         { $sort: { totalUsdMinor: -1 } },
-        { $limit: 5 },
+        { $limit: request.query.limit },
       ]);
       const users = await User.find({ _id: { $in: top.map((t) => t._id) } })
         .select("username displayName avatar verified")

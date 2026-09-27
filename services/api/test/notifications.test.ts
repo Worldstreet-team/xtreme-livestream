@@ -30,6 +30,7 @@ let inserted: Array<Record<string, unknown>>;
 let notifications: Array<{
   _id: string;
   userId: string;
+  actorId?: string;
   read: boolean;
   actorName: string;
   streamTitle: string;
@@ -73,7 +74,16 @@ vi.mock("../src/models.js", () => ({
     }),
     findById: async () => null,
   },
-  User: {},
+  User: {
+    find: (q: { _id: { $in: string[] } }) => ({
+      select: () => ({
+        lean: async () =>
+          q._id.$in.includes(F1)
+            ? [{ _id: F1, username: "other", avatar: "https://cdn.test/other.jpg" }]
+            : [],
+      }),
+    }),
+  },
   Follow: {
     find: () => ({
       select: () => ({
@@ -188,6 +198,7 @@ describe("go-live notifications", () => {
       {
         _id: "n1",
         userId: STREAMER_ID,
+        actorId: F1,
         read: false,
         actorName: "Other",
         streamTitle: "Live now",
@@ -211,6 +222,12 @@ describe("go-live notifications", () => {
     const body = res.json().data;
     expect(body.notifications).toHaveLength(2);
     expect(body.unread).toBe(1);
+    // Each row names its person for the bell, and their face comes once in
+    // `avatars`; a row without a known actor keeps its name and no picture.
+    expect(body.notifications[0]).toMatchObject({ actorName: "Other", actorUsername: "other" });
+    expect(body.notifications[1]).toMatchObject({ actorUsername: "" });
+    expect(body.avatars).toEqual({ other: "https://cdn.test/other.jpg" });
+    expect(body.notifications[0]).not.toHaveProperty("actorAvatar");
   });
 
   it("mark-read clears the unread count", async () => {

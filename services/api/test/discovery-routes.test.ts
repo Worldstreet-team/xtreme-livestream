@@ -11,6 +11,7 @@ import type { FastifyInstance } from "fastify";
 const STREAM_ID = "d".repeat(24);
 
 let inserted: Array<Record<string, unknown>>;
+let giftPipelines: Array<Array<Record<string, unknown>>>;
 
 vi.mock("../src/auth.js", async () => {
   const { ApiError } = await import("../src/errors.js");
@@ -47,7 +48,10 @@ vi.mock("../src/models.js", () => ({
     countDocuments: async () => 0,
     aggregate: async () => [],
   },
-  User: { findOne: () => ({ select: () => ({ lean: async () => null }) }) },
+  User: {
+    findOne: () => ({ select: () => ({ lean: async () => null }) }),
+    find: () => ({ select: () => ({ lean: async () => [] }) }),
+  },
   Impression: {
     insertMany: async (rows: Array<Record<string, unknown>>) => {
       inserted.push(...rows);
@@ -61,7 +65,12 @@ vi.mock("../src/models.js", () => ({
   StreamBan: { findOne: async () => null },
   Report: {},
   StreamLike: {},
-  GiftTransaction: {},
+  GiftTransaction: {
+    aggregate: async (pipeline: Array<Record<string, unknown>>) => {
+      giftPipelines.push(pipeline);
+      return [];
+    },
+  },
   WatchSession: {},
   ViewerSample: {},
 }));
@@ -80,6 +89,23 @@ describe("discovery routes, signed out", () => {
 
   beforeEach(() => {
     inserted = [];
+    giftPipelines = [];
+  });
+
+  it("serves five top gifters by default and the full board on request", async () => {
+    const limitOf = () => giftPipelines.at(-1)?.find((stage) => "$limit" in stage)?.$limit;
+
+    const rail = await app.inject({ method: "GET", url: "/api/gifts/leaderboard" });
+    expect(rail.statusCode).toBe(200);
+    expect(rail.json().data).toEqual({ days: 7, top: [] });
+    expect(limitOf()).toBe(5);
+
+    const board = await app.inject({ method: "GET", url: "/api/gifts/leaderboard?limit=20" });
+    expect(board.statusCode).toBe(200);
+    expect(limitOf()).toBe(20);
+
+    const greedy = await app.inject({ method: "GET", url: "/api/gifts/leaderboard?limit=500" });
+    expect(greedy.statusCode).toBe(400);
   });
 
   it("serves the home page to anyone", async () => {

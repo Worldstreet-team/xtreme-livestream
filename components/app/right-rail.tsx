@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Broadcast, Eye, SealCheck, Sparkle, Play, Trophy, ClockCounterClockwise, Sword, Ticket, Question, Coins } from "@/components/icons";
+import { Broadcast, SealCheck, Sparkle, Play, Trophy, ClockCounterClockwise, Sword, Ticket, Question, Coins } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { BattleView } from "@/lib/battles";
@@ -16,6 +16,8 @@ import { PillLink } from "@/components/ui/pill";
 import { StreamArt } from "@/components/app/stream-art";
 import { FollowButton } from "@/components/app/follow-button";
 import { TopGiftersBoard } from "@/components/app/top-gifters";
+import { HighlightCard } from "@/components/app/highlight-card";
+import { GiftMark, HighlightMark } from "@/components/app/art";
 import { WolfIcon } from "@/components/ui/wolf-icon";
 import { MarketSquareLockup } from "@/components/ui/market-mark";
 import { WorldSpaceLockup } from "@/components/ui/worldspace-mark";
@@ -72,10 +74,15 @@ interface Player {
   games: number;
 }
 
-/** A section's title, set like the feed's shelf headers. `icon` is kept for callers but not drawn. */
-function Eyebrow({ label, live, trailing }: { icon?: ReactNode; label: string; live?: boolean; trailing?: ReactNode }) {
+/**
+ * A section's title, set like the feed's shelf headers. `icon` is kept for
+ * callers but not drawn; `mark` is one of our own drawn marks
+ * (components/app/art), for the sections that carry art.
+ */
+function Eyebrow({ label, live, mark, trailing }: { icon?: ReactNode; label: string; live?: boolean; mark?: ReactNode; trailing?: ReactNode }) {
   return (
     <div className="flex items-center gap-2 px-1 pb-3">
+      {mark}
       {live && (
         <span className="relative flex size-1.5 shrink-0">
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-chili opacity-60" />
@@ -324,7 +331,10 @@ export function RightRail() {
       )}
 
       {/* 6 · Top gifters this week — the podium */}
-      <TopGiftersBoard className="animate-rise" heading={<Eyebrow label="Top gifters this week" />} />
+      <TopGiftersBoard
+        className="animate-rise"
+        heading={(seeAll) => <Eyebrow mark={<GiftMark />} label="Top gifters this week" trailing={seeAll} />}
+      />
 
       {/* 7 · Top players */}
       {players.length > 0 && (
@@ -349,21 +359,8 @@ export function RightRail() {
       {/* 8 · Highlight of the week */}
       {highlight && (
         <section className="animate-rise" style={{ animationDelay: "270ms" }}>
-          <Eyebrow icon={<Trophy size={13} weight="fill" />} label="Highlight of the week" />
-          <Link href={`/c/${highlight.streamerId.username}`} className="group relative block aspect-video overflow-hidden rounded-sm bg-tint/[0.03]">
-            <StreamArt src={highlight.thumbnailUrl} category={highlight.category} alt={highlight.title} seed={highlight._id} size={{ w: 640, h: 360 }} imgClassName="transition-transform duration-500 group-hover:scale-[1.04]" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-            <Badge variant="glass" size="xs" icon={<Eye size={10} weight="bold" />} className="absolute top-2 left-2">
-              {formatNumber(highlight.peakViewers)} peak
-            </Badge>
-            <span className="absolute inset-x-0 bottom-0 flex items-end gap-2.5 p-3 text-white">
-              <UserAvatar src={highlight.streamerId.avatar} name={highlight.streamerId.displayName || highlight.streamerId.username} size={28} className="size-7 shrink-0 ring-2 ring-white/20" />
-              <span className="flex min-w-0 flex-col leading-tight">
-                <span className="line-clamp-1 text-[13px] font-semibold">{highlight.title}</span>
-                <span className="truncate text-[11px] text-white/70">{highlight.streamerId.displayName || highlight.streamerId.username} · {highlight.category}</span>
-              </span>
-            </span>
-          </Link>
+          <Eyebrow mark={<HighlightMark />} label="Highlight of the week" />
+          <HighlightCard stream={highlight} />
         </section>
       )}
 
