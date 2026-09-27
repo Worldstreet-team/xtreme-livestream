@@ -544,9 +544,11 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
     });
     this.canvas = outputCanvas;
     this.inputVideo = inputElement;
+    // No WebGL2 (a context limit, a GPU reset): frames pass through untouched
+    // rather than the camera stopping — LiveKit restarts a processor with no
+    // way back if its init throws, and the look is the one thing allowed to fail.
     const lut = createLutStage(outputCanvas);
-    if (!lut) throw new LookError("This device's browser has no WebGL2 for the look.");
-    lut.setLut(lutFor(this.options.look));
+    if (lut) lut.setLut(lutFor(this.options.look));
     this.lut = lut;
     this.live = true;
     this.bgMisses = 0;

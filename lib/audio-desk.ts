@@ -506,13 +506,37 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
   }
 
   private attachKrisp() {
-    if (!this.krispAttaching) {
-      this.krispAttaching = this.chainKrisp().finally(() => {
-        this.krispAttaching = null;
+    // Queued behind any chain still in flight: a restart mid-load must not
+    // inherit the old graph's attempt and end up with no filter at all.
+    const run: Promise<void> = (this.krispAttaching ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.chainKrisp())
+      .finally(() => {
+        if (this.krispAttaching === run) this.krispAttaching = null;
         this.refreshNoise();
       });
+    this.krispAttaching = run;
+    return run;
+  }
+
+  /**
+   * Krisp back out of the chain: the raw mic feeds the gate again, and
+   * Krisp's own destroy puts the browser's constraints back — its init took
+   * the browser's noise suppression off the mic, and a mic with neither is
+   * the one thing worse than a mic with the browser's.
+   */
+  private async unchainKrisp() {
+    const k = this.krisp;
+    if (!k) return;
+    this.krisp = null;
+    const g = this.graph;
+    if (g) {
+      k.source.disconnect();
+      g.source.connect(g.gate);
+      g.all = g.all.filter((n) => n !== k.source);
     }
-    return this.krispAttaching;
+    await k.filter.destroy().catch(() => {});
+    this.refreshNoise();
   }
 
   /**
@@ -550,27 +574,42 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
     await this.syncKrisp();
   }
 
-  /** Bring Krisp in line with the settings: on only once the room is known and the host wants it. */
+  /**
+   * Bring Krisp in line with the settings: on only once the room is known
+   * and the host wants it; paused while Compare is held; out of the chain
+   * altogether when it's off, in Music mode, or refused.
+   */
   private async syncKrisp() {
     const k = this.krisp;
     if (!k) return;
-    const want = this.wantsFilter() && !this.bypass;
+    if (!this.wantsFilter()) {
+      await this.unchainKrisp();
+      return;
+    }
     this.krispBusy += 1;
     try {
-      if (want) {
-        if (!this.room) return;
-        if (!k.published) {
-          k.published = true;
-          // Krisp checks with LiveKit Cloud that the filter is on for this project.
-          await k.filter.onPublish(this.room);
-        }
-        await k.filter.setEnabled(true);
-      } else {
+      if (this.bypass) {
+        // Compare: paused, not gone.
         await k.filter.setEnabled(false);
+        return;
+      }
+      if (!this.room) return;
+      if (!k.published) {
+        k.published = true;
+        // Krisp checks with LiveKit Cloud that the filter is on for this project.
+        await k.filter.onPublish(this.room);
+      }
+      await k.filter.setEnabled(true);
+      if (!k.filter.isEnabled()) {
+        // Asked, and refused (no entitlement here): the raw mic, with the
+        // browser's own suppression, is the better mic.
+        this.noiseError ??= "LiveKit Cloud didn't allow it";
+        await this.unchainKrisp();
       }
     } catch (err) {
       // Krisp said no; the state below says so.
       this.noiseError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      await this.unchainKrisp();
     } finally {
       this.krispBusy -= 1;
       this.refreshNoise();
@@ -602,8 +641,11 @@ export class AudioDesk implements TrackProcessor<Track.Kind.Audio, AudioProcesso
       this.noiseError = null;
     } else {
       this.noise = "unavailable";
-      // Enabled once, then off by itself: Krisp gives up after its reports to LiveKit Cloud keep failing.
+      // Enabled once, then off by itself: Krisp gives up after its reports to
+      // LiveKit Cloud keep failing. Out it comes, so the browser's own
+      // suppression is back on the mic.
       this.noiseError ??= "LiveKit Cloud didn't allow it, or stopped hearing from it";
+      void this.unchainKrisp();
     }
   }
 

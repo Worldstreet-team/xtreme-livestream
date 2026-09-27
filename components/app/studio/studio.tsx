@@ -656,13 +656,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const lookTrack = () => (source !== "camera" || localScreen ? null : isLive ? videoTrackRef.current : previewTrack);
   /** Put the chosen look on a camera track; a background that can't start leaves the look on and says why. */
   const applyLookTo = (track: LocalVideoTrack | null) => {
-    if (!track || !looksSupported) return;
+    // A track a drop already ended (a rejoin with the camera off) takes no look; the next camera will.
+    if (!track || !looksSupported || track.mediaStreamTrack?.readyState === "ended") return;
     const { look: settings, imageUrl } = lookRef.current;
     const b = brandRef.current;
     void applyLook(track, settings, { imageUrl, brand: { fill: ACCENTS[b.accent].fill, logoUrl: b.logoUrl } }).then((r) => {
       if (!r.ok) {
         setLookNote(r.reason);
-        setLookSettings(r.applied);
+        // A background that couldn't start is a setting to remember; a track
+        // or GPU that failed underneath isn't — the host's choice stands.
+        if (r.applied.look === settings.look) setLookSettings(r.applied);
       }
     });
   };
@@ -1382,6 +1385,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           prev.filter((t) => t.identity !== participant.identity)
         );
       }
+    });
+
+    // A camera published later — back on after a drop had it off — is the
+    // camera the preview and the look ride from now on.
+    room.on(RoomEvent.LocalTrackPublished, (pub) => {
+      const t = pub.track;
+      if (!t || t.kind !== Track.Kind.Video || pub.source !== Track.Source.Camera) return;
+      videoTrackRef.current = t as LocalVideoTrack;
+      if (videoElRef.current) t.attach(videoElRef.current);
+      applyLookTo(videoTrackRef.current);
     });
 
     // Stage requests, stage transitions, and tip alerts.
@@ -2894,6 +2907,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </div>
       )}
 
+      {/* A second camera pairs before going live too: the phone holds the code and sends the moment you do. */}
+      {source !== "obs" && user && (
+        <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
+          <SecondCameraPanel hostId={user.id} angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} phoneConnected={phoneConnected} />
+        </div>
+      )}
+
       {/* The run of show: segments, the prompter's script, and what each puts on screen. */}
       <div className="border-t border-white/[0.06] pt-4 @[620px]:col-span-2">
         {showPlanner ? (
@@ -3076,7 +3096,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           angle={scene.angle ?? "main"}
           onAngle={(a) => void applyScene({ angle: a })}
           phoneConnected={phoneConnected}
-          disabled={!isLive}
         />
       )}
 

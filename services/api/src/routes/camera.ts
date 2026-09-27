@@ -81,10 +81,20 @@ export function lookupCameraLink(code: string, now = Date.now()): { link: Camera
   return { link };
 }
 
-/** Spend the code: the phone that joined on it is the phone cam now. */
+/**
+ * Spend the code: the phone that joined on it is the phone cam now. Taken
+ * the moment a join begins, before anything waits, so two phones racing on
+ * one code can't both get a token.
+ */
 export function consumeCameraLink(code: string, now = Date.now()) {
   const link = links.get(code);
   if (link) link.usedAt = now;
+}
+
+/** A join that couldn't finish — the host isn't live yet, or the token failed — hands the code back. */
+export function releaseCameraLink(code: string) {
+  const link = links.get(code);
+  if (link) link.usedAt = null;
 }
 
 /** Tests only: start from nothing. */
@@ -166,39 +176,46 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
       const code = request.params.code.toLowerCase();
       const found = lookupCameraLink(code);
       if ("error" in found) throw linkError(found.error);
-
-      const host = await User.findById(found.link.hostId).select("username displayName").lean();
-      if (!host) throw new ApiError(404, "There's no channel behind this code", "USER_NOT_FOUND");
-      const hostName = host.displayName || host.username;
-
-      // A practice run counts: it's the crew's own phone, in the crew's own room.
-      const stream = await Stream.findOne({ streamerId: host._id, isLive: true });
-      if (!stream || !(await reconcileStream(stream))) {
-        // Not an error the phone gives up on: it holds the code and asks
-        // again in a moment, and the code stays good until it expires.
-        return reply.code(409).send({
-          success: false,
-          code: "NOT_LIVE",
-          message: `${hostName} isn't live yet — hold on`,
-          retryInMs: CAMERA_RETRY_MS,
-          hostName,
-        });
-      }
-
-      // The camera and only the camera: the token itself refuses a mic or a
-      // screen, and the phone hears nothing from the room.
-      const token = await createToken(stream.livekitRoomName, cameraIdentity(host._id), `${hostName} · phone cam`, {
-        canPublish: true,
-        canSubscribe: false,
-        canPublishData: false,
-        canPublishSources: ["camera"],
-      });
+      // Spent now, before anything waits: a second phone racing on this code
+      // is refused, not paired. A join that can't finish hands it back.
       consumeCameraLink(code);
+      try {
+        const host = await User.findById(found.link.hostId).select("username displayName").lean();
+        if (!host) throw new ApiError(404, "There's no channel behind this code", "USER_NOT_FOUND");
+        const hostName = host.displayName || host.username;
 
-      return {
-        success: true,
-        data: { token, livekitUrl: config.LIVEKIT_URL, streamId: String(stream._id), hostName },
-      };
+        // A practice run counts: it's the crew's own phone, in the crew's own room.
+        const stream = await Stream.findOne({ streamerId: host._id, isLive: true });
+        if (!stream || !(await reconcileStream(stream))) {
+          // Not an error the phone gives up on: it holds the code and asks
+          // again in a moment, and the code stays good until it expires.
+          releaseCameraLink(code);
+          return reply.code(409).send({
+            success: false,
+            code: "NOT_LIVE",
+            message: `${hostName} isn't live yet — hold on`,
+            retryInMs: CAMERA_RETRY_MS,
+            hostName,
+          });
+        }
+
+        // The camera and only the camera: the token itself refuses a mic or a
+        // screen, and the phone hears nothing from the room.
+        const token = await createToken(stream.livekitRoomName, cameraIdentity(host._id), `${hostName} · phone cam`, {
+          canPublish: true,
+          canSubscribe: false,
+          canPublishData: false,
+          canPublishSources: ["camera"],
+        });
+
+        return {
+          success: true,
+          data: { token, livekitUrl: config.LIVEKIT_URL, streamId: String(stream._id), hostName },
+        };
+      } catch (err) {
+        releaseCameraLink(code);
+        throw err;
+      }
     },
   );
 };

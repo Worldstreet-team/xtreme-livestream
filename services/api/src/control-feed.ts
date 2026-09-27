@@ -21,10 +21,26 @@ type Listener = (event: string, data: Record<string, unknown>) => void;
 /** Who's listening to each room, by LiveKit room name. */
 const rooms = new Map<string, Set<Listener>>();
 
-/** A room payload as a named event, or null for one that isn't (a chat line). */
+/**
+ * What a key may hear: the show's own events. Held lines, evasion flags,
+ * paid requests, moderator actions and people's standing stay in the room —
+ * a key made for an airhorn has no business with any of it.
+ */
+const FEED_EVENTS = new Set([
+  "scene", "rule_fire", "goal", "heat", "guest_update", "guest_request", "stage_line", "feed", "rundown", "rundown_changed", "tickers",
+  "like", "battle", "battle_invite", "game", "drop", "pin", "unpin", "brand", "shield", "slowmode", "join",
+  "colive_invite", "colive_decline", "colive_merged",
+]);
+
+/** A room payload as a named event, or null for one that isn't for a key (a chat line, a moderator's business). */
 export function feedEvent(data: Record<string, unknown>): { event: string; data: Record<string, unknown> } | null {
   const { __evt, ...rest } = data;
-  if (typeof __evt === "string" && __evt) return { event: __evt, data: rest };
+  if (typeof __evt === "string") {
+    if (!FEED_EVENTS.has(__evt)) return null;
+    // Who's asking to join, without the crew's read on them.
+    if (__evt === "guest_request") return { event: __evt, data: Object.fromEntries(Object.entries(rest).filter(([k]) => k !== "standing")) };
+    return { event: __evt, data: rest };
+  }
   if (data.type === "tip") return { event: "gift", data };
   return null;
 }
@@ -100,12 +116,50 @@ export async function openControlFeed(ownerId: mongoose.Types.ObjectId, timing: 
   if (count >= MAX_FEED_LISTENERS) {
     throw new ApiError(409, `That's the most feeds a channel can have open (${MAX_FEED_LISTENERS}) — close one first`, "TOO_MANY_LISTENERS");
   }
-  const first = await liveStream(ownerId);
+  // The slot is taken now, before anything waits: two connects racing at the cap can't both squeeze past it.
   open.set(owner, count + 1);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const left = (open.get(owner) ?? 1) - 1;
+    if (left > 0) open.set(owner, left);
+    else open.delete(owner);
+  };
+  let first: Awaited<ReturnType<typeof liveStream>>;
+  try {
+    first = await liveStream(ownerId);
+  } catch (err) {
+    release();
+    throw err;
+  }
   const { pollMs, pingMs } = { ...FEED_TIMING, ...timing };
 
   return {
+    /** The slot back without serving — the route couldn't hand the connection over. */
+    release,
     serve(req: IncomingMessage, res: ServerResponse, headers: Record<string, string | number | string[] | undefined> = {}) {
+      let closed = false;
+      let leave: (() => void) | null = null;
+      let poll: ReturnType<typeof setInterval> | null = null;
+      let ping: ReturnType<typeof setInterval> | null = null;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (poll) clearInterval(poll);
+        if (ping) clearInterval(ping);
+        leave?.();
+        leave = null;
+        release();
+        if (!res.writableEnded) res.end();
+      };
+      // Hung up while the route was still looking things up: nothing to
+      // serve, and the slot goes straight back — the socket's `close` has
+      // been and gone, so no listener would ever hear it.
+      if (req.destroyed || res.destroyed || res.socket?.destroyed) return close();
+      req.on("close", close);
+      res.on("close", close);
+
       res.writeHead(200, {
         ...headers,
         "content-type": "text/event-stream; charset=utf-8",
@@ -118,7 +172,8 @@ export async function openControlFeed(ownerId: mongoose.Types.ObjectId, timing: 
       let id = 0;
       let dropped = 0;
       const send = (event: string, data: unknown) => {
-        if (res.destroyed || res.writableEnded) return;
+        if (closed) return;
+        if (res.destroyed || res.writableEnded) return close();
         // A listener that isn't reading gets fewer events, not a longer queue — and is told.
         if (res.writableLength > MAX_UNREAD_BYTES) {
           dropped++;
@@ -132,36 +187,22 @@ export async function openControlFeed(ownerId: mongoose.Types.ObjectId, timing: 
       };
 
       let room = first.room;
-      let leave = room ? subscribeFeed(room, send) : null;
+      leave = room ? subscribeFeed(room, send) : null;
       send("stream", first.notice);
       const look = async () => {
         const now = await liveStream(ownerId);
-        if (now.room === room) return;
+        // The client hung up while we looked: nothing to rebind.
+        if (closed || now.room === room) return;
         leave?.();
         room = now.room;
         leave = room ? subscribeFeed(room, send) : null;
         send("stream", now.notice);
       };
-      const poll = setInterval(() => void look().catch(() => {}), pollMs);
-      const ping = setInterval(() => {
-        if (!res.destroyed && !res.writableEnded) res.write(": ping\n\n");
+      poll = setInterval(() => void look().catch(() => {}), pollMs);
+      ping = setInterval(() => {
+        if (res.destroyed || res.writableEnded) return close();
+        res.write(": ping\n\n");
       }, pingMs);
-
-      let closed = false;
-      const close = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(poll);
-        clearInterval(ping);
-        leave?.();
-        leave = null;
-        const left = (open.get(owner) ?? 1) - 1;
-        if (left > 0) open.set(owner, left);
-        else open.delete(owner);
-        if (!res.writableEnded) res.end();
-      };
-      req.on("close", close);
-      res.on("close", close);
     },
   };
 }

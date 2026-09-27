@@ -23,7 +23,7 @@ It reads two environment variables:
 | Variable             | What it is                                                     |
 | -------------------- | -------------------------------------------------------------- |
 | `XTREAM_CONTROL_KEY` | The key (`xck_…`). Required; the server exits without it.      |
-| `XTREAM_API_URL`     | The API's base. Default `http://localhost:3002/api`.           |
+| `XTREAM_API_URL`     | The API's base. Default `http://localhost:3001/api`.           |
 
 ### Claude Code
 
@@ -50,7 +50,7 @@ the absolute path to the built server:
       "args": ["/path/to/xtreme-livestream/packages/control-mcp/dist/index.js"],
       "env": {
         "XTREAM_CONTROL_KEY": "xck_…",
-        "XTREAM_API_URL": "http://localhost:3002/api"
+        "XTREAM_API_URL": "http://localhost:3001/api"
       }
     }
   }
@@ -81,7 +81,7 @@ The API also has a feed of what happens on the stream — a scene change, a
 rule firing, a gift, a guest coming up — as server-sent events:
 
 ```sh
-curl -N http://localhost:3002/api/control/events -H "Authorization: Bearer xck_…"
+curl -N http://localhost:3001/api/control/events -H "Authorization: Bearer xck_…"
 ```
 
 That's for scripts that listen; this server is for assistants that act.

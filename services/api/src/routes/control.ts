@@ -132,12 +132,19 @@ export const controlRoutes: FastifyPluginAsync = async (fastify) => {
       config: PRESS_LIMIT,
     },
     async (request, reply) => {
-      // Any key may listen. Authenticating touches its lastUsedAt — once, on connect.
-      const { owner } = await authenticateControl(request, null);
+      // Listening is its own scope: the feed carries the show as it happens,
+      // which a key made for one button has no business hearing. Authenticating
+      // touches lastUsedAt — once, on connect.
+      const { owner } = await authenticateControl(request, "events");
       const feed = await openControlFeed(owner._id);
-      // From here the reply is the feed's to write and to end: Fastify steps aside.
-      reply.hijack();
-      feed.serve(request.raw, reply.raw, reply.getHeaders());
+      try {
+        // From here the reply is the feed's to write and to end: Fastify steps aside.
+        reply.hijack();
+        feed.serve(request.raw, reply.raw, reply.getHeaders());
+      } catch (err) {
+        feed.release();
+        throw err;
+      }
     },
   );
 

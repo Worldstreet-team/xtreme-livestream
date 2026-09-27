@@ -905,7 +905,7 @@ export interface ShowRuleView {
  * graphics, playing sounds, running the show, firing rules. Keys are shown
  * once and kept only as a hash.
  */
-export const CONTROL_SCOPES = ["scene", "sound", "show", "rules"] as const;
+export const CONTROL_SCOPES = ["scene", "sound", "show", "rules", "events"] as const;
 export type ControlScope = (typeof CONTROL_SCOPES)[number];
 export const MAX_CONTROL_KEYS = 10;
 export const controlKeyBodySchema = z.object({

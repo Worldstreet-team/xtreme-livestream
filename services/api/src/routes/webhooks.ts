@@ -19,14 +19,11 @@ import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
  * minus the broadcaster.
  *
  * The room roster is queried rather than trusting the event's
- * `numParticipants`, which is a snapshot taken at event time and is ambiguous
- * for `participant_left` (it may or may not still include the leaver).
- * `numParticipants` is the fallback when the roster lookup fails.
+ * `numParticipants`, which is a snapshot taken at event time, ambiguous for
+ * `participant_left` (it may or may not still include the leaver), and blind
+ * to who in the room is a feed or crew rather than audience.
  */
-async function updateViewerCounts(
-  stream: IStream,
-  numParticipants: number | undefined,
-) {
+async function updateViewerCounts(stream: IStream) {
   let viewers: number | undefined;
 
   try {
@@ -45,10 +42,10 @@ async function updateViewerCounts(
         !isCameraIdentity(p.identity),
     ).length;
   } catch {
-    viewers =
-      numParticipants === undefined
-        ? undefined
-        : Math.max(0, numParticipants - 1);
+    // No roster: the room's headcount can't tell the audience from the feeds
+    // and the crew (the encoder, a monitor, a console, the phone cam), so the
+    // count stands until the next roster rather than jump.
+    return;
   }
 
   if (viewers === undefined) return;
@@ -141,10 +138,7 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           void openWatchSession(stream, identity).catch((error) =>
             console.error("watch session open failed:", error),
           );
-          await updateViewerCounts(
-            stream,
-            event.room?.numParticipants,
-          );
+          await updateViewerCounts(stream);
         }
       } else if (
         event.event === "participant_left" ||
@@ -196,10 +190,7 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
                   username: guest.username,
                 });
               }
-              await updateViewerCounts(
-                stream,
-                event.room?.numParticipants,
-              );
+              await updateViewerCounts(stream);
             }
           }
         }

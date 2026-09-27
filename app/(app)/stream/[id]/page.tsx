@@ -382,6 +382,8 @@ export default function StreamPage({
   // camera comes in, is the host's angle under this viewer's own pick.
   const phoneCameraRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneAvailable, setPhoneAvailable] = useState(false);
+  // The phone's track comes and goes: a re-render of its own, never the host's element re-attached.
+  const [, setPhoneEpoch] = useState(0);
   const anglePick = useAnglePick(id);
   const resolved = resolveAngle((stream?.scene ?? DEFAULT_SCENE).angle ?? "main", anglePick, phoneAvailable);
   const resolvedRef = useRef<ResolvedAngle>(resolved);
@@ -840,7 +842,7 @@ export default function StreamPage({
           // program, never a guest tile.
           if (isCameraIdentity(participant.identity)) {
             phoneCameraRef.current = track;
-            setHostTrackEpoch((n) => n + 1);
+            setPhoneEpoch((n) => n + 1);
             return;
           }
           // The host's feed arrives as their user id (browser publish) or
@@ -950,7 +952,7 @@ export default function StreamPage({
         if (track.kind === Track.Kind.Video) {
           if (isCameraIdentity(participant.identity)) {
             phoneCameraRef.current = null;
-            setHostTrackEpoch((n) => n + 1);
+            setPhoneEpoch((n) => n + 1);
             return;
           }
           const hostId = streamerIdRef.current;

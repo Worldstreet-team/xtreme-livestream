@@ -130,7 +130,7 @@ describe("the control feed", () => {
       return { res, read: res.body ? frames(res.body) : null };
     };
     const makeKey = async () => {
-      const res = await app.inject({ method: "POST", url: "/v1/users/me/control-keys", payload: { name: "Companion", scopes: ["scene"] } });
+      const res = await app.inject({ method: "POST", url: "/v1/users/me/control-keys", payload: { name: "Companion", scopes: ["scene", "events"] } });
       return res.json().data.secret as string;
     };
 
@@ -202,13 +202,20 @@ describe("the control feed", () => {
       try {
         const res = await fetch(`http://127.0.0.1:${port}/`, { signal: ac.signal });
         const read = frames(res.body!);
-        expect((await read.next()).event).toBe("retry 3000");
-        expect(await read.next()).toMatchObject({ id: 1, event: "stream", data: { live: false, streamId: null, title: null } });
+        // Pings land whenever they like; the events are what's expected.
+        const nextEvent = async (): Promise<Frame> => {
+          for (;;) {
+            const f = await read.next();
+            if (f.comment === null) return f;
+          }
+        };
+        expect((await nextEvent()).event).toBe("retry 3000");
+        expect(await nextEvent()).toMatchObject({ id: 1, event: "stream", data: { live: false, streamId: null, title: null } });
 
         const stream = seedLive();
-        expect(await read.next()).toMatchObject({ event: "stream", data: { live: true, streamId: String(stream._id), title: "Friday night desk" } });
+        expect(await nextEvent()).toMatchObject({ event: "stream", data: { live: true, streamId: String(stream._id), title: "Friday night desk" } });
         feed.publishFeed("room-1", { __evt: "goal", goal: { title: "New mic", progress: 40 } });
-        expect(await read.next()).toMatchObject({ event: "goal", data: { goal: { title: "New mic", progress: 40 } } });
+        expect(await nextEvent()).toMatchObject({ event: "goal", data: { goal: { title: "New mic", progress: 40 } } });
 
         // A ping, between events, keeps a proxy from hanging up.
         let ping: Frame | null = null;
@@ -219,13 +226,13 @@ describe("the control feed", () => {
         expect(ping).not.toBeNull();
 
         stream.isLive = false;
-        expect(await read.next()).toMatchObject({ event: "stream", data: { live: false, streamId: null, title: null } });
+        expect(await nextEvent()).toMatchObject({ event: "stream", data: { live: false, streamId: null, title: null } });
         // The next broadcast has a new room: the feed follows it.
         const next = db.Stream!.insert({ streamerId: HOST, isLive: true, title: "Saturday", livekitRoomName: "room-2", startedAt: new Date(), scene: {} });
-        expect(await read.next()).toMatchObject({ event: "stream", data: { live: true, streamId: String(next._id), title: "Saturday" } });
+        expect(await nextEvent()).toMatchObject({ event: "stream", data: { live: true, streamId: String(next._id), title: "Saturday" } });
         feed.publishFeed("room-1", { __evt: "scene", scene: {} });
         feed.publishFeed("room-2", { __evt: "tickers", chips: ["BTC"] });
-        expect(await read.next()).toMatchObject({ event: "tickers", data: { chips: ["BTC"] } });
+        expect(await nextEvent()).toMatchObject({ event: "tickers", data: { chips: ["BTC"] } });
       } finally {
         ac.abort();
         await vi.waitFor(() => expect(feed.feedListeners(HOST)).toBe(0));

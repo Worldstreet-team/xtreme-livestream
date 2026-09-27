@@ -17,6 +17,7 @@ const SCOPE_LABELS: Record<ControlScope, { label: string; hint: string }> = {
   sound: { label: "Sounds", hint: "the audio desk's pads" },
   show: { label: "Run of show", hint: "start, next, stop — with each segment's cues" },
   rules: { label: "Rules", hint: "fire a show rule by hand" },
+  events: { label: "Events", hint: "hear the show as it happens — the events feed" },
 };
 
 /** What a few buttons send — copied straight into Companion or a script. */
@@ -31,7 +32,7 @@ const EXAMPLES: { label: string; method: "POST" | "GET"; path: string; body?: st
     method: "GET",
     path: "/control/events",
     stream: true,
-    note: "Server-sent events: whether you're live first, then each scene change, rule firing, gift or guest as event: and its JSON. Chat isn't in it.",
+    note: "Server-sent events: whether you're live first, then each scene change, rule firing, gift or guest as event: and its JSON. Chat, held lines and moderation aren't in it. Needs the Events scope.",
   },
 ];
 
@@ -83,7 +84,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
 export function ControlKeys() {
   const [keys, setKeys] = useState<ControlKeyView[] | null>(null);
   const [name, setName] = useState("Stream Deck");
-  const [scopes, setScopes] = useState<ControlScope[]>(["scene", "sound", "show"]);
+  const [scopes, setScopes] = useState<ControlScope[]>(["scene", "sound", "show", "events"]);
   const [fresh, setFresh] = useState<{ name: string; secret: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);

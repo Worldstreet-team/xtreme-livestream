@@ -12,7 +12,7 @@ import { CARDS, GRAPHICS, LAYOUTS, PADS, STEPS, calls, failureText, toRequest, t
  * it may do, and the API says no in words when it may not.
  */
 
-const base = (process.env.XTREAM_API_URL ?? "http://localhost:3002/api").replace(/\/+$/, "");
+const base = (process.env.XTREAM_API_URL ?? "http://localhost:3001/api").replace(/\/+$/, "");
 const key = process.env.XTREAM_CONTROL_KEY ?? "";
 if (!key) {
   // stderr: stdout is the MCP wire.
