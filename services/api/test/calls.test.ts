@@ -113,6 +113,7 @@ const { config } = await import("../src/config.js");
 const { setKnownMarkets } = await import("../src/market-list.js");
 const { clearQuoteCache, clearMarketCache } = await import("../src/routes/market.js");
 const calls = await import("../src/calls.js");
+const { clearOracleCache } = await import("../src/market-oracle.js");
 
 const minuteOf = (t: number) => Math.floor(t / MINUTE) * MINUTE;
 let streamId: mongoose.Types.ObjectId;
@@ -139,6 +140,8 @@ function seedCall(fields: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  // Minute closes are shared with market questions and kept once final.
+  clearOracleCache();
   for (const m of Object.values(db)) m.reset();
   state.caller = "host";
   state.events = [];
@@ -398,7 +401,8 @@ describe("the outcome sweep", () => {
     expect(call.outcomes.h1).toEqual({ price: 104, at: new Date(T0 + HOUR), changePct: 4, unavailable: false });
     expect(call.outcomes.h24).toBeNull();
     expect(call.nextCheckAt).toEqual(new Date(T0 + 24 * HOUR + 90_000));
-    expect(state.fetches[0]).toContain("/products/SOL-USD/candles?granularity=60&start=2026-09-20T21:14:00.000Z");
+    // A window round the minute: ten before it, for a minute nobody traded in.
+    expect(state.fetches[0]).toContain("/products/SOL-USD/candles?granularity=60&start=2026-09-20T21:04:00.000Z");
 
     expect(await calls.sweepCalls(T0 + 24 * HOUR + 2 * MINUTE)).toBe(1);
     expect(call.outcomes.h24).toMatchObject({ price: 97, changePct: -3, unavailable: false });
@@ -443,7 +447,8 @@ describe("the outcome sweep", () => {
     state.candles["SOL-USD"] = { [minuteOf(T0 + HOUR)]: 0 };
     state.closeQueue = [110, 1];
     const [one, two] = await Promise.all([calls.sweepCalls(T0 + HOUR + 2 * MINUTE), calls.sweepCalls(T0 + HOUR + 2 * MINUTE)]);
-    expect(state.fetches).toHaveLength(2);
+    // The two reads of the same minute share one request; the write is still made once.
+    expect(state.fetches).toHaveLength(1);
     expect(one + two).toBe(1);
     expect(call.outcomes.h1).toMatchObject({ price: 110, changePct: 10 });
   });
@@ -453,8 +458,10 @@ describe("the outcome sweep", () => {
     expect(await calls.priceAt("SOL-USD", new Date(T0), T0 + 10_000)).toBeNull();
     expect(state.fetches).toHaveLength(0);
     expect(await calls.priceAt("SOL-USD", new Date(T0), T0 + 2 * MINUTE)).toBe(123);
+    // A feed that's down is a price not in yet — never an error the sweep has to catch.
+    clearOracleCache();
     state.feedDown = true;
-    await expect(calls.priceAt("SOL-USD", new Date(T0), T0 + 2 * MINUTE)).rejects.toMatchObject({ code: "MARKET_UNAVAILABLE" });
+    await expect(calls.priceAt("SOL-USD", new Date(T0), T0 + 2 * MINUTE)).resolves.toBeNull();
   });
 });
 

@@ -81,7 +81,9 @@ function useRequestEvents(room: Room | null, onEvent: (evt: string, data: Record
     let cancelled = false;
     void import("livekit-client").then(({ RoomEvent }) => {
       if (cancelled) return;
-      const handle = (payload: Uint8Array) => {
+      const handle = (payload: Uint8Array, participant?: { identity: string }) => {
+        // The API's events only: sent by the server, with no participant.
+        if (participant) return;
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
           if (data.__evt === "requests_menu" || data.__evt === "request" || data.__evt === "request_update") {

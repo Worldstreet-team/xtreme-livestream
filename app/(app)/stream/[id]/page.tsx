@@ -1054,6 +1054,10 @@ export default function StreamPage({
       room.on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }, kind?: unknown, topic?: string) => {
         // The host's face positions: binary, and many a second — never JSON.
         if (takeAnchors(payload, from, kind, topic)) return;
+        // Everything else is the API's, sent by the server with no
+        // participant — bar the host's own AI-voice badge. Anyone else in the
+        // room is ignored, whatever their packet claims to be.
+        if (from && from.identity !== streamerIdRef.current) return;
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as {
             __evt?: string;
@@ -1074,6 +1078,8 @@ export default function StreamPage({
             state?: string;
             graceMs?: number;
           };
+          // From the host's studio, only the AI-voice badge counts.
+          if (from && data.__evt !== "ai_voice") return;
           // The host's assistant is talking — said by the host's own studio,
           // so it only counts from them. It lapses by itself if the "off" is lost.
           if (data.__evt === "ai_voice") {

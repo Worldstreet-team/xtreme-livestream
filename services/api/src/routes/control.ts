@@ -102,9 +102,9 @@ export const controlRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { owner, key } = await authenticateControl(request, null);
       // Any key may ask whether the channel is live. The rest is for a key
-      // that acts on it — or hears it on the events feed anyway: an airhorn
-      // button has no business reading the run of show.
-      const sees = (scope: ControlScope) => key.scopes.includes(scope) || key.scopes.includes("events");
+      // that acts on it — or, for the scene, hears it on the events feed
+      // anyway: an airhorn button has no business reading the run of show.
+      const sees = (scope: ControlScope) => key.scopes.includes(scope) || (scope === "scene" && key.scopes.includes("events"));
       const [stream, segments, rules] = await Promise.all([
         Stream.findOne({ streamerId: owner._id, isLive: true }).select("+rundown title startedAt scene").lean(),
         sees("show") ? segmentsOf(owner._id) : null,

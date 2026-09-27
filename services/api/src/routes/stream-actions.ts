@@ -153,7 +153,10 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         {
           canPublish: isOwner && !monitoring,
           canSubscribe: true,
-          canPublishData: viewer !== null,
+          // Room events are the API's to send (it fans chat out too): a
+          // viewer who could publish data could put a fake gift, scene or
+          // card in front of everyone in the room.
+          canPublishData: isOwner && !monitoring,
         },
       );
 

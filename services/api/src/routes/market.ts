@@ -141,6 +141,12 @@ async function fetchQuote(symbol: string): Promise<MarketQuote | null> {
   return { symbol, last, changePct: Number.isFinite(open) && open > 0 ? ((last - open) / open) * 100 : 0 };
 }
 
+/** When the quote a market's cache holds was fetched — a stale fallback keeps its old time. */
+export function quoteTime(symbol: string): number | null {
+  const hit = quoteCache.get(symbol);
+  return hit?.quote ? hit.at : null;
+}
+
 /** A market's quote, shared for 15 seconds like the candles; a stale one beats none for a while. */
 export async function getQuote(symbol: string, now = Date.now()): Promise<MarketQuote | null> {
   const hit = quoteCache.get(symbol);

@@ -424,7 +424,10 @@ export function LiveChat({
       eventName = RoomEvent.DataReceived;
 
       const handleData = (payload: Uint8Array, participant?: { identity: string }) => {
-        if (participant?.identity === user?.id) return;
+        // Chat and its events are the API's, sent by the server with no
+        // participant: a line from anyone in the room is ignored, so nobody
+        // can put words in someone else's mouth.
+        if (participant) return;
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as Partial<ChatMsg> & {
             __evt?: string;

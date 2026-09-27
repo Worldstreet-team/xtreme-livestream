@@ -7,6 +7,7 @@ import { startSocialsRelaySweep } from "./socials-relay.js";
 import { startVelocitySweep } from "./velocity.js";
 import { startBattleSweep } from "./battles.js";
 import { startCallSweep } from "./calls.js";
+import { startGuestReconcile } from "./routes/webhooks.js";
 import { startDropSweep, startGameSweep } from "./games.js";
 import { startMarketAlertSweep } from "./market-alerts.js";
 import { startWatchDrip } from "./points.js";
@@ -53,6 +54,7 @@ try {
   startGameSweep();
   startMarketAlertSweep();
   startCallSweep();
+  startGuestReconcile();
   startDropSweep();
   startPayoutSweep();
   startWatchDrip();

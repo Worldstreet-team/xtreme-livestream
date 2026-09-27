@@ -143,6 +143,9 @@ export function GiftEffects({ set = null, anchors = null, fit = "cover", mirrore
         return;
       }
       if (t.w === 0 || t.h === 0) return;
+      // Runs that have ended go before anything's admitted: ended runs are
+      // otherwise cleared by the frame loop, and a hidden tab draws no frames.
+      runsRef.current = runsRef.current.filter((r) => r.end > now);
       const admitted = admitEffect(runsRef.current, effect, now);
       if (admitted.kind === "add") {
         const flip = effect === "rocket" && runsRef.current.filter((r) => r.effect === "rocket").length % 2 === 1;
@@ -162,6 +165,9 @@ export function GiftEffects({ set = null, anchors = null, fit = "cover", mirrore
         seen.current = [...seen.current.slice(-49), opts.id];
       }
       const effect = effectForGift(live.current.set, ref);
+      // Nobody's looking: a tab in the background (or a phone playing Radio
+      // with the screen off) plays nothing rather than stacking up pieces.
+      if (effect && typeof document !== "undefined" && document.visibilityState === "hidden") return null;
       if (effect) play(effect);
       return effect;
     },

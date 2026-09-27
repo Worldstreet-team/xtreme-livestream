@@ -163,7 +163,7 @@ export function PlayPanel({ game, onChange }: { game: GameView; onChange: (g: Ga
       {market && (
         <p className="mt-2.5 text-[12px] text-muted-foreground tabular-nums">
           {settled && market.price !== null ? (
-            <span className="font-medium text-foreground/85">{marketResultText({ symbol: market.symbol, at: market.at, price: market.price })}</span>
+            <span className="font-medium text-foreground/85">{marketResultText({ symbol: market.symbol, at: market.at, price: market.price, above: market.above })}</span>
           ) : game.status === "cancelled" ? (
             `Was to settle at ${formatMarketTime(market.at)} from Coinbase`
           ) : (

@@ -526,6 +526,13 @@ export interface FaceAnchorsOptions {
   feed?: AnchorFeed | null;
   maxHz?: number;
   onState?: (state: FaceTrackState) => void;
+  /**
+   * How often viewers are sent the face, per second: the full rate while an
+   * effect is playing, a trickle between (so the next one starts near the
+   * face), none at all when nothing viewers see follows it. The host's own
+   * preview gets every detection either way. Unset: every detection.
+   */
+  publishHz?: () => number;
 }
 
 export interface FaceAnchorStats {
@@ -653,9 +660,15 @@ export function startFaceAnchors(opts: FaceAnchorsOptions): FaceAnchorsHandle {
   const input = document.createElement("canvas");
   const inputCtx = input.getContext("2d", { alpha: false });
 
+  let lastSentAt = -Infinity;
   const publish = (face: FaceAnchors | null, t: number) => {
     const r = room;
     if (!r || r.state !== "connected") return;
+    // At the rate viewers need it: the full rate while an effect plays, else a trickle, else nothing.
+    const hz = opts.publishHz ? opts.publishHz() : Infinity;
+    if (hz <= 0) return;
+    if (face && t - lastSentAt < 1000 / hz) return;
+    lastSentAt = t;
     // A lost face goes out at once, then once a second: viewers need to know, not to hear it twelve times.
     if (!face) {
       if (!lastSentFace && t - lastNoFaceAt < 1000) return;
@@ -782,16 +795,24 @@ export function useFaceAnchors({
   feed = null,
   enabled,
   maxHz,
+  publishHz,
 }: {
   track: FaceAnchorsOptions["track"] | null | undefined;
   room?: AnchorRoom | null;
   feed?: AnchorFeed | null;
   enabled: boolean;
   maxHz?: number;
+  /** Read on every detection (see FaceAnchorsOptions): keep it stable, and read refs inside it. */
+  publishHz?: () => number;
 }): FaceTrackState {
   const [state, setState] = useState<FaceTrackState>("off");
   const handle = useRef<FaceAnchorsHandle | null>(null);
   const roomRef = useRef<AnchorRoom | null>(room);
+  const publishRef = useRef(publishHz);
+  // The latest rule, for a tracker that reads it on every detection.
+  useEffect(() => {
+    publishRef.current = publishHz;
+  });
 
   // Declared first, so a tracker starting in the same commit sees the room.
   useEffect(() => {
@@ -801,7 +822,7 @@ export function useFaceAnchors({
 
   useEffect(() => {
     if (!enabled || !track) return;
-    const h = startFaceAnchors({ track, room: roomRef.current, feed, maxHz, onState: setState });
+    const h = startFaceAnchors({ track, room: roomRef.current, feed, maxHz, onState: setState, publishHz: () => publishRef.current?.() ?? Infinity });
     handle.current = h;
     return () => {
       h.stop();

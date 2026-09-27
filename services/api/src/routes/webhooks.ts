@@ -22,10 +22,11 @@ export const GUEST_GRACE = { ms: 20_000 };
 /** One pending check per room and guest: another leave inside the window doesn't stack a second. */
 const guestChecks = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** Free a dropped guest's place once the grace is up — unless they're back by then. */
+/** Free a dropped guest's place once the grace is up — unless they're back by then. A second drop starts the grace again. */
 function releaseGuestLater(roomName: string, identity: string) {
   const key = `${roomName}:${identity}`;
-  if (guestChecks.has(key)) return;
+  const pending = guestChecks.get(key);
+  if (pending) clearTimeout(pending);
   guestChecks.set(
     key,
     setTimeout(() => {
@@ -33,6 +34,27 @@ function releaseGuestLater(roomName: string, identity: string) {
       void releaseGuestIfGone(roomName, identity).catch((error) => console.error("guest release failed:", error));
     }, GUEST_GRACE.ms),
   );
+}
+
+/**
+ * A restart forgets the grace timers: once a grace has passed after one,
+ * any guest listed on a live stream who isn't in its room is freed, as their
+ * timer would have done.
+ */
+export function startGuestReconcile() {
+  setTimeout(() => void reconcileGuests().catch((error) => console.error("guest reconcile failed:", error)), GUEST_GRACE.ms + 5_000);
+}
+
+export async function reconcileGuests() {
+  const streams = await Stream.find({ isLive: true, "guests.0": { $exists: true } }).select("guests livekitRoomName").lean();
+  for (const s of streams) {
+    const roster = await roomService.listParticipants(s.livekitRoomName).catch(() => null);
+    if (!roster) continue;
+    const here = new Set(roster.map((p) => p.identity));
+    for (const g of s.guests ?? []) {
+      if (!here.has(String(g.userId))) await releaseGuestIfGone(s.livekitRoomName, String(g.userId));
+    }
+  }
 }
 
 async function releaseGuestIfGone(roomName: string, identity: string) {
@@ -59,11 +81,12 @@ async function releaseGuestIfGone(roomName: string, identity: string) {
  * `participant_left` (it may or may not still include the leaver), and blind
  * to who in the room is a feed or crew rather than audience.
  */
-async function updateViewerCounts(stream: IStream) {
+async function updateViewerCounts(stream: IStream, roster?: Array<{ identity: string }> | null) {
   let viewers: number | undefined;
 
   try {
-    const list = await roomService.listParticipants(stream.livekitRoomName);
+    // A roster the caller already read (a leave checks who's in first) saves asking twice.
+    const list = roster ?? (await roomService.listParticipants(stream.livekitRoomName));
     const bid = stream.streamerId.toString();
     // Neither the browser publisher nor the RTMP encoder (obs-<id>) is a
     // viewer — an OBS stream has both in the room at once.
@@ -206,8 +229,10 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
               }
             } else {
               // A reload or a new tab: the same identity is already back in,
-              // and this is its old session leaving — not the person.
-              const back = await isIdentityInRoom(roomName, identity);
+              // and this is its old session leaving — not the person. One
+              // read of the room answers that and the count below.
+              const roster = await roomService.listParticipants(roomName).catch(() => null);
+              const back = roster?.some((p) => p.identity === identity) ?? false;
               if (!back) {
                 void closeWatchSession(stream, identity).catch((error) =>
                   console.error("watch session close failed:", error),
@@ -220,7 +245,7 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
               if (!back && stream.guests?.some((g) => String(g.userId) === identity)) {
                 releaseGuestLater(roomName, identity);
               }
-              await updateViewerCounts(stream);
+              await updateViewerCounts(stream, roster);
             }
           }
         }

@@ -299,6 +299,8 @@ function LiveConsole({
     const takeAnchors = anchorsListener(anchorFeed, () => host.id);
     const onData = (payload: Uint8Array, from?: { identity: string }, kind?: unknown, topic?: string) => {
       if (takeAnchors(payload, from, kind, topic)) return;
+      // A gift is the API's to announce: sent by the server, with no participant.
+      if (from) return;
       try {
         const data = JSON.parse(new TextDecoder().decode(payload)) as { __evt?: string; type?: string; emoji?: string; id?: string };
         // A gift lands as a tip line: the Set's effect for it.

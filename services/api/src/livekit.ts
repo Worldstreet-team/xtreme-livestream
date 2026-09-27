@@ -247,7 +247,8 @@ export async function setParticipantPublishPermission(
     permission: {
       canPublish,
       canSubscribe: true,
-      canPublishData: true,
+      // A guest's camera and mic, never room events — those are the API's.
+      canPublishData: false,
     },
   });
 }

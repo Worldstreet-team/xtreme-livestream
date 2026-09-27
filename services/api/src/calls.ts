@@ -22,6 +22,7 @@ import { sceneView } from "./featured.js";
 import { sendRoomData, setRoomScene } from "./livekit.js";
 import { knownMarkets } from "./market-list.js";
 import { Call, Stream, type ICall, type ICallOutcome, type IStream, type IUser } from "./models.js";
+import { closeOfMinute } from "./market-oracle.js";
 import { freshQuote } from "./routes/market.js";
 import { checkMessage } from "./safety/filter.js";
 
@@ -46,8 +47,6 @@ type CallRecord = Pick<ICall, "streamId" | "streamerId" | "by" | "symbol" | "dir
   createdAt?: Date;
 };
 
-const SOURCE = "https://api.exchange.coinbase.com";
-const HEADERS = { "User-Agent": "xtream-live/1.0", Accept: "application/json" };
 const MINUTE = 60_000;
 const DAY = 24 * 3_600_000;
 /** A checkpoint is looked at once its minute has closed and Coinbase has had half a minute to publish the candle. */
@@ -78,34 +77,13 @@ export const movePct = (from: number, to: number) => round(((to - from) / from) 
 
 /**
  * A market's price at a moment: the close of Coinbase's one-minute candle
- * for that minute — the last trade in it. Null while that minute hasn't
- * closed, and when there's no candle for it (nothing traded, or no such
- * market); throws when the feed can't be read. Same source, headers and
- * timeout as the charts (routes/market.ts).
+ * for that minute — the last trade in it, or the last before it when nobody
+ * traded in it (so a quiet coin's check isn't left waiting on a candle that
+ * will never come). Null while that minute hasn't closed or the feed hasn't
+ * answered. Shared with market questions (market-oracle.ts).
  */
-export async function priceAt(symbol: string, at: Date, now = Date.now()): Promise<number | null> {
-  const minute = Math.floor(at.getTime() / MINUTE) * MINUTE;
-  // The minute's still trading: its close isn't the close yet.
-  if (minute + MINUTE > now) return null;
-  const range = `start=${new Date(minute).toISOString()}&end=${new Date(minute + MINUTE).toISOString()}`;
-  let res: Response;
-  try {
-    res = await fetch(`${SOURCE}/products/${symbol}/candles?granularity=60&${range}`, {
-      headers: HEADERS,
-      signal: AbortSignal.timeout(6_000),
-    });
-  } catch {
-    throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
-  }
-  if (res.status === 404 || res.status === 400) return null;
-  if (!res.ok) throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
-  const rows = (await res.json()) as unknown;
-  if (!Array.isArray(rows)) throw new ApiError(502, "Market data is unavailable right now", "MARKET_UNAVAILABLE");
-  // Rows are [time (seconds), low, high, open, close, volume]; the window can
-  // bring its neighbour too, so only that minute's own candle counts.
-  const row = rows.find((r): r is number[] => Array.isArray(r) && r.length >= 5 && Number(r[0]) * 1000 === minute);
-  const close = row?.[4];
-  return typeof close === "number" && Number.isFinite(close) && close > 0 ? close : null;
+export function priceAt(symbol: string, at: Date, now = Date.now()): Promise<number | null> {
+  return closeOfMinute(symbol, at.getTime(), now);
 }
 
 /* ------------------------------------------------------------------ */
@@ -453,7 +431,16 @@ export async function sweepCalls(now = Date.now()) {
   return settled;
 }
 
-/** Once a minute. It runs with the switch off too: calls made while it was on still get their checks. */
+/** Once a minute — never two at once, however slow the feed. It runs with the switch off too: calls made while it was on still get their checks. */
 export function startCallSweep() {
-  setInterval(() => void sweepCalls().catch((e) => console.error("call sweep failed:", e)), 60_000);
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    void sweepCalls()
+      .catch((e) => console.error("call sweep failed:", e))
+      .finally(() => {
+        running = false;
+      });
+  }, 60_000);
 }

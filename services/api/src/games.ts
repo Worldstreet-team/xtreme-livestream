@@ -126,7 +126,12 @@ export async function currentGameForStream(streamId: mongoose.Types.ObjectId | s
 
 /** Every game with an open or locked window, newest first — for discovery. */
 export async function liveGames(limit = 12) {
-  return Game.find({ status: { $in: ["open", "locked"] } }).sort({ createdAt: -1 }).limit(limit);
+  // Only on streams anyone can watch right now: a question that outlived its
+  // stream, or a practice run's, isn't anyone's to play.
+  const live = await Stream.find({ isLive: true, practice: { $ne: true }, takenDownAt: null }).select("_id").lean();
+  return Game.find({ status: { $in: ["open", "locked"] }, streamId: { $in: live.map((s) => s._id) } })
+    .sort({ createdAt: -1 })
+    .limit(limit);
 }
 
 export async function fanOutGame(g: IGame, stream?: Pick<IStream, "livekitRoomName"> | null) {

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { ChatMessage, Follow, GameEntry, PointsLedger, QuestClaim, Stream, User, WatchSession } from "./models.js";
+import { ChatMessage, Follow, Game, GameEntry, PointsLedger, QuestClaim, Stream, User, WatchSession } from "./models.js";
 import { awardPoints } from "./points.js";
 import { audit } from "./rewards.js";
 
@@ -234,8 +234,15 @@ async function count(metric: QuestMetric, userId: UserId, period: Period, memo: 
     }
     case "chat_messages":
       return ChatMessage.countDocuments({ userId, type: "text", createdAt: window });
-    case "games_entered":
-      return GameEntry.countDocuments({ userId, createdAt: window });
+    case "games_entered": {
+      // A vote on a market price doesn't count toward points (see isVote in
+      // games.ts): nothing rides on where a price lands until the points
+      // question is settled — not even a quest's worth.
+      const entries = await GameEntry.find({ userId, createdAt: window }).select("gameId").lean();
+      if (entries.length === 0) return 0;
+      const markets = await Game.countDocuments({ _id: { $in: entries.map((e) => e.gameId) }, oracle: { $type: "object" } });
+      return entries.length - markets;
+    }
     case "games_won":
       return GameEntry.countDocuments({ userId, wonPoints: { $gt: 0 }, updatedAt: window });
     case "follows":

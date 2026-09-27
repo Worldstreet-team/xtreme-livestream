@@ -746,11 +746,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // The camera is the main picture: not a shared screen, and not cut to the phone cam.
   const cameraIsMain = source === "camera" && !localScreen && !(phoneConnected && scene.angle === "phone");
   const faceCam = cameraIsMain ? (isLive ? liveCam : previewTrack) : null;
+  // Viewers need the face at full rate only while an effect is on screen:
+  // a trickle between gifts (so the next effect starts near the face), and
+  // none at all when the set draws nothing on it ("Try it" is the host's own).
+  const faceBoostUntil = useRef(0);
   const faceState = useFaceAnchors({
     track: faceCam,
     room: isLive ? liveRoom : null,
     feed: faceFeed,
     enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying),
+    publishHz: () => (!setUsesFace(activeSetRef.current) ? 0 : Date.now() < faceBoostUntil.current ? 12 : 1),
   });
 
   /** The Sets (gift-reactive Sets): used from the setup screen before going live, and the Scenes panel after. */
@@ -1087,13 +1092,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           const id = String(data.id ?? `tip-${Date.now()}-${Math.random()}`);
           const cents = Math.round(parseFloat(amountStr) * 100) || 0;
           setSessionTipsMinor((t) => t + cents);
-          // The Set's effect for this gift, round the host's face on this preview (viewers draw their own).
-          effectsRef.current?.gift({ emoji: data.emoji }, { id });
-          // Its sound, when the set has one for this gift — else, for a big gift, the desk's ka-ching; for everyone either way.
+          // The Set's effect for this gift, round the host's face on this preview
+          // (viewers draw their own) — and the face goes to viewers at full rate while it plays.
+          if (effectsRef.current?.gift({ emoji: data.emoji }, { id })) faceBoostUntil.current = Date.now() + 10_000;
+          // Its sound, when the set has one for this gift (at most one a gap, for everyone);
+          // else, for a big gift, the desk's ka-ching.
           const setPad = soundForGift(activeSetRef.current, { emoji: data.emoji });
           const from = deskMomentsRef.current.giftFromMinor;
-          if (deskOnRef.current && setPad && setSoundGate(setPad)) void deskRef.current?.playPad(setPad);
-          else if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
+          if (setPad) {
+            if (deskOnRef.current && setSoundGate(setPad)) void deskRef.current?.playPad(setPad);
+          } else if (deskOnRef.current && from > 0 && cents >= from) void deskRef.current?.playPad("kaching");
           // …and, with the auto-director on, the host alone for their reaction.
           if (cents >= 2000) directorReactRef.current();
           playTipChime();
@@ -1513,7 +1521,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     });
 
     // Stage requests, stage transitions, and tip alerts.
-    room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+    // Only the API's events count — sent by the server, with no participant.
+    // A packet from anyone in the room is ignored, whatever it claims to be.
+    room.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: { identity: string }) => {
+      if (participant) return;
       handleStudioDataRef.current(payload);
     });
 

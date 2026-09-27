@@ -207,7 +207,9 @@ export function useConsoleRoom({
       .on(RoomEvent.ParticipantConnected, sync)
       .on(RoomEvent.ParticipantDisconnected, sync)
       .on(RoomEvent.RoomMetadataChanged, (metadata: string) => handlers.current.onMetadata(metadata))
-      .on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+      .on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: { identity: string }) => {
+        // The API's events only: sent by the server, with no participant.
+        if (participant) return;
         try {
           const data = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
           if (data && typeof data === "object" && typeof data.__evt === "string") handlers.current.onData(data);

@@ -81,6 +81,7 @@ vi.mock("../src/models.js", () => ({
   Stream: {
     findOne: async (filter: { livekitRoomName?: string; isLive?: boolean }) =>
       filter.livekitRoomName === ROOM && streamDoc.isLive ? streamDoc : null,
+    find: () => ({ select: () => ({ lean: async () => (streamDoc.isLive ? [streamDoc] : []) }) }),
     updateOne: async (_filter: unknown, update: { $pull?: unknown }) => {
       if (update.$pull) pulled.push(update.$pull);
       return {};
@@ -209,6 +210,28 @@ describe("LiveKit webhook: the host's feed dropping", () => {
       state.inRoom = [GUEST];
       await settle();
       expect(pulled).toEqual([]);
+    });
+
+    it("starts the grace again when they drop a second time inside it", async () => {
+      const { GUEST_GRACE } = await import("../src/routes/webhooks.js");
+      GUEST_GRACE.ms = 150;
+      const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
+      await deliver("participant_left", GUEST);
+      await wait(100);
+      // Back, and gone again: the grace runs from this drop.
+      await deliver("participant_left", GUEST);
+      await wait(100);
+      expect(pulled).toEqual([]);
+      await wait(150);
+      expect(pulled).toHaveLength(1);
+    });
+
+    it("after a restart, frees a guest who never came back once a grace has passed", async () => {
+      const { reconcileGuests } = await import("../src/routes/webhooks.js");
+      await reconcileGuests();
+      await settle();
+      expect(pulled).toHaveLength(1);
+      expect(state.dataEvents).toContainEqual({ __evt: "guest_update", action: "left", userId: GUEST, username: "tolu" });
     });
 
     it("frees their place, and tells the room, once they've stayed gone", async () => {

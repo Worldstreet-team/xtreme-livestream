@@ -10,11 +10,11 @@ import { knownMarkets } from "./market-list.js";
 
 /**
  * Market questions (Phase 4): "SOL above $150.00 at 20:30?" — a vote that
- * settles itself from the market. The price at `at` is the close of
- * Coinbase's 1-minute candle containing it (the candle that starts on that
- * minute), read once the minute is over; the game sweep (games.ts) asks
- * here, retrying until the candle is out, and calls the question off if
- * Coinbase still hasn't answered half an hour later.
+ * settles itself from the market. The price at 20:30 is the last trade
+ * before it: the close of Coinbase's 1-minute candle that ends at 20:30 —
+ * what a chart showed at that moment. The game sweep (games.ts) asks here
+ * once that minute is over, retrying until the candle is out, and calls the
+ * question off if Coinbase still hasn't answered half an hour later.
  *
  * Same source and manners as the chart's candles (routes/market.ts) — the
  * public exchange feed, our user agent, a six-second timeout — but none of
@@ -25,8 +25,8 @@ import { knownMarkets } from "./market-list.js";
 const SOURCE = "https://api.exchange.coinbase.com";
 const MINUTE = 60_000;
 
-/** Readable: the minute's candle has closed and Coinbase has had half a minute to publish it. */
-export const ORACLE_READY_MS = MINUTE + 30_000;
+/** Readable: the minute before `at` closed at `at`, and Coinbase has had half a minute to publish it. */
+export const ORACLE_READY_MS = 30_000;
 /** How often the sweep asks again about a question still waiting on its price. */
 export const ORACLE_RETRY_MS = 15_000;
 /** No price half an hour after the minute: the question is called off. */
@@ -109,12 +109,25 @@ async function readMinute(symbol: string, start: number, now: number): Promise<n
 }
 
 /**
- * The close of Coinbase's 1-minute candle containing `at` — null until the
- * minute is over and the feed has it. Never throws: a feed that can't be
- * read is a price not in yet.
+ * The price at `at`: the last trade before it — the close of the 1-minute
+ * candle that ends at `at` (a question "at 20:30" settles on the price a
+ * chart showed at 20:30:00, not a minute later). Null until that minute is
+ * over and the feed has it. Never throws.
  */
 export async function priceAt(symbol: string, at: Date | number, now = Date.now()): Promise<number | null> {
-  const start = Math.floor(Number(at instanceof Date ? at.getTime() : at) / MINUTE) * MINUTE;
+  const minute = Math.floor(Number(at instanceof Date ? at.getTime() : at) / MINUTE) * MINUTE;
+  return closeOfMinute(symbol, minute - MINUTE, now);
+}
+
+/**
+ * The close of Coinbase's 1-minute candle that starts at `start` — the last
+ * trade in that minute, or before it when nobody traded in it (once a later
+ * minute shows it's over). Null until the minute is over and the feed has
+ * it. Never throws: a feed that can't be read is a price not in yet. Kept
+ * once final, so every question and call on the same minute asks once.
+ */
+export async function closeOfMinute(symbol: string, start: number, now = Date.now()): Promise<number | null> {
+  start = Math.floor(start / MINUTE) * MINUTE;
   if (!Number.isFinite(start) || now < start + MINUTE) return null;
   const key = `${symbol}:${start}`;
   const hit = final.get(key);

@@ -1592,9 +1592,13 @@ export function marketQuestionText(
 }
 
 /** What a settled market question says it settled on: "SOL was $151.20 at 20:30 · Coinbase". */
-export function marketResultText(o: { symbol: string; at: string | number | Date; price: number }, opts: { timeZone?: string } = {}): string {
+export function marketResultText(o: { symbol: string; at: string | number | Date; price: number; above?: number }, opts: { timeZone?: string } = {}): string {
   const base = o.symbol.split("-")[0] ?? o.symbol;
-  return `${base} was ${formatMarketUsd(o.price)} at ${formatMarketTime(o.at, opts.timeZone)} · Coinbase`;
+  // Never the same figure as the line it was judged against: a Yes that
+  // reads "$0.1234" against a $0.1234 line gets the digits that decided it.
+  let shown = formatMarketUsd(o.price);
+  if (o.above !== undefined && o.price !== o.above && shown === formatMarketUsd(o.above)) shown = `$${Number(o.price.toPrecision(10))}`;
+  return `${base} was ${shown} at ${formatMarketTime(o.at, opts.timeZone)} · Coinbase`;
 }
 
 /**

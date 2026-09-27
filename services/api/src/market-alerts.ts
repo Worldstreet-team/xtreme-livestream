@@ -11,7 +11,7 @@ import {
 } from "@xtreme/contracts";
 import { sendRoomDataTo } from "./livekit.js";
 import { Stream, User } from "./models.js";
-import { getMarket, getQuote } from "./routes/market.js";
+import { getMarket, getQuote, quoteTime } from "./routes/market.js";
 import { consoleIdentities } from "./safety/roles.js";
 import { trendingOf } from "./tickers.js";
 
@@ -291,10 +291,12 @@ function record(symbol: string, price: number, now: number) {
 
 export interface AlertDeps {
   quote: (symbol: string) => Promise<MarketQuote | null>;
+  /** When that quote was fetched: a stale fallback carries its own old time, never now's. */
+  quoteAt?: (symbol: string) => number | null;
   candles: (symbol: string, interval: ChartInterval) => Promise<{ candles: Array<{ t: number; o: number; h: number; l: number }> }>;
 }
 
-const FEED: AlertDeps = { quote: (symbol) => getQuote(symbol), candles: (symbol, interval) => getMarket(symbol, interval) };
+const FEED: AlertDeps = { quote: (symbol) => getQuote(symbol), quoteAt: quoteTime, candles: (symbol, interval) => getMarket(symbol, interval) };
 
 /**
  * A market's range on a stream, set up the first time the stream cares
@@ -329,7 +331,8 @@ async function rangeOf(watch: StreamWatch, symbol: string, startedAt: number, pr
  * host and their consoles. Returns how many suggestions went out.
  */
 export async function sweepMarketAlerts(now = Date.now(), feed: Partial<AlertDeps> = {}) {
-  const deps = { ...FEED, ...feed };
+  // Quotes from elsewhere (a test's) aren't timed by the real cache.
+  const deps: AlertDeps = feed.quote && !feed.quoteAt ? { ...FEED, ...feed, quoteAt: () => null } : { ...FEED, ...feed };
   const live = await Stream.find({ isLive: true }).select("_id streamerId livekitRoomName scene startedAt").lean();
   const liveIds = new Set(live.map((s) => String(s._id)));
   for (const key of [...streams.keys()]) if (!liveIds.has(key)) streams.delete(key);
@@ -347,7 +350,10 @@ export async function sweepMarketAlerts(now = Date.now(), feed: Partial<AlertDep
   await Promise.all(
     reading.map(async (symbol) => {
       const quote = await deps.quote(symbol).catch(() => null);
-      if (quote && quote.last > 0) record(symbol, quote.last, now);
+      // At the time it was fetched: the quote cache can hand back a minutes-old
+      // price while the feed is down, and that's not "now".
+      const at = Math.min(now, deps.quoteAt?.(symbol) ?? now);
+      if (quote && quote.last > 0 && now - at <= FRESH_MS) record(symbol, quote.last, at);
     }),
   );
   // Markets nobody's watched for a while are forgotten.

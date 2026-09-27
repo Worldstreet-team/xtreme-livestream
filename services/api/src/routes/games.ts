@@ -227,6 +227,11 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const game = await Game.findById(request.params.id);
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (!game.hostId.equals(dbUser._id)) throw new ApiError(403, "Only the host cancels", "NOT_HOST");
+      // Once its votes are in, a market question is the market's to settle: calling it
+      // off then would void an answer anyone can already read off a chart.
+      if (game.oracle && (game.status !== "open" || Date.now() >= new Date(game.closesAt).getTime())) {
+        throw new ApiError(409, "The votes are in — a market question settles itself now", "SETTLES_ITSELF");
+      }
       try {
         await cancelGame(game);
         await audit(dbUser._id, "game.cancel", "game", game._id as mongoose.Types.ObjectId, { type: game.type, entries: game.entries });

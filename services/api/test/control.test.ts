@@ -168,9 +168,10 @@ describe("the control API", () => {
     expect(state).not.toHaveProperty("rules");
     const listening = (await makeKey(["events"])).secret;
     const heard = (await app.inject({ method: "GET", url: "/v1/control/state", headers: { authorization: `Bearer ${listening}` } })).json().data;
+    // The feed carries scene changes; not the run of show's titles or the rules.
     expect(heard).toHaveProperty("scene");
-    expect(heard).toHaveProperty("show");
-    expect(heard).toHaveProperty("rules");
+    expect(heard).not.toHaveProperty("show");
+    expect(heard).not.toHaveProperty("rules");
   });
 
   it("stops working the moment the key is removed", async () => {

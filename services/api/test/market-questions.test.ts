@@ -253,7 +253,7 @@ describe("a vote, always", () => {
     // The minute comes and goes; SOL closes above the line.
     const at = (row.oracle as { at: Date }).at.getTime();
     row.status = "locked";
-    fetchMock.mockImplementation(async () => candles([[at, 151.2], [at + MIN, 151.4]]));
+    fetchMock.mockImplementation(async () => candles([[at - MIN, 151.2], [at, 151.4]]));
     await settleMarketQuestions(at + 2 * MIN);
     expect(row.status).toBe("settled");
     expect(db.PointsLedger!.rows).toHaveLength(0);
@@ -289,15 +289,15 @@ describe("nobody settles one by hand", () => {
 describe("the sweep settles it from the market", () => {
   const AT = Date.parse("2026-09-27T19:30:00Z");
 
-  it("reads the close of the 1-minute candle containing the minute: Yes above the line", async () => {
+  it("reads the last trade before the minute — the close of the candle that ends on it: Yes above the line", async () => {
     const g = seedQuestion(AT);
-    fetchMock.mockImplementation(async () => candles([[AT - MIN, 149.1], [AT, 151.2], [AT + MIN, 149.8]]));
+    fetchMock.mockImplementation(async () => candles([[AT - 2 * MIN, 149.1], [AT - MIN, 151.2], [AT, 149.8]]));
 
     await expect(settleMarketQuestions(AT + 2 * MIN)).resolves.toBe(1);
 
     const url = String(fetchMock.mock.calls[0]![0]);
     expect(url).toContain("/products/SOL-USD/candles?granularity=60");
-    expect(url).toContain(`start=${new Date(AT - 10 * MIN).toISOString()}`);
+    expect(url).toContain(`start=${new Date(AT - 11 * MIN).toISOString()}`);
     expect(g.status).toBe("settled");
     expect(g.winningOutcome).toBe("a");
     expect(g.oracle.price).toBe(151.2);
@@ -307,14 +307,14 @@ describe("the sweep settles it from the market", () => {
 
   it("says No when the price closed on the line or under it", async () => {
     const g = seedQuestion(AT);
-    fetchMock.mockImplementation(async () => candles([[AT, 150], [AT + MIN, 152]]));
+    fetchMock.mockImplementation(async () => candles([[AT - MIN, 150], [AT, 152]]));
     await settleMarketQuestions(AT + 2 * MIN);
     expect(g.winningOutcome).toBe("b");
   });
 
   it("uses the last trade before a minute nobody traded in, once a later minute has one", async () => {
     const g = seedQuestion(AT);
-    fetchMock.mockImplementation(async () => candles([[AT - 2 * MIN, 150.4], [AT + MIN, 149]]));
+    fetchMock.mockImplementation(async () => candles([[AT - 3 * MIN, 150.4], [AT, 149]]));
     await settleMarketQuestions(AT + 2 * MIN);
     expect(g.oracle.price).toBe(150.4);
     expect(g.winningOutcome).toBe("a");
@@ -322,15 +322,15 @@ describe("the sweep settles it from the market", () => {
 
   it("leaves it until the minute is over and Coinbase has had a moment", async () => {
     const g = seedQuestion(AT);
-    await settleMarketQuestions(AT + 50_000);
+    await settleMarketQuestions(AT + 20_000);
     expect(fetchMock).not.toHaveBeenCalled();
-    await expect(priceAt("SOL-USD", AT, AT + 30_000)).resolves.toBeNull();
+    await expect(priceAt("SOL-USD", AT, AT - 30_000)).resolves.toBeNull();
     expect(g.status).toBe("locked");
   });
 
   it("asks again while the candle isn't out, then calls it off with the reason half an hour on", async () => {
     const g = seedQuestion(AT);
-    fetchMock.mockImplementation(async () => candles([[AT - MIN, 149.9]]));
+    fetchMock.mockImplementation(async () => candles([[AT - 2 * MIN, 149.9]]));
 
     await settleMarketQuestions(AT + 2 * MIN);
     expect(g.status).toBe("locked");
@@ -361,7 +361,7 @@ describe("the sweep settles it from the market", () => {
     fetchMock.mockImplementation(async () => new Response("{}", { status: 503 }));
     await settleMarketQuestions(AT + 2 * MIN);
     expect(g.status).toBe("locked");
-    fetchMock.mockImplementation(async () => candles([[AT, 148.75], [AT + MIN, 150]]));
+    fetchMock.mockImplementation(async () => candles([[AT - MIN, 148.75], [AT, 150]]));
     await settleMarketQuestions(AT + 12 * MIN);
     expect(g.status).toBe("settled");
     expect(g.oracle.price).toBe(148.75);

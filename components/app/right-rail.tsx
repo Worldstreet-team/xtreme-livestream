@@ -267,7 +267,7 @@ export function RightRail() {
                   badge={
                     <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[4px] bg-ember px-1 py-px text-[8px] font-bold tracking-wide text-on-ember uppercase ring-2 ring-background">
                       {game.type === "raffle" ? <Ticket size={8} weight="fill" /> : game.type === "quiz" ? <Question size={8} weight="bold" /> : <Sparkle size={8} weight="fill" />}
-                      {game.type === "raffle" ? "Raffle" : game.type === "quiz" ? "Quiz" : "Predict"}
+                      {game.oracle ? "Vote" : game.type === "raffle" ? "Raffle" : game.type === "quiz" ? "Quiz" : "Predict"}
                     </span>
                   }
                 />
@@ -455,12 +455,14 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
               <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                 <Badge variant="live" size="xs" icon={game.type === "raffle" ? <Ticket size={10} weight="fill" /> : game.type === "quiz" ? <Question size={10} weight="bold" /> : <Sparkle size={10} weight="fill" />} className="uppercase">
-                  {GAME_LABEL[game.type]}
+                  {game.oracle ? "Market vote" : GAME_LABEL[game.type]}
                 </Badge>
               </div>
               <span className="relative line-clamp-2 text-[13.5px] font-semibold leading-snug">{questionOf(game)}</span>
-              <span className="relative mt-1 truncate text-[11.5px] text-white/75">{stream.streamer.displayName} · {game.entries} in</span>
-              <span className={cn(cta, "relative bg-white text-neutral-950")}><Play size={12} weight="fill" />Play</span>
+              <span className="relative mt-1 truncate text-[11.5px] text-white/75">
+                {stream.streamer.displayName} · {game.entries} {game.oracle ? "voted · Not financial advice" : "in"}
+              </span>
+              <span className={cn(cta, "relative bg-white text-neutral-950")}><Play size={12} weight="fill" />{game.oracle ? "Vote" : "Play"}</span>
             </Link>
           ))}
 
