@@ -43,7 +43,7 @@ export function AppealCard({ appeal, onDecided }: { appeal: AppealView; onDecide
         <span
           className={cn(
             "rounded-full px-2.5 py-1 text-[11.5px] font-bold",
-            open ? "bg-ember/15 text-ember-hi" : appeal.status === "reversed" ? "bg-[#173428] text-[#86EFAC]" : "bg-white/[0.07] text-foreground/80"
+            open ? "bg-ember/15 text-ember-hi" : appeal.status === "reversed" ? "bg-tone-green text-tone-green-ink" : "bg-tint/[0.07] text-foreground/80"
           )}
         >
           {open ? "Waiting" : appeal.status === "reversed" ? "Reversed" : "Upheld"}
@@ -59,7 +59,7 @@ export function AppealCard({ appeal, onDecided }: { appeal: AppealView; onDecide
         )}{" "}
         · taken down {when(appeal.stream.takenDownAt)} · appealed {when(appeal.createdAt)}
       </p>
-      <blockquote className="mt-3 rounded-[12px] bg-white/[0.04] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-line">{appeal.text}</blockquote>
+      <blockquote className="mt-3 rounded-[12px] bg-tint/[0.04] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-line">{appeal.text}</blockquote>
       {open ? (
         <>
           <textarea
@@ -69,7 +69,7 @@ export function AppealCard({ appeal, onDecided }: { appeal: AppealView; onDecide
             rows={2}
             placeholder="A note for the creator (optional) — why, in a sentence"
             aria-label="A note for the creator"
-            className="mt-3 w-full resize-none rounded-[12px] bg-white/[0.06] px-4 py-3 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+            className="mt-3 w-full resize-none rounded-[12px] bg-tint/[0.06] px-4 py-3 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]"
           />
           {error && <p className="mt-2 text-[12.5px] text-chili-hi">{error}</p>}
           <div className="mt-3 flex flex-wrap gap-2">

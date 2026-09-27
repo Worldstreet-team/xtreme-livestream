@@ -19,7 +19,7 @@ export function LauncherGrid({ className }: { className?: string }) {
           target="_blank"
           rel="noopener noreferrer"
           title={`${app.title} — ${app.description}`}
-          className="press group flex flex-col items-center gap-1.5 rounded-control bg-white/[0.03] px-1 pt-2.5 pb-2 text-[11px] font-semibold text-foreground/80 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.06)] transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="press group flex flex-col items-center gap-1.5 rounded-control bg-tint/[0.03] px-1 pt-2.5 pb-2 text-[11px] font-semibold text-foreground/80 shadow-[inset_0_0_0_1px_var(--hairline-color)] transition-colors hover:bg-tint/[0.06] hover:text-foreground"
         >
           <app.icon size={20} weight="duotone" className="text-foreground/85 transition-colors group-hover:text-foreground" aria-hidden />
           <span className="max-w-full truncate">{app.short}</span>

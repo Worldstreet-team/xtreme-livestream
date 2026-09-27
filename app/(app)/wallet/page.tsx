@@ -178,7 +178,7 @@ export default function WalletPage() {
         <Wallet size={34} className="mb-4 text-muted-foreground/25" />
         <p className="text-[15px] font-semibold text-foreground">Your wallet lives behind sign-in</p>
         <p className="mt-1 max-w-[42ch] text-sm text-muted-foreground">Gifts you receive, payouts and points all land here once you sign in.</p>
-        <a href={SIGN_IN_URL} className="mt-5 flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-neutral-950">
+        <a href={SIGN_IN_URL} className="mt-5 flex h-10 items-center rounded-full bg-inverse px-5 text-sm font-semibold text-on-inverse">
           Sign in
         </a>
       </div>
@@ -204,24 +204,24 @@ export default function WalletPage() {
           <BrandMark size={260} className="absolute -right-8 -bottom-14 opacity-[0.06]" />
           <div className="relative p-5 md:p-6">
             <div className="flex items-center gap-2">
-              <Wallet size={14} weight="fill" className="text-white/60" />
-              <span className="text-[11px] font-semibold tracking-[0.14em] text-white/60 uppercase">Available balance</span>
-              <span className="ml-auto rounded-full bg-white/[0.1] px-2 py-0.5 text-[11px] font-semibold text-white/80">USD</span>
+              <Wallet size={14} weight="fill" className="text-muted-foreground" />
+              <span className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">Available balance</span>
+              <span className="ml-auto rounded-full bg-tint/[0.1] px-2 py-0.5 text-[11px] font-semibold text-foreground/80">USD</span>
             </div>
 
-            <p className="mt-3 leading-none font-bold tracking-tight text-white tabular-nums">
+            <p className="mt-3 leading-none font-bold tracking-tight text-foreground tabular-nums">
               {loading ? (
-                <span className="inline-block h-9 w-44 animate-pulse rounded bg-white/10 align-middle" />
+                <span className="inline-block h-9 w-44 animate-pulse rounded bg-tint/10 align-middle" />
               ) : walletDown ? (
-                <span className="text-[26px] text-white/45">Unavailable</span>
+                <span className="text-[26px] text-faint">Unavailable</span>
               ) : (
                 <span className="text-[40px] md:text-[44px]">{money(availableMinor ?? 0)}</span>
               )}
             </p>
 
-            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-white/60">
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               {walletDown ? (
-                <span className="flex items-center gap-1.5 text-amber-300/90">
+                <span className="flex items-center gap-1.5 text-warning/90">
                   <Warning size={13} weight="fill" />
                   The WorldStreet wallet isn&apos;t reachable from here — your history below is still current.
                 </span>
@@ -249,19 +249,19 @@ export default function WalletPage() {
             label="Earned from gifts"
             value={earnings ? money(earnings.balanceUsdMinor) : "—"}
             note={earnings ? `${earnings.receivedCount} gift${earnings.receivedCount === 1 ? "" : "s"} received` : "No gifts yet"}
-            icon={<Gift size={15} weight="fill" className="text-emerald-300" />}
+            icon={<Gift size={15} weight="fill" className="text-success" />}
           />
           <Figure
             label="Sent in gifts"
             value={earnings ? money(earnings.sentUsdMinor) : "—"}
             note={earnings ? `${earnings.sentCount} sent` : "Nothing sent yet"}
-            icon={<ArrowUp size={15} weight="bold" className="text-sky-300" />}
+            icon={<ArrowUp size={15} weight="bold" className="text-info" />}
           />
           <Figure
             label="Points"
             value={points ? formatPoints(points.balance) : "—"}
             note={points ? `${points.streakDays}-day streak · 1,000 = $1` : "Watch to earn"}
-            icon={<Coins size={15} weight="fill" className="text-amber-300" />}
+            icon={<Coins size={15} weight="fill" className="text-warning" />}
             href="/rewards"
             className="col-span-2 md:col-span-1 lg:col-span-2"
           />
@@ -269,7 +269,7 @@ export default function WalletPage() {
         </div>
 
         {/* ── History, one list at a time. */}
-        <section className="min-w-0 rounded-sm bg-white/[0.02] p-3 md:p-4">
+        <section className="min-w-0 rounded-sm bg-tint/[0.02] p-3 md:p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-[17px] font-semibold tracking-tight text-foreground">History</h2>
             <PillTabs size="sm" label="Wallet history" value={tab} onChange={setTab} items={tabs} />
@@ -278,7 +278,7 @@ export default function WalletPage() {
           {loading ? (
             <div className="flex flex-col gap-1.5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-14 animate-pulse rounded-sm bg-white/[0.04]" />
+                <div key={i} className="h-14 animate-pulse rounded-sm bg-tint/[0.04]" />
               ))}
             </div>
           ) : tab === "activity" ? (
@@ -296,10 +296,10 @@ export default function WalletPage() {
                   const other = received ? t.senderId : t.streamerId;
                   const amount = received ? t.netUsdMinor : t.grossUsdMinor;
                   return (
-                    <div key={t._id} className="flex items-center gap-3 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-white/[0.03]">
-                      <span className={cn("relative flex size-11 shrink-0 items-center justify-center rounded-full", received ? "bg-emerald-500/[0.12]" : "bg-white/[0.06]")}>
+                    <div key={t._id} className="flex items-center gap-3 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-tint/[0.03]">
+                      <span className={cn("relative flex size-11 shrink-0 items-center justify-center rounded-full", received ? "bg-emerald-500/[0.12]" : "bg-tint/[0.06]")}>
                         <GiftArt emoji={t.emoji} size={26} />
-                        <span className={cn("absolute -right-0.5 -bottom-0.5 flex size-[18px] items-center justify-center rounded-full ring-2 ring-background", received ? "bg-emerald-500 text-neutral-950" : "bg-control-hover text-white")}>
+                        <span className={cn("absolute -right-0.5 -bottom-0.5 flex size-[18px] items-center justify-center rounded-full ring-2 ring-background", received ? "bg-emerald-500 text-neutral-950" : "bg-control-hover text-foreground")}>
                           {received ? <ArrowDown size={10} weight="bold" /> : <ArrowUp size={10} weight="bold" />}
                         </span>
                       </span>
@@ -319,14 +319,14 @@ export default function WalletPage() {
                         <span className="flex items-center gap-1.5 truncate text-[12px] text-muted-foreground">
                           {when(t.createdAt)}
                           {t.battleId && (
-                            <span className="flex items-center gap-0.5 rounded-[4px] bg-white/[0.08] px-1 py-px text-[10px] font-semibold text-foreground/80">
+                            <span className="flex items-center gap-0.5 rounded-[4px] bg-tint/[0.08] px-1 py-px text-[10px] font-semibold text-foreground/80">
                               <Sword size={9} weight="fill" />
                               Battle
                             </span>
                           )}
                         </span>
                       </span>
-                      <span className={cn("shrink-0 text-[14px] font-semibold tabular-nums", received ? "text-emerald-300" : "text-foreground/85")}>
+                      <span className={cn("shrink-0 text-[14px] font-semibold tabular-nums", received ? "text-success" : "text-foreground/85")}>
                         {received ? "+" : "−"}
                         {money(amount)}
                       </span>
@@ -356,7 +356,7 @@ export default function WalletPage() {
                     <span
                       className={cn(
                         "flex size-11 shrink-0 items-center justify-center rounded-full",
-                        p.status === "paid" ? "bg-emerald-500/[0.14] text-emerald-300" : p.status === "failed" ? "bg-red-500/[0.14] text-red-300" : "bg-amber-400/[0.14] text-amber-300"
+                        p.status === "paid" ? "bg-emerald-500/[0.14] text-success" : p.status === "failed" ? "bg-red-500/[0.14] text-chili-hi" : "bg-amber-400/[0.14] text-warning"
                       )}
                     >
                       {p.status === "paid" ? <Check size={17} weight="bold" /> : p.status === "failed" ? <Warning size={17} weight="fill" /> : <Clock size={17} weight="bold" />}
@@ -396,12 +396,12 @@ export default function WalletPage() {
                 const Icon = r.icon;
                 return (
                   <div key={i} className="flex items-center gap-3 rounded-sm px-2.5 py-2">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/[0.06] text-muted-foreground">
                       <Icon size={15} weight="fill" />
                     </span>
                     <span className="min-w-0 flex-1 truncate text-[14px] text-foreground/90">{r.label}</span>
                     <span className="shrink-0 text-[12px] text-muted-foreground">{when(l.at)}</span>
-                    <span className={cn("w-20 shrink-0 text-right text-[14px] font-semibold tabular-nums", l.delta > 0 ? "text-emerald-300" : "text-foreground/80")}>
+                    <span className={cn("w-20 shrink-0 text-right text-[14px] font-semibold tabular-nums", l.delta > 0 ? "text-success" : "text-foreground/80")}>
                       {l.delta > 0 ? "+" : ""}
                       {formatPoints(l.delta)}
                     </span>
@@ -435,12 +435,12 @@ function Action({
       <span
         className={cn(
           "flex size-12 items-center justify-center rounded-full transition-colors",
-          primary ? "bg-white text-neutral-950 hover:bg-neutral-100" : "bg-white/[0.1] text-white hover:bg-white/[0.18]"
+          primary ? "bg-inverse text-on-inverse hover:bg-inverse/90" : "bg-tint/[0.1] text-foreground hover:bg-tint/[0.18]"
         )}
       >
         {icon}
       </span>
-      <span className="text-[11.5px] font-medium text-white/80">{label}</span>
+      <span className="text-[11.5px] font-medium text-foreground/80">{label}</span>
     </>
   );
   const cls = "flex w-[4.75rem] shrink-0 flex-col items-center gap-1.5 text-center";
@@ -482,7 +482,7 @@ function Figure({
       <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{note}</span>
     </>
   );
-  const cls = cn("block rounded-sm bg-white/[0.04] p-4 transition-colors", href && "hover:bg-white/[0.07]", className);
+  const cls = cn("block rounded-sm bg-tint/[0.04] p-4 transition-colors", href && "hover:bg-tint/[0.07]", className);
   return href ? (
     <Link href={href} className={cls}>
       {body}
@@ -493,4 +493,4 @@ function Figure({
 }
 
 /** The history panels keep their own faint tray under the shared empty. */
-const PANEL = "rounded-sm bg-white/[0.02] py-12";
+const PANEL = "rounded-sm bg-tint/[0.02] py-12";

@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CATEGORY_GROUPS } from "@/lib/categories";
 import { categoryArt } from "@/lib/category-art";
+import { useTheme } from "@/lib/theme";
 import type { RowItem } from "@/lib/discovery";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select-field";
@@ -125,6 +126,7 @@ async function toCover(file: File): Promise<string> {
 }
 
 export default function SchedulePage() {
+  const theme = useTheme();
   const { user } = useAuth();
   const [now, setNow] = useState(() => Date.now());
   const today = useMemo(() => startOfDay(new Date(now)), [now]);
@@ -289,7 +291,7 @@ export default function SchedulePage() {
                 className="relative block w-full border-0 bg-transparent p-0 font-wide text-[clamp(1.35rem,2.4vw,1.75rem)] leading-[1.3] font-bold tracking-[-0.025em] text-foreground outline-none"
               />
             </div>
-            <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2 font-mono text-[11px] text-muted-foreground tabular-nums">
+            <div className="mt-3 flex items-center justify-between border-t border-tint/[0.06] pt-2 font-mono text-[11px] text-muted-foreground tabular-nums">
               <span>Shows on the card, in Events and on your channel</span>
               <span>{title.length}/100</span>
             </div>
@@ -305,7 +307,7 @@ export default function SchedulePage() {
                   value={category}
                   onChange={setCategory}
                   searchPlaceholder="Search 170 categories"
-                  art={(v) => categoryArt(v, { w: 72, h: 96 })}
+                  art={(v) => categoryArt(v, { w: 72, h: 96 }, theme)}
                   groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.map((t) => ({ value: t, label: t })) }))}
                 />
               </div>
@@ -381,7 +383,7 @@ export default function SchedulePage() {
                 type="button"
                 onClick={book}
                 disabled={busy || !user}
-                className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#0b0708] disabled:opacity-60"
+                className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-inverse text-[15px] font-semibold text-on-inverse disabled:opacity-60"
               >
                 <CalendarPlus size={18} weight="bold" />
                 {busy ? "Booking…" : "Book it"}
@@ -454,6 +456,7 @@ export default function SchedulePage() {
 
 /** The booking's picture: yours if you add one, otherwise the category's art stands in. */
 function CoverField({ category, cover, onChange }: { category: string; cover: string; onChange: (v: string) => void }) {
+  const theme = useTheme();
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -495,11 +498,11 @@ function CoverField({ category, cover, onChange }: { category: string; cover: st
         }}
         onDragLeave={() => setDrag(false)}
         onDrop={onDrop}
-        className={cn("group relative mt-2 aspect-video overflow-hidden rounded-xl bg-white/[0.04] transition-shadow", drag && "shadow-[inset_0_0_0_2px_var(--color-ember)]")}
+        className={cn("group relative mt-2 aspect-video overflow-hidden rounded-xl bg-tint/[0.04] transition-shadow", drag && "shadow-[inset_0_0_0_2px_var(--color-ember)]")}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL or remote category art */}
         <img
-          src={cover || categoryArt(category, { w: 800, h: 450 })}
+          src={cover || categoryArt(category, { w: 800, h: 450 }, theme)}
           alt=""
           className={cn("absolute inset-0 size-full object-cover transition-[opacity,transform] duration-500", cover ? "opacity-100" : "opacity-40 grayscale-[35%] group-hover:scale-[1.02]")}
         />
@@ -524,11 +527,11 @@ function CoverField({ category, cover, onChange }: { category: string; cover: st
           </div>
         ) : (
           <button type="button" onClick={() => input.current?.click()} className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-6 text-center">
-            <span className="press flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold text-[#0b0708]">
+            <span className="press flex h-10 items-center gap-2 rounded-full bg-inverse px-4 text-[14px] font-semibold text-on-inverse">
               <ImageSquare size={17} />
               {working ? "Adding…" : "Add a cover"}
             </span>
-            <span className="max-w-[36ch] text-[12.5px] leading-snug text-white/80">
+            <span className="max-w-[36ch] text-[12.5px] leading-snug text-foreground/80">
               Drop an image here, or skip it — the {category} art stands in.
             </span>
           </button>
@@ -591,7 +594,7 @@ function BookingRow({ booking: b, now, fresh, onCancel }: { booking: RowItem; no
           </>
         ) : (
           <>
-            <Link href={`/studio?scheduled=${b._id}`} className="press flex h-10 items-center gap-1.5 rounded-full bg-white px-4 text-[13.5px] font-semibold text-[#0b0708]">
+            <Link href={`/studio?scheduled=${b._id}`} className="press flex h-10 items-center gap-1.5 rounded-full bg-inverse px-4 text-[13.5px] font-semibold text-on-inverse">
               Go live now
               <ArrowRight size={14} weight="bold" />
             </Link>

@@ -23,7 +23,7 @@ export interface CapsuleTab<T extends string> {
  * fit a phone drawer without scrolling and the choice reads at a glance.
  * Without icons it's a segmented control: every label shows and a white
  * thumb slides between them. `onDark` lays the track as a glass object for
- * use over video.
+ * use over video, and keeps it dark in the light theme (stays dark: video).
  */
 export function CapsuleTabs<T extends string>({
   items,
@@ -69,12 +69,13 @@ export function CapsuleTabs<T extends string>({
       ref={trackRef}
       role="tablist"
       aria-label={label}
-      className={cn("relative flex items-center gap-1 rounded-full p-1", onDark ? "obj" : "bg-white/[0.06]", className)}
+      data-theme={onDark ? "dark" : undefined}
+      className={cn("relative flex items-center gap-1 rounded-full p-1", onDark ? "obj" : "bg-tint/[0.06]", className)}
     >
       {!expanding && thumb && (
         <span
           aria-hidden
-          className="absolute top-1 bottom-1 rounded-full bg-white transition-[left,width] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none"
+          className="absolute top-1 bottom-1 rounded-full bg-inverse transition-[left,width] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none"
           style={{ left: thumb.left, width: thumb.width }}
         />
       )}
@@ -96,10 +97,10 @@ export function CapsuleTabs<T extends string>({
                 ? cn(
                     "transition-[flex-grow,background-color,color,box-shadow] duration-300 [transition-timing-function:var(--ease-spring)] motion-reduce:transition-none",
                     on
-                      ? cn("gap-2 bg-white text-[#0b0708]", crowded ? "flex-[3.4] px-3" : "flex-[2.6] px-3.5")
-                      : "flex-1 text-white/55 hover:bg-white/[0.07] hover:text-white",
+                      ? cn("gap-2 bg-inverse text-on-inverse", crowded ? "flex-[3.4] px-3" : "flex-[2.6] px-3.5")
+                      : "flex-1 text-muted-foreground hover:bg-tint/[0.07] hover:text-foreground",
                   )
-                : cn("flex-1 px-4 transition-colors duration-200", on ? "text-[#0b0708]" : "text-white/60 hover:text-white"),
+                : cn("flex-1 px-4 transition-colors duration-200", on ? "text-on-inverse" : "text-muted-foreground hover:text-foreground"),
             )}
           >
             {TabIcon && <TabIcon size={17} weight={on ? "fill" : "regular"} className="shrink-0" />}

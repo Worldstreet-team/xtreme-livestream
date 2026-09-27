@@ -73,7 +73,7 @@ export function LogoPicker({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={busy}
-          className="press flex h-9 items-center rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold transition-colors hover:bg-white/[0.11] disabled:opacity-50"
+          className="press flex h-9 items-center rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold transition-colors hover:bg-tint/[0.11] disabled:opacity-50"
         >
           {busy ? "Squeezing…" : shown ? "Replace logo" : "Add logo"}
         </button>
@@ -82,7 +82,7 @@ export function LogoPicker({
             type="button"
             onClick={() => onChange(current ? "" : undefined)}
             aria-label="Remove logo"
-            className="press flex size-9 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:bg-white/[0.11] hover:text-foreground"
+            className="press flex size-9 items-center justify-center rounded-full bg-tint/[0.07] text-muted-foreground transition-colors hover:bg-tint/[0.11] hover:text-foreground"
           >
             <Trash size={15} />
           </button>
@@ -119,7 +119,7 @@ export function CategoryPicker({ value, onChange }: { value: SponsorCategory; on
               onClick={() => onChange(c)}
               className={cn(
                 "press h-9 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
-                on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
               )}
             >
               {SPONSOR_CATEGORY_LABELS[c].label}
@@ -192,7 +192,7 @@ export function SponsorForm({
       <CategoryPicker value={category} onChange={setCategory} />
       {error && <p role="alert" className="rounded-[10px] bg-chili/[0.12] px-3 py-2 text-[12.5px] text-chili-hi">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={saving} className="press flex h-10 items-center rounded-full bg-white px-5 text-[13.5px] font-semibold text-[#0b0708] disabled:opacity-50">
+        <button type="submit" disabled={saving} className="press flex h-10 items-center rounded-full bg-inverse px-5 text-[13.5px] font-semibold text-on-inverse disabled:opacity-50">
           {saving ? "Saving…" : sponsor ? "Save changes" : "Add sponsor"}
         </button>
         <button type="button" onClick={onCancel} className="press flex h-10 items-center rounded-full px-4 text-[13.5px] font-semibold text-muted-foreground hover:text-foreground">

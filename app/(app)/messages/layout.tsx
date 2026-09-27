@@ -38,7 +38,7 @@ export default function MessagesLayout({ children }: { children: React.ReactNode
           ref={asideRef}
           aria-label="Conversations"
           className={cn(
-            "min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:shadow-[inset_-1px_0_0_rgba(255,236,230,0.06)]",
+            "min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:shadow-[inset_-1px_0_0_var(--hairline-color)]",
             inThread && "hidden lg:block",
           )}
         >

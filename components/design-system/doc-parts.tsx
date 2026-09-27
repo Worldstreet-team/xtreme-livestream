@@ -44,7 +44,8 @@ export function Section({
 /**
  * Where a demo plays. `picture` puts it on a live frame (the object
  * language's home) under a scrim; otherwise the warm ground. Links inside
- * never navigate — the demos are for touching, not leaving.
+ * never navigate — the demos are for touching, not leaving. A picture stage
+ * stays dark in the light theme: video is always a dark room.
  */
 export function Stage({
   picture,
@@ -62,6 +63,7 @@ export function Stage({
       onClickCapture={(e) => {
         if ((e.target as HTMLElement).closest("a")) e.preventDefault();
       }}
+      data-theme={picture ? "dark" : undefined}
       className={cn("relative isolate overflow-hidden", picture ? "bg-black" : "bg-ground", className)}
     >
       {picture && (
@@ -111,7 +113,7 @@ export function Spec({
   return (
     <article
       className={cn(
-        "grid min-w-0 overflow-hidden rounded-panel bg-surface shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
+        "grid min-w-0 overflow-hidden rounded-panel bg-surface shadow-[inset_0_0_0_1px_var(--hairline-color)]",
         !wide && "lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]",
       )}
     >
@@ -122,7 +124,7 @@ export function Spec({
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h3 className="font-wide text-[20px] leading-tight font-bold tracking-[-0.025em]">{name}</h3>
           {from && (
-            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <span className="rounded-full bg-tint/[0.06] px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
               borrowed from {from}
             </span>
           )}
@@ -148,7 +150,7 @@ export function Spec({
 export function Code({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="relative mt-auto min-w-0 rounded-[14px] bg-ground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]">
+    <div className="relative mt-auto min-w-0 rounded-[14px] bg-ground shadow-[inset_0_0_0_1px_var(--hairline-color)]">
       <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2">
         <span className="caps font-mono text-[9.5px] text-muted-foreground">Wire it</span>
         <button
@@ -162,7 +164,7 @@ export function Code({ children }: { children: string }) {
               () => {},
             );
           }}
-          className="press flex items-center gap-1.5 rounded-full px-2 py-1 font-mono text-[10.5px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+          className="press flex items-center gap-1.5 rounded-full px-2 py-1 font-mono text-[10.5px] text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground"
         >
           {copied ? <Check size={12} weight="bold" className="text-ember-hi" /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
@@ -182,7 +184,7 @@ export function States({ items, className }: { items: { label: string; node: Rea
       {items.map((it) => (
         <div key={it.label} className="flex min-w-0 flex-col items-center justify-end gap-3 text-center">
           <div className="flex min-h-[64px] items-center justify-center">{it.node}</div>
-          <span className="caps font-mono text-[9.5px] text-white/60">
+          <span className="caps font-mono text-[9.5px] text-muted-foreground">
             {it.label}
             {it.hint && <em className="ml-1 not-italic text-ember-hi">{it.hint}</em>}
           </span>
@@ -194,5 +196,5 @@ export function States({ items, className }: { items: { label: string; node: Rea
 
 /** A small caption in the demo area — "example content", a state name. */
 export function StageNote({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn("caps font-mono text-[9.5px] text-white/55", className)}>{children}</p>;
+  return <p className={cn("caps font-mono text-[9.5px] text-muted-foreground", className)}>{children}</p>;
 }

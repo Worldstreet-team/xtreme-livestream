@@ -64,7 +64,7 @@ export default function AppealsPage() {
           with your note.
         </p>
       </header>
-      <div role="tablist" aria-label="Appeals" className="mb-5 flex w-fit rounded-full bg-white/[0.05] p-1">
+      <div role="tablist" aria-label="Appeals" className="mb-5 flex w-fit rounded-full bg-tint/[0.05] p-1">
         {(["open", "closed"] as const).map((t) => (
           <button
             key={t}
@@ -77,7 +77,7 @@ export default function AppealsPage() {
             }}
             className={cn(
               "press h-9 rounded-full px-4 text-[13px] font-semibold transition-colors",
-              tab === t ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+              tab === t ? "bg-inverse text-on-inverse" : "text-muted-foreground hover:text-foreground"
             )}
           >
             {t === "open" ? "Waiting" : "Decided"}

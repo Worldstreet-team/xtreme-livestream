@@ -90,7 +90,7 @@ export function SponsorshipsView({
           <div className={cn(TILE, "grid place-items-center px-6 py-16 text-center")}>
             <Warning size={26} className="text-chili-hi" />
             <p className="mt-3 font-wide text-[19px] font-bold tracking-[-0.02em]">Sponsorships didn&apos;t load</p>
-            <button type="button" onClick={() => void reload()} className="press mt-5 h-10 rounded-full bg-white px-5 text-[14px] font-semibold text-[#0b0708]">
+            <button type="button" onClick={() => void reload()} className="press mt-5 h-10 rounded-full bg-inverse px-5 text-[14px] font-semibold text-on-inverse">
               Try again
             </button>
           </div>
@@ -156,7 +156,7 @@ export function SponsorshipsView({
                   <button
                     type="button"
                     onClick={() => setEditing("new")}
-                    className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-4 text-[13.5px] font-semibold text-[#0b0708]"
+                    className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-inverse px-4 text-[13.5px] font-semibold text-on-inverse"
                   >
                     <Plus size={15} weight="bold" />
                     Add a sponsor
@@ -234,7 +234,7 @@ export function SponsorshipsView({
                   Put a sponsor&apos;s card up from the studio&apos;s Scenes panel and its time on screen shows up here.
                 </p>
               ) : (
-                <ul className={cn(TILE, "divide-y divide-white/[0.05] px-2")}>
+                <ul className={cn(TILE, "divide-y divide-tint/[0.05] px-2")}>
                   {data.runs.map((r) => (
                     <RunRow key={r.id} run={r} />
                   ))}
@@ -283,24 +283,24 @@ function CampaignCard({ campaign: c, onJoin }: { campaign: CampaignView; onJoin:
                 Joined
               </span>
             )}
-            {!open && <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{c.status === "paused" ? "Paused" : "Ended"}</span>}
+            {!open && <span className="rounded-full bg-tint/[0.07] px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{c.status === "paused" ? "Paused" : "Ended"}</span>}
           </p>
           {c.line && <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-muted-foreground">{c.line}</p>}
         </div>
       </div>
 
       <dl className="mt-4 grid grid-cols-3 gap-2">
-        <div className="rounded-[12px] bg-white/[0.04] px-3 py-2.5">
+        <div className="rounded-[12px] bg-tint/[0.04] px-3 py-2.5">
           <dt className="text-[11px] text-muted-foreground">A stream</dt>
           <dd className="mt-1">
             <Money cents={c.payPerStreamUsdMinor} size="sm" />
           </dd>
         </div>
-        <div className="rounded-[12px] bg-white/[0.04] px-3 py-2.5">
+        <div className="rounded-[12px] bg-tint/[0.04] px-3 py-2.5">
           <dt className="text-[11px] text-muted-foreground">On screen</dt>
           <dd className="mt-1 text-[14px] font-semibold tabular-nums">{c.minMinutes} min</dd>
         </div>
-        <div className="rounded-[12px] bg-white/[0.04] px-3 py-2.5">
+        <div className="rounded-[12px] bg-tint/[0.04] px-3 py-2.5">
           <dt className="text-[11px] text-muted-foreground">{c.joined ? "Paid" : "Up to"}</dt>
           <dd className="mt-1 text-[14px] font-semibold tabular-nums">
             {c.joined ? `${c.paidStreams} of ${c.maxStreamsPerCreator}` : `${c.maxStreamsPerCreator} streams`}
@@ -343,7 +343,7 @@ function CampaignCard({ campaign: c, onJoin }: { campaign: CampaignView; onJoin:
               type="button"
               disabled={busy}
               onClick={() => void act(false)}
-              className="press h-9 rounded-full px-3.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
+              className="press h-9 rounded-full px-3.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:bg-tint/[0.06] hover:text-foreground disabled:opacity-50"
             >
               Leave
             </button>
@@ -355,7 +355,7 @@ function CampaignCard({ campaign: c, onJoin }: { campaign: CampaignView; onJoin:
               type="button"
               disabled={busy || !open || full}
               onClick={() => void act(true)}
-              className="press h-9 rounded-full bg-white px-4 text-[12.5px] font-semibold text-[#0b0708] disabled:opacity-40"
+              className="press h-9 rounded-full bg-inverse px-4 text-[12.5px] font-semibold text-on-inverse disabled:opacity-40"
             >
               {busy ? "Joining…" : "Join"}
             </button>
@@ -375,7 +375,7 @@ function SponsorRow({ sponsor: s, onEdit, onRemove }: { sponsor: SponsorView; on
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2">
             <span className="truncate text-[15px] font-semibold">{s.name}</span>
-            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", s.restricted ? "bg-warning/[0.14] text-warning" : "bg-white/[0.07] text-muted-foreground")}>
+            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", s.restricted ? "bg-warning/[0.14] text-warning" : "bg-tint/[0.07] text-muted-foreground")}>
               {SPONSOR_CATEGORY_LABELS[s.category].label}
             </span>
           </p>
@@ -399,7 +399,7 @@ function SponsorRow({ sponsor: s, onEdit, onRemove }: { sponsor: SponsorView; on
           <button
             type="button"
             onClick={onEdit}
-            className="press flex h-9 items-center gap-1.5 rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold transition-colors hover:bg-white/[0.11]"
+            className="press flex h-9 items-center gap-1.5 rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold transition-colors hover:bg-tint/[0.11]"
           >
             <PencilSimple size={14} />
             Edit
@@ -408,7 +408,7 @@ function SponsorRow({ sponsor: s, onEdit, onRemove }: { sponsor: SponsorView; on
             type="button"
             onClick={() => setConfirming(true)}
             aria-label={`Remove ${s.name}`}
-            className="press flex size-9 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:bg-white/[0.11] hover:text-foreground"
+            className="press flex size-9 items-center justify-center rounded-full bg-tint/[0.07] text-muted-foreground transition-colors hover:bg-tint/[0.11] hover:text-foreground"
           >
             <Trash size={15} />
           </button>

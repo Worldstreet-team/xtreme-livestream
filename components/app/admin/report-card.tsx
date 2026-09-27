@@ -90,13 +90,13 @@ export function ReportCard({ row, now, onResolved }: { row: ReportRow; now: numb
     <li className="overflow-hidden rounded-panel bg-surface">
       {/* The clock, as a bar: how much of the 48 hours is gone. */}
       {row.status === "open" && (
-        <div aria-hidden className="h-1 bg-white/[0.05]">
-          <div className={cn("h-full transition-[width] duration-700", late ? "bg-chili" : urgent ? "bg-ember" : "bg-white/25")} style={{ width: `${used * 100}%` }} />
+        <div aria-hidden className="h-1 bg-tint/[0.05]">
+          <div className={cn("h-full transition-[width] duration-700", late ? "bg-chili" : urgent ? "bg-ember" : "bg-tint/25")} style={{ width: `${used * 100}%` }} />
         </div>
       )}
       <div className="p-5 md:p-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-white/[0.07] px-2.5 py-1 text-[12px] font-semibold">{REASONS[row.reason] ?? row.reason}</span>
+          <span className="rounded-full bg-tint/[0.07] px-2.5 py-1 text-[12px] font-semibold">{REASONS[row.reason] ?? row.reason}</span>
           {row.reports > 1 && (
             <span className="rounded-full bg-chili/[0.14] px-2.5 py-1 text-[12px] font-semibold text-chili-hi tabular-nums">
               {row.reports} reports
@@ -119,7 +119,7 @@ export function ReportCard({ row, now, onResolved }: { row: ReportRow; now: numb
 
         {/* What was reported. */}
         <div className="mt-4 flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tint/[0.06] text-muted-foreground">
             {row.message ? <ChatText size={17} /> : <VideoCamera size={17} />}
           </span>
           <div className="min-w-0 flex-1">
@@ -133,7 +133,7 @@ export function ReportCard({ row, now, onResolved }: { row: ReportRow; now: numb
               {row.stream.takenDown && <span className="ml-2 text-[12px] text-muted-foreground">(taken down)</span>}
             </p>
             {row.message && (
-              <blockquote className="mt-2.5 rounded-[12px] bg-white/[0.04] px-4 py-3 text-[14px] leading-relaxed break-words">
+              <blockquote className="mt-2.5 rounded-[12px] bg-tint/[0.04] px-4 py-3 text-[14px] leading-relaxed break-words">
                 <span className="mr-1.5 font-semibold">{row.message.username}</span>
                 <span className="text-foreground/90">{row.message.content}</span>
               </blockquote>
@@ -154,13 +154,13 @@ export function ReportCard({ row, now, onResolved }: { row: ReportRow; now: numb
               maxLength={500}
               placeholder="A note for the record (optional)"
               aria-label="A note for the record"
-              className="h-10 min-w-0 flex-1 basis-56 rounded-full bg-white/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+              className="h-10 min-w-0 flex-1 basis-56 rounded-full bg-tint/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]"
             />
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => void resolve("dismiss")}
-              className="press h-10 rounded-full bg-white/[0.07] px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-white/[0.11] disabled:opacity-50"
+              className="press h-10 rounded-full bg-tint/[0.07] px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-tint/[0.11] disabled:opacity-50"
             >
               {busy === "dismiss" ? "Dismissing…" : "Keep it up"}
             </button>

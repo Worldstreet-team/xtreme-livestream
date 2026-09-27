@@ -56,7 +56,7 @@ export function StreamCard({
   const thumb = (
     <Link
       href={streamHref}
-      className="group/thumb relative block aspect-video overflow-hidden rounded-sm bg-white/[0.03]"
+      className="group/thumb relative block aspect-video overflow-hidden rounded-sm bg-tint/[0.03]"
     >
       <StreamArt
         src={stream.thumbnailUrl}

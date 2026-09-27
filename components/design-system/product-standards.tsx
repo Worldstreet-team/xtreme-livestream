@@ -447,7 +447,7 @@ export function Surfaces() {
 /* ------------------------------------------------------------------ */
 
 export function Rules() {
-  const block = "rounded-panel bg-surface p-5 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)] md:p-6";
+  const block = "rounded-panel bg-surface p-5 shadow-[inset_0_0_0_1px_var(--hairline-color)] md:p-6";
   return (
     <Section
       id="rules"
@@ -502,7 +502,7 @@ export function Rules() {
           </ol>
         </div>
       </div>
-      <details className="rounded-panel bg-surface p-5 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)] md:p-6">
+      <details className="rounded-panel bg-surface p-5 shadow-[inset_0_0_0_1px_var(--hairline-color)] md:p-6">
         <summary className="cursor-pointer font-wide text-[16px] font-bold tracking-[-0.02em]">Research behind the rules</summary>
         <ul className="mt-4 grid gap-3 text-[13.5px]">
           {sources.map((s) => (

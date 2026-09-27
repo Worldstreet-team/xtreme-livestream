@@ -144,7 +144,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const showList = open && q.trim().length >= 2 && (hits.length > 0 || categories.length > 0);
 
   return (
-    <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_rgba(255,236,230,0.06)] backdrop-blur-xl backdrop-saturate-150 md:grid md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
+    <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_var(--hairline-color)] backdrop-blur-xl backdrop-saturate-150 md:grid md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
       {/* Left: you (or the menu) and the brand on phones; the page text from lg. */}
       <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
         {user ? (
@@ -154,7 +154,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             aria-label={unreadThreads ? `Open your menu, ${unreadThreads} unread conversations` : "Open your menu"}
             className="press relative shrink-0 rounded-full md:hidden"
           >
-            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-white/[0.1]" />
+            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-tint/[0.1]" />
             {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
             {/* Messages live in the drawer on a phone, so the way in says
                 when something's waiting (top corner: the live dot owns the
@@ -211,10 +211,10 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             role="combobox"
             aria-expanded={showList}
             aria-controls="topbar-typeahead"
-            className="peer h-10 w-full rounded-full bg-white/[0.06] pr-14 pl-11 text-[14.5px] text-foreground transition-[background-color] outline-none placeholder:text-muted-foreground/60 hover:bg-white/[0.08] focus:bg-white/[0.1] md:h-11 [&::-webkit-search-cancel-button]:hidden"
+            className="peer h-10 w-full rounded-full bg-tint/[0.06] pr-14 pl-11 text-[14.5px] text-foreground transition-[background-color] outline-none placeholder:text-muted-foreground/60 hover:bg-tint/[0.08] focus:bg-tint/[0.1] md:h-11 [&::-webkit-search-cancel-button]:hidden"
           />
           {!q && (
-            <kbd className="pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded-[8px] bg-white/[0.07] px-2 py-1 font-mono text-[11px] font-semibold text-muted-foreground peer-focus:opacity-0 lg:block">
+            <kbd className="pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded-[8px] bg-tint/[0.07] px-2 py-1 font-mono text-[11px] font-semibold text-muted-foreground peer-focus:opacity-0 lg:block">
               ⌘K
             </kbd>
           )}
@@ -235,7 +235,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             <div
               id="topbar-typeahead"
               role="listbox"
-              className="animate-rise absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-panel bg-popover py-1.5 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08),0_24px_60px_-20px_rgba(0,0,0,0.9)]"
+              className="animate-rise absolute top-full right-0 left-0 z-40 mt-2 overflow-hidden rounded-panel bg-popover py-1.5 shadow-popover"
             >
               {hits.map((c) => (
                 <Link
@@ -244,7 +244,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
                   aria-selected={false}
                   href={`/c/${c.username}`}
                   onClick={() => setOpen(false)}
-                  className="flex items-center gap-3 px-3.5 py-2 transition-colors hover:bg-white/[0.05]"
+                  className="flex items-center gap-3 px-3.5 py-2 transition-colors hover:bg-tint/[0.05]"
                 >
                   <span className="relative shrink-0">
                     <UserAvatar src={c.avatar} name={c.displayName || c.username} size={28} className="size-7" />
@@ -263,7 +263,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
                   aria-selected={false}
                   href={`/browse?category=${encodeURIComponent(cat)}`}
                   onClick={() => setOpen(false)}
-                  className="flex items-center gap-3 px-3.5 py-2 text-sm text-foreground/90 transition-colors hover:bg-white/[0.05]"
+                  className="flex items-center gap-3 px-3.5 py-2 text-sm text-foreground/90 transition-colors hover:bg-tint/[0.05]"
                 >
                   <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/60" />
                   <span className="truncate">{cat}</span>
@@ -293,10 +293,10 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
         {user ? (
           <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
-            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={36} className="size-9 ring-1 ring-white/[0.1]" />
+            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={36} className="size-9 ring-1 ring-tint/[0.1]" />
           </Link>
         ) : isLoading ? (
-          <div className="hidden size-[34px] animate-pulse rounded-full bg-white/10 md:block" />
+          <div className="hidden size-[34px] animate-pulse rounded-full bg-tint/10 md:block" />
         ) : (
           <a
             href={SIGN_IN_URL}

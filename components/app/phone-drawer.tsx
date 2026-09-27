@@ -23,6 +23,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { BalancePills } from "@/components/app/balance-pills";
 import { LauncherGrid } from "@/components/app/launcher-grid";
+import { ThemeSwitch } from "@/components/app/theme-switch";
 
 /**
  * The phone drawer: everything about *you*, sliding in from the left.
@@ -148,7 +149,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
         {user ? (
           <div className="flex items-center gap-3.5 px-5 pt-5 pb-4">
             <span className="relative shrink-0">
-              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={52} className="size-[52px] ring-1 ring-white/[0.1]" />
+              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={52} className="size-[52px] ring-1 ring-tint/[0.1]" />
               {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full bg-chili ring-2 ring-card" />}
             </span>
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -160,7 +161,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
               </span>
               <span className="truncate text-[12.5px] text-muted-foreground">@{user.username}</span>
             </span>
-            <button type="button" onClick={close} aria-label="Close menu" className="press flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-foreground">
+            <button type="button" onClick={close} aria-label="Close menu" className="press flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/[0.06] text-foreground">
               <X size={16} weight="bold" />
             </button>
           </div>
@@ -171,7 +172,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
                 <BrandMark size={28} />
                 <span className="text-[19px] font-bold tracking-tight text-foreground">Xtream</span>
               </span>
-              <button type="button" onClick={close} aria-label="Close menu" className="press flex size-9 items-center justify-center rounded-full bg-white/[0.06] text-foreground">
+              <button type="button" onClick={close} aria-label="Close menu" className="press flex size-9 items-center justify-center rounded-full bg-tint/[0.06] text-foreground">
                 <X size={16} weight="bold" />
               </button>
             </div>
@@ -180,7 +181,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
                 <p className="mt-5 text-[15px] leading-snug text-foreground/85">
                   Sign in to follow channels, earn points and go live yourself.
                 </p>
-                <a href={SIGN_IN_URL} className="press mt-4 flex h-11 items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-black">
+                <a href={SIGN_IN_URL} className="press mt-4 flex h-11 items-center justify-center gap-2 rounded-full bg-inverse text-[15px] font-semibold text-on-inverse">
                   <SignIn size={17} weight="bold" />
                   Sign in
                 </a>
@@ -200,7 +201,13 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
             </nav>
           )}
 
-          <p className="px-3.5 pt-5 pb-1.5 text-[10.5px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase select-none">
+          {/* Light or dark, one tap from anywhere on a phone. */}
+          <p className="px-3.5 pt-5 pb-2 text-[10.5px] font-semibold tracking-[0.14em] text-muted-foreground uppercase select-none">
+            Appearance
+          </p>
+          <ThemeSwitch size="sm" className="px-3" />
+
+          <p className="px-3.5 pt-5 pb-1.5 text-[10.5px] font-semibold tracking-[0.14em] text-muted-foreground uppercase select-none">
             WorldStreet
           </p>
           <LauncherGrid className="px-1" />
@@ -231,7 +238,7 @@ function DrawerRow({ row, active }: { row: Row; active: boolean }) {
       aria-current={active ? "page" : undefined}
       className={cn(
         "press relative flex items-center gap-3.5 rounded-control px-3.5 py-3 text-[15px] font-medium",
-        active ? "bg-white/[0.07] text-foreground" : "text-foreground/90",
+        active ? "bg-tint/[0.07] text-foreground" : "text-foreground/90",
       )}
     >
       <row.icon size={22} weight={active ? "fill" : "regular"} className={cn("shrink-0", active ? "text-foreground" : "text-foreground/75")} aria-hidden />

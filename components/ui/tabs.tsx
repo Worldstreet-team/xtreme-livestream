@@ -39,7 +39,7 @@ export function PillTabs<T extends string>({
       role="tablist"
       aria-label={label}
       className={cn(
-        "inline-flex max-w-full gap-6 overflow-x-auto shadow-[inset_0_-1px_0_rgba(255,236,230,0.08)] scrollbar-none",
+        "inline-flex max-w-full gap-6 overflow-x-auto shadow-[inset_0_-1px_0_var(--hairline-color)] scrollbar-none",
         className
       )}
     >

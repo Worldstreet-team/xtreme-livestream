@@ -57,10 +57,10 @@ export function ThreadHeader({
 }) {
   const ctx = context?.url ? contextHref(context.url) : null;
   const iconButton =
-    "msg-press flex size-10 shrink-0 items-center justify-center rounded-full text-foreground/85 hover:bg-white/[0.07] hover:text-foreground disabled:opacity-35 disabled:hover:bg-transparent";
+    "msg-press flex size-10 shrink-0 items-center justify-center rounded-full text-foreground/85 hover:bg-tint/[0.07] hover:text-foreground disabled:opacity-35 disabled:hover:bg-transparent";
 
   return (
-    <header className="z-20 shrink-0 bg-background/85 pt-[env(safe-area-inset-top)] shadow-[inset_0_-1px_0_rgba(255,236,230,0.06)] backdrop-blur-xl">
+    <header className="z-20 shrink-0 bg-background/85 pt-[env(safe-area-inset-top)] shadow-[inset_0_-1px_0_var(--hairline-color)] backdrop-blur-xl">
       <div className="flex h-16 min-w-0 items-center gap-2 px-2 md:gap-3 md:px-4">
         <button type="button" onClick={onBack} aria-label="Back to messages" className={cn(iconButton, "lg:hidden")}>
           <ArrowLeft size={20} />
@@ -108,7 +108,7 @@ export function ThreadHeader({
           <button
             type="button"
             onClick={onJoinCall}
-            className="msg-press flex h-9 shrink-0 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#0b0708] hover:bg-white/90"
+            className="msg-press flex h-9 shrink-0 items-center gap-2 rounded-full bg-inverse px-4 text-[13px] font-semibold text-on-inverse hover:bg-inverse/90"
           >
             {groupCall.video ? <VideoCamera size={15} weight="fill" /> : <Phone size={15} weight="fill" />}
             Join call
@@ -130,7 +130,7 @@ export function ThreadHeader({
           aria-label="Conversation details"
           aria-pressed={detailsOpen}
           title="Details"
-          className={cn(iconButton, "hidden md:flex", detailsOpen && "bg-white/[0.08] text-foreground")}
+          className={cn(iconButton, "hidden md:flex", detailsOpen && "bg-tint/[0.08] text-foreground")}
         >
           <Info size={20} weight={detailsOpen ? "fill" : undefined} />
         </button>

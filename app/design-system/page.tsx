@@ -7,6 +7,7 @@ import { GIFT_CATALOG } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
 import { chapters } from "@/components/design-system/catalog";
 import { Colour, Type, Shape, Light, Motion } from "@/components/design-system/foundations";
+import { Themes } from "@/components/design-system/themes";
 import { Actions, Status, People, Discovery } from "@/components/design-system/component-demos";
 import { Giving, Competing, Talking, Forms, Surfaces, Rules } from "@/components/design-system/product-standards";
 import { STAGE } from "@/components/design-system/sample-data";
@@ -23,7 +24,7 @@ import { BrandMark, ChatBubble, Chip, GiftAlert, GiftToken, LowerThird, Pill, Us
 export default function DesignSystemPage() {
   return (
     <div id="top" className="ds-catalog min-h-screen bg-background text-foreground">
-      <a href="#colour" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[80] focus:rounded-full focus:bg-white focus:px-4 focus:py-2 focus:text-[#0b0708]">
+      <a href="#colour" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[80] focus:rounded-full focus:bg-inverse focus:px-4 focus:py-2 focus:text-on-inverse">
         Skip to the system
       </a>
       <Masthead />
@@ -31,6 +32,7 @@ export default function DesignSystemPage() {
         <Cover />
         <Principles />
         <Colour />
+        <Themes />
         <Type />
         <Shape />
         <Light />
@@ -81,13 +83,13 @@ function Masthead() {
   }, [active]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-hairline bg-[rgb(11_7_8/0.72)] backdrop-blur-xl backdrop-saturate-150">
+    <header className="sticky top-0 z-40 border-b border-hairline bg-background/80 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-4 py-2.5 md:gap-5 md:px-8">
         <Link href="/explore" className="flex shrink-0 items-center gap-2" aria-label="Back to Xtream">
           <BrandMark size={26} />
           <span className="hidden text-[17px] font-bold tracking-tight sm:inline">Xtream</span>
         </Link>
-        <span className="hidden shrink-0 rounded-full bg-white/[0.06] px-2.5 py-1 font-mono text-[10.5px] text-muted-foreground lg:inline">
+        <span className="hidden shrink-0 rounded-full bg-tint/[0.06] px-2.5 py-1 font-mono text-[10.5px] text-muted-foreground lg:inline">
           Design system · Afterglow 2.0
         </span>
         <nav aria-label="Chapters" className="ml-auto min-w-0">
@@ -100,7 +102,7 @@ function Masthead() {
                 aria-current={active === c.id ? "true" : undefined}
                 className={cn(
                   "press shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition-colors",
-                  active === c.id ? "bg-white text-[#0b0708] shadow-glow-white" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                  active === c.id ? "bg-inverse text-on-inverse shadow-glow-white" : "text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground",
                 )}
               >
                 {c.label}
@@ -119,7 +121,8 @@ const crown = GIFT_CATALOG.find((g) => g.id === "crown")!;
 /** The cover: the product in motion, on a real frame. */
 function Cover() {
   return (
-    <section aria-labelledby="ds-title" className="relative isolate mt-5 overflow-hidden rounded-[32px] bg-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+    // Stays dark: the cover is a live frame.
+    <section aria-labelledby="ds-title" data-theme="dark" className="relative isolate mt-5 overflow-hidden rounded-[32px] bg-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
       <video
         aria-hidden
         className="absolute inset-0 -z-20 size-full object-cover motion-reduce:hidden"
@@ -139,18 +142,18 @@ function Cover() {
 
       <div className="grid gap-10 p-6 pt-12 md:p-10 md:pt-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-end lg:p-14">
         <div>
-          <p className="caps font-mono text-[10.5px] text-white/60">Xtream design system · Afterglow 2.0</p>
-          <h1 id="ds-title" className="ds-display mt-5 text-[clamp(3rem,8.4vw,6.5rem)] leading-[0.92] text-white">
+          <p className="caps font-mono text-[10.5px] text-muted-foreground">Xtream design system · Afterglow 2.0</p>
+          <h1 id="ds-title" className="ds-display mt-5 text-[clamp(3rem,8.4vw,6.5rem)] leading-[0.92] text-foreground">
             Warm light
             <br />
             after dark.
           </h1>
-          <p className="mt-6 max-w-[48ch] text-[16.5px] leading-relaxed text-white/80 text-pretty">
+          <p className="mt-6 max-w-[48ch] text-[16.5px] leading-relaxed text-foreground/80 text-pretty">
             Two colours from the chili, one ring of heat, and a moment for everything that happens in a live room.
             Every part on this page is the real component, shown with the line that wires it.
           </p>
           <div className="mt-8 flex flex-wrap gap-2.5">
-            <a href="#colour" className="press inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[15px] font-semibold text-[#0b0708] shadow-glow-white">
+            <a href="#colour" className="press inline-flex h-11 items-center gap-2 rounded-full bg-inverse px-5 text-[15px] font-semibold text-on-inverse shadow-glow-white">
               Start with colour <ArrowDown size={16} weight="bold" />
             </a>
             <a href="#rules" className="obj press inline-flex h-11 items-center rounded-full px-5 text-[15px] font-semibold text-white">
@@ -185,7 +188,7 @@ function Cover() {
 
 /** The three ideas everything else follows. */
 function Principles() {
-  const tile = "flex min-h-[220px] flex-col justify-between gap-6 rounded-panel bg-surface p-6 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]";
+  const tile = "flex min-h-[220px] flex-col justify-between gap-6 rounded-panel bg-surface p-6 shadow-[inset_0_0_0_1px_var(--hairline-color)]";
   return (
     <div className="mt-5 grid gap-4 md:grid-cols-3">
       <div className={tile}>

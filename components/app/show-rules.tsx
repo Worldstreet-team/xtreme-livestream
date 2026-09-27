@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 const TILE = "relative overflow-hidden rounded-panel bg-surface";
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 const INPUT =
-  "h-10 w-full min-w-0 rounded-full bg-white/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]";
+  "h-10 w-full min-w-0 rounded-full bg-tint/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]";
 
 const GIFT_AMOUNTS = [100, 500, 2000, 5000, 10_000];
 const COOLDOWNS: { sec: 0 | 10 | 30 | 60 | 300; label: string }[] = [
@@ -114,7 +114,7 @@ function Choices<T extends string | number | null>({
             onClick={() => !on && onChange(o.value)}
             className={cn(
               "press h-8 rounded-full px-3 text-[12px] font-semibold transition-colors disabled:opacity-40",
-              on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 enabled:hover:bg-white/[0.1]"
+              on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 enabled:hover:bg-tint/[0.1]"
             )}
           >
             {o.label}
@@ -234,7 +234,7 @@ export function RuleEditor({
   };
 
   return (
-    <div className="rounded-[16px] bg-white/[0.04] p-4 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]">
+    <div className="rounded-[16px] bg-tint/[0.04] p-4 shadow-[inset_0_0_0_1px_var(--hairline-color)]">
       <input
         value={body.name}
         maxLength={40}
@@ -276,7 +276,7 @@ export function RuleEditor({
       <p className={cn(EYEBROW, "mt-5 mb-2")}>Then</p>
       <ol className="flex flex-col gap-2">
         {then.map((a, i) => (
-          <li key={i} className="rounded-[12px] bg-black/20 p-3">
+          <li key={i} className="rounded-[12px] bg-background/60 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[12.5px] font-semibold">{ADD_ACTIONS.find((x) => x.do === a.do)?.label}</span>
               {then.length > 1 && (
@@ -284,7 +284,7 @@ export function RuleEditor({
                   type="button"
                   onClick={() => setBody((b) => ({ ...b, then: b.then.filter((_, j) => j !== i) }))}
                   aria-label="Remove this step"
-                  className="press flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+                  className="press flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-tint/[0.08] hover:text-foreground"
                 >
                   <X size={13} />
                 </button>
@@ -302,7 +302,7 @@ export function RuleEditor({
               key={x.do}
               type="button"
               onClick={() => setBody((b) => ({ ...b, then: [...b.then, newAction(x.do, b.when)] }))}
-              className="press flex h-8 items-center gap-1 rounded-full bg-white/[0.06] px-3 text-[12px] font-semibold text-foreground/85 hover:bg-white/[0.1]"
+              className="press flex h-8 items-center gap-1 rounded-full bg-tint/[0.06] px-3 text-[12px] font-semibold text-foreground/85 hover:bg-tint/[0.1]"
             >
               <Plus size={12} />
               {x.label}
@@ -362,12 +362,12 @@ function RuleCard({
     }
   };
   return (
-    <li className={cn("rounded-[16px] p-4 transition-colors", rule.on ? "bg-white/[0.045]" : "bg-white/[0.02]")}>
+    <li className={cn("rounded-[16px] p-4 transition-colors", rule.on ? "bg-tint/[0.045]" : "bg-tint/[0.02]")}>
       <SwitchField label={rule.name || describeWhen(rule.when)} checked={rule.on} onCheckedChange={onToggle} />
       <p className={cn("text-[13px] leading-snug", rule.on ? "text-foreground/85" : "text-muted-foreground")}>{describeWhen(rule.when)}:</p>
       <ul className="mt-2 flex flex-wrap gap-1.5">
         {rule.then.map((a, i) => (
-          <li key={i} className="max-w-full truncate rounded-[8px] bg-white/[0.07] px-2 py-1 text-[12px] font-medium text-foreground/85">
+          <li key={i} className="max-w-full truncate rounded-[8px] bg-tint/[0.07] px-2 py-1 text-[12px] font-medium text-foreground/85">
             {describeAction(a)}
           </li>
         ))}
@@ -384,12 +384,12 @@ function RuleCard({
             onClick={() => void tryIt()}
             disabled={trying === "busy"}
             title="Do it now on your live stream"
-            className="press flex h-8 items-center gap-1 rounded-full bg-white/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-white/[0.11] disabled:opacity-50"
+            className="press flex h-8 items-center gap-1 rounded-full bg-tint/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.11] disabled:opacity-50"
           >
             <Lightning size={12} weight="fill" className="text-ember-hi" />
             {trying === "done" ? "Done" : "Try"}
           </button>
-          <button type="button" onClick={onEdit} className="press h-8 rounded-full bg-white/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-white/[0.11]">
+          <button type="button" onClick={onEdit} className="press h-8 rounded-full bg-tint/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.11]">
             Edit
           </button>
           <button
@@ -460,9 +460,9 @@ export function ShowRules() {
           </div>
         )}
         {rules === null ? (
-          !error && <div className="mt-3 h-28 animate-pulse rounded-[16px] bg-white/[0.04]" />
+          !error && <div className="mt-3 h-28 animate-pulse rounded-[16px] bg-tint/[0.04]" />
         ) : rules.length === 0 && !editing ? (
-          <p className="mt-3 rounded-[16px] bg-white/[0.03] px-4 py-6 text-center text-[13px] leading-relaxed text-muted-foreground">
+          <p className="mt-3 rounded-[16px] bg-tint/[0.03] px-4 py-6 text-center text-[13px] leading-relaxed text-muted-foreground">
             No rules yet. Start from one on the right, or add your own — they run by themselves while you&apos;re live.
           </p>
         ) : (
@@ -497,7 +497,7 @@ export function ShowRules() {
                 type="button"
                 disabled={Boolean(editing) || full || !rules}
                 onClick={() => setEditing({ id: null, body: t.body })}
-                className="press w-full rounded-[14px] bg-white/[0.045] px-3.5 py-3 text-left transition-colors enabled:hover:bg-white/[0.07] disabled:opacity-50"
+                className="press w-full rounded-[14px] bg-tint/[0.045] px-3.5 py-3 text-left transition-colors enabled:hover:bg-tint/[0.07] disabled:opacity-50"
               >
                 <span className="block text-[13.5px] font-semibold">{t.title}</span>
                 <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">

@@ -162,8 +162,8 @@ export function NotificationsBell({
           "flex w-full items-center gap-3 rounded-sm py-2.5 text-[16px] transition-colors",
           collapsed ? "justify-center px-0" : "px-3.5",
           open
-            ? "bg-white/[0.07] font-semibold text-foreground"
-            : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+            ? "bg-tint/[0.07] font-semibold text-foreground"
+            : "text-muted-foreground hover:bg-tint/[0.04] hover:text-foreground"
         )}
       >
         <span className="relative shrink-0">
@@ -183,7 +183,7 @@ export function NotificationsBell({
           width={320}
           className="max-h-[70vh] overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
         >
-          <div className="border-b border-white/5 px-4 py-3">
+          <div className="border-b border-tint/5 px-4 py-3">
             <p className="text-sm font-semibold text-foreground">
               Notifications
             </p>
@@ -206,7 +206,7 @@ export function NotificationsBell({
                     onNavigate?.();
                   }}
                   className={cn(
-                    "flex items-start gap-2.5 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-white/[0.04]",
+                    "flex items-start gap-2.5 rounded-sm px-2.5 py-2.5 transition-colors hover:bg-tint/[0.04]",
                     !n.read && "bg-primary/[0.06]"
                   )}
                 >
@@ -214,7 +214,7 @@ export function NotificationsBell({
                     className={cn(
                       "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full",
                       n.read
-                        ? "bg-white/5 text-muted-foreground"
+                        ? "bg-tint/5 text-muted-foreground"
                         : "bg-primary/15 text-primary"
                     )}
                   >

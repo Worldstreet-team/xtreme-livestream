@@ -7,7 +7,7 @@ const tones = {
   warning: "bg-warning/10 text-warning",
   danger: "bg-destructive/10 text-destructive",
   info: "bg-info/10 text-info",
-  neutral: "bg-white/[0.06] text-muted-foreground",
+  neutral: "bg-tint/[0.06] text-muted-foreground",
   ember: "bg-ember/15 text-ember-hi",
   value: "bg-value/10 text-value",
 };

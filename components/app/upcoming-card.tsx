@@ -42,7 +42,7 @@ export function UpcomingCard({
     <div ref={ref} className={cn("group", className)}>
       <Link
         href={channelHref}
-        className="relative block aspect-video overflow-hidden rounded-sm bg-white/[0.03]"
+        className="relative block aspect-video overflow-hidden rounded-sm bg-tint/[0.03]"
       >
         <div className="absolute inset-0 opacity-60 grayscale-[35%] transition-opacity group-hover:opacity-75">
           <StreamArt src={item.thumbnailUrl} category={item.category} alt={item.title} seed={item._id + item.title} />

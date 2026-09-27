@@ -70,7 +70,7 @@ export function RecapTile({
           <AudienceCurve analytics={analytics} />
         ) : (
           // Broadcasts from before the curve was kept have their totals, not their minutes.
-          <p className="rounded-[14px] bg-white/[0.03] px-4 py-6 text-center text-[13px] text-muted-foreground">
+          <p className="rounded-[14px] bg-tint/[0.03] px-4 py-6 text-center text-[13px] text-muted-foreground">
             The minute-by-minute curve starts with your next broadcast.
           </p>
         )}
@@ -147,7 +147,7 @@ export function LiveAudience({ streamId }: { streamId: string }) {
   const { analytics } = useStreamAnalytics(streamId, true);
   const lastDrop = analytics?.dropOffs[analytics.dropOffs.length - 1];
   return (
-    <div className="mt-2 rounded-[12px] bg-white/[0.04] p-4">
+    <div className="mt-2 rounded-[12px] bg-tint/[0.04] p-4">
       <div className="flex items-baseline justify-between gap-3">
         <p className={EYEBROW}>Audience</p>
         {analytics && analytics.summary.peakViewers > 0 && (
@@ -157,7 +157,7 @@ export function LiveAudience({ streamId }: { streamId: string }) {
         )}
       </div>
       <div className="mt-3">
-        {analytics ? <AudienceCurve analytics={analytics} height={110} compact /> : <div className="h-[110px] animate-pulse rounded-[8px] bg-white/[0.04]" />}
+        {analytics ? <AudienceCurve analytics={analytics} height={110} compact /> : <div className="h-[110px] animate-pulse rounded-[8px] bg-tint/[0.04]" />}
       </div>
       {analytics && (lastDrop || analytics.questions.length > 0) && (
         <p className="mt-2.5 text-[12px] leading-snug text-muted-foreground">

@@ -70,7 +70,7 @@ export function BroadcastRecaps({ streams }: { streams: Broadcast[] }) {
                     type="button"
                     aria-current={active ? "true" : undefined}
                     onClick={() => open(s.id)}
-                    className="flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.045]"
+                    className="flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2.5 text-left transition-colors hover:bg-tint/[0.045]"
                   >
                     <span aria-hidden className={cn("h-4 w-[3px] shrink-0 rounded-full", active ? "bg-ember" : "bg-transparent")} />
                     <span className={cn("min-w-[6.25rem] shrink-0 whitespace-nowrap text-[13px] tabular-nums", active ? "font-bold text-ember-hi" : "font-semibold text-foreground")}>

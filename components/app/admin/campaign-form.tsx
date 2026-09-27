@@ -55,7 +55,7 @@ const toMinor = (raw: string) => Math.round(Number(raw) * 100);
 
 function Group({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <fieldset className="flex flex-col gap-4 border-t border-white/[0.06] pt-5 first:border-0 first:pt-0">
+    <fieldset className="flex flex-col gap-4 border-t border-tint/[0.06] pt-5 first:border-0 first:pt-0">
       <legend className="sr-only">{title}</legend>
       <div>
         <p className="font-wide text-[15px] font-bold tracking-[-0.02em]">{title}</p>
@@ -202,7 +202,7 @@ export function CampaignForm({
           <TextField label="Xtream keeps (%)" value={margin} onChange={(e) => setMargin(e.target.value)} inputMode="numeric" hint="20–30% is usual" />
           <TextField label="A stream pays ($)" value={pay} onChange={(e) => setPay(e.target.value)} inputMode="decimal" required />
         </div>
-        <p className="rounded-[12px] bg-white/[0.04] px-4 py-3 text-[13px] leading-relaxed">
+        <p className="rounded-[12px] bg-tint/[0.04] px-4 py-3 text-[13px] leading-relaxed">
           Creators&apos; pool <span className="font-money text-value">{formatUsd(pool)}</span> — enough for{" "}
           <span className="font-semibold tabular-nums">{streams.toLocaleString("en-US")}</span> paid {streams === 1 ? "stream" : "streams"}.
           {campaign && campaign.spentUsdMinor > 0 && (
@@ -245,7 +245,7 @@ export function CampaignForm({
 
       {error && <p role="alert" className="rounded-[12px] bg-chili/[0.12] px-4 py-3 text-[13px] text-chili-hi">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={saving} className="press flex h-11 items-center rounded-full bg-white px-5 text-[14px] font-semibold text-[#0b0708] disabled:opacity-50">
+        <button type="submit" disabled={saving} className="press flex h-11 items-center rounded-full bg-inverse px-5 text-[14px] font-semibold text-on-inverse disabled:opacity-50">
           {saving ? "Saving…" : campaign ? "Save changes" : "Create draft"}
         </button>
         <button type="button" onClick={onCancel} className="press flex h-11 items-center rounded-full px-4 text-[14px] font-semibold text-muted-foreground hover:text-foreground">

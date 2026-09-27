@@ -19,7 +19,7 @@ export function ViaTag({
     <span
       className={cn(
         "inline-flex items-center gap-1 text-[11.5px] leading-4 font-medium",
-        tone === "on-ember" ? "text-on-ember/70" : tone === "on-dark" ? "text-white/60" : "text-muted-foreground",
+        tone === "on-ember" ? "text-on-ember/70" : tone === "on-dark" ? "text-muted-foreground" : "text-muted-foreground",
         className,
       )}
     >

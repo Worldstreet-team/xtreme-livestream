@@ -218,6 +218,8 @@ export function MiniLive({
       ref={cardRef}
       role="region"
       aria-label="Your stream, minimized"
+      // Stays dark: your broadcast in a corner, over a page of either theme.
+      data-theme="dark"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

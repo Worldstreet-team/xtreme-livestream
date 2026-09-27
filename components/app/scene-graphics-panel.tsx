@@ -37,7 +37,7 @@ import type { CampaignView, SponsorView } from "@/lib/sponsors";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 const FIELD =
-  "h-10 w-full rounded-full bg-white/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-white/[0.09]";
+  "h-10 w-full rounded-full bg-tint/[0.06] px-4 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-tint/[0.09]";
 const COUNTDOWN_MINUTES = [1, 3, 5, 10, 15, 30];
 
 export type BrandPatch = {
@@ -235,7 +235,7 @@ export function SceneGraphicsPanel({
                       setLtTitle(p.name);
                       setLtSubtitle(p.you ? streamTitle.slice(0, 72) : p.username ? `@${p.username}` : "");
                     }}
-                    className="press h-7 max-w-full truncate rounded-full bg-white/[0.06] px-2.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-white/[0.1]"
+                    className="press h-7 max-w-full truncate rounded-full bg-tint/[0.06] px-2.5 text-[11.5px] font-semibold text-foreground/85 transition-colors hover:bg-tint/[0.1]"
                   >
                     {p.you ? "You" : p.name}
                   </button>
@@ -340,7 +340,7 @@ export function SceneGraphicsPanel({
                     onClick={() => setCdMinutes(m)}
                     className={cn(
                       "press h-8 rounded-full px-3 text-[12px] font-semibold tabular-nums transition-colors",
-                      cdMinutes === m ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                      cdMinutes === m ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
                     )}
                   >
                     {m} min
@@ -379,7 +379,7 @@ export function SceneGraphicsPanel({
                     onClick={() => togglePrice(m)}
                     className={cn(
                       "press h-8 rounded-full px-3 font-mono text-[11.5px] font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40",
-                      on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                      on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
                     )}
                   >
                     {m.replace("-", "/")}
@@ -402,12 +402,12 @@ export function SceneGraphicsPanel({
                 placeholder="Another pair, like ADA-USD"
                 aria-label="Another market"
                 maxLength={15}
-                className="h-9 min-w-0 flex-1 rounded-full bg-white/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-white/[0.09]"
+                className="h-9 min-w-0 flex-1 rounded-full bg-tint/[0.06] px-3.5 font-mono text-[12.5px] text-foreground uppercase outline-none placeholder:font-sans placeholder:normal-case placeholder:text-muted-foreground focus:bg-tint/[0.09]"
               />
               <button
                 type="submit"
                 disabled={!pairAddable}
-                className="press h-9 shrink-0 rounded-full bg-white/[0.08] px-3.5 text-[12px] font-bold text-foreground transition-colors hover:bg-white/[0.12] disabled:pointer-events-none disabled:opacity-40"
+                className="press h-9 shrink-0 rounded-full bg-tint/[0.08] px-3.5 text-[12px] font-bold text-foreground transition-colors hover:bg-tint/[0.12] disabled:pointer-events-none disabled:opacity-40"
               >
                 Add
               </button>
@@ -465,7 +465,7 @@ export function SceneGraphicsPanel({
                 />
               </div>
               {/* What viewers will scan, as they'll see it. */}
-              <span className="flex size-[88px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-white/[0.06]">
+              <span className="flex size-[88px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-tint/[0.06]">
                 {ctaUrlClean ? (
                   <QrCode value={ctaUrlClean} label={`QR code for ${shortUrl(ctaUrlClean)}`} className="size-full rounded-[10px]" />
                 ) : (
@@ -486,7 +486,7 @@ export function SceneGraphicsPanel({
             onHide={() => take("sponsor")}
           >
             {sponsors === null ? (
-              <div className="h-8 w-40 animate-pulse rounded-full bg-white/[0.06]" />
+              <div className="h-8 w-40 animate-pulse rounded-full bg-tint/[0.06]" />
             ) : sponsorOptions.length === 0 ? (
               <p className="text-[12px] leading-snug text-muted-foreground">
                 Add a brand you&apos;ve made a deal with, or join an Xtream campaign that pays you to run its card.{" "}
@@ -509,13 +509,13 @@ export function SceneGraphicsPanel({
                         onClick={() => setSponsorPick(o.key)}
                         className={cn(
                           "press flex h-8 max-w-full items-center gap-1.5 rounded-full pr-3 pl-1 text-[12px] font-semibold transition-colors",
-                          on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                          on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
                         )}
                       >
                         <SponsorMark name={o.name} logoUrl={o.logoUrl} />
                         <span className="truncate">{o.name}</span>
                         {o.campaign && (
-                          <span className={cn("shrink-0 font-mono text-[10.5px] font-bold tabular-nums", on ? "text-[#0b0708]/60" : "text-value")}>
+                          <span className={cn("shrink-0 font-mono text-[10.5px] font-bold tabular-nums", on ? "text-on-inverse/60" : "text-value")}>
                             {centsToDollars(o.campaign.payPerStreamUsdMinor)}
                           </span>
                         )}
@@ -646,7 +646,7 @@ function GraphicCard({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("rounded-[12px] p-3 transition-colors", on ? "bg-white/[0.07]" : "bg-white/[0.04]")}>
+    <div className={cn("rounded-[12px] p-3 transition-colors", on ? "bg-tint/[0.07]" : "bg-tint/[0.04]")}>
       <div className="flex min-h-8 items-center gap-2">
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-semibold">{title}</span>
@@ -661,7 +661,7 @@ function GraphicCard({
           <button
             type="button"
             onClick={onUpdate ?? onShow}
-            className="press h-8 shrink-0 rounded-full bg-white px-3.5 text-[12px] font-bold text-[#0b0708]"
+            className="press h-8 shrink-0 rounded-full bg-inverse px-3.5 text-[12px] font-bold text-on-inverse"
           >
             Update
           </button>
@@ -672,7 +672,7 @@ function GraphicCard({
           disabled={!on && !canShow}
           className={cn(
             "press h-8 shrink-0 rounded-full px-3.5 text-[12px] font-bold transition-colors disabled:pointer-events-none disabled:opacity-40",
-            on ? "bg-white/[0.08] text-foreground hover:bg-white/[0.12]" : "bg-white text-[#0b0708]"
+            on ? "bg-tint/[0.08] text-foreground hover:bg-tint/[0.12]" : "bg-inverse text-on-inverse"
           )}
         >
           {on ? hideLabel : showLabel}
@@ -708,7 +708,7 @@ function CornerPicker({ value, onChange }: { value: LogoCorner; onChange: (c: Lo
             c.endsWith("left") ? "justify-start" : "justify-end"
           )}
         >
-          <span className={cn("h-2.5 w-4 rounded-[3px] transition-colors", value === c ? "bg-ember" : "bg-white/20 hover:bg-white/35")} />
+          <span className={cn("h-2.5 w-4 rounded-[3px] transition-colors", value === c ? "bg-ember" : "bg-tint/20 hover:bg-tint/35")} />
         </button>
       ))}
     </div>
@@ -734,7 +734,7 @@ function PresetRow<P extends BrandPreset>({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {presets.map((p) => (
-        <span key={label(p)} className="group/preset flex h-7 max-w-full items-center rounded-full bg-white/[0.06] transition-colors hover:bg-white/[0.1]">
+        <span key={label(p)} className="group/preset flex h-7 max-w-full items-center rounded-full bg-tint/[0.06] transition-colors hover:bg-tint/[0.1]">
           <button type="button" onClick={() => onPick(p)} className="min-w-0 truncate pl-2.5 text-[11.5px] font-medium text-foreground/85" title={label(p)}>
             {label(p).length > 28 ? `${label(p).slice(0, 27)}…` : label(p)}
           </button>
@@ -833,8 +833,8 @@ export function BrandKit({
               title={ACCENTS[key].label}
               onClick={() => brand.accent !== key && void save({ accent: key })}
               className={cn(
-                "press size-7 rounded-full outline-offset-2 transition-[outline-color]",
-                brand.accent === key ? "outline-2 outline-white" : "outline-2 outline-transparent hover:outline-white/25"
+                "press size-7 rounded-full shadow-[inset_0_0_0_1px_var(--hairline-color)] outline-offset-2 transition-[outline-color]",
+                brand.accent === key ? "outline-2 outline-foreground" : "outline-2 outline-transparent hover:outline-tint/25"
               )}
               style={{ background: ACCENTS[key].fill }}
             />
@@ -856,7 +856,7 @@ export function BrandKit({
                 onClick={() => !on && void save({ lowerThird: s.id })}
                 className={cn(
                   "press flex h-9 items-center gap-2 rounded-full pr-3.5 pl-2 text-[12px] font-semibold transition-colors",
-                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                  on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
                 )}
               >
                 {/* The shape drawn small, in your accent. */}
@@ -887,7 +887,7 @@ export function BrandKit({
                 onClick={() => !on && void save({ font: f })}
                 className={cn(
                   "press flex h-9 items-center rounded-full px-3 text-[12px] transition-colors",
-                  on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                  on ? "bg-inverse text-on-inverse" : "bg-tint/[0.06] text-foreground/85 hover:bg-tint/[0.1]"
                 )}
               >
                 {/* Each face shown in itself. */}
@@ -913,7 +913,7 @@ export function BrandKit({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="press flex h-9 items-center rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-white/[0.11] disabled:opacity-50"
+            className="press flex h-9 items-center rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold text-foreground transition-colors hover:bg-tint/[0.11] disabled:opacity-50"
           >
             {busy ? "Saving…" : brand.logoUrl ? "Replace logo" : "Upload logo"}
           </button>
@@ -924,7 +924,7 @@ export function BrandKit({
                 if (await save({ logo: "" })) onLogoRemoved();
               }}
               aria-label="Remove logo"
-              className="press flex size-9 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:bg-white/[0.11] hover:text-foreground"
+              className="press flex size-9 items-center justify-center rounded-full bg-tint/[0.07] text-muted-foreground transition-colors hover:bg-tint/[0.11] hover:text-foreground"
             >
               <Trash size={15} />
             </button>

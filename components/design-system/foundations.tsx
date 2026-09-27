@@ -157,7 +157,7 @@ text-foreground  text-muted-foreground`}
             ["Control hover", "#30272A", "bg-control-hover"],
             ["Hairline", "rgb 255 236 230 / .1", "border-hairline"],
           ].map(([name, hex, cls]) => (
-            <div key={name} className={cn("flex min-h-[88px] flex-col justify-end rounded-[16px] p-3 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]", cls !== "border-hairline" && cls)}>
+            <div key={name} className={cn("flex min-h-[88px] flex-col justify-end rounded-[16px] p-3 shadow-[inset_0_0_0_1px_var(--hairline-color)]", cls !== "border-hairline" && cls)}>
               <p className="text-[13px] font-semibold">{name}</p>
               <p className="font-mono text-[10.5px] text-muted-foreground">{hex}</p>
             </div>
@@ -245,7 +245,7 @@ rounded-full      // pills and avatars`}
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {shapes.map(([name, note, cls]) => (
-            <div key={name} className={cn("flex h-28 flex-col justify-end bg-surface-raised p-3.5 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]", cls, cls === "rounded-full" && "items-center text-center")}>
+            <div key={name} className={cn("flex h-28 flex-col justify-end bg-surface-raised p-3.5 shadow-[inset_0_0_0_1px_var(--hairline-color)]", cls, cls === "rounded-full" && "items-center text-center")}>
               <p className="text-[13px] font-semibold">{name}</p>
               <p className="font-mono text-[10.5px] text-muted-foreground">{note}</p>
             </div>
@@ -318,7 +318,7 @@ shadow-glow-chili · shadow-glow-ember · shadow-glow-white · shadow-glow-heat
                 ["Following", HeartStraight, false],
               ] as const
             ).map(([label, Icon, active]) => (
-              <span key={label} className={cn("flex h-[58px] flex-col items-center justify-center gap-1 text-[10.5px] font-semibold", active ? "text-white" : "text-white/55")}>
+              <span key={label} className={cn("flex h-[58px] flex-col items-center justify-center gap-1 text-[10.5px] font-semibold", active ? "text-foreground" : "text-muted-foreground")}>
                 <Icon size={21} weight={active ? "fill" : "regular"} />
                 {label}
               </span>
@@ -336,7 +336,7 @@ shadow-glow-chili · shadow-glow-ember · shadow-glow-white · shadow-glow-heat
  *  (inert), so the only button is Replay — no buttons inside buttons. */
 function MotionTile({ label, onReplay, children }: { label: string; onReplay: () => void; children: ReactNode }) {
   return (
-    <div className="flex min-h-[180px] flex-col items-center justify-between gap-4 rounded-[18px] bg-surface-raised p-4 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]">
+    <div className="flex min-h-[180px] flex-col items-center justify-between gap-4 rounded-[18px] bg-surface-raised p-4 shadow-[inset_0_0_0_1px_var(--hairline-color)]">
       <div inert className="flex flex-1 items-center justify-center">
         {children}
       </div>

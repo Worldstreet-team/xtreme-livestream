@@ -76,7 +76,7 @@ export default function TransparencyPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 print:hidden">
-          <div role="radiogroup" aria-label="Year" className="flex rounded-full bg-white/[0.05] p-1">
+          <div role="radiogroup" aria-label="Year" className="flex rounded-full bg-tint/[0.05] p-1">
             {[thisYear - 2, thisYear - 1, thisYear].map((y) => (
               <button
                 key={y}
@@ -84,7 +84,7 @@ export default function TransparencyPage() {
                 role="radio"
                 aria-checked={year === y}
                 onClick={() => setYear(y)}
-                className={cn("press h-9 rounded-full px-3.5 font-mono text-[12.5px] font-semibold", year === y ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground")}
+                className={cn("press h-9 rounded-full px-3.5 font-mono text-[12.5px] font-semibold", year === y ? "bg-inverse text-on-inverse" : "text-muted-foreground hover:text-foreground")}
               >
                 {y}
               </button>

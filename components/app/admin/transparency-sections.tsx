@@ -47,7 +47,7 @@ function Bars({ counts, labels }: { counts: Record<string, number>; labels?: Rec
       {rows.map(([k, v]) => (
         <li key={k} className="grid grid-cols-[minmax(0,11rem)_1fr_4rem] items-center gap-3 text-[13px]">
           <span className="truncate">{labels?.[k] ?? words(k)}</span>
-          <span className="h-2 overflow-hidden rounded-full bg-white/[0.06] print:bg-black/10">
+          <span className="h-2 overflow-hidden rounded-full bg-tint/[0.06] print:bg-black/10">
             <span className="block h-full rounded-full bg-ember print:bg-black" style={{ width: `${(v / top) * 100}%` }} />
           </span>
           <span className="text-right font-mono text-[12px] tabular-nums">{n(v)}</span>

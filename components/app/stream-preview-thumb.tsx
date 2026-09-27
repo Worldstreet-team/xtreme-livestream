@@ -62,7 +62,8 @@ export function StreamPreviewThumb({
   }
 
   return (
-    <div className={cn("relative size-full overflow-hidden bg-ground", className)}>
+    // Stays dark: it stands in for a video frame.
+    <div data-theme="dark" className={cn("relative size-full overflow-hidden bg-ground", className)}>
       <svg
         viewBox="0 0 800 450"
         preserveAspectRatio="xMidYMid slice"

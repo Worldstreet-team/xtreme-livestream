@@ -205,7 +205,7 @@ export default function ChannelHubPage() {
           <Warning size={28} className="text-chili-hi" />
           <p className="mt-3 font-wide text-[20px] font-bold tracking-[-0.02em]">Your numbers didn&apos;t load</p>
           <p className="mt-1 max-w-[42ch] text-[14px] text-muted-foreground">Nothing&apos;s lost — it&apos;s just this page. Try again in a moment.</p>
-          <button type="button" onClick={() => void load()} className="press mt-5 h-10 rounded-full bg-white px-5 text-[14px] font-semibold text-[#0b0708]">
+          <button type="button" onClick={() => void load()} className="press mt-5 h-10 rounded-full bg-inverse px-5 text-[14px] font-semibold text-on-inverse">
             Try again
           </button>
         </div>
@@ -336,7 +336,7 @@ function NextUpTile({ next, more, live, now }: { next: RowItem | null; more: num
             <p className="mt-3 max-w-[40ch] text-[14px] leading-relaxed text-on-ember/80">Your room is open. Chat, guests and gifts are waiting in the studio.</p>
           </div>
           <div className="mt-6">
-            <Link href="/studio" className="press inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14.5px] font-semibold text-[#0b0708]">
+            <Link href="/studio" className="press inline-flex h-11 items-center gap-2 rounded-full bg-inverse px-5 text-[14.5px] font-semibold text-on-inverse">
               <Broadcast size={17} weight="fill" />
               Back to the studio
             </Link>
@@ -354,7 +354,7 @@ function NextUpTile({ next, more, live, now }: { next: RowItem | null; more: num
             </p>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
-            <Link href={`/studio?scheduled=${next._id}`} className="press inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14.5px] font-semibold text-[#0b0708]">
+            <Link href={`/studio?scheduled=${next._id}`} className="press inline-flex h-11 items-center gap-2 rounded-full bg-inverse px-5 text-[14.5px] font-semibold text-on-inverse">
               Go live now
             </Link>
             <Link href="/schedule" className="press inline-flex h-11 items-center rounded-full bg-on-ember/10 px-5 text-[14.5px] font-semibold text-on-ember/90 hover:bg-on-ember/15">
@@ -373,7 +373,7 @@ function NextUpTile({ next, more, live, now }: { next: RowItem | null; more: num
             </p>
           </div>
           <div className="mt-6">
-            <Link href="/schedule" className="press inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14.5px] font-semibold text-[#0b0708]">
+            <Link href="/schedule" className="press inline-flex h-11 items-center gap-2 rounded-full bg-inverse px-5 text-[14.5px] font-semibold text-on-inverse">
               <CalendarPlus size={17} weight="bold" />
               Book a stream
             </Link>
@@ -455,7 +455,7 @@ function WeekTile({ days }: { days: DailyView[] }) {
                 <div
                   className={cn(
                     "absolute inset-x-0 bottom-0 rounded-[8px] transition-[height] duration-700 ease-out motion-reduce:transition-none",
-                    isBest ? "bg-ember" : "bg-white/[0.08]",
+                    isBest ? "bg-ember" : "bg-tint/[0.08]",
                   )}
                   style={{ height: `${grown ? Math.max(pct, 2.5) : 2.5}%`, transitionDelay: `${i * 45}ms` }}
                 />
@@ -490,7 +490,7 @@ function TopTile({ top }: { top: RecentStream[] }) {
       ) : (
         <ol className="mt-5 flex flex-col">
           {top.map((s, i) => (
-            <li key={s.id} className={cn("flex items-center gap-4 py-3.5", i > 0 && "border-t border-white/[0.06]")}>
+            <li key={s.id} className={cn("flex items-center gap-4 py-3.5", i > 0 && "border-t border-tint/[0.06]")}>
               <span className={cn("w-6 shrink-0 font-money text-[28px] leading-none tabular-nums", i === 0 ? "text-ember-hi" : "text-foreground/35")}>{i + 1}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14.5px] font-bold">{s.title}</p>

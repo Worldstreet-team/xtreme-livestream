@@ -292,7 +292,7 @@ export function Composer({
   if (locked) {
     return (
       <div className="px-4 pt-2 pb-[max(env(safe-area-inset-bottom),16px)] md:px-6 md:pb-5">
-        <p className="rounded-[20px] bg-white/[0.04] px-4 py-3 text-center text-[13.5px] text-muted-foreground">{locked}</p>
+        <p className="rounded-[20px] bg-tint/[0.04] px-4 py-3 text-center text-[13.5px] text-muted-foreground">{locked}</p>
       </div>
     );
   }
@@ -301,7 +301,7 @@ export function Composer({
     <div className="px-3 pt-2 pb-[max(env(safe-area-inset-bottom),12px)] md:px-5 md:pb-5">
       {(replyingTo || editing) && (
         <div ref={barRef} className="pb-2">
-          <div className="flex items-center gap-3 rounded-[18px] bg-white/[0.04] py-2 pr-1.5 pl-3.5">
+          <div className="flex items-center gap-3 rounded-[18px] bg-tint/[0.04] py-2 pr-1.5 pl-3.5">
             <span aria-hidden className="h-8 w-[3px] shrink-0 rounded-full bg-ember" />
             <div className="min-w-0 flex-1 leading-tight">
               <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ember-hi">
@@ -318,7 +318,7 @@ export function Composer({
               type="button"
               onClick={editing ? onCancelEdit : onCancelReply}
               aria-label={editing ? "Cancel edit" : "Cancel reply"}
-              className="msg-press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+              className="msg-press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground"
             >
               <X size={15} />
             </button>
@@ -343,7 +343,7 @@ export function Composer({
                     {a.failed ? (
                       <WarningCircle size={20} className="text-chili-hi" aria-label="Upload failed" />
                     ) : (
-                      <span aria-label="Uploading" className="size-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      <span aria-label="Uploading" className="size-5 animate-spin rounded-full border-2 border-tint/30 border-t-white" />
                     )}
                   </span>
                 )}
@@ -363,7 +363,7 @@ export function Composer({
               type="button"
               onClick={() => fileRef.current?.click()}
               aria-label="Add more"
-              className="msg-press flex size-[72px] shrink-0 items-center justify-center rounded-[14px] bg-white/[0.04] text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
+              className="msg-press flex size-[72px] shrink-0 items-center justify-center rounded-[14px] bg-tint/[0.04] text-muted-foreground hover:bg-tint/[0.07] hover:text-foreground"
             >
               <Plus size={20} />
             </button>
@@ -438,7 +438,7 @@ export function Composer({
             placeholder={placeholder}
             aria-label="Message"
             maxLength={4000}
-            className="msg-field min-h-11 flex-1 resize-none rounded-[24px] bg-white/[0.06] px-4 py-[11px] text-[15px] leading-[22px] text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-white/[0.08] focus-visible:bg-white/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="msg-field min-h-11 flex-1 resize-none rounded-[24px] bg-tint/[0.06] px-4 py-[11px] text-[15px] leading-[22px] text-foreground shadow-[inset_0_0_0_1px_var(--hairline-color)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-tint/[0.08] focus-visible:bg-tint/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] disabled:cursor-not-allowed disabled:opacity-50"
           />
 
           {hasContent || editing ? (
@@ -447,10 +447,10 @@ export function Composer({
               type="submit"
               disabled={!canSend}
               aria-label={editing ? "Save edit" : "Send"}
-              className="msg-press msg-pop flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0b0708] hover:bg-white/90 disabled:opacity-40"
+              className="msg-press msg-pop flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90 disabled:opacity-40"
             >
               {sending ? (
-                <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-black/25 border-t-black" />
+                <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-on-inverse/25 border-t-on-inverse" />
               ) : editing ? (
                 <Check size={19} weight="bold" />
               ) : (

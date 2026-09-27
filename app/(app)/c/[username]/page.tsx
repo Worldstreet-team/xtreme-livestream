@@ -466,7 +466,7 @@ export default function ChannelPage({
                 <p className="mt-3 max-w-[62ch] text-[15px] leading-relaxed text-foreground/80">
                   {channel.bio || `${name} hasn't written a bio yet.`}
                 </p>
-                <dl className="mt-6 grid gap-3 border-t border-white/[0.06] pt-5 text-[14px]">
+                <dl className="mt-6 grid gap-3 border-t border-tint/[0.06] pt-5 text-[14px]">
                   <div className="flex items-center gap-3">
                     <dt className="w-32 shrink-0 text-muted-foreground">On Xtream since</dt>
                     <dd className="font-semibold">{memberSince}</dd>
@@ -514,7 +514,8 @@ function Count({ value, label }: { value: number; label: string }) {
 /** On air: the broadcast is the hero, muted, one tap from the room. */
 function LiveHero({ stream, href, now }: { stream: RowItem; href: string; now: number }) {
   return (
-    <Link href={href} className="group relative order-1 block aspect-video overflow-hidden rounded-xl bg-surface md:aspect-[21/8]">
+    // Stays dark: the broadcast is the picture, so its words sit on the room's own ink.
+    <Link href={href} data-theme="dark" className="group relative order-1 block aspect-video overflow-hidden rounded-xl bg-surface md:aspect-[21/8]">
       <LivePreview
         streamId={stream._id}
         fallbackSrc={stream.previewUrl ?? null}
@@ -534,8 +535,8 @@ function LiveHero({ stream, href, now }: { stream: RowItem; href: string; now: n
       </span>
       <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-6 p-4 md:p-6">
         <div className="min-w-0">
-          <p className="truncate font-wide text-[17px] leading-tight font-bold tracking-[-0.02em] text-white md:text-[26px]">{stream.title}</p>
-          <p className="mt-1 text-[12.5px] text-white/70 md:text-[14px]">{stream.category}</p>
+          <p className="truncate font-wide text-[17px] leading-tight font-bold tracking-[-0.02em] text-foreground md:text-[26px]">{stream.title}</p>
+          <p className="mt-1 text-[12.5px] text-subtle md:text-[14px]">{stream.category}</p>
         </div>
         {/* The whole picture is the link; this is its label. */}
         <span className={pillClass({ variant: "live", size: "lg", className: "hidden group-hover:brightness-110 md:inline-flex" })}>
@@ -550,7 +551,8 @@ function LiveHero({ stream, href, now }: { stream: RowItem; href: string; now: n
 /** Off air: their most recent self, dimmed and dated. */
 function LastLive({ stream, now, fallbackAt, className }: { stream: RowItem; now: number; fallbackAt: string; className?: string }) {
   return (
-    <Link href={`/stream/${stream._id}`} className={cn("group relative min-h-[300px] overflow-hidden rounded-xl bg-surface", className)}>
+    // Stays dark: words over the last broadcast's picture.
+    <Link href={`/stream/${stream._id}`} data-theme="dark" className={cn("group relative min-h-[300px] overflow-hidden rounded-xl bg-surface", className)}>
       <div className="absolute inset-0 opacity-55 transition-opacity duration-300 group-hover:opacity-70">
         <StreamArt src={stream.thumbnailUrl} category={stream.category} alt={stream.title} seed={stream._id + stream.title} size={{ w: 1280, h: 720 }} />
       </div>
@@ -559,9 +561,9 @@ function LastLive({ stream, now, fallbackAt, className }: { stream: RowItem; now
         Last live {timeAgo(stream.endedAt ?? stream.startedAt ?? fallbackAt, now)}
       </span>
       <div className="absolute inset-x-0 bottom-0 p-6">
-        <p className="caps font-mono text-[10.5px] text-white/60">Last broadcast</p>
-        <p className="mt-1.5 max-w-[40ch] truncate font-wide text-[24px] leading-tight font-bold tracking-[-0.025em] text-white">{stream.title}</p>
-        <p className="mt-1.5 text-[13.5px] text-white/70 tabular-nums">
+        <p className="caps font-mono text-[10.5px] text-muted-foreground">Last broadcast</p>
+        <p className="mt-1.5 max-w-[40ch] truncate font-wide text-[24px] leading-tight font-bold tracking-[-0.025em] text-foreground">{stream.title}</p>
+        <p className="mt-1.5 text-[13.5px] text-subtle tabular-nums">
           {[spoken(stream.duration), stream.peakViewers ? `peaked at ${formatNumber(stream.peakViewers)} viewers` : "", stream.category].filter(Boolean).join(" · ")}
         </p>
       </div>
@@ -689,7 +691,7 @@ function HabitTile({ heat }: { heat: { grid: number[][]; max: number; total: num
                   <span
                     key={day}
                     title={`${DAY_NAMES[day]} ${label.toLowerCase()}: ${n} broadcast${n === 1 ? "" : "s"}`}
-                    className={cn("h-10 rounded-[8px]", best ? "bg-ember" : n ? "" : "bg-white/[0.04]")}
+                    className={cn("h-10 rounded-[8px]", best ? "bg-ember" : n ? "" : "bg-tint/[0.04]")}
                     style={n && !best ? { backgroundColor: `color-mix(in oklab, var(--color-ember) ${22 + (n / heat.max) * 50}%, transparent)` } : undefined}
                   />
                 );

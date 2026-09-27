@@ -59,7 +59,7 @@ export function GiftToken({
       <span
         className={cn(
           "rounded-full px-2 py-[3px] text-[10.5px] leading-none font-bold tabular-nums transition-colors",
-          picked || sending ? "bg-heat text-white" : "bg-white/[0.08] text-value",
+          picked || sending ? "bg-heat text-white" : "bg-tint/[0.08] text-value",
         )}
       >
         {centsToDollars(gift.usdMinor)}
@@ -86,14 +86,14 @@ export function GiftToken({
       ? "bg-ember/[0.07] shadow-[inset_0_0_0_1.5px_var(--ember)]"
       : sending
         ? "-translate-y-2 scale-[1.04] bg-ember/[0.1] shadow-[inset_0_0_0_1.5px_#ffb36b]"
-        : "bg-white/[0.035] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.08)]",
+        : "bg-tint/[0.035] shadow-[inset_0_0_0_1px_var(--hairline-color)]",
     dimmed && !picked && "opacity-55",
     className,
   );
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} aria-pressed={picked} title={title} className={cn(cls, "outline-none focus-visible:ring-2 focus-visible:ring-ember active:scale-95", state === "rest" && "hover:bg-white/[0.06]")}>
+      <button type="button" onClick={onClick} aria-pressed={picked} title={title} className={cn(cls, "outline-none focus-visible:ring-2 focus-visible:ring-ember active:scale-95", state === "rest" && "hover:bg-tint/[0.06]")}>
         {body}
       </button>
     );

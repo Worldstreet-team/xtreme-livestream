@@ -77,7 +77,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
         }}
         className="md:max-w-[440px]"
       >
-        <label className="flex h-12 items-center gap-2.5 rounded-full bg-white/[0.06] px-4 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] focus-within:bg-white/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)]">
+        <label className="flex h-12 items-center gap-2.5 rounded-full bg-tint/[0.06] px-4 shadow-[inset_0_0_0_1px_var(--hairline-color)] focus-within:bg-tint/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)]">
           <MagnifyingGlass size={17} className="shrink-0 text-muted-foreground" aria-hidden />
           <input
             ref={inputRef}
@@ -87,7 +87,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
             aria-label="Search people"
             className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
           />
-          {searching && <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />}
+          {searching && <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-tint/20 border-t-foreground/70" />}
         </label>
 
         {error && (
@@ -111,7 +111,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
                       router.push(threadHref(r._id));
                     }}
                     style={{ "--i": i } as React.CSSProperties}
-                    className="msg-rise flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left transition-colors hover:bg-white/[0.05]"
+                    className="msg-rise flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left transition-colors hover:bg-tint/[0.05]"
                   >
                     <UserAvatar src={threadAvatar(r)} name={threadTitle(r)} size={40} className="size-10" />
                     <span className="min-w-0 flex-1 leading-tight">
@@ -137,8 +137,8 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
                 onClick={() => void open(p)}
                 style={{ "--i": i } as React.CSSProperties}
                 className={cn(
-                  "msg-rise flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left transition-colors hover:bg-white/[0.05] disabled:opacity-60",
-                  opening === p.username && "bg-white/[0.05]",
+                  "msg-rise flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left transition-colors hover:bg-tint/[0.05] disabled:opacity-60",
+                  opening === p.username && "bg-tint/[0.05]",
                 )}
               >
                 <UserAvatar src={p.avatar} name={p.displayName || p.username} size={40} ring={p.isLive ? "live" : "none"} ringGapClassName="bg-surface-raised" />
@@ -154,7 +154,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
                   </span>
                 </span>
                 {opening === p.username && (
-                  <span aria-label="Opening" className="size-4 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+                  <span aria-label="Opening" className="size-4 animate-spin rounded-full border-2 border-tint/20 border-t-foreground/70" />
                 )}
               </button>
             ))

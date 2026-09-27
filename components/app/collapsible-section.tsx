@@ -74,10 +74,10 @@ export function CollapsibleSection({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={bodyId}
-        className="press flex w-full items-center gap-3 rounded-[12px] px-1 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
+        className="press flex w-full items-center gap-3 rounded-[12px] px-1 py-1.5 text-left transition-colors hover:bg-tint/[0.04]"
       >
         {Icon && (
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.07]">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/[0.07]">
             <Icon size={17} />
           </span>
         )}

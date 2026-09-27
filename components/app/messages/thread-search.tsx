@@ -62,7 +62,7 @@ export function ThreadSearch({ conversationId, onPick, onClose }: { conversation
   return (
     <div className="msg-lift relative z-10 shrink-0 px-3 pt-2 pb-2 md:px-5">
       <div className="flex items-center gap-2">
-        <label className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full bg-white/[0.06] px-4 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] focus-within:bg-white/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)]">
+        <label className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full bg-tint/[0.06] px-4 shadow-[inset_0_0_0_1px_var(--hairline-color)] focus-within:bg-tint/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)]">
           <MagnifyingGlass size={17} className="shrink-0 text-muted-foreground" aria-hidden />
           <input
             ref={inputRef}
@@ -73,7 +73,7 @@ export function ThreadSearch({ conversationId, onPick, onClose }: { conversation
             aria-label="Search this conversation"
             className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
           />
-          {busy && <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />}
+          {busy && <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-tint/20 border-t-foreground/70" />}
         </label>
         <button
           type="button"
@@ -86,7 +86,7 @@ export function ThreadSearch({ conversationId, onPick, onClose }: { conversation
       </div>
 
       {shown && (
-        <div className="msg-lift absolute inset-x-3 top-full z-20 mt-1 max-h-[min(24rem,60vh)] overflow-y-auto rounded-panel bg-popover py-1.5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.95)] md:inset-x-5">
+        <div className="msg-lift absolute inset-x-3 top-full z-20 mt-1 max-h-[min(24rem,60vh)] overflow-y-auto rounded-panel bg-popover py-1.5 shadow-popover md:inset-x-5">
           {shown.length === 0 ? (
             <p className="px-4 py-6 text-center text-[13.5px] text-muted-foreground">Nothing in this conversation matches “{term}”.</p>
           ) : (
@@ -96,7 +96,7 @@ export function ThreadSearch({ conversationId, onPick, onClose }: { conversation
                 type="button"
                 onClick={() => onPick(m._id)}
                 style={{ "--i": i } as React.CSSProperties}
-                className={cn("msg-rise flex w-full flex-col gap-0.5 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.05]")}
+                className={cn("msg-rise flex w-full flex-col gap-0.5 px-4 py-2.5 text-left transition-colors hover:bg-tint/[0.05]")}
               >
                 <span className="flex items-baseline justify-between gap-3">
                   <span className="truncate text-[12.5px] font-semibold text-foreground/90">

@@ -66,7 +66,7 @@ export function PointsChip() {
         <Coins size={16} weight="fill" className="text-ember-hi" />
         {formatPoints(balance)}
       </span>
-      <span className="h-4 w-px bg-white/[0.12]" aria-hidden />
+      <span className="h-4 w-px bg-tint/[0.12]" aria-hidden />
       <span className="flex items-center gap-1 text-[13px]" title={`${streak}-day watch streak`}>
         <Fire size={15} weight="fill" className={streak > 0 ? "text-chili-hi" : "text-muted-foreground/50"} />
         {streak}d

@@ -36,7 +36,7 @@ export function Chip({
   const cls = cn(
     "press inline-flex h-9 shrink-0 items-center gap-2 rounded-[10px] px-4 text-[13px] font-semibold whitespace-nowrap outline-none transition-[background-color,color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-ember",
     active
-      ? "bg-white text-[#0b0708]"
+      ? "bg-inverse text-on-inverse"
       : onPicture
         ? "bg-black/55 text-white/90 hover:bg-black/70"
         : "bg-control text-foreground/85 hover:bg-control-hover hover:text-foreground",
@@ -50,7 +50,7 @@ export function Chip({
         <span
           className={cn(
             "-mr-1 rounded-full px-1.5 py-0.5 text-[10.5px] leading-none font-bold tabular-nums",
-            active ? "bg-ember text-on-ember" : "bg-white/[0.08] text-muted-foreground",
+            active ? "bg-ember text-on-ember" : "bg-tint/[0.08] text-muted-foreground",
           )}
         >
           {count}

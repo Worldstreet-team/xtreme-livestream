@@ -124,7 +124,12 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
   return (
     <CallContext.Provider value={value}>
       {children}
-      {enabled && <CallSurface />}
+      {/* Stays dark: a call is faces on video, on any page, in either theme. */}
+      {enabled && (
+        <div data-theme="dark" className="contents">
+          <CallSurface />
+        </div>
+      )}
     </CallContext.Provider>
   );
 }

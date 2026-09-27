@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { apiUrl } from "@/lib/api-client";
 import { categoryArt } from "@/lib/category-art";
+import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 
@@ -42,7 +43,8 @@ export function StreamArt({
   lazy?: boolean;
 }) {
   const primary = src ? apiUrl(src) : "";
-  const fallback = categoryArt(category, size);
+  // Covers come on paper in the light theme, so a card matches its page.
+  const fallback = categoryArt(category, size, useTheme());
   // Which source we're on: 0 = own thumbnail, 1 = category cover, 2 = chart.
   // Reset when the thumbnail arrives late (a tile that mounted before its
   // category loaded should switch to the live cover, not stay on the poster).

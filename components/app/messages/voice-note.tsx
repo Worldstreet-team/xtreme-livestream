@@ -100,7 +100,7 @@ export function VoiceNote({
         aria-label={playing ? "Pause voice note" : "Play voice note"}
         className={cn(
           "msg-press flex size-9 shrink-0 items-center justify-center rounded-full",
-          mine ? "bg-on-ember text-ember" : "bg-white text-[#0b0708]",
+          mine ? "bg-on-ember text-ember" : "bg-inverse text-on-inverse",
         )}
       >
         {playing ? <Pause size={16} weight="fill" /> : <Play size={16} weight="fill" className="translate-x-px" />}
@@ -130,14 +130,14 @@ export function VoiceNote({
               style={{ height: `${Math.round(v * 100)}%` }}
               className={cn(
                 "w-[3px] shrink-0 rounded-full transition-colors duration-150",
-                mine ? (played ? "bg-on-ember" : "bg-on-ember/30") : played ? "bg-white" : "bg-white/30",
+                mine ? (played ? "bg-on-ember" : "bg-on-ember/30") : played ? "bg-foreground" : "bg-tint/30",
               )}
             />
           );
         })}
       </div>
       <span className="flex shrink-0 flex-col items-end gap-0.5">
-        <span className={cn("text-[11.5px] font-medium tabular-nums", mine ? "text-on-ember/80" : "text-white/70")}>
+        <span className={cn("text-[11.5px] font-medium tabular-nums", mine ? "text-on-ember/80" : "text-subtle")}>
           {durationLabel(remaining)}
         </span>
         <button
@@ -146,7 +146,7 @@ export function VoiceNote({
           aria-label={`Playback speed ${speed}×`}
           className={cn(
             "msg-press rounded-full px-1.5 text-[10.5px] leading-4 font-bold tabular-nums",
-            mine ? "bg-on-ember/15 text-on-ember" : "bg-white/10 text-white/80",
+            mine ? "bg-on-ember/15 text-on-ember" : "bg-tint/10 text-foreground/80",
           )}
         >
           {speed}×

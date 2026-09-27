@@ -1088,7 +1088,7 @@ function Thread({ id }: { id: string }) {
         {flash && (
           <div
             role="status"
-            className="msg-lift pointer-events-none absolute top-[calc(env(safe-area-inset-top)+4.75rem)] left-1/2 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full px-4 py-2 text-center text-[13px] font-medium shadow-[0_10px_30px_-10px_rgba(0,0,0,0.8)]"
+            className="msg-lift pointer-events-none absolute top-[calc(env(safe-area-inset-top)+4.75rem)] left-1/2 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full px-4 py-2 text-center text-[13px] font-medium shadow-popover"
             style={{ background: flash.tone === "danger" ? "var(--chili)" : "var(--surface-raised)", color: "#fff" }}
           >
             {flash.text}
@@ -1320,7 +1320,7 @@ function Thread({ id }: { id: string }) {
                 <button
                   type="button"
                   onClick={toBottom}
-                  className="msg-press msg-pop absolute bottom-3 left-1/2 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-semibold text-[#0b0708] shadow-[0_10px_30px_-10px_rgba(0,0,0,0.8)]"
+                  className="msg-press msg-pop absolute bottom-3 left-1/2 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full bg-inverse px-4 text-[13px] font-semibold text-on-inverse shadow-popover"
                 >
                   <ArrowDown size={14} weight="bold" aria-hidden />
                   {newBelow === 1 ? "1 new message" : `${newBelow} new messages`}
@@ -1374,7 +1374,7 @@ function Thread({ id }: { id: string }) {
       </div>
 
       {detailsOpen && row && (
-        <div className="fixed inset-0 z-40 md:absolute md:inset-y-0 md:right-0 md:left-auto md:w-[360px] md:shadow-[-30px_0_80px_-40px_rgba(0,0,0,0.9)] xl:static xl:z-auto xl:w-[340px] xl:shrink-0 xl:shadow-[inset_1px_0_0_rgba(255,236,230,0.06)]">
+        <div className="fixed inset-0 z-40 md:absolute md:inset-y-0 md:right-0 md:left-auto md:w-[360px] md:shadow-[-30px_0_80px_-40px_rgba(0,0,0,0.9)] xl:static xl:z-auto xl:w-[340px] xl:shrink-0 xl:shadow-[inset_1px_0_0_var(--hairline-color)]">
           <ThreadDetails
             conversationId={id}
             title={title}
@@ -1515,8 +1515,8 @@ function ThreadSkeleton() {
     <div className="space-y-3 pt-8" aria-label="Loading the conversation">
       {widths.map((w, i) => (
         <div key={i} className={cn("flex", i % 2 ? "justify-end" : "justify-start gap-2")}>
-          {i % 2 === 0 && <span className="size-7 shrink-0 animate-pulse rounded-full bg-white/[0.05]" />}
-          <span className={cn("h-10 animate-pulse rounded-[22px] bg-white/[0.05]", w)} style={{ animationDelay: `${i * 90}ms` }} />
+          {i % 2 === 0 && <span className="size-7 shrink-0 animate-pulse rounded-full bg-tint/[0.05]" />}
+          <span className={cn("h-10 animate-pulse rounded-[22px] bg-tint/[0.05]", w)} style={{ animationDelay: `${i * 90}ms` }} />
         </div>
       ))}
     </div>

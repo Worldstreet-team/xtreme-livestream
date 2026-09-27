@@ -194,7 +194,7 @@ export function InboxPane() {
             onClick={() => setComposing(true)}
             aria-label="New message"
             title="New message"
-            className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0b0708] hover:bg-white/90"
+            className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
           >
             <PencilSimple size={19} weight="bold" />
           </button>
@@ -202,7 +202,7 @@ export function InboxPane() {
 
         {rows && rows.length > 0 && (
           <>
-            <label className="mt-5 flex h-11 items-center gap-2.5 rounded-full bg-white/[0.06] px-4 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] transition-[background-color,box-shadow] duration-200 focus-within:bg-white/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)] hover:bg-white/[0.08]">
+            <label className="mt-5 flex h-11 items-center gap-2.5 rounded-full bg-tint/[0.06] px-4 shadow-[inset_0_0_0_1px_var(--hairline-color)] transition-[background-color,box-shadow] duration-200 focus-within:bg-tint/[0.09] focus-within:shadow-[inset_0_0_0_1.5px_var(--ember)] hover:bg-tint/[0.08]">
               <MagnifyingGlass size={17} className="shrink-0 text-muted-foreground" aria-hidden />
               <input
                 value={query}
@@ -308,7 +308,7 @@ export function InboxPane() {
           <button
             type="button"
             onClick={() => setFilter("requests")}
-            className="msg-press mb-1 flex w-full items-center gap-3.5 rounded-panel px-3 py-3 text-left transition-colors hover:bg-white/[0.04]"
+            className="msg-press mb-1 flex w-full items-center gap-3.5 rounded-panel px-3 py-3 text-left transition-colors hover:bg-tint/[0.04]"
           >
             <span className="relative flex h-12 w-[60px] shrink-0 items-center">
               {requests.slice(0, 3).map((r, i) => (
@@ -351,7 +351,7 @@ export function InboxPane() {
           <button
             type="button"
             onClick={() => setFilter("archived")}
-            className="msg-press mt-2 flex w-full items-center gap-3 rounded-panel px-3 py-2.5 text-left text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+            className="msg-press mt-2 flex w-full items-center gap-3 rounded-panel px-3 py-2.5 text-left text-muted-foreground transition-colors hover:bg-tint/[0.04] hover:text-foreground"
           >
             <span className="flex size-12 shrink-0 items-center justify-center">
               <Archive size={20} aria-hidden />
@@ -418,7 +418,7 @@ function InboxRow({
       data-hero-row={row._id}
       className={cn(
         "group relative flex items-center gap-3.5 rounded-panel px-3 py-3 transition-colors",
-        active ? "bg-white/[0.07]" : "hover:bg-white/[0.04]",
+        active ? "bg-tint/[0.07]" : "hover:bg-tint/[0.04]",
       )}
     >
       {/* Selected: a short Ember bar at the edge — the selected state, no outline. */}
@@ -527,10 +527,10 @@ function InboxSkeleton() {
     <ul className="space-y-0.5" aria-label="Loading your messages">
       {Array.from({ length: 7 }, (_, i) => (
         <li key={i} className="flex items-center gap-3.5 px-3 py-3">
-          <span className="size-[52px] shrink-0 animate-pulse rounded-full bg-white/[0.05]" style={{ animationDelay: `${i * 80}ms` }} />
+          <span className="size-[52px] shrink-0 animate-pulse rounded-full bg-tint/[0.05]" style={{ animationDelay: `${i * 80}ms` }} />
           <div className="min-w-0 flex-1 space-y-2">
-            <span className="block h-3.5 w-2/5 animate-pulse rounded-full bg-white/[0.05]" style={{ animationDelay: `${i * 80}ms` }} />
-            <span className="block h-3 w-4/5 animate-pulse rounded-full bg-white/[0.04]" style={{ animationDelay: `${i * 80}ms` }} />
+            <span className="block h-3.5 w-2/5 animate-pulse rounded-full bg-tint/[0.05]" style={{ animationDelay: `${i * 80}ms` }} />
+            <span className="block h-3 w-4/5 animate-pulse rounded-full bg-tint/[0.04]" style={{ animationDelay: `${i * 80}ms` }} />
           </div>
         </li>
       ))}

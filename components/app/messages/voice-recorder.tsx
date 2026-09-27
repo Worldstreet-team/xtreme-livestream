@@ -219,7 +219,7 @@ export function RecorderBar({
       >
         <Trash size={19} />
       </button>
-      <div className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-[24px] bg-white/[0.06] pr-4 pl-4">
+      <div className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-[24px] bg-tint/[0.06] pr-4 pl-4">
         <span className="flex shrink-0 items-center gap-2">
           <span aria-hidden className="rec-blink size-2.5 rounded-full bg-chili" />
           <span className="text-[14px] font-semibold text-foreground tabular-nums" aria-live="off">
@@ -233,7 +233,7 @@ export function RecorderBar({
         type="button"
         onClick={onSend}
         aria-label="Send voice note"
-        className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0b0708] hover:bg-white/90"
+        className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
       >
         <PaperPlaneRight size={19} weight="fill" />
       </button>
@@ -359,7 +359,7 @@ export function LockHint({ dy }: { dy: number }) {
   return (
     <span
       aria-hidden
-      className="msg-lock-in pointer-events-none absolute right-0 bottom-[60px] z-10 flex h-[58px] w-11 flex-col items-center justify-center gap-0.5 rounded-full bg-surface-raised text-muted-foreground shadow-[0_10px_30px_-12px_rgba(0,0,0,0.9)]"
+      className="msg-lock-in pointer-events-none absolute right-0 bottom-[60px] z-10 flex h-[58px] w-11 flex-col items-center justify-center gap-0.5 rounded-full bg-surface-raised text-muted-foreground shadow-popover"
       style={{ transform: `translateY(${lift}px)` }}
     >
       <Lock size={16} />

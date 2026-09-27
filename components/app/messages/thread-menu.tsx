@@ -101,7 +101,7 @@ export function ThreadMenu({
           role="menu"
           aria-label={page === "mute" ? "Mute notifications" : "Conversation options"}
           onKeyDown={onKeyDown}
-          className="animate-rise absolute top-full right-0 z-40 mt-2 w-64 overflow-hidden rounded-panel bg-popover py-1 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)]"
+          className="animate-rise absolute top-full right-0 z-40 mt-2 w-64 overflow-hidden rounded-panel bg-popover py-1 shadow-popover"
         >
           {page === "main" ? (
             <>
@@ -154,7 +154,7 @@ function Row({
       role="menuitem"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm transition-colors outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.06]",
+        "flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm transition-colors outline-none hover:bg-tint/[0.04] focus-visible:bg-tint/[0.06]",
         danger ? "text-chili-hi" : "text-foreground/90",
         strong && "font-semibold text-foreground",
         !Glyph && "pl-[42px]",
@@ -168,5 +168,5 @@ function Row({
 }
 
 function Divider() {
-  return <div role="separator" className="my-1 h-px bg-white/[0.06]" />;
+  return <div role="separator" className="my-1 h-px bg-tint/[0.06]" />;
 }

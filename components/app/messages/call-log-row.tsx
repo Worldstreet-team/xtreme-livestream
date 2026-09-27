@@ -55,7 +55,7 @@ export function CallLogRow({
           <button
             type="button"
             onClick={() => onCallBack(video)}
-            className="msg-press ml-1 h-8 shrink-0 rounded-full bg-white px-3.5 text-[12.5px] font-semibold text-[#0b0708] hover:bg-white/90"
+            className="msg-press ml-1 h-8 shrink-0 rounded-full bg-inverse px-3.5 text-[12.5px] font-semibold text-on-inverse hover:bg-inverse/90"
           >
             Call back
           </button>

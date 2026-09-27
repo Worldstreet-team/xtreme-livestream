@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, DM_Sans, Archivo, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { AuthProvider } from "@/lib/auth-context";
+import { THEME_SCRIPT } from "@/lib/theme-script";
+import { ThemeSync } from "@/components/app/theme-switch";
 import "./globals.css";
 
 const dmSans = DM_Sans({subsets:['latin'],variable:'--font-sans'});
@@ -98,10 +100,15 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkAuthProvider>
-      <html lang="en" className={`${dmSans.variable} ${archivo.variable} ${poppins.variable} dark`}>
+      {/* The head script sets data-theme before paint, so <html> differs from the server's on purpose. */}
+      <html lang="en" className={`${dmSans.variable} ${archivo.variable} ${poppins.variable} dark`} suppressHydrationWarning>
+        <head>
+          <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        </head>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         >
+          <ThemeSync />
           <AuthProvider>{children}</AuthProvider>
         </body>
       </html>

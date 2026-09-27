@@ -233,7 +233,7 @@ function youNav(): NavItem[] {
 
 /** Section eyebrow — the small uppercase label between groups. */
 function Eyebrow({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
-  if (collapsed) return <div className="mx-auto my-3 h-px w-6 bg-white/[0.08]" />;
+  if (collapsed) return <div className="mx-auto my-3 h-px w-6 bg-tint/[0.08]" />;
   return (
     <p className="px-3.5 pt-5 pb-1.5 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground/70 uppercase select-none">
       {children}
@@ -366,7 +366,7 @@ export function Sidebar({
       >
         {/* Brand, with the collapse control beside it — up top, where the
             rail's own controls belong (owner, 2026-09-23). */}
-        <div className={cn("animate-rise flex h-16 shrink-0 items-center shadow-[inset_0_-1px_0_rgba(255,236,230,0.06)]", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
+        <div className={cn("animate-rise flex h-16 shrink-0 items-center shadow-[inset_0_-1px_0_var(--hairline-color)]", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
           <Link href="/" className="group flex items-center gap-2.5" title="Xtream">
             <span className="flex size-[38px] items-center justify-center">
               <BrandMark size={30} />
@@ -382,7 +382,7 @@ export function Sidebar({
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-pressed={collapsed}
               title={collapsed ? "Expand" : "Collapse"}
-              className="press flex size-9 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-white/[0.05] hover:text-foreground"
+              className="press flex size-9 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-tint/[0.05] hover:text-foreground"
             >
               {/* Rail on the left, like ours — Solar draws it on the right. */}
               <SidebarSimple size={20} mirrored />
@@ -453,7 +453,7 @@ export function Sidebar({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setAppsAnchor(null)}
-                    className="group/app flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-white/[0.05]"
+                    className="group/app flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-tint/[0.05]"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-control text-foreground">
                       <app.icon size={18} weight="duotone" aria-hidden />
@@ -473,7 +473,7 @@ export function Sidebar({
 
         {/* The foot: the Wolf race, then the account — pinned, never scrolled
             out of view under the list. */}
-        <div className={cn("shrink-0", narrow ? "border-t border-white/[0.06] px-2 pt-1" : "px-3 pt-1")}>
+        <div className={cn("shrink-0", narrow ? "border-t border-tint/[0.06] px-2 pt-1" : "px-3 pt-1")}>
           {/* The Wolf of WorldStreet race, at the foot of the rail (owner,
               2026-09-24) — the one place foil is allowed: the pelt. */}
           <a
@@ -483,7 +483,7 @@ export function Sidebar({
             title={narrow ? "Wolf of WorldStreet — the most-backed creator wears the pelt" : undefined}
             className={cn(
               "group/wolf flex items-center gap-3 rounded-panel transition-colors",
-              narrow ? "justify-center py-2" : "bg-white/[0.035] p-2.5 hover:bg-white/[0.06]",
+              narrow ? "justify-center py-2" : "bg-tint/[0.035] p-2.5 hover:bg-tint/[0.06]",
             )}
           >
             <span className={cn("flex shrink-0 items-center justify-center rounded-full bg-foil text-[#1a1206]", narrow ? "size-8" : "size-9")}>
@@ -505,22 +505,22 @@ export function Sidebar({
             <>
               {menuOpen && menuAnchor && (
                 <GlassPopover anchor={menuAnchor} width={236} className="py-1">
-                  <Link href={`/c/${user.username}`} data-vivid-own-channel onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
+                  <Link href={`/c/${user.username}`} data-vivid-own-channel onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-tint/[0.04]">
                     <Users size={15} />
                     View public page
                   </Link>
-                  <a href="https://dashboard.worldstreetgold.com" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-white/[0.04]">
+                  <a href="https://dashboard.worldstreetgold.com" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground/90 transition-colors hover:bg-tint/[0.04]">
                     <Wallet size={15} />
                     WorldStreet dashboard
                   </a>
-                  <div className="my-1 border-t border-white/[0.06]" />
-                  <button onClick={() => logout()} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-white/[0.04]">
+                  <div className="my-1 border-t border-tint/[0.06]" />
+                  <button onClick={() => logout()} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-tint/[0.04]">
                     <SignOut size={15} />
                     Log out @{user.username}
                   </button>
                 </GlassPopover>
               )}
-              <div className={cn(!narrow && "rounded-panel bg-white/[0.035] p-1.5")}>
+              <div className={cn(!narrow && "rounded-panel bg-tint/[0.035] p-1.5")}>
               <button
                 onClick={(e) => {
                   setMenuAnchor(e.currentTarget.getBoundingClientRect());
@@ -529,10 +529,10 @@ export function Sidebar({
                 aria-haspopup="dialog"
                 aria-expanded={menuOpen}
                 title={narrow ? user.displayName : undefined}
-                className={cn("group flex w-full items-center gap-3 rounded-control p-2 text-left transition-colors hover:bg-white/[0.04]", narrow && "justify-center")}
+                className={cn("group flex w-full items-center gap-3 rounded-control p-2 text-left transition-colors hover:bg-tint/[0.04]", narrow && "justify-center")}
               >
                 <span className="relative shrink-0">
-                  <UserAvatar src={user.avatar} name={user.displayName || user.username} size={40} className="size-10 ring-1 ring-white/[0.08]" />
+                  <UserAvatar src={user.avatar} name={user.displayName || user.username} size={40} className="size-10 ring-1 ring-tint/[0.08]" />
                   {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
                 </span>
                 {!narrow && (
@@ -555,8 +555,8 @@ export function Sidebar({
             </>
           ) : isLoading ? (
             <div className={cn("flex items-center gap-3 p-2.5", narrow && "justify-center")}>
-              <div className="size-10 shrink-0 animate-pulse rounded-full bg-white/10" />
-              {!narrow && <div className="h-3 w-24 animate-pulse rounded-full bg-white/10" />}
+              <div className="size-10 shrink-0 animate-pulse rounded-full bg-tint/10" />
+              {!narrow && <div className="h-3 w-24 animate-pulse rounded-full bg-tint/10" />}
             </div>
           ) : (
             <div className={cn(!narrow && "px-1.5 pb-1")}>
@@ -573,7 +573,7 @@ export function Sidebar({
                   "press flex items-center justify-center gap-2 rounded-full transition-[filter,background-color]",
                   narrow
                     ? "mx-auto size-10 bg-control text-foreground hover:bg-control-hover"
-                    : "h-11 bg-white text-[15px] font-semibold text-[#0b0708] hover:brightness-95",
+                    : "h-11 bg-inverse text-[15px] font-semibold text-on-inverse hover:brightness-95",
                 )}
               >
                 <SignIn size={16} weight="bold" />
@@ -640,13 +640,13 @@ function ChannelRow({ entry, collapsed, onNavigate }: { entry: RailEntry; collap
   );
   if (collapsed) {
     return (
-      <Link href={entry.href} onClick={onNavigate} title={`@${entry.handle} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-control py-2 transition-colors hover:bg-white/[0.04]">
+      <Link href={entry.href} onClick={onNavigate} title={`@${entry.handle} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-control py-2 transition-colors hover:bg-tint/[0.04]">
         {face(28)}
       </Link>
     );
   }
   return (
-    <Link href={entry.href} onClick={onNavigate} title={entry.subtitle} className="group flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-white/[0.04]">
+    <Link href={entry.href} onClick={onNavigate} title={entry.subtitle} className="group flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-tint/[0.04]">
       {face(32)}
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
         <span className="truncate text-[15px] font-bold text-foreground">{entry.handle}</span>
@@ -681,7 +681,7 @@ function RailSection({
   return (
     <div>
       {collapsed ? (
-        <div className="mx-auto my-3 h-px w-6 bg-white/[0.08]" title={title} />
+        <div className="mx-auto my-3 h-px w-6 bg-tint/[0.08]" title={title} />
       ) : (
         <div className="flex items-center gap-1.5 px-3.5 pt-5 pb-1.5">
           {live && (
@@ -826,7 +826,7 @@ function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pat
                 onClick={() => setTurn((t) => t + 1)}
                 aria-label="Show other creators"
                 title="Show other creators"
-                className="press -my-1 flex size-6 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="press -my-1 flex size-6 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-tint/[0.06] hover:text-foreground"
               >
                 <ArrowClockwise size={13} weight="bold" />
               </button>

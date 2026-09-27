@@ -33,7 +33,7 @@ export function VoucherList({
     return (
       <div className="flex flex-col gap-1.5">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-16 animate-pulse rounded-sm bg-white/[0.04]" />
+          <div key={i} className="h-16 animate-pulse rounded-sm bg-tint/[0.04]" />
         ))}
       </div>
     );
@@ -52,7 +52,7 @@ export function VoucherList({
   const going = quests.filter((q) => !q.voucher);
   return (
     <div className="flex flex-col gap-5">
-      {error && <p className="rounded-sm bg-red-500/[0.12] px-3 py-2 text-[12.5px] text-red-300">{error}</p>}
+      {error && <p className="rounded-sm bg-red-500/[0.12] px-3 py-2 text-[12.5px] text-chili-hi">{error}</p>}
       {won.length > 0 && (
         <div className="flex flex-col gap-1">
           {won.map((q) => (
@@ -124,7 +124,7 @@ function VoucherMark({ quest }: { quest: SponsoredQuestView }) {
       <img src={apiUrl(quest.logoUrl)} alt="" className="max-h-full max-w-full object-contain" />
     </span>
   ) : (
-    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-amber-400/[0.14] text-amber-300">
+    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-amber-400/[0.14] text-warning">
       <Ticket size={18} weight="fill" />
     </span>
   );
@@ -142,7 +142,7 @@ function VoucherCode({ code }: { code: string }) {
         })
       }
       aria-label={`Copy voucher ${code}`}
-      className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-amber-400/[0.12] px-3.5 font-mono text-[12.5px] font-bold text-amber-300 transition-colors hover:bg-amber-400/[0.18]"
+      className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-amber-400/[0.12] px-3.5 font-mono text-[12.5px] font-bold text-warning transition-colors hover:bg-amber-400/[0.18]"
     >
       {code}
       {copied ? <Check size={13} weight="bold" /> : <Copy size={13} />}

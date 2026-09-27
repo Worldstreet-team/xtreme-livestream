@@ -75,7 +75,7 @@ export function CallReceipts({
       <h2 id="chan-calls" className="sr-only">
         Calls
       </h2>
-      <div role="note" className="rounded-[12px] bg-white/[0.04] px-4 py-3.5">
+      <div role="note" className="rounded-[12px] bg-tint/[0.04] px-4 py-3.5">
         <p className="caps font-mono text-[10.5px] font-bold text-foreground">Not financial advice</p>
         <p className="mt-1.5 max-w-[72ch] text-[13px] leading-relaxed text-muted-foreground">
           Calls are {name}&apos;s own view of where a market goes, noted by Xtream the moment they were made — the prices are Coinbase&apos;s, and
@@ -112,7 +112,7 @@ function SummaryStrip({ summary }: { summary: CallSummary }) {
   const avg = summary.avgMove24hPct;
   return (
     <div className="rounded-panel bg-surface p-4 md:p-5">
-      <dl className="grid grid-cols-3 divide-x divide-white/[0.06]">
+      <dl className="grid grid-cols-3 divide-x divide-tint/[0.06]">
         <Stat label={summary.total === 1 ? "call" : "calls"} value={String(summary.total)} />
         <Stat
           label="went the called way at 24 h"
@@ -124,7 +124,7 @@ function SummaryStrip({ summary }: { summary: CallSummary }) {
           value={avg === null ? "—" : `${avg > 0 ? "+" : avg < 0 ? "−" : ""}${formatMove(avg)}`}
         />
       </dl>
-      <p className="mt-4 border-t border-white/[0.06] pt-3 text-[12px] leading-snug text-muted-foreground">
+      <p className="mt-4 border-t border-tint/[0.06] pt-3 text-[12px] leading-snug text-muted-foreground">
         Checked against Coinbase&apos;s price 1 hour, 24 hours and 7 days after each call.{" "}
         <span className="text-success">Green</span> is the price having moved the way it was called.
         {summary.hidden > 0 && ` ${summary.hidden} ${summary.hidden === 1 ? "call was" : "calls were"} hidden by Xtream's moderators.`}
@@ -149,7 +149,7 @@ function CallCard({ call, now }: { call: CallView; now: number }) {
   return (
     <article className="flex flex-col rounded-panel bg-surface p-4" aria-label={`${callWords(call)} from ${formatCallPrice(call.symbol, call.entry.price)}`}>
       <div className="flex items-center gap-3">
-        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.07] text-foreground">
+        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-tint/[0.07] text-foreground">
           <Mark size={18} weight="bold" />
         </span>
         <div className="min-w-0 flex-1">
@@ -173,7 +173,7 @@ function CallCard({ call, now }: { call: CallView; now: number }) {
 function Checkpoint({ call, k, now }: { call: CallView; k: CallCheckpoint; now: number }) {
   const s = checkpointState(call, k, now);
   return (
-    <div className="min-w-0 rounded-[10px] bg-white/[0.04] px-2.5 py-2">
+    <div className="min-w-0 rounded-[10px] bg-tint/[0.04] px-2.5 py-2">
       <dt className={EYEBROW}>{CALL_CHECKPOINT_WORDS[k]}</dt>
       {s.state === "done" ? (
         <dd className="mt-1">

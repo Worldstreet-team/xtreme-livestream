@@ -177,7 +177,7 @@ export function Actions() {
           <States
             items={[
               { label: "Rest", node: <Pill variant="primary">Follow</Pill> },
-              { label: "Hover", node: <Pill variant="primary" className="bg-white/90">Follow</Pill> },
+              { label: "Hover", node: <Pill variant="primary" className="bg-inverse/90">Follow</Pill> },
               { label: "Pressed", node: <Pill variant="primary" className="scale-[0.94]">Follow</Pill> },
               { label: "Busy", node: <Button loading>Saving</Button> },
             ]}

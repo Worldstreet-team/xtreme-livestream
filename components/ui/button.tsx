@@ -24,13 +24,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-white text-[#0b0708] hover:bg-white/90",
+        default: "bg-inverse text-on-inverse hover:bg-inverse/90",
         live: "bg-chili text-white hover:brightness-110",
         heat: "bg-heat text-white hover:brightness-110",
         ember: "bg-ember text-on-ember hover:brightness-105",
         secondary: "bg-control text-foreground hover:bg-control-hover aria-expanded:bg-control-hover",
-        outline: "bg-transparent text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.18)] hover:bg-white/[0.05] aria-expanded:bg-white/[0.05]",
-        ghost: "text-foreground/85 hover:bg-white/[0.06] hover:text-foreground aria-expanded:bg-white/[0.06]",
+        outline: "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border-control)] hover:bg-tint/[0.05] aria-expanded:bg-tint/[0.05]",
+        ghost: "text-foreground/85 hover:bg-tint/[0.06] hover:text-foreground aria-expanded:bg-tint/[0.06]",
         destructive: "bg-chili/15 text-chili-hi hover:bg-chili/25",
         link: "text-ember-hi underline-offset-4 hover:underline",
       },

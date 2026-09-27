@@ -33,14 +33,14 @@ export function TakedownRow({ row, onAppealed }: { row: TakedownView; onAppealed
   };
   const a = row.appeal;
   return (
-    <li className="rounded-[16px] bg-white/[0.04] p-4 md:p-5">
+    <li className="rounded-[16px] bg-tint/[0.04] p-4 md:p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p className="min-w-0 text-[15px] font-semibold">{row.title}</p>
         {a && (
           <span
             className={cn(
               "rounded-full px-2.5 py-1 text-[11.5px] font-bold",
-              a.status === "open" ? "bg-ember/15 text-ember-hi" : a.status === "reversed" ? "bg-[#173428] text-[#86EFAC]" : "bg-white/[0.07] text-foreground/80"
+              a.status === "open" ? "bg-ember/15 text-ember-hi" : a.status === "reversed" ? "bg-tone-green text-tone-green-ink" : "bg-tint/[0.07] text-foreground/80"
             )}
           >
             {a.status === "open" ? "Under review" : a.status === "reversed" ? "Reversed" : "Upheld"}
@@ -57,7 +57,7 @@ export function TakedownRow({ row, onAppealed }: { row: TakedownView; onAppealed
             rows={3}
             placeholder="Say why it should come back — what happened, and what the report missed."
             aria-label={`Appeal the takedown of ${row.title}`}
-            className="mt-3 w-full resize-none rounded-[12px] bg-white/[0.06] px-4 py-3 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+            className="mt-3 w-full resize-none rounded-[12px] bg-tint/[0.06] px-4 py-3 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]"
           />
           {error && <p className="mt-2 text-[12.5px] text-chili-hi">{error}</p>}
           <div className="mt-2.5 flex flex-wrap items-center gap-3">
@@ -69,7 +69,7 @@ export function TakedownRow({ row, onAppealed }: { row: TakedownView; onAppealed
         </>
       ) : (
         <div className="mt-3 flex flex-col gap-2">
-          <p className="rounded-[12px] bg-black/20 px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-foreground/85">{a.text}</p>
+          <p className="rounded-[12px] bg-background/60 px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-foreground/85">{a.text}</p>
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             {a.status === "open"
               ? "The team will look again and tell you what they decide."

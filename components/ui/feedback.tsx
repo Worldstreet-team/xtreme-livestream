@@ -19,7 +19,7 @@ export function Skeleton({ className, ...props }: ComponentProps<"div">) {
 
 export function ProgressBar({ value, label }: { value: number; label: string }) {
   const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
-  return <div className="space-y-2"><div className="flex justify-between gap-3 text-sm"><span>{label}</span><span className="tabular-nums text-muted-foreground">{Math.round(safeValue)}%</span></div><div role="progressbar" aria-label={label} aria-valuenow={safeValue} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full origin-left rounded-full bg-ember transition-transform duration-150 motion-reduce:transition-none" style={{ transform: `scaleX(${safeValue / 100})` }} /></div></div>;
+  return <div className="space-y-2"><div className="flex justify-between gap-3 text-sm"><span>{label}</span><span className="tabular-nums text-muted-foreground">{Math.round(safeValue)}%</span></div><div role="progressbar" aria-label={label} aria-valuenow={safeValue} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-tint/[0.08]"><div className="h-full origin-left rounded-full bg-ember transition-transform duration-150 motion-reduce:transition-none" style={{ transform: `scaleX(${safeValue / 100})` }} /></div></div>;
 }
 
 const tones = { info: "bg-info/10 text-info", success: "bg-success/10 text-success", warning: "bg-warning/10 text-warning", danger: "bg-destructive/10 text-destructive" };

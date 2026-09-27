@@ -32,7 +32,7 @@ export function TickerChips({
           const base = marketBase(t.symbol);
           const onStripAlready = strip.includes(t.symbol);
           return (
-            <li key={t.symbol} className="flex h-8 max-w-full items-center gap-1 rounded-full bg-white/[0.06] py-0.5 pr-0.5 pl-3">
+            <li key={t.symbol} className="flex h-8 max-w-full items-center gap-1 rounded-full bg-tint/[0.06] py-0.5 pr-0.5 pl-3">
               <span className="font-mono text-[11.5px] font-semibold text-foreground/85">${base}</span>
               {/* How often, so a lone mention doesn't read like a movement. */}
               <span className="font-mono text-[10.5px] text-muted-foreground tabular-nums" aria-label={`${t.mentions} mentions`}>
@@ -42,7 +42,7 @@ export function TickerChips({
                 type="button"
                 onClick={() => onChart(t.symbol)}
                 aria-label={`Chart ${base}`}
-                className="press ml-1 h-7 shrink-0 rounded-full bg-white px-2.5 text-[11.5px] font-bold text-[#0b0708]"
+                className="press ml-1 h-7 shrink-0 rounded-full bg-inverse px-2.5 text-[11.5px] font-bold text-on-inverse"
               >
                 Chart it
               </button>
@@ -54,7 +54,7 @@ export function TickerChips({
                     type="button"
                     onClick={() => onStrip(t.symbol)}
                     aria-label={`Add ${base} to the price strip`}
-                    className="press h-7 shrink-0 rounded-full bg-white/[0.08] px-2.5 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-white/[0.12]"
+                    className="press h-7 shrink-0 rounded-full bg-tint/[0.08] px-2.5 text-[11.5px] font-semibold text-foreground transition-colors hover:bg-tint/[0.12]"
                   >
                     + Strip
                   </button>

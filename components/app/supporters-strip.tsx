@@ -18,7 +18,7 @@ export function ScheduleList({ items }: { items: RowItem[] }) {
         return (
           <div key={item._id} className="flex items-center gap-3 rounded-[14px] bg-surface py-2 pr-2 pl-2">
             {at ? (
-              <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-[10px] bg-white/[0.06] leading-none">
+              <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-[10px] bg-tint/[0.06] leading-none">
                 <span className="caps font-mono text-[9px] text-ember-hi">
                   {at.toLocaleDateString(undefined, { weekday: "short" })}
                 </span>
@@ -27,7 +27,7 @@ export function ScheduleList({ items }: { items: RowItem[] }) {
                 </span>
               </span>
             ) : (
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-muted-foreground">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-tint/[0.06] text-muted-foreground">
                 <Clock size={16} weight="bold" />
               </span>
             )}

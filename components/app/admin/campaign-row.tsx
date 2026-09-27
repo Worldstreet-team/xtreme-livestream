@@ -13,10 +13,10 @@ const TILE = "rounded-panel bg-surface";
 type Envelope<T> = { success: boolean; data: T };
 
 const STATUS: Record<AdminCampaign["status"], { label: string; cls: string }> = {
-  draft: { label: "Draft", cls: "bg-white/[0.08] text-foreground/80" },
+  draft: { label: "Draft", cls: "bg-tint/[0.08] text-foreground/80" },
   live: { label: "Live", cls: "bg-chili text-white" },
   paused: { label: "Paused", cls: "bg-warning/[0.16] text-warning" },
-  ended: { label: "Ended", cls: "bg-white/[0.06] text-muted-foreground" },
+  ended: { label: "Ended", cls: "bg-tint/[0.06] text-muted-foreground" },
 };
 
 const ENDED: Record<AdminCampaign["endedReason"], string> = {
@@ -92,7 +92,7 @@ export function CampaignRow({
           <p className="flex flex-wrap items-center gap-2">
             <span className="truncate font-wide text-[19px] font-bold tracking-[-0.02em]">{c.name}</span>
             <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", STATUS[c.status].cls)}>{STATUS[c.status].label}</span>
-            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", c.restricted ? "bg-warning/[0.14] text-warning" : "bg-white/[0.07] text-muted-foreground")}>
+            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", c.restricted ? "bg-warning/[0.14] text-warning" : "bg-tint/[0.07] text-muted-foreground")}>
               {SPONSOR_CATEGORY_LABELS[c.category].label}
               {c.cleared && " · cleared for Nigeria"}
               {c.restricted && " · hidden in Nigeria"}
@@ -105,7 +105,7 @@ export function CampaignRow({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {c.status !== "ended" && (
-            <button type="button" onClick={onEdit} className="press flex h-9 items-center gap-1.5 rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-white/[0.11]">
+            <button type="button" onClick={onEdit} className="press flex h-9 items-center gap-1.5 rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-tint/[0.11]">
               <PencilSimple size={14} />
               Edit
             </button>
@@ -125,7 +125,7 @@ export function CampaignRow({
               type="button"
               disabled={busy !== null}
               onClick={() => void setStatus("paused")}
-              className="press flex h-9 items-center rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-white/[0.11] disabled:opacity-50"
+              className="press flex h-9 items-center rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-tint/[0.11] disabled:opacity-50"
             >
               {busy === "paused" ? "Pausing…" : "Pause"}
             </button>
@@ -141,7 +141,7 @@ export function CampaignRow({
                 </button>
               </>
             ) : (
-              <button type="button" onClick={() => setConfirmEnd(true)} className="press h-9 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
+              <button type="button" onClick={() => setConfirmEnd(true)} className="press h-9 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground">
                 End
               </button>
             ))}
@@ -150,7 +150,7 @@ export function CampaignRow({
 
       {/* The money: the pool, what's gone to creators, what the brand paid. */}
       <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="rounded-[14px] bg-white/[0.04] p-4">
+        <div className="rounded-[14px] bg-tint/[0.04] p-4">
           <p className="flex items-baseline justify-between gap-2 text-[12px] text-muted-foreground">
             <span>Paid to creators</span>
             <span className="tabular-nums">
@@ -161,18 +161,18 @@ export function CampaignRow({
             <Money cents={c.spentUsdMinor} size="md" />
             <span className="text-[12.5px] text-muted-foreground">of {formatUsd(c.budgetUsdMinor)}</span>
           </p>
-          <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+          <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-tint/[0.08]">
             <span className="block h-full rounded-full bg-value" style={{ width: `${spentShare * 100}%` }} />
           </span>
         </div>
-        <div className="rounded-[14px] bg-white/[0.04] p-4">
+        <div className="rounded-[14px] bg-tint/[0.04] p-4">
           <p className="text-[12px] text-muted-foreground">Brand prepaid</p>
           <p className="mt-2">
             <Money cents={c.brandPaidUsdMinor} size="md" tone="ink" />
           </p>
           <p className="mt-1.5 text-[12px] text-muted-foreground">Xtream keeps {c.marginPercent}%</p>
         </div>
-        <div className="rounded-[14px] bg-white/[0.04] p-4">
+        <div className="rounded-[14px] bg-tint/[0.04] p-4">
           <p className="text-[12px] text-muted-foreground">A stream</p>
           <p className="mt-2">
             <Money cents={c.payPerStreamUsdMinor} size="md" />
@@ -205,7 +205,7 @@ export function CampaignRow({
         <div className="mt-4">
           {codes === null ? (
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => setCodes("")} className="press flex h-9 items-center gap-1.5 rounded-full bg-white/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-white/[0.11]">
+              <button type="button" onClick={() => setCodes("")} className="press flex h-9 items-center gap-1.5 rounded-full bg-tint/[0.07] px-3.5 text-[12.5px] font-semibold hover:bg-tint/[0.11]">
                 <Plus size={14} weight="bold" />
                 Add voucher codes
               </button>
@@ -229,7 +229,7 @@ export function CampaignRow({
                 className={cn(fieldClass, "resize-y px-4 py-3 font-mono text-[13px]")}
               />
               <div className="flex gap-2">
-                <button type="button" disabled={busy !== null} onClick={() => void addCodes()} className="press flex h-9 items-center rounded-full bg-white px-4 text-[12.5px] font-semibold text-[#0b0708] disabled:opacity-50">
+                <button type="button" disabled={busy !== null} onClick={() => void addCodes()} className="press flex h-9 items-center rounded-full bg-inverse px-4 text-[12.5px] font-semibold text-on-inverse disabled:opacity-50">
                   {busy === "codes" ? "Adding…" : "Add codes"}
                 </button>
                 <button type="button" onClick={() => setCodes(null)} className="press h-9 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground">

@@ -109,7 +109,7 @@ export default function CampaignsPage() {
           <button
             type="button"
             onClick={() => setEditing("new")}
-            className="press flex h-11 shrink-0 items-center gap-2 self-start rounded-full bg-white px-5 text-[14px] font-semibold text-[#0b0708] md:self-auto"
+            className="press flex h-11 shrink-0 items-center gap-2 self-start rounded-full bg-inverse px-5 text-[14px] font-semibold text-on-inverse md:self-auto"
           >
             <Plus size={16} weight="bold" />
             New campaign

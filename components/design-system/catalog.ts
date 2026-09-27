@@ -1,6 +1,7 @@
 /** The reference's chapters, in the order a screen gets built. */
 export const chapters = [
   { id: "colour", label: "Colour", group: "Foundations" },
+  { id: "themes", label: "Light & dark", group: "Foundations" },
   { id: "type", label: "Type", group: "Foundations" },
   { id: "shape", label: "Shape", group: "Foundations" },
   { id: "light", label: "Light", group: "Foundations" },

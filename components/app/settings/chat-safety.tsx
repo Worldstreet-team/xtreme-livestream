@@ -67,7 +67,7 @@ function LevelControl({
   levels?: typeof LEVELS;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn("flex w-fit shrink-0 self-start rounded-full bg-white/[0.05] p-0.5 sm:self-center", disabled && "opacity-40")}>
+    <div role="radiogroup" aria-label={label} className={cn("flex w-fit shrink-0 self-start rounded-full bg-tint/[0.05] p-0.5 sm:self-center", disabled && "opacity-40")}>
       {levels.map((l) => {
         const on = value === l.id;
         return (
@@ -85,7 +85,7 @@ function LevelControl({
                   ? "bg-chili text-white"
                   : l.id === "hold"
                     ? "bg-ember text-on-ember"
-                    : "bg-white/[0.12] text-foreground"
+                    : "bg-tint/[0.12] text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -257,12 +257,12 @@ export function FilterTile({
           aria-label="Chat filter"
           disabled={!safety}
           onClick={() => onMaster(!on, show)}
-          className={cn("relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40", on ? "bg-ember" : "bg-white/15")}
+          className={cn("relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40", on ? "bg-ember" : "bg-tint/15")}
         >
           <span className={cn("absolute top-0.5 size-5 rounded-full bg-white transition-all", on ? "left-[calc(100%-1.375rem)]" : "left-0.5")} />
         </button>
       </div>
-      <ul className="mt-4 divide-y divide-white/[0.06]">
+      <ul className="mt-4 divide-y divide-tint/[0.06]">
         {CATEGORIES.map((c) => (
           // On a phone the words get the width and the control sits under them.
           <li key={c.id} className="flex flex-col gap-2.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -278,7 +278,7 @@ export function FilterTile({
                 onChange={(level) => onLevel({ filters: { ...safety.filters, [c.id]: level } }, show)}
               />
             ) : (
-              <span className="h-8 w-[10.5rem] shrink-0 animate-pulse rounded-full bg-white/[0.05]" />
+              <span className="h-8 w-[10.5rem] shrink-0 animate-pulse rounded-full bg-tint/[0.05]" />
             )}
           </li>
         ))}
@@ -331,7 +331,7 @@ export function TermsTile({
         <Flash flash={flash} />
       </div>
       <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
-        Words your room doesn&apos;t say — spoilers, a rival&apos;s name, anything. A <code className="rounded-[4px] bg-white/[0.08] px-1 font-mono text-[12px] text-foreground">*</code> covers the rest of a word: <span className="text-foreground">rival*</span> catches rivals and rivalry.
+        Words your room doesn&apos;t say — spoilers, a rival&apos;s name, anything. A <code className="rounded-[4px] bg-tint/[0.08] px-1 font-mono text-[12px] text-foreground">*</code> covers the rest of a word: <span className="text-foreground">rival*</span> catches rivals and rivalry.
       </p>
       <form
         className="mt-4 flex gap-2"
@@ -347,12 +347,12 @@ export function TermsTile({
           placeholder="Add a term"
           aria-label="Add a blocked term"
           disabled={!safety}
-          className="h-10 min-w-0 flex-1 rounded-full bg-white/[0.06] px-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+          className="h-10 min-w-0 flex-1 rounded-full bg-tint/[0.06] px-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]"
         />
         <button
           type="submit"
           disabled={!safety || !draft.trim()}
-          className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-bold text-[#0b0708] disabled:opacity-40"
+          className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-inverse px-4 text-[13px] font-bold text-on-inverse disabled:opacity-40"
         >
           <Plus size={14} weight="bold" />
           Add
@@ -363,13 +363,13 @@ export function TermsTile({
           <p className="text-[12.5px] text-muted-foreground/70">No terms yet.</p>
         ) : (
           terms.map((t) => (
-            <span key={t} className="flex h-8 items-center gap-1 rounded-full bg-white/[0.07] pr-1 pl-3 font-mono text-[12.5px] text-foreground">
+            <span key={t} className="flex h-8 items-center gap-1 rounded-full bg-tint/[0.07] pr-1 pl-3 font-mono text-[12.5px] text-foreground">
               {t}
               <button
                 type="button"
                 aria-label={`Remove ${t}`}
                 onClick={() => onSave({ blockedTerms: terms.filter((x) => x !== t) }, show)}
-                className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.1] hover:text-foreground"
+                className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-tint/[0.1] hover:text-foreground"
               >
                 <X size={12} />
               </button>
@@ -433,10 +433,10 @@ function Choices<T extends string>({
             onClick={() => !on && onPick(o.id)}
             className={cn(
               "press flex items-start gap-3 rounded-[12px] px-3.5 py-3 text-left transition-colors disabled:opacity-50",
-              on ? "bg-white/[0.08]" : "bg-white/[0.03] hover:bg-white/[0.06]"
+              on ? "bg-tint/[0.08]" : "bg-tint/[0.03] hover:bg-tint/[0.06]"
             )}
           >
-            <span className={cn("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full", on ? "bg-ember" : "bg-white/[0.12]")}>
+            <span className={cn("mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full", on ? "bg-ember" : "bg-tint/[0.12]")}>
               {on && <span className="size-1.5 rounded-full bg-on-ember" />}
             </span>
             <span className="min-w-0">
@@ -535,9 +535,9 @@ export function ModsTile({
               onChange={(e) => setUsername(e.target.value)}
               placeholder="@username"
               aria-label="Username of your new moderator"
-              className="h-10 min-w-0 flex-1 basis-40 rounded-full bg-white/[0.06] px-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
+              className="h-10 min-w-0 flex-1 basis-40 rounded-full bg-tint/[0.06] px-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]"
             />
-            <div role="radiogroup" aria-label="Role" className="flex shrink-0 rounded-full bg-white/[0.05] p-0.5">
+            <div role="radiogroup" aria-label="Role" className="flex shrink-0 rounded-full bg-tint/[0.05] p-0.5">
               {(["mod", "lead", "producer"] as ModRole[]).map((r) => (
                 <button
                   key={r}
@@ -547,7 +547,7 @@ export function ModsTile({
                   onClick={() => setRole(r)}
                   className={cn(
                     "press h-9 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
-                    role === r ? "bg-white/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"
+                    role === r ? "bg-tint/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {ROLE_LABEL[r]}
@@ -557,7 +557,7 @@ export function ModsTile({
             <button
               type="submit"
               disabled={!username.trim() || busy === "add"}
-              className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-bold text-[#0b0708] disabled:opacity-40"
+              className="press flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-inverse px-4 text-[13px] font-bold text-on-inverse disabled:opacity-40"
             >
               <Plus size={14} weight="bold" />
               Add
@@ -566,12 +566,12 @@ export function ModsTile({
 
           <ul className="mt-4 flex flex-col gap-1">
             {mods.length === 0 ? (
-              <li className="rounded-[12px] bg-white/[0.03] px-4 py-5 text-center text-[13px] text-muted-foreground">
+              <li className="rounded-[12px] bg-tint/[0.03] px-4 py-5 text-center text-[13px] text-muted-foreground">
                 No moderators yet — add someone you trust from your community.
               </li>
             ) : (
               mods.map((m) => (
-                <li key={m.userId} className="flex items-center gap-3 rounded-[12px] px-2 py-2 transition-colors hover:bg-white/[0.03]">
+                <li key={m.userId} className="flex items-center gap-3 rounded-[12px] px-2 py-2 transition-colors hover:bg-tint/[0.03]">
                   <UserAvatar src={m.avatar} name={m.displayName || m.username} size={36} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] font-semibold">{m.displayName || m.username}</span>
@@ -586,10 +586,10 @@ export function ModsTile({
                     className={cn(
                       "press h-7 shrink-0 rounded-full px-2.5 text-[11.5px] font-bold transition-colors disabled:opacity-50",
                       m.role === "producer"
-                        ? "bg-white/[0.14] text-foreground hover:bg-white/[0.18]"
+                        ? "bg-tint/[0.14] text-foreground hover:bg-tint/[0.18]"
                         : m.role === "lead"
                           ? "bg-ember/[0.16] text-ember-hi hover:bg-ember/25"
-                          : "bg-white/[0.07] text-foreground/85 hover:bg-white/[0.11]"
+                          : "bg-tint/[0.07] text-foreground/85 hover:bg-tint/[0.11]"
                     )}
                   >
                     {ROLE_LABEL[m.role]}
@@ -609,7 +609,7 @@ export function ModsTile({
           </ul>
         </div>
 
-        <div className="lg:col-span-5 lg:border-l lg:border-white/[0.06] lg:pl-6">
+        <div className="lg:col-span-5 lg:border-l lg:border-tint/[0.06] lg:pl-6">
           <p className="text-[14px] font-semibold">Moderators and the screen</p>
           <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
             Whether moderators can put chat lines on your stream.

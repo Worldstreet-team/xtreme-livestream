@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
  * destructive tone. The visible label (TextField) does the identifying.
  */
 export const fieldClass =
-  "w-full min-w-0 rounded-control bg-white/[0.06] text-[15px] text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-white/[0.08] focus-visible:bg-white/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] aria-invalid:shadow-[inset_0_0_0_1.5px_var(--destructive)] disabled:cursor-not-allowed disabled:opacity-50"
+  "w-full min-w-0 rounded-control bg-tint/[0.06] text-[15px] text-foreground shadow-[inset_0_0_0_1px_var(--hairline-color)] outline-none transition-[background-color,box-shadow] duration-200 placeholder:text-muted-foreground/70 hover:bg-tint/[0.08] focus-visible:bg-tint/[0.09] focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)] aria-invalid:shadow-[inset_0_0_0_1.5px_var(--destructive)] disabled:cursor-not-allowed disabled:opacity-50"
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (

@@ -59,6 +59,28 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Theme-safe stand-ins for the hardcoded white-on-dark the app grew up
+     with (see "Themes" below): `tint` is the overlay ink (bg-tint/[0.06]
+     where it said bg-white/[0.06]), `inverse` the neutral primary (white
+     on dark, ink on light), `subtle`/`faint` the two quieter text steps. */
+  --color-tint: var(--tint);
+  --color-inverse: var(--inverse);
+  --color-on-inverse: var(--on-inverse);
+  --color-subtle: var(--subtle);
+  --color-faint: var(--faint);
+  --color-tone-red: var(--tone-red);
+  --color-tone-red-hover: var(--tone-red-hover);
+  --color-tone-ember: var(--tone-ember);
+  --color-tone-ember-hover: var(--tone-ember-hover);
+  --color-tone-amber: var(--tone-amber);
+  --color-tone-amber-hover: var(--tone-amber-hover);
+  --color-tone-green: var(--tone-green);
+  --color-tone-green-hover: var(--tone-green-hover);
+  --color-tone-green-ink: var(--tone-green-ink);
+  --color-tone-sky: var(--tone-sky);
+  --color-tone-sky-hover: var(--tone-sky-hover);
+  --color-tone-sky-ink: var(--tone-sky-ink);
+  --shadow-popover: var(--elevation-popover);
   /* Tighter corners (owner, 2026-09-23: "reduce the radius"): the base is
      10px again. `rounded-sm` is the app's card and thumbnail radius, so it
      takes the base; xl/2xl/3xl step up in small increments for panels,
@@ -141,7 +163,154 @@
   --sidebar-ring: var(--ember);
 }
 
+/* ---- Themes -------------------------------------------------------------
+   Dark is the default and the room's own light: video, the stage and the
+   program always sit on it. Light (2026-09-27) grounds the app on the
+   landing page's off-white, with the same roles re-tuned so text holds AA:
+   Chili, Ember and gold get darker "-hi" inks for words on paper, fills
+   keep their colour. lib/theme.ts sets `data-theme` on <html>.
+
+   Every block also works on any element, so `data-theme="dark"` on a
+   subtree keeps a player or a sheet over video dark on a light page. A
+   custom property resolves its var()s where it's declared, so the derived
+   tokens are restated on every themed element ([data-theme] below). */
+:root,
+[data-theme="dark"] {
+  --ink: #f6f1ee;
+  --ink-muted: #a89f9a;
+  --subtle: rgb(255 255 255 / 0.72);
+  --faint: rgb(255 255 255 / 0.5);
+  --tint: #ffffff;
+  --inverse: #ffffff;
+  --on-inverse: #0b0708;
+  --destructive-ink: #ff939d;
+  --field: rgb(255 255 255 / 0.07);
+  --rail: #110c0d;
+  --tone-red: #3a1719;
+  --tone-red-hover: #481c1f;
+  --tone-ember: #3a1d10;
+  --tone-ember-hover: #482414;
+  --tone-amber: #3a2c14;
+  --tone-amber-hover: #483719;
+  --tone-green: #173428;
+  --tone-green-hover: #1d4232;
+  --tone-green-ink: #86efac;
+  --tone-sky: #14303a;
+  --tone-sky-hover: #1a3e4a;
+  --tone-sky-ink: #7dd3fc;
+  --elevation-popover: inset 0 0 0 1px rgb(255 236 230 / 0.08), 0 24px 60px -20px rgb(0 0 0 / 0.9);
+}
+
+/* A dark island inside a light page restates the dark raw values that
+   design-system.css sets on :root. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0b0708;
+  --surface: #141011;
+  --surface-raised: #1c1617;
+  --surface-hover: #261e1f;
+  --control: #261e1f;
+  --control-hover: #30272a;
+  --hairline-color: rgb(255 236 230 / 0.1);
+  --border-control: rgb(255 236 230 / 0.16);
+  --chili-hi: #ff5a66;
+  --ember-hi: #ff8a4c;
+  --value: #f5c76e;
+  --success: #95d477;
+  --warning: #ffc16e;
+  --info: #a3baff;
+  --lit: inset 0 1px 0 rgb(255 255 255 / 0.1);
+  --lift: 0 12px 32px -14px rgb(0 0 0 / 0.75);
+  --elevation-floating: 0 14px 36px -16px rgb(0 0 0 / 0.8);
+  --elevation-overlay: 0 -24px 64px rgb(0 0 0 / 0.65);
+}
+
+:root[data-theme="light"],
+[data-theme="light"] {
+  color-scheme: light;
+  /* the landing's paper, cards a shade whiter, controls a shade warmer */
+  --ground: #f6f3f0;
+  --surface: #fdfcfb;
+  --surface-raised: #ffffff;
+  --surface-hover: #eee8e3;
+  --control: #e9e2dc;
+  --control-hover: #ded6cf;
+  --hairline-color: rgb(40 22 14 / 0.1);
+  --border-control: rgb(40 22 14 / 0.18);
+  /* ink: dark's ground, warmed; each step is AA on the ground and on a control */
+  --ink: #1a1213;
+  --ink-muted: #5a514e;
+  --subtle: #463d3b;
+  --faint: #6a615d;
+  --tint: #1c0f0b;
+  --inverse: #1a1213;
+  --on-inverse: #ffffff;
+  /* roles, darkened for words on paper (fills keep --chili / --ember) */
+  --chili-hi: #c40f24;
+  --ember-hi: #b23c05;
+  --value: #8a5a06;
+  --success: #2b7318;
+  --warning: #975400;
+  --info: #3350c0;
+  --destructive-ink: #c21a2c;
+  --field: rgb(28 15 11 / 0.06);
+  --rail: #f1ebe6;
+  --tone-red: #fbe3e2;
+  --tone-red-hover: #f6d2d0;
+  --tone-ember: #fde6d8;
+  --tone-ember-hover: #f9d5bf;
+  --tone-amber: #f7ebd0;
+  --tone-amber-hover: #f0dfb9;
+  --tone-green: #dcefd5;
+  --tone-green-hover: #cbe6c1;
+  --tone-green-ink: #2b7318;
+  --tone-sky: #d8ebf4;
+  --tone-sky-hover: #c4e0ee;
+  --tone-sky-ink: #1b6488;
+  /* flat stays flat: the lit edge is a whisper, shadows are warm and short */
+  --lit: inset 0 1px 0 rgb(255 255 255 / 0.6);
+  --lift: 0 12px 32px -16px rgb(60 30 20 / 0.28);
+  --elevation-floating: 0 14px 36px -18px rgb(60 30 20 / 0.3);
+  --elevation-overlay: 0 -24px 64px rgb(60 30 20 / 0.16);
+  --elevation-popover: inset 0 0 0 1px rgb(40 22 14 / 0.08), 0 20px 48px -20px rgb(60 30 20 / 0.3);
+}
+
+/* Derived tokens, restated wherever a theme is set. */
+:root,
+[data-theme] {
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--ink);
+  --secondary: var(--control);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-raised);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--surface-hover);
+  --accent-foreground: var(--ink);
+  --destructive: var(--destructive-ink);
+  --border: var(--hairline-color);
+  --input: var(--field);
+  --live: var(--chili-hi);
+  --sidebar: var(--rail);
+  --sidebar-foreground: var(--ink);
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--hairline-color);
+}
+/* On paper a skeleton or muted fill is a shade darker than the ground. */
+:root[data-theme="light"],
+[data-theme="light"] {
+  --muted: #ece6e1;
+}
+
 @layer base {
+  /* An island's text starts in its own ink. */
+  [data-theme] {
+    color: var(--foreground);
+  }
   * {
     @apply border-border outline-ring/50;
   }
@@ -621,4 +790,28 @@ html[data-studio-live] [data-app-main] { margin-left: 0 !important; }
   box-shadow:
     inset -1px 0 0 rgba(255, 255, 255, 0.07),
     24px 0 64px rgba(0, 0, 0, 0.6);
+}
+
+/* Light: the tab bar frosts the paper instead of the night, and the sheet
+   and drawer drop their lit edge for a warm, short shadow. Sheets that sit
+   over video wear data-theme="dark" and keep the dark recipe above. */
+[data-theme="light"] .tabbar-glass {
+  background: rgb(246 243 240 / 0.82);
+  box-shadow: inset 0 1px 0 rgb(40 22 14 / 0.08);
+}
+[data-theme="light"] .sheet-obj {
+  box-shadow: 0 -18px 48px rgb(60 30 20 / 0.14);
+}
+[data-theme="light"] .drawer-obj {
+  box-shadow: 18px 0 48px rgb(60 30 20 / 0.16);
+}
+[data-theme="dark"] .tabbar-glass {
+  background: rgb(11 7 8 / 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 236, 230, 0.1);
+}
+[data-theme="dark"] .sheet-obj {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 -24px 64px rgba(0, 0, 0, 0.65);
+}
+[data-theme="dark"] .drawer-obj {
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.07), 24px 0 64px rgba(0, 0, 0, 0.6);
 }

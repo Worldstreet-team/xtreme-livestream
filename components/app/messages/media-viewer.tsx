@@ -206,6 +206,8 @@ export function MediaViewer({
       role="dialog"
       aria-modal="true"
       aria-label={`${item.type === "video" ? "Clip" : "Photo"} from ${item.who}`}
+      // Stays dark: a photo or clip on black, in either theme.
+      data-theme="dark"
       className="fixed inset-0 z-[58] flex touch-none flex-col"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -216,11 +218,11 @@ export function MediaViewer({
 
       <div data-chrome className="relative flex items-center gap-3 px-3 pt-[max(env(safe-area-inset-top),12px)] pb-3 md:px-5">
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-[14px] font-semibold text-white">{item.who}</p>
-          <p className="text-[12px] text-white/55 tabular-nums">{stampLabel(item.at)}</p>
+          <p className="truncate text-[14px] font-semibold text-foreground">{item.who}</p>
+          <p className="text-[12px] text-muted-foreground tabular-nums">{stampLabel(item.at)}</p>
         </div>
         {items.length > 1 && (
-          <span className="text-[12.5px] font-medium text-white/55 tabular-nums">
+          <span className="text-[12.5px] font-medium text-muted-foreground tabular-nums">
             {index + 1} of {items.length}
           </span>
         )}
@@ -284,7 +286,7 @@ export function MediaViewer({
       </div>
 
       {item.caption && (
-        <p data-chrome className="relative mx-auto max-w-xl px-6 pb-[max(env(safe-area-inset-bottom),20px)] text-center text-[14px] text-white/85">
+        <p data-chrome className="relative mx-auto max-w-xl px-6 pb-[max(env(safe-area-inset-bottom),20px)] text-center text-[14px] text-foreground/85">
           {item.caption}
         </p>
       )}

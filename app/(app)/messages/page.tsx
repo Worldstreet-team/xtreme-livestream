@@ -160,7 +160,7 @@ export default function MessagesOverview() {
                 </p>
                 <Link
                   href={threadHref(calling._id)}
-                  className="msg-press mt-4 inline-flex h-9 w-fit items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-[#0b0708] hover:bg-white/90"
+                  className="msg-press mt-4 inline-flex h-9 w-fit items-center gap-2 rounded-full bg-inverse px-4 text-[13px] font-semibold text-on-inverse hover:bg-inverse/90"
                 >
                   {calling.call?.video ? <VideoCamera size={15} weight="fill" /> : <Phone size={15} weight="fill" />}
                   Join

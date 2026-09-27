@@ -47,7 +47,7 @@ export function AvatarRingsRow({
                 "relative rounded-full p-[2.5px] transition-transform group-hover:scale-105",
                 c.isLive
                   ? "bg-heat"
-                  : "bg-white/[0.08]"
+                  : "bg-tint/[0.08]"
               )}
             >
               <span className="block rounded-full bg-background p-[2px]">

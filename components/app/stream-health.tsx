@@ -82,7 +82,7 @@ export function HealthSection({ samples, verdict, encoder = null }: { samples: H
         ]
       : [];
   return (
-    <section aria-labelledby="studio-health" className="rounded-[12px] bg-white/[0.04] p-4">
+    <section aria-labelledby="studio-health" className="rounded-[12px] bg-tint/[0.04] p-4">
       <p id="studio-health" className={EYEBROW}>
         {encoder ? "Encoder" : "Connection"}
       </p>

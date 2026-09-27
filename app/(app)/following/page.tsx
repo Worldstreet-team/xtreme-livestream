@@ -112,12 +112,12 @@ export default function FollowingPage() {
           <div className="space-y-8">
             <div className="flex gap-4">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="size-14 animate-pulse rounded-full bg-white/[0.04]" />
+                <div key={i} className="size-14 animate-pulse rounded-full bg-tint/[0.04]" />
               ))}
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
+                <div key={i} className="aspect-video animate-pulse rounded-sm bg-tint/[0.04]" />
               ))}
             </div>
           </div>
@@ -250,8 +250,8 @@ export default function FollowingPage() {
 
 function NobodyLive() {
   return (
-    <div className="flex items-center gap-4 rounded-sm border border-white/[0.06] px-5 py-4">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-muted-foreground">
+    <div className="flex items-center gap-4 rounded-sm border border-tint/[0.06] px-5 py-4">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tint/[0.05] text-muted-foreground">
         <MoonStars size={18} />
       </span>
       <div className="min-w-0">

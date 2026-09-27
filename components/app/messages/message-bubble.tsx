@@ -265,11 +265,11 @@ export function MessageBubble({
     : cn(groupedAbove && "rounded-tl-md", groupedBelow && "rounded-bl-md");
 
   const toolButton =
-    "msg-press flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.07] hover:text-foreground";
+    "msg-press flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-tint/[0.07] hover:text-foreground";
   const toolbar = interactive && (
     <div
       className={cn(
-        "absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-0.5 rounded-full bg-surface-raised p-0.5 opacity-0 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.9)] transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 md:flex",
+        "absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-0.5 rounded-full bg-surface-raised p-0.5 opacity-0 shadow-popover transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 md:flex",
         mine ? "right-full mr-2" : "left-full ml-2",
         open && "opacity-100",
       )}
@@ -280,7 +280,7 @@ export function MessageBubble({
         aria-label="React"
         title="React"
         aria-expanded={open === "react"}
-        className={cn(toolButton, open === "react" && "bg-white/[0.08] text-foreground")}
+        className={cn(toolButton, open === "react" && "bg-tint/[0.08] text-foreground")}
       >
         <Smiley size={16} />
       </button>
@@ -293,7 +293,7 @@ export function MessageBubble({
         aria-label="More"
         title="More"
         aria-expanded={open === "menu"}
-        className={cn(toolButton, open === "menu" && "bg-white/[0.08] text-foreground")}
+        className={cn(toolButton, open === "menu" && "bg-tint/[0.08] text-foreground")}
       >
         <DotsThree size={16} weight="bold" />
       </button>
@@ -342,7 +342,7 @@ export function MessageBubble({
 
           {removed ? (
             // An admin took it down for everyone: the row stays, the words don't.
-            <p data-bubble className={cn("rounded-[22px] bg-white/[0.03] px-4 py-2.5 text-[14px] text-muted-foreground italic", corners)}>
+            <p data-bubble className={cn("rounded-[22px] bg-tint/[0.03] px-4 py-2.5 text-[14px] text-muted-foreground italic", corners)}>
               Message removed by an admin
             </p>
           ) : (
@@ -464,7 +464,7 @@ function ReplyQuote({ reply, onMine, onJump }: { reply: NonNullable<Message["rep
       }}
       className={cn(
         "mb-2 flex w-full gap-2 rounded-[14px] py-1.5 pr-3 pl-2 text-left transition-colors",
-        onMine ? "bg-on-ember/[0.12] hover:bg-on-ember/[0.18]" : "bg-white/[0.06] hover:bg-white/[0.09]",
+        onMine ? "bg-on-ember/[0.12] hover:bg-on-ember/[0.18]" : "bg-tint/[0.06] hover:bg-tint/[0.09]",
       )}
     >
       <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", onMine ? "bg-on-ember/60" : "bg-ember")} />
@@ -590,14 +590,14 @@ function PollCard({ poll, disabled, onVote }: { poll: Poll; disabled: boolean; o
                 disabled={disabled || closed}
                 aria-pressed={picked}
                 className={cn(
-                  "msg-press relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-control bg-white/[0.04] px-3 py-2 text-left text-[14px] enabled:hover:bg-white/[0.07] disabled:cursor-default",
+                  "msg-press relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-control bg-tint/[0.04] px-3 py-2 text-left text-[14px] enabled:hover:bg-tint/[0.07] disabled:cursor-default",
                   picked && "shadow-[inset_0_0_0_1.5px_var(--ember)]",
                 )}
               >
                 {showResults && (
                   <span
                     aria-hidden
-                    className={cn("absolute inset-y-0 left-0 transition-[width] duration-700", picked ? "bg-ember/25" : "bg-white/[0.07]")}
+                    className={cn("absolute inset-y-0 left-0 transition-[width] duration-700", picked ? "bg-ember/25" : "bg-tint/[0.07]")}
                     style={{ width: `${pct}%`, transitionTimingFunction: "var(--ease-out)" }}
                   />
                 )}
@@ -605,7 +605,7 @@ function PollCard({ poll, disabled, onVote }: { poll: Poll; disabled: boolean; o
                   {picked ? (
                     <CheckCircle size={16} weight="fill" className="msg-pop text-ember-hi" aria-hidden />
                   ) : (
-                    <span aria-hidden className="size-3.5 rounded-full shadow-[inset_0_0_0_1.5px_rgba(255,236,230,0.3)]" />
+                    <span aria-hidden className="size-3.5 rounded-full shadow-[inset_0_0_0_1.5px_var(--border-control)]" />
                   )}
                 </span>
                 <span className="relative min-w-0 flex-1 break-words">{o.text}</span>

@@ -118,7 +118,7 @@ export function ThreadDetails({
           type="button"
           onClick={onClose}
           aria-label="Close details"
-          className="msg-press flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+          className="msg-press flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground"
         >
           <X size={17} />
         </button>
@@ -160,7 +160,7 @@ export function ThreadDetails({
               onClick={() => void chooseMute(c.id)}
               className={cn(
                 "msg-press h-9 rounded-full text-[12.5px] font-semibold transition-colors",
-                mute === c.id ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground",
+                mute === c.id ? "bg-inverse text-on-inverse" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {c.label}
@@ -199,11 +199,11 @@ export function ThreadDetails({
         {media === null ? (
           <div className="grid grid-cols-3 gap-1">
             {Array.from({ length: 6 }, (_, i) => (
-              <span key={i} className="aspect-square animate-pulse rounded-md bg-white/[0.04]" />
+              <span key={i} className="aspect-square animate-pulse rounded-md bg-tint/[0.04]" />
             ))}
           </div>
         ) : media.length === 0 ? (
-          <p className="rounded-panel bg-white/[0.03] px-4 py-6 text-center text-[13px] text-muted-foreground">
+          <p className="rounded-panel bg-tint/[0.03] px-4 py-6 text-center text-[13px] text-muted-foreground">
             Photos and clips you share here collect in one place.
           </p>
         ) : (
@@ -234,7 +234,7 @@ export function ThreadDetails({
         )}
       </section>
 
-      <p className="mx-4 mt-6 rounded-panel bg-white/[0.03] px-4 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
+      <p className="mx-4 mt-6 rounded-panel bg-tint/[0.03] px-4 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
         {platformName(source) ? `Started on ${platformName(source)}. ` : ""}This thread is shared with WorldSpace: the same messages, calls
         and media, in the web app and on the phone app too.
       </p>
@@ -243,7 +243,7 @@ export function ThreadDetails({
         <button
           type="button"
           onClick={onArchive}
-          className="flex w-full items-center gap-3 rounded-control px-3 py-3 text-left text-[14.5px] text-foreground/90 hover:bg-white/[0.04]"
+          className="flex w-full items-center gap-3 rounded-control px-3 py-3 text-left text-[14.5px] text-foreground/90 hover:bg-tint/[0.04]"
         >
           <Archive size={19} aria-hidden />
           {archived ? "Move to inbox" : "Archive"}

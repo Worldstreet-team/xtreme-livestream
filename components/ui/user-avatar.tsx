@@ -72,7 +72,7 @@ export function UserAvatar({ ring = "none", ringGapClassName, ...props }: UserAv
     <span
       className={cn(
         "inline-flex shrink-0 rounded-full p-[2px]",
-        ring === "seen" ? "bg-white/[0.14]" : "bg-heat",
+        ring === "seen" ? "bg-tint/[0.14]" : "bg-heat",
       )}
     >
       <span className={cn("inline-flex rounded-full p-[2px]", ringGapClassName ?? "bg-background")}>{face}</span>
@@ -107,7 +107,7 @@ function Face({ src, name, size = 32, className }: Omit<UserAvatarProps, "ring" 
         // Square whatever the photo's shape: the width attribute sizes it, and
         // without aspect-square the reset's height:auto let a 16:9 photo
         // squash a sizeless avatar into a pill.
-        "aspect-square shrink-0 rounded-full bg-white/10 object-cover",
+        "aspect-square shrink-0 rounded-full bg-tint/10 object-cover",
         className
       )}
       fallback={initials}

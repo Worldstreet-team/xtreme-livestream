@@ -174,7 +174,7 @@ function Browse() {
             <button
               type="button"
               onClick={() => window.dispatchEvent(new Event("xtreme:open-search"))}
-              className="press mb-5 flex h-11 w-full items-center gap-2.5 rounded-full bg-white/[0.06] px-4 text-left text-[15px] text-muted-foreground/80 shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] md:hidden"
+              className="press mb-5 flex h-11 w-full items-center gap-2.5 rounded-full bg-tint/[0.06] px-4 text-left text-[15px] text-muted-foreground/80 shadow-[inset_0_0_0_1px_var(--hairline-color)] md:hidden"
             >
               <MagnifyingGlass size={17} aria-hidden />
               Search streams, people, categories
@@ -242,7 +242,7 @@ function CategoryHeader({
       <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
 
       <div className="relative flex items-end gap-6 p-5 md:p-7">
-        <div className="relative aspect-[3/4] w-28 shrink-0 overflow-hidden rounded-sm shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.1] sm:w-36">
+        <div className="relative aspect-[3/4] w-28 shrink-0 overflow-hidden rounded-sm shadow-popover ring-1 ring-tint/[0.1] sm:w-36">
           <StreamArt src={summary?.cover ?? null} category={category} alt={category} seed={category} size={{ w: 480, h: 640 }} />
         </div>
         <div className="min-w-0 flex-1">
@@ -345,7 +345,7 @@ function CategoriesTab({
   const chip = (active: boolean) =>
     cn(
       "press flex h-9 shrink-0 items-center rounded-[10px] px-4 text-[13.5px] font-semibold transition-colors",
-      active ? "bg-white text-[#0b0708]" : "bg-control text-foreground/86 hover:bg-control-hover",
+      active ? "bg-inverse text-on-inverse" : "bg-control text-foreground/86 hover:bg-control-hover",
     );
 
   return (
@@ -372,7 +372,7 @@ function CategoriesTab({
           <button
             type="button"
             onClick={() => (group ? setExpanded((e) => !e) : setPages((n) => n + 1))}
-            className="press flex items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-semibold text-foreground/80 transition-colors hover:bg-white/[0.05] hover:text-foreground"
+            className="press flex items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-semibold text-foreground/80 transition-colors hover:bg-tint/[0.05] hover:text-foreground"
           >
             {group && expanded ? "Show less" : "Show more"}
             <CaretDown size={14} weight="bold" className={cn("transition-transform", group && expanded && "rotate-180")} />
@@ -551,7 +551,7 @@ function RowSkeleton() {
   return (
     <div className="flex gap-3 overflow-hidden">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="aspect-video w-[300px] shrink-0 animate-pulse rounded-sm bg-white/[0.04]" />
+        <div key={i} className="aspect-video w-[300px] shrink-0 animate-pulse rounded-sm bg-tint/[0.04]" />
       ))}
     </div>
   );
@@ -591,7 +591,7 @@ function EmptyCategory({
   return (
     <div className="py-6">
       <Empty
-        className="rounded-sm border border-dashed border-white/[0.1] py-12"
+        className="rounded-sm border border-dashed border-tint/[0.1] py-12"
         icon={<Broadcast size={32} />}
         title={tag ? `Nobody live with #${tag}${category ? ` in ${category}` : ""}` : category ? `Nobody live in ${category} right now` : "Nobody live right now"}
         body={
@@ -628,7 +628,7 @@ function UpcomingTab() {
     return (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
+          <div key={i} className="aspect-video animate-pulse rounded-sm bg-tint/[0.04]" />
         ))}
       </div>
     );
@@ -637,7 +637,7 @@ function UpcomingTab() {
   if (items.length === 0) {
     return (
       <Empty
-        className="rounded-sm border border-dashed border-white/[0.1] py-14"
+        className="rounded-sm border border-dashed border-tint/[0.1] py-14"
         icon={<Clock size={32} />}
         title="Nothing scheduled yet"
         body="When a channel schedules a broadcast it shows up here — or skip the calendar and start now."

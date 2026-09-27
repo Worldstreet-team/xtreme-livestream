@@ -33,13 +33,13 @@ const VARIANT: Record<BadgeVariant, string> = {
   glass: "bg-black/55 text-white",
   dark: "bg-black/70 text-white/95",
   live: "bg-chili text-white",
-  muted: "bg-white/[0.06] text-muted-foreground",
+  muted: "bg-tint/[0.06] text-muted-foreground",
   ember: "bg-ember text-on-ember",
   value: "bg-black/60 text-value",
   default: "bg-primary text-primary-foreground",
-  secondary: "bg-white/[0.06] text-muted-foreground",
+  secondary: "bg-tint/[0.06] text-muted-foreground",
   destructive: "bg-chili/15 text-chili-hi",
-  outline: "text-foreground shadow-[inset_0_0_0_1px_rgba(255,236,230,0.16)]",
+  outline: "text-foreground shadow-[inset_0_0_0_1px_var(--border-control)]",
 };
 
 export function Badge({

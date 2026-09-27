@@ -329,7 +329,7 @@ export default function ExplorePage() {
             aria-pressed={isActive}
             className={cn(
               "press flex h-9 shrink-0 items-center rounded-[10px] px-4 text-[13.5px] font-semibold transition-colors",
-              isActive ? "bg-white text-[#0b0708]" : "bg-control text-foreground/86 hover:bg-control-hover"
+              isActive ? "bg-inverse text-on-inverse" : "bg-control text-foreground/86 hover:bg-control-hover"
             )}
           >
             {cat === "All" ? "For you" : cat}
@@ -410,13 +410,13 @@ function RowsHome({ home, loading }: { home: HomePage | null; loading: boolean }
   if (loading || !home || !feed) {
     return (
       <div className="space-y-8">
-        <div className="aspect-[16/6] animate-pulse rounded-xl bg-white/[0.04]" />
+        <div className="aspect-[16/6] animate-pulse rounded-xl bg-tint/[0.04]" />
         {[0, 1].map((i) => (
           <div key={i}>
-            <div className="mb-3 h-4 w-40 animate-pulse rounded bg-white/[0.04]" />
+            <div className="mb-3 h-4 w-40 animate-pulse rounded bg-tint/[0.04]" />
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
               {Array.from({ length: 4 }).map((_, j) => (
-                <div key={j} className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
+                <div key={j} className="aspect-video animate-pulse rounded-sm bg-tint/[0.04]" />
               ))}
             </div>
           </div>
@@ -589,12 +589,12 @@ function FilteredResults({
       <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-6">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i}>
-            <div className="aspect-video animate-pulse rounded-sm bg-white/[0.04]" />
+            <div className="aspect-video animate-pulse rounded-sm bg-tint/[0.04]" />
             <div className="mt-2.5 flex gap-2.5">
-              <div className="size-8 shrink-0 animate-pulse rounded-full bg-white/[0.04]" />
+              <div className="size-8 shrink-0 animate-pulse rounded-full bg-tint/[0.04]" />
               <div className="flex-1 space-y-2 pt-0.5">
-                <div className="h-3.5 w-3/4 animate-pulse rounded bg-white/[0.04]" />
-                <div className="h-3 w-1/2 animate-pulse rounded bg-white/[0.04]" />
+                <div className="h-3.5 w-3/4 animate-pulse rounded bg-tint/[0.04]" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-tint/[0.04]" />
               </div>
             </div>
           </div>
@@ -668,7 +668,7 @@ function FilteredResults({
           value={tab}
           onChange={onTab}
         />
-        <div className="mb-1.5 flex rounded-sm bg-white/[0.05] p-0.5">
+        <div className="mb-1.5 flex rounded-sm bg-tint/[0.05] p-0.5">
           {(
             [
               ["grid", SquaresFour, "Grid"],
@@ -683,7 +683,7 @@ function FilteredResults({
               title={label}
               className={cn(
                 "flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs transition-colors",
-                view === id ? "bg-white/[0.1] text-foreground" : "text-muted-foreground hover:text-foreground"
+                view === id ? "bg-tint/[0.1] text-foreground" : "text-muted-foreground hover:text-foreground"
               )}
             >
               <Icon size={14} />

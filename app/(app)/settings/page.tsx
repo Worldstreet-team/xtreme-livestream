@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CATEGORY_GROUPS, POPULAR_CATEGORIES, formatNumber } from "@/lib/categories";
 import { categoryArt } from "@/lib/category-art";
+import { useTheme } from "@/lib/theme";
 import { compressImage } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select-field";
@@ -16,6 +17,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { ShowRules } from "@/components/app/show-rules";
 import { ControlKeys } from "@/components/app/control-keys";
 import { ChatSafety } from "@/components/app/settings/chat-safety";
+import { ThemeSwitch } from "@/components/app/theme-switch";
 import { BrandKit, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { SceneRenderer } from "@/components/app/scene-renderer";
 import { DEFAULT_BRAND, DEFAULT_SCENE, readBrand, type Brand, type Scene } from "@/lib/scene";
@@ -39,6 +41,7 @@ const SECTIONS = [
   { id: "control", label: "Stream Deck" },
   { id: "chat", label: "Chat" },
   { id: "feed", label: "Your feed" },
+  { id: "appearance", label: "Appearance" },
   { id: "account", label: "Account" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -60,7 +63,7 @@ const MAX_INTERESTS = 8;
 const TILE = "relative overflow-hidden rounded-panel bg-surface";
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 const FIELD =
-  "w-full rounded-control bg-white/[0.06] px-4 text-[15px] text-foreground outline-none shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] transition-[background-color,box-shadow] placeholder:text-muted-foreground/50 hover:bg-white/[0.08] focus:bg-white/[0.08] focus:shadow-[inset_0_0_0_1.5px_var(--color-ember)]";
+  "w-full rounded-control bg-tint/[0.06] px-4 text-[15px] text-foreground outline-none shadow-[inset_0_0_0_1px_var(--hairline-color)] transition-[background-color,box-shadow] placeholder:text-muted-foreground/50 hover:bg-tint/[0.08] focus:bg-tint/[0.08] focus:shadow-[inset_0_0_0_1.5px_var(--color-ember)]";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -99,7 +102,7 @@ export default function SettingsPage() {
       </header>
 
       <nav aria-label="Settings sections" className="sticky top-14 z-20 -mx-4 mb-6 bg-background/85 px-4 backdrop-blur-xl md:top-16 md:-mx-8 md:px-8">
-        <div className="flex gap-6 overflow-x-auto shadow-[inset_0_-1px_0_rgba(255,236,230,0.08)] scrollbar-none">
+        <div className="flex gap-6 overflow-x-auto shadow-[inset_0_-1px_0_var(--hairline-color)] scrollbar-none">
           {SECTIONS.map((s) => {
             const on = s.id === active;
             return (
@@ -129,6 +132,7 @@ export default function SettingsPage() {
         <ControlSection />
         <ChatSection />
         <FeedSection />
+        <AppearanceSection />
         <AccountSection />
       </div>
     </Shell>
@@ -326,7 +330,7 @@ function ProfileSection() {
             />
           </div>
 
-          <div className="mt-6 flex min-h-12 flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-5">
+          <div className="mt-6 flex min-h-12 flex-wrap items-center justify-between gap-3 border-t border-tint/[0.06] pt-5">
             {dirty ? (
               <p className="text-[13.5px] text-muted-foreground">You have unsaved changes.</p>
             ) : flash ? (
@@ -339,7 +343,7 @@ function ProfileSection() {
                 <button type="button" onClick={discard} className="press h-11 rounded-full px-4 text-[14px] font-semibold text-muted-foreground hover:text-foreground">
                   Discard
                 </button>
-                <button type="button" onClick={save} disabled={saving} className="press h-11 rounded-full bg-white px-6 text-[14.5px] font-semibold text-[#0b0708] disabled:opacity-60">
+                <button type="button" onClick={save} disabled={saving} className="press h-11 rounded-full bg-inverse px-6 text-[14.5px] font-semibold text-on-inverse disabled:opacity-60">
                   {saving ? "Saving…" : "Save changes"}
                 </button>
               </div>
@@ -449,7 +453,7 @@ function StreamingSection() {
           </div>
 
           {/* Which way the encoder sends: each has its own server and key. */}
-          <div role="tablist" aria-label="Protocol" className="mt-5 inline-flex rounded-full bg-white/[0.05] p-1">
+          <div role="tablist" aria-label="Protocol" className="mt-5 inline-flex rounded-full bg-tint/[0.05] p-1">
             {PROTOCOLS.map((p) => (
               <button
                 key={p.id}
@@ -462,7 +466,7 @@ function StreamingSection() {
                 }}
                 className={cn(
                   "press h-8 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
-                  protocol === p.id ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+                  protocol === p.id ? "bg-inverse text-on-inverse" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {p.label}
@@ -485,18 +489,18 @@ function StreamingSection() {
               />
             </div>
           ) : (
-            <div className="mt-5 flex flex-col items-start gap-3 rounded-[12px] bg-white/[0.035] p-5">
+            <div className="mt-5 flex flex-col items-start gap-3 rounded-[12px] bg-tint/[0.035] p-5">
               <p className="max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
                 Keep it private — anyone with your key can broadcast on your channel. It shows here only when you ask.
               </p>
-              <button type="button" onClick={reveal} disabled={loading} className="press flex h-10 items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold text-[#0b0708] disabled:opacity-60">
+              <button type="button" onClick={reveal} disabled={loading} className="press flex h-10 items-center gap-2 rounded-full bg-inverse px-4 text-[14px] font-semibold text-on-inverse disabled:opacity-60">
                 <Eye size={16} />
                 {loading ? "Loading…" : "Show my key"}
               </button>
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-5">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-tint/[0.06] pt-5">
             <p className="max-w-[52ch] text-[12.5px] leading-relaxed text-muted-foreground">
               Set it once. If your connection drops, keep the encoder running — the stream holds for five minutes and picks up on its own.
             </p>
@@ -529,7 +533,7 @@ function StreamingSection() {
               ["Bitrate", "2,500–4,500 kbps CBR"],
               ["Keyframes", "Every 2 seconds"],
             ].map(([k, v]) => (
-              <div key={k} className="flex items-baseline justify-between gap-4 border-b border-white/[0.05] pb-3 last:border-0 last:pb-0">
+              <div key={k} className="flex items-baseline justify-between gap-4 border-b border-tint/[0.05] pb-3 last:border-0 last:pb-0">
                 <dt className="text-muted-foreground">{k}</dt>
                 <dd className="text-right font-mono text-[12.5px] font-semibold tabular-nums">{v}</dd>
               </div>
@@ -562,17 +566,17 @@ function KeyRow({
   onToggle?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-[12px] bg-white/[0.045] py-2.5 pr-2.5 pl-4">
+    <div className="flex items-center gap-3 rounded-[12px] bg-tint/[0.045] py-2.5 pr-2.5 pl-4">
       <div className="min-w-0 flex-1">
         <p className="text-[11.5px] font-semibold text-muted-foreground">{label}</p>
         <p className="mt-0.5 truncate font-mono text-[13.5px] tabular-nums">{value}</p>
       </div>
       {secret && onToggle && (
-        <button type="button" onClick={onToggle} aria-label={shown ? "Hide key" : "Show key"} className="press flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={onToggle} aria-label={shown ? "Hide key" : "Show key"} className="press flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/[0.06] text-muted-foreground hover:text-foreground">
           {shown ? <EyeSlash size={16} /> : <Eye size={16} />}
         </button>
       )}
-      <button type="button" onClick={onCopy} aria-label={`Copy ${label.toLowerCase()}`} className="press flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.06] px-3 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground">
+      <button type="button" onClick={onCopy} aria-label={`Copy ${label.toLowerCase()}`} className="press flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-tint/[0.06] px-3 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground">
         {copied ? <Check size={14} weight="bold" className="text-ember-hi" /> : <Copy size={14} />}
         {copied ? "Copied" : "Copy"}
       </button>
@@ -646,7 +650,8 @@ function BrandSection() {
           <BrandKit brand={brand} onBrand={save} onLogoRemoved={() => {}} heading={false} />
         </div>
         <div className={cn(TILE, "flex flex-col p-3 lg:col-span-7")}>
-          <div className="relative aspect-video overflow-hidden rounded-[14px] bg-[radial-gradient(120%_90%_at_30%_20%,#3a2320_0%,#1a1012_55%,#0b0708_100%)]">
+          {/* Stays dark: this is a picture of the stream, graphics over video. */}
+          <div data-theme="dark" className="relative aspect-video overflow-hidden rounded-[14px] bg-[radial-gradient(120%_90%_at_30%_20%,#3a2320_0%,#1a1012_55%,#0b0708_100%)]">
             <SceneRenderer
               scene={preview}
               portrait={false}
@@ -733,7 +738,7 @@ function ChatSection() {
                   <p className={EYEBROW}>Room rules</p>
                   <Flash flash={flash} />
                 </div>
-                <div className="mt-3 grid divide-y divide-white/[0.06]">
+                <div className="mt-3 grid divide-y divide-tint/[0.06]">
                   <div className="py-2">
                     <SwitchField label="Slow mode" description="Thirty seconds between messages. You and your moderators are exempt." checked={values.slowMode} onCheckedChange={(v) => set("slowMode", v)} />
                   </div>
@@ -760,6 +765,7 @@ function ChatSection() {
 /* ── Feed ────────────────────────────────────────────────────────────── */
 
 function FeedSection() {
+  const theme = useTheme();
   const { user, refreshUser } = useAuth();
   const [picked, setPicked] = useState<string[]>(() => user?.onboarding?.categories ?? []);
   const [language, setLanguage] = useState(() => user?.onboarding?.language || "en");
@@ -807,17 +813,17 @@ function FeedSection() {
           ) : (
             <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {picked.map((c) => (
-                <li key={c} className="group relative overflow-hidden rounded-[10px] bg-white/[0.04] motion-safe:animate-[xt-spring-in_.4s_var(--ease-spring)_both]">
+                <li key={c} className="group relative overflow-hidden rounded-[10px] bg-tint/[0.04] motion-safe:animate-[xt-spring-in_.4s_var(--ease-spring)_both]">
                   <div className="flex items-center gap-2.5 p-2 pr-9">
                     {/* eslint-disable-next-line @next/next/no-img-element -- remote box art */}
-                    <img src={categoryArt(c, { w: 72, h: 96 })} alt="" className="h-12 w-9 shrink-0 rounded-[6px] object-cover" />
+                    <img src={categoryArt(c, { w: 72, h: 96 }, theme)} alt="" className="h-12 w-9 shrink-0 rounded-[6px] object-cover" />
                     <span className="line-clamp-2 text-[13px] leading-snug font-semibold">{c}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setPicked((p) => p.filter((x) => x !== c))}
                     aria-label={`Remove ${c}`}
-                    className="press absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+                    className="press absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-tint/[0.08] hover:text-foreground"
                   >
                     <X size={13} weight="bold" />
                   </button>
@@ -833,7 +839,7 @@ function FeedSection() {
               value={adding}
               placeholder={full ? "That's eight — remove one to add another" : "Add a category"}
               searchPlaceholder="Search 170 categories"
-              art={(v) => categoryArt(v, { w: 72, h: 96 })}
+              art={(v) => categoryArt(v, { w: 72, h: 96 }, theme)}
               onChange={(v) => {
                 add(v);
                 setAdding("");
@@ -868,7 +874,7 @@ function FeedSection() {
               type="button"
               onClick={save}
               disabled={!dirty || saving}
-              className="press h-11 rounded-full bg-white text-[14.5px] font-semibold text-[#0b0708] transition-opacity disabled:opacity-40 disabled:shadow-none"
+              className="press h-11 rounded-full bg-inverse text-[14.5px] font-semibold text-on-inverse transition-opacity disabled:opacity-40 disabled:shadow-none"
             >
               {saving ? "Updating…" : dirty ? "Update my feed" : "Feed's up to date"}
             </button>
@@ -881,6 +887,24 @@ function FeedSection() {
 
 /* ── Account ─────────────────────────────────────────────────────────── */
 
+/** Light or dark. Saved in this browser, so it's there before you sign in. */
+function AppearanceSection() {
+  return (
+    <section id="appearance" aria-labelledby="appearance-title" className="scroll-mt-32">
+      <SectionHead id="appearance" title="Appearance" lede="Light, dark, or whatever your phone is set to." />
+      <div className={cn(TILE, "flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between md:p-8")}>
+        <div className="min-w-0">
+          <p className="text-[15px] font-bold">Theme</p>
+          <p className="mt-1 max-w-[52ch] text-[13.5px] leading-relaxed text-muted-foreground">
+            Watching, the studio and the live feed stay dark either way — the picture looks best in a dark room.
+          </p>
+        </div>
+        <ThemeSwitch className="shrink-0" />
+      </div>
+    </section>
+  );
+}
+
 function AccountSection() {
   const { user, logout } = useAuth();
   const clerk = useClerk();
@@ -892,7 +916,7 @@ function AccountSection() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <div className={cn(TILE, "flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between md:p-8 lg:col-span-8")}>
           <div className="flex items-start gap-4">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-tint/[0.06]">
               <Shield size={20} className="text-ember-hi" />
             </span>
             <div className="min-w-0">

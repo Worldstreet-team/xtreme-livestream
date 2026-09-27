@@ -52,7 +52,7 @@ export function ChatBubble({
 }) {
   const surface = onPicture
     ? "bg-black/52"
-    : "bg-white/[0.05]";
+    : "bg-tint/[0.05]";
 
   if (kind === "system") {
     return (

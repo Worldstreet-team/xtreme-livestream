@@ -103,10 +103,10 @@ export function SelectField(props: SelectFieldProps) {
         // black, so those four are overridden outright — same specificity
         // otherwise, and which wins would come down to stylesheet order.
         className={cn(
-          "cursor-pointer justify-between rounded-control! border-0! text-foreground transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[state=open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
+          "cursor-pointer justify-between rounded-control! border-0! text-foreground transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_var(--hairline-color)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[state=open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
           sm
-            ? "h-9! rounded-full! bg-white/[0.05]! px-3.5! text-sm hover:bg-white/[0.08]! data-[state=open]:bg-white/[0.08]!"
-            : "h-12! bg-white/[0.06]! px-4! text-[15px] hover:bg-white/[0.08]! data-[state=open]:bg-white/[0.09]!",
+            ? "h-9! rounded-full! bg-tint/[0.05]! px-3.5! text-sm hover:bg-tint/[0.08]! data-[state=open]:bg-tint/[0.08]!"
+            : "h-12! bg-tint/[0.06]! px-4! text-[15px] hover:bg-tint/[0.08]! data-[state=open]:bg-tint/[0.09]!",
           full ? "w-full" : "w-fit",
           className,
         )}
@@ -119,7 +119,7 @@ export function SelectField(props: SelectFieldProps) {
         position="popper"
         align="start"
         sideOffset={6}
-        className="max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] bg-popover ring-white/[0.08]"
+        className="max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] bg-popover ring-tint/[0.08]"
       >
         {groups
           ? groups.map((group) => (
@@ -193,10 +193,10 @@ function SearchableSelectField({
         id={id}
         aria-label={ariaLabel}
         className={cn(
-          "flex cursor-pointer items-center justify-between rounded-control! border-0! text-foreground outline-none transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[popup-open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
+          "flex cursor-pointer items-center justify-between rounded-control! border-0! text-foreground outline-none transition-[background-color,box-shadow] shadow-[inset_0_0_0_1px_var(--hairline-color)]! focus-visible:shadow-[inset_0_0_0_1.5px_var(--ember)]! data-[popup-open]:shadow-[inset_0_0_0_1.5px_var(--ember)]!",
           sm
-            ? "h-9! rounded-full! bg-white/[0.05]! px-3.5! text-sm hover:bg-white/[0.08]! data-[popup-open]:bg-white/[0.08]!"
-            : "h-12! bg-white/[0.06]! px-4! text-[15px] hover:bg-white/[0.08]! data-[popup-open]:bg-white/[0.09]!",
+            ? "h-9! rounded-full! bg-tint/[0.05]! px-3.5! text-sm hover:bg-tint/[0.08]! data-[popup-open]:bg-tint/[0.08]!"
+            : "h-12! bg-tint/[0.06]! px-4! text-[15px] hover:bg-tint/[0.08]! data-[popup-open]:bg-tint/[0.09]!",
           full ? "w-full" : "w-fit",
           className,
         )}
@@ -213,11 +213,11 @@ function SearchableSelectField({
       </ComboboxTrigger>
       {/* The kit pads the popup wider than its anchor for an input-shaped
           combobox; ours is anchored to a field, so it matches the field. */}
-      <ComboboxContent className="min-w-[var(--anchor-width)]! bg-popover ring-white/[0.08]">
-        <div className="border-b border-white/[0.06] p-1.5">
+      <ComboboxContent className="min-w-[var(--anchor-width)]! bg-popover ring-tint/[0.08]">
+        <div className="border-b border-tint/[0.06] p-1.5">
           <ComboboxPrimitive.Input
             placeholder={searchPlaceholder}
-            className="h-9 w-full rounded-full bg-white/[0.06] px-3.5 text-[14px] text-foreground outline-none shadow-[inset_0_0_0_1px_rgba(255,236,230,0.1)] placeholder:text-muted-foreground/60 focus:bg-white/[0.08] focus:shadow-[inset_0_0_0_1.5px_var(--ember)]"
+            className="h-9 w-full rounded-full bg-tint/[0.06] px-3.5 text-[14px] text-foreground outline-none shadow-[inset_0_0_0_1px_var(--hairline-color)] placeholder:text-muted-foreground/60 focus:bg-tint/[0.08] focus:shadow-[inset_0_0_0_1.5px_var(--ember)]"
           />
         </div>
         <ComboboxList className="max-h-[min(18rem,calc(var(--available-height)-3.5rem))] p-1">
@@ -245,13 +245,13 @@ function ComboItem({ value, label, art }: SelectOption & { art?: string }) {
     <ComboboxItem
       value={value}
       className={cn(
-        "cursor-pointer px-2 text-[14px] text-foreground/90 data-highlighted:bg-white/[0.07] data-highlighted:text-foreground",
+        "cursor-pointer px-2 text-[14px] text-foreground/90 data-highlighted:bg-tint/[0.07] data-highlighted:text-foreground",
         art ? "h-12 gap-3" : "h-9",
       )}
     >
       {art && (
         // eslint-disable-next-line @next/next/no-img-element -- remote box art in a long, lazily scrolled list
-        <img src={art} alt="" loading="lazy" className="h-9 w-[27px] shrink-0 rounded-[4px] bg-white/[0.05] object-cover" />
+        <img src={art} alt="" loading="lazy" className="h-9 w-[27px] shrink-0 rounded-[4px] bg-tint/[0.05] object-cover" />
       )}
       {label}
     </ComboboxItem>
@@ -262,7 +262,7 @@ function Option({ value, label }: SelectOption) {
   return (
     <SelectItem
       value={value}
-      className="h-9 cursor-pointer px-2 text-[14px] text-foreground/90 focus:bg-white/[0.07] focus:text-foreground data-[state=checked]:text-foreground"
+      className="h-9 cursor-pointer px-2 text-[14px] text-foreground/90 focus:bg-tint/[0.07] focus:text-foreground data-[state=checked]:text-foreground"
     >
       {label}
     </SelectItem>

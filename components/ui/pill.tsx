@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
  * The button. One shape (a pill), a few tones, four sizes — Afterglow
  * (owner's pick, 2026-09-23).
  *
- *  - primary  white: the one neutral action on a surface (Ally, Watch)
+ *  - primary  white on dark, ink on light: the one neutral action on a
+ *             surface (Ally, Watch)
  *  - live     Chili, solid: things that are on air, or put you on air
  *  - heat     the gradient — Go live and gift moments only (the allowlist)
  *  - ember    Ember, flat, dark ink: energy — claim, join, start a game
@@ -37,22 +38,22 @@ const ICON_ONLY: Record<PillSize, string> = { sm: "size-8 px-0", md: "size-9 px-
 export const PILL_ICON: Record<PillSize, number> = { sm: 14, md: 16, lg: 18, xl: 19 };
 
 const VARIANT: Record<PillVariant, string> = {
-  primary: "bg-white text-[#0b0708] hover:bg-white/90",
+  primary: "bg-inverse text-on-inverse hover:bg-inverse/90",
   live: "bg-chili text-white hover:brightness-110",
   heat: "bg-heat text-white hover:brightness-110",
   ember: "bg-ember text-on-ember hover:brightness-105",
   glass: "bg-control text-foreground/90 hover:bg-control-hover hover:text-foreground",
   soft: "",
-  ghost: "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+  ghost: "text-muted-foreground hover:bg-tint/[0.06] hover:text-foreground",
 };
 
 const SOFT_TONE: Record<PillTone, string> = {
   neutral: "bg-control text-foreground/90 hover:bg-control-hover",
-  red: "bg-[#3A1719] text-chili-hi hover:bg-[#481C1F]",
-  ember: "bg-[#3A1D10] text-ember-hi hover:bg-[#482414]",
-  amber: "bg-[#3A2C14] text-value hover:bg-[#483719]",
-  green: "bg-[#173428] text-[#86EFAC] hover:bg-[#1D4232]",
-  sky: "bg-[#14303A] text-[#7DD3FC] hover:bg-[#1A3E4A]",
+  red: "bg-tone-red text-chili-hi hover:bg-tone-red-hover",
+  ember: "bg-tone-ember text-ember-hi hover:bg-tone-ember-hover",
+  amber: "bg-tone-amber text-value hover:bg-tone-amber-hover",
+  green: "bg-tone-green text-tone-green-ink hover:bg-tone-green-hover",
+  sky: "bg-tone-sky text-tone-sky-ink hover:bg-tone-sky-hover",
 };
 
 export function pillClass({

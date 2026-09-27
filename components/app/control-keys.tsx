@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const TILE = "relative overflow-hidden rounded-panel bg-surface";
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 const INPUT =
-  "h-10 w-full min-w-0 rounded-full bg-white/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]";
+  "h-10 w-full min-w-0 rounded-full bg-tint/[0.06] px-4 text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-tint/[0.09]";
 
 const SCOPE_LABELS: Record<ControlScope, { label: string; hint: string }> = {
   scene: { label: "Scene", hint: "layouts, cards, lower thirds, banners, countdowns" },
@@ -68,7 +68,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
           })
           .catch(() => {});
       }}
-      className="press flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[12px] font-semibold text-foreground hover:bg-white/[0.12]"
+      className="press flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-tint/[0.08] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.12]"
     >
       {done ? <Check size={13} weight="bold" /> : <Copy size={13} />}
       {done ? "Copied" : label}
@@ -141,7 +141,7 @@ export function ControlKeys() {
               Copy “{fresh.name}” now — it won&apos;t be shown again
             </p>
             <div className="mt-2.5 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-full bg-black/30 px-3.5 py-2 font-mono text-[12px]">{fresh.secret}</code>
+              <code className="min-w-0 flex-1 truncate rounded-full bg-background/60 px-3.5 py-2 font-mono text-[12px]">{fresh.secret}</code>
               <CopyButton text={fresh.secret} />
             </div>
             <button type="button" onClick={() => setFresh(null)} className="mt-2.5 text-[12px] font-semibold text-ember-hi hover:underline">
@@ -151,13 +151,13 @@ export function ControlKeys() {
         )}
 
         {keys === null ? (
-          !problem && <div className="mt-3 h-20 animate-pulse rounded-[14px] bg-white/[0.04]" />
+          !problem && <div className="mt-3 h-20 animate-pulse rounded-[14px] bg-tint/[0.04]" />
         ) : keys.length === 0 ? (
           <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">No keys yet. Make one for each device or script, so you can remove one without the others.</p>
         ) : (
           <ul className="mt-3 flex flex-col gap-2">
             {keys.map((k) => (
-              <li key={k.id} className="flex items-center gap-3 rounded-[14px] bg-white/[0.045] px-3.5 py-3">
+              <li key={k.id} className="flex items-center gap-3 rounded-[14px] bg-tint/[0.045] px-3.5 py-3">
                 <Key size={16} className="shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13.5px] font-semibold">{k.name}</p>
@@ -179,7 +179,7 @@ export function ControlKeys() {
         )}
 
         {!full && (
-          <div className="mt-5 border-t border-white/[0.06] pt-5">
+          <div className="mt-5 border-t border-tint/[0.06] pt-5">
             <p className="text-[13.5px] font-semibold">Make a key</p>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} aria-label="Key name" placeholder="Stream Deck" className={cn(INPUT, "mt-2.5")} />
             <div role="group" aria-label="What it can do" className="mt-3 flex flex-col gap-1.5">
@@ -215,7 +215,7 @@ export function ControlKeys() {
         </p>
         <ul className="mt-3 flex flex-col gap-2">
           {EXAMPLES.map((e) => (
-            <li key={e.label} className="rounded-[12px] bg-white/[0.045] p-3">
+            <li key={e.label} className="rounded-[12px] bg-tint/[0.045] p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[13px] font-semibold">{e.label}</p>
                 <CopyButton text={curlFor(base, e)} label="curl" />
@@ -233,14 +233,14 @@ export function ControlKeys() {
           card included, from the host&apos;s own sponsors.
         </p>
 
-        <div className="mt-5 border-t border-white/[0.06] pt-5">
+        <div className="mt-5 border-t border-tint/[0.06] pt-5">
           <p className={EYEBROW}>Claude and other assistants</p>
           <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
             An MCP server puts the same buttons in Claude Code, Claude Desktop or any MCP client. It signs in with a key, so it can only do what the key
             can.
           </p>
           <div className="mt-2.5 flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-full bg-black/30 px-3.5 py-2 font-mono text-[11.5px] text-foreground/85">{mcpAddFor(base)}</code>
+            <code className="min-w-0 flex-1 truncate rounded-full bg-background/60 px-3.5 py-2 font-mono text-[11.5px] text-foreground/85">{mcpAddFor(base)}</code>
             <CopyButton text={mcpAddFor(base)} />
           </div>
           <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">

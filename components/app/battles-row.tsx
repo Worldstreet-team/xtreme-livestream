@@ -90,7 +90,7 @@ function BattleCard({ battle: b, now }: { battle: BattleView; now: number }) {
       src={side.avatar}
       name={side.displayName}
       size={64}
-      className={cn("size-16 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.9)] ring-[3px] ring-offset-[3px] ring-offset-surface", ring, !isLive && "opacity-80")}
+      className={cn("size-16 shadow-popover ring-[3px] ring-offset-[3px] ring-offset-surface", ring, !isLive && "opacity-80")}
     />
   );
 
@@ -113,7 +113,7 @@ function BattleCard({ battle: b, now }: { battle: BattleView; now: number }) {
 
         <span className="absolute top-[44%] left-[27%] -translate-x-1/2 -translate-y-1/2">{face(b.host, "ring-chili")}</span>
         <span className="absolute top-[44%] left-[73%] -translate-x-1/2 -translate-y-1/2">{face(b.challenger, "ring-ember")}</span>
-        <span className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 font-wide text-[18px] font-black tracking-[-0.04em] text-white/90 italic">
+        <span className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 font-wide text-[18px] font-black tracking-[-0.04em] text-foreground/90 italic">
           VS
         </span>
 
@@ -123,7 +123,7 @@ function BattleCard({ battle: b, now }: { battle: BattleView; now: number }) {
         <span
           className={cn(
             "absolute top-2 right-2 flex h-[22px] items-center gap-1 rounded-full px-2 font-mono text-[11px] font-bold tabular-nums",
-            hot ? "bg-ember text-on-ember" : isLive ? "bg-white text-[#0b0708]" : "bg-control text-foreground/80",
+            hot ? "bg-ember text-on-ember" : isLive ? "bg-inverse text-on-inverse" : "bg-control text-foreground/80",
           )}
         >
           {isLive ? (

@@ -115,7 +115,7 @@ function ago(iso: string, now: number) {
 /** A live ring around one face. */
 function Ring({ avatar, name, live, badge }: { avatar: string; name: string; live: boolean; badge?: ReactNode }) {
   return (
-    <span className={cn("relative rounded-full p-[2.5px]", live ? "bg-heat" : "bg-white/[0.12]")}>
+    <span className={cn("relative rounded-full p-[2.5px]", live ? "bg-heat" : "bg-tint/[0.12]")}>
       <span className="block rounded-full bg-background p-[2px]">
         <UserAvatar src={avatar} name={name} size={52} className="size-[52px]" />
       </span>
@@ -305,7 +305,7 @@ export function RightRail() {
             {resume.map(({ item, watchedAt, live: isLive }) => {
               const name = item.streamerId.displayName || item.streamerId.username;
               return (
-                <Link key={item._id} href={isLive ? `/stream/${item._id}` : `/c/${item.streamerId.username}`} className="group flex items-center gap-3 rounded-sm px-1 py-1 transition-colors hover:bg-white/[0.04]">
+                <Link key={item._id} href={isLive ? `/stream/${item._id}` : `/c/${item.streamerId.username}`} className="group flex items-center gap-3 rounded-sm px-1 py-1 transition-colors hover:bg-tint/[0.04]">
                   <span className="relative aspect-video w-[88px] shrink-0 overflow-hidden rounded-[6px]">
                     <StreamArt src={item.thumbnailUrl} category={item.category} alt="" seed={item._id} size={{ w: 320, h: 180 }} />
                     {isLive && <LiveBadge size="xs" className="absolute top-1 left-1" />}
@@ -333,7 +333,7 @@ export function RightRail() {
           <div className="flex flex-col">
             {players.map((p, i) => (
               <div key={p.userId} className="flex items-center gap-3 rounded-sm px-1 py-1.5">
-                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", i === 0 ? "bg-ember text-on-ember" : "bg-white/[0.08] text-muted-foreground")}>{i + 1}</span>
+                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", i === 0 ? "bg-ember text-on-ember" : "bg-tint/[0.08] text-muted-foreground")}>{i + 1}</span>
                 <UserAvatar src={p.avatar} name={p.displayName} size={34} className="size-[34px]" />
                 <span className="flex min-w-0 flex-1 flex-col leading-tight">
                   <span className="truncate text-[13.5px] font-bold text-foreground">{p.username}</span>
@@ -350,7 +350,7 @@ export function RightRail() {
       {highlight && (
         <section className="animate-rise" style={{ animationDelay: "270ms" }}>
           <Eyebrow icon={<Trophy size={13} weight="fill" />} label="Highlight of the week" />
-          <Link href={`/c/${highlight.streamerId.username}`} className="group relative block aspect-video overflow-hidden rounded-sm bg-white/[0.03]">
+          <Link href={`/c/${highlight.streamerId.username}`} className="group relative block aspect-video overflow-hidden rounded-sm bg-tint/[0.03]">
             <StreamArt src={highlight.thumbnailUrl} category={highlight.category} alt={highlight.title} seed={highlight._id} size={{ w: 640, h: 360 }} imgClassName="transition-transform duration-500 group-hover:scale-[1.04]" />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
             <Badge variant="glass" size="xs" icon={<Eye size={10} weight="bold" />} className="absolute top-2 left-2">
@@ -374,7 +374,7 @@ export function RightRail() {
           <Eyebrow label="Who to follow" trailing={<SeeAll href="/browse?tab=live" />} />
           <div className="flex flex-col gap-0.5 rounded-panel bg-surface p-1.5">
             {suggestions.map((s) => (
-              <div key={s.id} className="flex items-center gap-3 rounded-control px-2 py-2 transition-colors hover:bg-white/[0.03]">
+              <div key={s.id} className="flex items-center gap-3 rounded-control px-2 py-2 transition-colors hover:bg-tint/[0.03]">
                 <Link href={`/c/${s.username}`} className="relative shrink-0">
                   <UserAvatar src={s.avatar} name={s.displayName || s.username} size={40} ring={s.isLive ? "live" : "none"} ringGapClassName="bg-surface" className={s.isLive ? undefined : "size-10"} />
                   {s.isLive && <LiveTag className="ring-surface" />}
@@ -503,7 +503,7 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
       </div>
       <div className="mt-2.5 flex items-center justify-center gap-1.5">
         {Array.from({ length: count }).map((_, i) => (
-          <button key={i} type="button" aria-label={i < games.length ? questionOf(games[i]!.game) : HOUSE[i - games.length]} aria-current={i === index} onClick={() => setIndex(i)} className={cn("h-1.5 rounded-full transition-all", i === index ? "w-4 bg-foreground" : "w-1.5 bg-white/25 hover:bg-white/45")} />
+          <button key={i} type="button" aria-label={i < games.length ? questionOf(games[i]!.game) : HOUSE[i - games.length]} aria-current={i === index} onClick={() => setIndex(i)} className={cn("h-1.5 rounded-full transition-all", i === index ? "w-4 bg-foreground" : "w-1.5 bg-tint/25 hover:bg-tint/45")} />
         ))}
       </div>
     </div>

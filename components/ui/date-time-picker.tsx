@@ -135,13 +135,13 @@ export function CalendarMonth({
               onClick={() => pick(d)}
               className={cn(
                 "press relative flex h-10 flex-col items-center justify-center rounded-[10px] font-money text-[15px] tabular-nums transition-colors disabled:pointer-events-none",
-                on ? "bg-white text-[#0b0708]" : off ? "text-foreground/20" : "text-foreground hover:bg-white/[0.07]",
+                on ? "bg-inverse text-on-inverse" : off ? "text-foreground/20" : "text-foreground hover:bg-tint/[0.07]",
                 isToday && !on && "text-ember-hi",
               )}
             >
               {d.getDate()}
               {(dot || isToday) && (
-                <span className={cn("absolute bottom-1.5 size-1 rounded-full", on ? "bg-[#0b0708]/60" : dot ? "bg-ember" : "bg-ember-hi/70")} aria-hidden />
+                <span className={cn("absolute bottom-1.5 size-1 rounded-full", on ? "bg-on-inverse/60" : dot ? "bg-ember" : "bg-ember-hi/70")} aria-hidden />
               )}
             </button>
           );
@@ -212,7 +212,7 @@ export function TimeList({
               onClick={() => onChange(s.hhmm)}
               className={cn(
                 "press mb-1 flex h-10 w-full items-center justify-center rounded-[10px] font-mono text-[13.5px] font-semibold tabular-nums transition-colors disabled:pointer-events-none disabled:opacity-25",
-                on ? "bg-white text-[#0b0708]" : "bg-control text-foreground hover:bg-control-hover",
+                on ? "bg-inverse text-on-inverse" : "bg-control text-foreground hover:bg-control-hover",
               )}
             >
               {s.at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}

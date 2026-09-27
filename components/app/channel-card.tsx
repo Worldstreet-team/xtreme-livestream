@@ -42,7 +42,7 @@ export function ChannelCard({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-sm border border-white/[0.06] p-3 transition-colors hover:bg-white/[0.04]",
+        "flex items-center gap-3 rounded-sm border border-tint/[0.06] p-3 transition-colors hover:bg-tint/[0.04]",
         className
       )}
     >
@@ -53,7 +53,7 @@ export function ChannelCard({
           size={44}
           className={cn(
             "size-11 ring-2 transition-opacity hover:opacity-85",
-            channel.isLive ? "ring-red-600" : "ring-white/[0.08]"
+            channel.isLive ? "ring-red-600" : "ring-tint/[0.08]"
           )}
         />
         {channel.isLive && (

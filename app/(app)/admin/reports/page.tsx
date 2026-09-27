@@ -103,7 +103,7 @@ export default function ReportQueuePage() {
       </header>
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div role="tablist" aria-label="Reports" className="flex rounded-full bg-white/[0.05] p-1">
+        <div role="tablist" aria-label="Reports" className="flex rounded-full bg-tint/[0.05] p-1">
           {(["open", "closed"] as const).map((t) => (
             <button
               key={t}
@@ -116,7 +116,7 @@ export default function ReportQueuePage() {
               }}
               className={cn(
                 "press h-9 rounded-full px-4 text-[13px] font-semibold transition-colors",
-                tab === t ? "bg-white text-[#0b0708]" : "text-muted-foreground hover:text-foreground"
+                tab === t ? "bg-inverse text-on-inverse" : "text-muted-foreground hover:text-foreground"
               )}
             >
               {t === "open" ? "Open" : "Closed"}

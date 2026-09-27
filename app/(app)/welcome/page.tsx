@@ -187,7 +187,7 @@ export default function WelcomePage() {
   return (
     <div className="min-h-screen bg-background pb-28">
       {/* Header: a slow strip of live frames, the brand, the question. */}
-      <header className="relative overflow-hidden border-b border-white/[0.06]">
+      <header className="relative overflow-hidden border-b border-tint/[0.06]">
         {strip.length > 0 && (
           <div className="pointer-events-none absolute inset-0" aria-hidden>
             <div className="animate-marquee flex h-full w-max gap-2 opacity-[0.28]">
@@ -210,8 +210,8 @@ export default function WelcomePage() {
             </Link>
             <div className="flex items-center gap-5">
               <div className="flex items-center gap-1.5" aria-label={`Step ${step} of 2`}>
-                <span className={cn("h-1.5 rounded-full transition-all duration-300", step === 1 ? "w-7 bg-foreground" : "w-1.5 bg-white/25")} />
-                <span className={cn("h-1.5 rounded-full transition-all duration-300", step === 2 ? "w-7 bg-foreground" : "w-1.5 bg-white/25")} />
+                <span className={cn("h-1.5 rounded-full transition-all duration-300", step === 1 ? "w-7 bg-foreground" : "w-1.5 bg-tint/25")} />
+                <span className={cn("h-1.5 rounded-full transition-all duration-300", step === 2 ? "w-7 bg-foreground" : "w-1.5 bg-tint/25")} />
               </div>
               <button type="button" onClick={skip} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
                 Skip
@@ -271,7 +271,7 @@ export default function WelcomePage() {
                     style={{ animationDelay: `${i * 25}ms` }}
                     className={cn(
                       "animate-rise group relative aspect-[4/3] overflow-hidden rounded-sm text-left ring-2 transition-all duration-200",
-                      on ? "scale-[1.02] ring-red-600 shadow-[0_0_0_1px_rgba(220,38,38,.35),0_18px_40px_-16px_rgba(220,38,38,.5)]" : "ring-transparent hover:-translate-y-0.5 hover:ring-white/25"
+                      on ? "scale-[1.02] ring-red-600 shadow-[0_0_0_1px_rgba(220,38,38,.35),0_18px_40px_-16px_rgba(220,38,38,.5)]" : "ring-transparent hover:-translate-y-0.5 hover:ring-tint/25"
                     )}
                   >
                     <StreamArt
@@ -317,7 +317,7 @@ export default function WelcomePage() {
               <div
                 key={c.username}
                 style={{ animationDelay: `${i * 30}ms` }}
-                className="animate-rise relative flex items-center gap-3.5 overflow-hidden rounded-sm border border-white/[0.06] bg-white/[0.02] p-3.5"
+                className="animate-rise relative flex items-center gap-3.5 overflow-hidden rounded-sm border border-tint/[0.06] bg-tint/[0.02] p-3.5"
               >
                 {c.isLive && c.thumb !== undefined && (
                   <div className="pointer-events-none absolute inset-0 opacity-[0.22]" aria-hidden>
@@ -326,7 +326,7 @@ export default function WelcomePage() {
                   </div>
                 )}
                 <Link href={`/c/${c.username}`} className="relative shrink-0">
-                  <UserAvatar src={c.avatar} name={c.displayName || c.username} size={52} className={cn("size-13 ring-2", c.isLive ? "ring-red-600" : "ring-white/[0.08]")} />
+                  <UserAvatar src={c.avatar} name={c.displayName || c.username} size={52} className={cn("size-13 ring-2", c.isLive ? "ring-red-600" : "ring-tint/[0.08]")} />
                   {c.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-background" />}
                 </Link>
                 <span className="relative flex min-w-0 flex-1 flex-col">
@@ -353,7 +353,7 @@ export default function WelcomePage() {
               </div>
             ))}
             {channelTiles.length === 0 && (
-              <p className="col-span-full rounded-sm border border-dashed border-white/[0.1] px-6 py-10 text-center text-sm text-muted-foreground/70">
+              <p className="col-span-full rounded-sm border border-dashed border-tint/[0.1] px-6 py-10 text-center text-sm text-muted-foreground/70">
                 Nobody&apos;s live in those topics right now — you can follow channels from any stream later.
               </p>
             )}
@@ -362,7 +362,7 @@ export default function WelcomePage() {
       </div>
 
       {/* Action bar, pinned. */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-sidebar">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tint/[0.08] bg-sidebar">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-6 py-3.5 md:px-10">
           <div className="flex items-center gap-4">
             {step === 2 && (
