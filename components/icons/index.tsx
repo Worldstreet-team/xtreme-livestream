@@ -368,10 +368,6 @@ import i_play_circle_linear from "@iconify-icons/solar/play-circle-linear";
 import i_play_circle_outline from "@iconify-icons/solar/play-circle-outline";
 import i_play_circle_bold from "@iconify-icons/solar/play-circle-bold";
 import i_play_circle_bold_duotone from "@iconify-icons/solar/play-circle-bold-duotone";
-import i_play_stream_linear from "@iconify-icons/solar/play-stream-linear";
-import i_play_stream_outline from "@iconify-icons/solar/play-stream-outline";
-import i_play_stream_bold from "@iconify-icons/solar/play-stream-bold";
-import i_play_stream_bold_duotone from "@iconify-icons/solar/play-stream-bold-duotone";
 import i_pulse_linear from "@iconify-icons/solar/pulse-linear";
 import i_pulse_outline from "@iconify-icons/solar/pulse-outline";
 import i_pulse_bold from "@iconify-icons/solar/pulse-bold";
@@ -740,7 +736,6 @@ const S_i_pip = { linear: i_pip_linear, outline: i_pip_outline, bold: i_pip_bold
 const S_i_plain_2 = { linear: i_plain_2_linear, outline: i_plain_2_outline, bold: i_plain_2_bold, duotone: i_plain_2_bold_duotone };
 const S_i_play = { linear: i_play_linear, outline: i_play_outline, bold: i_play_bold, duotone: i_play_bold_duotone };
 const S_i_play_circle = { linear: i_play_circle_linear, outline: i_play_circle_outline, bold: i_play_circle_bold, duotone: i_play_circle_bold_duotone };
-const S_i_play_stream = { linear: i_play_stream_linear, outline: i_play_stream_outline, bold: i_play_stream_bold, duotone: i_play_stream_bold_duotone };
 const S_i_pulse = { linear: i_pulse_linear, outline: i_pulse_outline, bold: i_pulse_bold, duotone: i_pulse_bold_duotone };
 const S_i_question_circle = { linear: i_question_circle_linear, outline: i_question_circle_outline, bold: i_question_circle_bold, duotone: i_question_circle_bold_duotone };
 const S_i_refresh = { linear: i_refresh_linear, outline: i_refresh_outline, bold: i_refresh_bold, duotone: i_refresh_bold_duotone };
@@ -812,7 +807,8 @@ export const BellIcon: Icon = make(S_i_bell);
 export const BellRinging: Icon = make(S_i_bell_bing);
 export const BellSlash: Icon = make(S_i_bell_off);
 export const BluetoothIcon: Icon = make(S_i_bluetooth);
-export const Broadcast: Icon = make(S_i_play_stream);
+// Live is a play mark (the owner's call, 2026-09-27) — not the radio waves of Solar's play-stream.
+export const Broadcast: Icon = make(S_i_play);
 export const CalendarBlank: Icon = make(S_i_calendar_minimalistic);
 export const CalendarPlus: Icon = make(S_i_calendar_add);
 export const Camera: Icon = make(S_i_camera);
