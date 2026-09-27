@@ -3,9 +3,11 @@
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SHOUT_MAX_LENGTH, SHOUT_MIN_MINOR, SHOUT_TIERS } from "@xtreme/contracts";
-import { Check, Clock, X, PaperPlaneRight, Wallet } from "@/components/icons";
+import { Check, Clock, X, PaperPlaneRight, Sword, Wallet } from "@/components/icons";
 import { GIFT_CATALOG, GIFT_MAX_MINOR, GIFT_MIN_MINOR, REQUEST_GIFT, SHOUT_GIFT, centsToDollars, type GiftDef } from "@/lib/gifts";
 import type { RequestOrder, RequestsMenu } from "@/lib/requests";
+import { useBattleGifts } from "@/lib/battle-gifts";
+import { giftFilterLine } from "@/lib/battles";
 import { cn } from "@/lib/utils";
 import { GiftArt } from "@/components/app/gift-art";
 import { GiftToken } from "@/components/xtream/gift-token";
@@ -78,6 +80,8 @@ export function GiftKeyboard({
   const [orderError, setOrderError] = useState<string | null>(null);
   const [ordered, setOrdered] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
+  // A battle running here with a gift filter: the gifts that move its score.
+  const counting = useBattleGifts();
 
   // Reopening starts clean — adjusted during render against the last `open`
   // seen, so there's no effect-driven second pass. The slide-down before
@@ -356,28 +360,52 @@ export function GiftKeyboard({
     const amount = gift ? gift.usdMinor : customMinor;
     const valid = amount !== null && Number.isFinite(amount) && amount >= GIFT_MIN_MINOR && amount <= GIFT_MAX_MINOR;
     const exceeds = valid && over(amount);
+    // In a battle that counts only some gifts, those wear a small mark and
+    // the line above says which; every gift still reaches the host.
+    const battleLine = giftFilterLine(counting);
     // Seventeen faces now — the grid scrolls under a cap so the Send row
     // stays on screen on a short phone.
     body = (
-      <div className={cn("grid grid-cols-4 gap-2 overflow-y-auto px-3 pt-2 pb-3 scrollbar-none", phone ? "max-h-[50dvh]" : "max-h-[46vh]")}>
-        {GIFT_CATALOG.map((g) => {
-          const active = picked === g.id;
-          return (
-            <GiftToken
-              key={g.id}
-              gift={g}
-              size={phone ? "md" : "sm"}
-              state={active ? (busy ? "sending" : "picked") : "rest"}
-              dimmed={balanceMinor !== null && g.usdMinor > balanceMinor}
-              title={`${g.name} · ${centsToDollars(g.usdMinor)}`}
-              onClick={() => {
-                setPicked(active ? null : g.id);
-                setCustom("");
-              }}
-            />
-          );
-        })}
-      </div>
+      <>
+        {battleLine && (
+          <p className="flex items-center gap-1.5 px-4 pt-1 text-[12px] font-semibold text-ember-hi">
+            <Sword size={12} weight="fill" />
+            In the battle: {battleLine.charAt(0).toLowerCase() + battleLine.slice(1)}
+          </p>
+        )}
+        <div className={cn("grid grid-cols-4 gap-2 overflow-y-auto px-3 pt-2 pb-3 scrollbar-none", phone ? "max-h-[50dvh]" : "max-h-[46vh]")}>
+          {GIFT_CATALOG.map((g) => {
+            const active = picked === g.id;
+            const scores = counting.includes(g.id);
+            const token = (
+              <GiftToken
+                key={g.id}
+                gift={g}
+                size={phone ? "md" : "sm"}
+                state={active ? (busy ? "sending" : "picked") : "rest"}
+                dimmed={balanceMinor !== null && g.usdMinor > balanceMinor}
+                title={`${g.name} · ${centsToDollars(g.usdMinor)}${scores ? " · counts in the battle" : ""}`}
+                onClick={() => {
+                  setPicked(active ? null : g.id);
+                  setCustom("");
+                }}
+              />
+            );
+            if (!scores) return token;
+            return (
+              <div key={g.id} className="relative">
+                {token}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-1.5 right-1.5 flex size-[18px] items-center justify-center rounded-full bg-ember text-on-ember"
+                >
+                  <Sword size={10} weight="fill" />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </>
     );
     footer = (
       <>
@@ -423,6 +451,8 @@ export function GiftKeyboard({
               : `Gifts run from ${centsToDollars(GIFT_MIN_MINOR)} to ${centsToDollars(GIFT_MAX_MINOR)}.`)}
         </p>
       );
+    } else if (battleLine && valid && !(gift && counting.includes(gift.id))) {
+      hint = <p className="px-4 pb-3 text-[11.5px] text-muted-foreground">This one goes to the host but won&apos;t move the battle score.</p>;
     }
   }
 

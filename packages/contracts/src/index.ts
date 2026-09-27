@@ -566,6 +566,75 @@ export function shoutSeconds(amountMinor: number) {
 export const SHOUT_MAX_LENGTH = 120;
 
 /**
+ * The gift catalog's identity: id, face and price, in catalog order. The web
+ * app's lib/gifts.ts carries the art and the words; this is what the API
+ * needs to tell which catalog gift a payment was. A test keeps the two lists
+ * in step.
+ */
+export const GIFT_KEYS = [
+  { id: "clap", emoji: "👏", usdMinor: 50 },
+  { id: "heart", emoji: "❤️", usdMinor: 100 },
+  { id: "fire", emoji: "🔥", usdMinor: 200 },
+  { id: "rocket", emoji: "🚀", usdMinor: 500 },
+  { id: "party", emoji: "🎉", usdMinor: 1_000 },
+  { id: "diamond", emoji: "💎", usdMinor: 2_000 },
+  { id: "trophy", emoji: "🏆", usdMinor: 5_000 },
+  { id: "crown", emoji: "👑", usdMinor: 10_000 },
+  { id: "lion", emoji: "🦁", usdMinor: 20_000 },
+  { id: "unicorn", emoji: "🦄", usdMinor: 25_000 },
+  { id: "wolf", emoji: "🐺", usdMinor: 50_000 },
+  { id: "whale", emoji: "🐳", usdMinor: 100_000 },
+  { id: "phoenix", emoji: "🐦‍🔥", usdMinor: 150_000 },
+  { id: "tsion-car", emoji: "🏎️", usdMinor: 250_000 },
+  { id: "jets", emoji: "✈️", usdMinor: 500_000 },
+  { id: "island", emoji: "🌅", usdMinor: 750_000 },
+  { id: "bank", emoji: "💸", usdMinor: 1_000_000 },
+] as const;
+export type GiftId = (typeof GIFT_KEYS)[number]["id"];
+export const GIFT_IDS = GIFT_KEYS.map((g) => g.id) as unknown as readonly [GiftId, ...GiftId[]];
+
+/**
+ * A battle's gift filter as stored: catalog order, no repeats, and every
+ * gift picked reads as no filter at all. [] means every gift counts.
+ */
+export function normalizeGiftFilter(ids: readonly string[] | null | undefined): GiftId[] {
+  const chosen = new Set(ids ?? []);
+  const picked = GIFT_KEYS.filter((g) => chosen.has(g.id)).map((g) => g.id);
+  return picked.length === GIFT_KEYS.length ? [] : picked;
+}
+
+/**
+ * Which gifts count toward a battle's score. Optional; left out (or empty)
+ * every gift counts, as ever. Every gift still reaches the host as money.
+ */
+export const giftFilterSchema = z
+  .array(z.enum(GIFT_IDS))
+  .max(GIFT_KEYS.length)
+  .optional()
+  .transform((ids) => normalizeGiftFilter(ids));
+
+/** Variation selectors come and go between keyboards; the face is the same. */
+const bareFace = (emoji: string) => emoji.replace(/️/g, "").trim();
+
+/**
+ * The catalog gift a sent gift was, by its face and its price together — a
+ * custom amount wearing a Crown's face isn't a Crown. Null for anything
+ * else: a custom amount, a Shout, a request.
+ */
+export function catalogGiftId(sent: { emoji?: string | null; grossUsdMinor: number }): GiftId | null {
+  if (!sent.emoji) return null;
+  const face = bareFace(sent.emoji);
+  return GIFT_KEYS.find((g) => g.usdMinor === sent.grossUsdMinor && bareFace(g.emoji) === face)?.id ?? null;
+}
+
+/** Whether a sent gift counts toward a battle with this filter. No filter: everything counts. */
+export function countsInGiftFilter(filter: readonly string[] | null | undefined, sent: { emoji?: string | null; grossUsdMinor: number }) {
+  if (!filter || filter.length === 0) return true;
+  const id = catalogGiftId(sent);
+  return id !== null && filter.includes(id);
+}
+
+/**
  * Sponsorships (Phase 2, sponsor slots) — two tracks, one label:
  *
  * - A creator's own deal: a sponsor they add themselves. The deal and the

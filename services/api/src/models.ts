@@ -1116,6 +1116,12 @@ export interface IBattle extends Document {
   /** Each side's partner in a 2v2: the first guest live on its stage when the clock started. */
   hostPartnerId: mongoose.Types.ObjectId | null;
   challengerPartnerId: mongoose.Types.ObjectId | null;
+  /**
+   * Which gifts count toward the score (catalog ids, @xtreme/contracts
+   * GIFT_KEYS). Empty: every gift counts. Set at invite or booking; every
+   * gift still reaches the host as money either way.
+   */
+  giftFilter: string[];
   endedReason: "clock" | "cancelled" | "disconnect" | "declined" | "expired" | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1152,6 +1158,7 @@ const battleSchema = new Schema<IBattle>(
     mode: { type: String, enum: ["1v1", "2v2"], default: "1v1" },
     hostPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     challengerPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    giftFilter: { type: [String], default: [] },
     endedReason: { type: String, default: null },
   },
   { timestamps: true },

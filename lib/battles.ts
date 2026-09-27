@@ -3,6 +3,8 @@
  * and the settlement; everything here is rendering and time arithmetic.
  */
 
+import { GIFT_CATALOG, type GiftDef } from "./gifts";
+
 export type BattleStatus = "scheduled" | "invited" | "live" | "overtime" | "ended" | "cancelled";
 /** 1v1, or 2v2: each side is its stream and the partner on its stage. */
 export type BattleMode = "1v1" | "2v2";
@@ -47,6 +49,8 @@ export interface BattleView {
   /** What the loser does on the victory lap ("sings a song"); "" for none. */
   forfeit?: string;
   mode?: BattleMode;
+  /** Catalog ids of the gifts that count toward the score; empty (or absent) for every gift. */
+  giftFilter?: string[];
   endedReason: string | null;
 }
 
@@ -89,4 +93,23 @@ export function sideOf(b: BattleView, streamId: string): "host" | "challenger" |
   if (b.host.streamId === streamId) return "host";
   if (b.challenger.streamId === streamId) return "challenger";
   return null;
+}
+
+/** The catalog gifts a battle's filter names, in catalog order; empty when every gift counts. */
+export function filterGifts(filter: readonly string[] | null | undefined): GiftDef[] {
+  if (!filter || filter.length === 0) return [];
+  return GIFT_CATALOG.filter((g) => filter.includes(g.id));
+}
+
+/**
+ * A filtered battle's line, as people read it: "Only Crown counts", "Only
+ * Rose, Crown count", or "Only 5 gifts count" past three. Null when every
+ * gift counts.
+ */
+export function giftFilterLine(filter: readonly string[] | null | undefined) {
+  const gifts = filterGifts(filter);
+  if (gifts.length === 0) return null;
+  if (gifts.length === 1) return `Only ${gifts[0]!.name} counts`;
+  if (gifts.length <= 3) return `Only ${gifts.map((g) => g.name).join(", ")} count`;
+  return `Only ${gifts.length} gifts count`;
 }

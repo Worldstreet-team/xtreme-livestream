@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { countsInGiftFilter } from "@xtreme/contracts";
 import {
   Battle,
   BattleQueue,
@@ -61,6 +62,8 @@ export interface BattleView {
   /** What the loser does on the victory lap; "" for none. */
   forfeit: string;
   mode: BattleMode;
+  /** Catalog ids of the gifts that count toward the score; [] for every gift. */
+  giftFilter: string[];
   endedReason: string | null;
 }
 interface PartnerView {
@@ -153,6 +156,7 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     lateResetUsed: Boolean(b.lateResetUsed),
     forfeit: b.forfeit ?? "",
     mode: b.mode ?? "1v1",
+    giftFilter: [...(b.giftFilter ?? [])],
     endedReason: b.endedReason,
   };
 }
@@ -236,13 +240,18 @@ async function notify(userId: mongoose.Types.ObjectId, type: "battle_invite" | "
   }
 }
 
-/** Create an invite from a live host to a live challenger, with what the loser does if they say so. */
+/**
+ * Create an invite from a live host to a live challenger, with what the
+ * loser does and which gifts count, if they say so. The challenger sees
+ * both on the invite before they accept.
+ */
 export async function inviteToBattle(
   host: { _id: mongoose.Types.ObjectId; username: string; displayName?: string },
   hostStream: IStream,
   challengerStream: IStream,
   forfeit = "",
   mode: BattleMode = "1v1",
+  giftFilter: string[] = [],
 ) {
   const battle = await Battle.create({
     hostId: host._id,
@@ -253,6 +262,7 @@ export async function inviteToBattle(
     invitedAt: new Date(),
     forfeit,
     mode,
+    giftFilter,
   });
   await notify(challengerStream.streamerId as mongoose.Types.ObjectId, "battle_invite", host, hostStream);
   // The challenger's room hears it too, so the studio shows the invite at once.
@@ -280,7 +290,9 @@ export async function startBattle(battle: IBattle) {
 /**
  * A gift landed on a stream. If that stream is in a live battle, count it
  * toward its side (double inside the closing window), stamp the gift, and
- * push the new score to both rooms.
+ * push the new score to both rooms. A battle with a gift filter scores only
+ * the gifts it names; the rest are stamped with a score of nothing (they
+ * are still the host's money, like any gift).
  */
 export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, sender: { _id: mongoose.Types.ObjectId; createdAt?: Date }) {
   const battle = await currentBattleForStream(stream._id);
@@ -290,7 +302,7 @@ export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, s
   // Self-backing and brand-new accounts don't move the score.
   const receiver = side === "host" ? battle.hostId : battle.challengerId;
   const tooYoung = sender.createdAt ? Date.now() - sender.createdAt.getTime() < MIN_ACCOUNT_AGE_MS : false;
-  const counts = !receiver.equals(sender._id) && !tooYoung;
+  const counts = !receiver.equals(sender._id) && !tooYoung && countsInGiftFilter(battle.giftFilter, gift);
 
   const now = Date.now();
   const inWindow = battle.endsAt.getTime() - now <= battle.multiplierWindowSec * 1000;
@@ -329,7 +341,9 @@ async function streamIsFree(streamId: mongoose.Types.ObjectId) {
 /**
  * Quick match: pair with whoever has waited longest, or wait for the next
  * host to ask. Both asked for a battle, so it starts at once — no invite to
- * answer. Someone whose stream ended while waiting is passed over.
+ * answer. Someone whose stream ended while waiting is passed over. Every
+ * gift counts in a quick match: nobody agreed to a filter, and one would
+ * split the queue into pools too small to meet in.
  */
 export async function quickMatch(me: { _id: mongoose.Types.ObjectId }, myStream: IStream, mode: BattleMode = "1v1") {
   const since = new Date(Date.now() - QUEUE_TTL_MS);
@@ -451,6 +465,7 @@ export async function scheduleBattle(
   at: Date,
   forfeit = "",
   mode: BattleMode = "1v1",
+  giftFilter: string[] = [],
 ) {
   const placeholder = new mongoose.Types.ObjectId();
   const battle = await Battle.create({
@@ -463,6 +478,7 @@ export async function scheduleBattle(
     scheduledAt: at,
     forfeit,
     mode,
+    giftFilter,
   });
   const fake = { _id: placeholder, title: `Battle: ${host.displayName || host.username} vs ${challenger.displayName || challenger.username}` } as Pick<IStream, "_id" | "title">;
   await notify(challenger._id, "battle_invite", host, fake);

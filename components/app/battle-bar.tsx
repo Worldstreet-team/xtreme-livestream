@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Gift, Lightning, Trophy, ArrowSquareOut, ShareNetwork } from "@/components/icons";
-import { formatClock, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleView } from "@/lib/battles";
+import { filterGifts, formatClock, giftFilterLine, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleView } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { GiftArt } from "@/components/app/gift-art";
 import { Pill, PillLink } from "@/components/ui/pill";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
 
@@ -64,6 +65,8 @@ export function BattleBar({
   const tie = ended && !battle.winnerId;
   const lead = battle.host.usdMinor - battle.challenger.usdMinor;
   const loser = ended && battle.winnerId ? (battle.winnerId === battle.host.userId ? battle.challenger : battle.host) : null;
+  // A battle that counts only some gifts says which, while it runs.
+  const filterLine = ended ? null : giftFilterLine(battle.giftFilter);
 
   // A late gift just reset the clock: say so beside it for a moment.
   const [resetSeen, setResetSeen] = useState(Boolean(battle.lateResetUsed));
@@ -161,6 +164,22 @@ export function BattleBar({
           <span className="font-money text-[17px]">{usd(battle.challenger.usdMinor)}</span>
         </span>
       </div>
+
+      {/* Only some gifts count: their faces, and the line. */}
+      {filterLine && (
+        <div className="flex justify-center">
+          <span className="flex max-w-full items-center gap-1.5 rounded-full bg-black/55 py-0.5 pr-2.5 pl-1.5 text-[11.5px] font-semibold text-white">
+            <span className="flex shrink-0 -space-x-1">
+              {filterGifts(battle.giftFilter)
+                .slice(0, 4)
+                .map((g) => (
+                  <GiftArt key={g.id} art={g.art} emoji={g.emoji} size={16} />
+                ))}
+            </span>
+            <span className="truncate">{filterLine}</span>
+          </span>
+        </div>
+      )}
 
       {/* The victory lap: what the loser owes, for the minute the result stays up. */}
       {loser && battle.forfeit && (

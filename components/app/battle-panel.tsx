@@ -5,7 +5,7 @@ import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatScorePair, winnerSide } from "@/lib/battle-result";
-import { formatClock, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleMode, type BattleView } from "@/lib/battles";
+import { formatClock, giftFilterLine, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleMode, type BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
 import { useNow } from "@/lib/use-now";
@@ -15,6 +15,7 @@ import { Pill } from "@/components/ui/pill";
 import { LiveBadge } from "@/components/ui/badge";
 import { CapsuleTabs } from "@/components/ui/capsule-tabs";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
+import { BattleGiftFilter } from "@/components/app/battle-gift-filter";
 
 /** The host's own line about the battle that just ended: "You won", "$1,234 to $987". */
 function resultLine(b: BattleView, streamId: string) {
@@ -73,6 +74,11 @@ export function BattlePanel({
   // One on one, or pairs.
   const [mode, setMode] = useState<BattleMode>("1v1");
   const needsPartner = mode === "2v2" && !partner;
+  // Which gifts count — goes with an invite or a booking; all by default.
+  const [onlySome, setOnlySome] = useState(false);
+  const [chosenGifts, setChosenGifts] = useState<string[]>([]);
+  const giftFilter = onlySome ? chosenGifts : [];
+  const needsGifts = onlySome && chosenGifts.length === 0;
   const outgoing = useMemo(() => mine.find((b) => b.status === "invited" && b.host.userId === user?.id) ?? null, [mine, user?.id]);
   const incoming = useMemo(() => mine.filter((b) => b.status === "invited" && b.challenger.userId === user?.id), [mine, user?.id]);
 
@@ -214,6 +220,7 @@ export function BattlePanel({
             <span>${Math.round(active.host.usdMinor / 100)}</span>
             <span>${Math.round(active.challenger.usdMinor / 100)}</span>
           </div>
+          {giftFilterLine(active.giftFilter) && <p className="mt-0.5 truncate text-[10.5px] font-semibold text-ember-hi">{giftFilterLine(active.giftFilter)}</p>}
         </div>
         {pairFaces(active.challenger, "ring-ember")}
         <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", hot ? "bg-ember text-on-ember" : "bg-white text-neutral-950")}>
@@ -285,6 +292,7 @@ export function BattlePanel({
             <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${b.id}/decline`)} disabled={busy}>
               Decline
             </Pill>
+            {giftFilterLine(b.giftFilter) && <span className="w-full pb-0.5 text-[12px] font-semibold">{giftFilterLine(b.giftFilter)} toward the score.</span>}
             {b.mode === "2v2" && !partner && <span className="w-full pb-0.5 text-[12px] text-muted-foreground">Bring a partner on stage to take it on.</span>}
           </div>
         ))}
@@ -301,6 +309,7 @@ export function BattlePanel({
           <div className="flex items-center gap-2 rounded-sm bg-white/[0.05] py-1.5 pr-1.5 pl-2.5 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-ember" />
             Waiting for {outgoing.challenger.displayName}…
+            {giftFilterLine(outgoing.giftFilter) && <span className="text-[12px] text-ember-hi">{giftFilterLine(outgoing.giftFilter)}</span>}
             <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${outgoing.id}/cancel`)} disabled={busy}>
               Withdraw
             </Pill>
@@ -375,6 +384,7 @@ export function BattlePanel({
             aria-label="What the loser does"
             className="mb-2 h-9 w-full rounded-sm bg-white/[0.06] px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.09]"
           />
+          <BattleGiftFilter onlySome={onlySome} onOnlySome={setOnlySome} chosen={chosenGifts} onChosen={setChosenGifts} />
           <div className="relative mb-2">
             <MagnifyingGlass size={14} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground/60" />
             <input
@@ -390,8 +400,8 @@ export function BattlePanel({
               <button
                 key={s._id}
                 type="button"
-                disabled={busy || needsPartner}
-                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username, forfeit: forfeit.trim(), mode })}
+                disabled={busy || needsPartner || needsGifts}
+                onClick={() => act(`/api/battles/invite`, { challengerUsername: s.streamerId.username, forfeit: forfeit.trim(), mode, giftFilter })}
                 className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-white/[0.05] disabled:opacity-50"
               >
                 <UserAvatar src={s.streamerId.avatar} name={s.streamerId.displayName} size={32} className="size-8" />
@@ -432,13 +442,14 @@ export function BattlePanel({
               <Pill
                 size="sm"
                 variant="glass"
-                disabled={busy || !bookName.trim() || !bookAt}
+                disabled={busy || !bookName.trim() || !bookAt || needsGifts}
                 onClick={() =>
                   act(`/api/battles/schedule`, {
                     challengerUsername: bookName.trim().replace(/^@/, ""),
                     scheduledAt: new Date(bookAt).toISOString(),
                     forfeit: forfeit.trim(),
                     mode,
+                    giftFilter,
                   })
                 }
               >
@@ -452,6 +463,7 @@ export function BattlePanel({
                     <CalendarBlank size={12} />
                     <span className="min-w-0 flex-1 truncate">
                       {b.mode === "2v2" ? "2v2 " : ""}vs <span className="text-foreground">{b.host.userId === user?.id ? b.challenger.displayName : b.host.displayName}</span> · {b.scheduledAt ? new Date(b.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}
+                      {giftFilterLine(b.giftFilter) ? ` · ${giftFilterLine(b.giftFilter)!.replace(/^Only/, "only")}` : ""}
                     </span>
                     <button type="button" onClick={() => act(`/api/battles/${b.id}/cancel`)} disabled={busy} className="text-muted-foreground hover:text-foreground" aria-label="Cancel booking">
                       <X size={12} />

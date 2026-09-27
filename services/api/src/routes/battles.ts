@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { streamIdParamsSchema } from "@xtreme/contracts";
+import { giftFilterSchema, streamIdParamsSchema } from "@xtreme/contracts";
 import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { Battle, Stream, User } from "../models.js";
@@ -32,6 +32,8 @@ const inviteBodySchema = z.object({
   challengerUsername: z.string().trim().min(1).max(60),
   forfeit: forfeitSchema,
   mode: modeSchema,
+  /** Only these catalog gifts count toward the score; left out, every gift does. */
+  giftFilter: giftFilterSchema,
 });
 const scheduleBodySchema = z.object({
   challengerUsername: z.string().trim().min(1).max(60),
@@ -39,7 +41,9 @@ const scheduleBodySchema = z.object({
   scheduledAt: z.string().min(10).max(40),
   forfeit: forfeitSchema,
   mode: modeSchema,
+  giftFilter: giftFilterSchema,
 });
+/** Quick match takes no gift filter: every gift counts in one. */
 const quickBodySchema = z.object({ mode: modeSchema }).optional();
 
 /** A 2v2 needs a partner on this stream's stage — a guest, or a creator brought over by co-live. */
@@ -94,6 +98,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         challengerStream,
         request.body.forfeit,
         request.body.mode,
+        request.body.giftFilter,
       );
       // An invite out means not waiting for a stranger any more.
       await leaveQuickMatch(dbUser._id);
@@ -217,6 +222,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
         at,
         request.body.forfeit,
         request.body.mode,
+        request.body.giftFilter,
       );
       return { success: true, data: { battle: await toBattleView(battle) } };
     },

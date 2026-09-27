@@ -46,6 +46,7 @@ import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
 import { brandWithSet, setById } from "@/lib/sets";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
+import { useShareBattleGifts } from "@/lib/battle-gifts";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
 import { CalendarBlank } from "@/components/icons";
@@ -548,6 +549,8 @@ export default function StreamPage({
   // The battle this stream is in (or just finished). Server-fed: room
   // events carry every change, a slow poll covers a dropped frame.
   const [battle, setBattle] = useState<BattleView | null>(null);
+  // Which gifts count in it, for the gift picker to mark.
+  useShareBattleGifts(battle);
   // The prediction running in this stream, if any — same feed: room events
   // plus a slow poll.
   const [game, setGame] = useState<GameView | null>(null);
