@@ -9,6 +9,7 @@ import {
   controlShowBodySchema,
   ruleIdParamsSchema,
   type ControlKeyView,
+  type ControlScope,
   type RuleAction,
   type SceneLayer,
 } from "@xtreme/contracts";
@@ -97,29 +98,41 @@ export const controlRoutes: FastifyPluginAsync = async (fastify) => {
 
   app.get(
     "/control/state",
-    { schema: { tags: ["Control API"], summary: "What's on: live or not, the scene, the show, the rules" }, config: PRESS_LIMIT },
+    { schema: { tags: ["Control API"], summary: "What's on: live or not, and the scene, the show and the rules as far as the key's scopes go" }, config: PRESS_LIMIT },
     async (request) => {
-      const { owner } = await authenticateControl(request, null);
+      const { owner, key } = await authenticateControl(request, null);
+      // Any key may ask whether the channel is live. The rest is for a key
+      // that acts on it — or hears it on the events feed anyway: an airhorn
+      // button has no business reading the run of show.
+      const sees = (scope: ControlScope) => key.scopes.includes(scope) || key.scopes.includes("events");
       const [stream, segments, rules] = await Promise.all([
         Stream.findOne({ streamerId: owner._id, isLive: true }).select("+rundown title startedAt scene").lean(),
-        segmentsOf(owner._id),
-        ShowRule.find({ ownerId: owner._id }).select("name on when").sort({ createdAt: 1 }).lean(),
+        sees("show") ? segmentsOf(owner._id) : null,
+        sees("rules") ? ShowRule.find({ ownerId: owner._id }).select("name on when").sort({ createdAt: 1 }).lean() : null,
       ]);
-      const onAirIndex = stream?.rundown?.segmentId ? segments.findIndex((s) => s.id === stream.rundown?.segmentId) : -1;
+      const onAirIndex = segments && stream?.rundown?.segmentId ? segments.findIndex((s) => s.id === stream.rundown?.segmentId) : -1;
       return {
         success: true,
         data: {
           live: Boolean(stream),
           stream: stream ? { id: String(stream._id), title: stream.title, startedAt: stream.startedAt } : null,
-          scene: stream
-            ? { layout: stream.scene?.layout ?? "auto", card: stream.scene?.card ?? null, graphics: (stream.scene?.layers ?? []).map((l) => l.kind) }
-            : null,
-          show: {
-            segments: segments.length,
-            onAir: onAirIndex >= 0 ? segments[onAirIndex]!.title : null,
-            next: (onAirIndex >= 0 ? segments[onAirIndex + 1] : segments[0])?.title ?? null,
-          },
-          rules: rules.map((r) => ({ id: String(r._id), name: r.name, on: r.on, when: (r.when as { kind: string }).kind })),
+          ...(sees("scene")
+            ? {
+                scene: stream
+                  ? { layout: stream.scene?.layout ?? "auto", card: stream.scene?.card ?? null, graphics: (stream.scene?.layers ?? []).map((l) => l.kind) }
+                  : null,
+              }
+            : {}),
+          ...(segments
+            ? {
+                show: {
+                  segments: segments.length,
+                  onAir: onAirIndex >= 0 ? segments[onAirIndex]!.title : null,
+                  next: (onAirIndex >= 0 ? segments[onAirIndex + 1] : segments[0])?.title ?? null,
+                },
+              }
+            : {}),
+          ...(rules ? { rules: rules.map((r) => ({ id: String(r._id), name: r.name, on: r.on, when: (r.when as { kind: string }).kind })) } : {}),
         },
       };
     },

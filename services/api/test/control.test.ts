@@ -159,6 +159,20 @@ describe("the control API", () => {
     expect((await press("/control/do", secret, { actions: [{ do: "card", card: "brb" }] })).json().code).toBe("NOT_LIVE");
   });
 
+  it("tells a key only what its scopes cover", async () => {
+    const { secret } = await makeKey(["sound"]);
+    const state = (await app.inject({ method: "GET", url: "/v1/control/state", headers: { authorization: `Bearer ${secret}` } })).json().data;
+    expect(state).toMatchObject({ live: true, stream: { title: expect.any(String) } });
+    expect(state).not.toHaveProperty("scene");
+    expect(state).not.toHaveProperty("show");
+    expect(state).not.toHaveProperty("rules");
+    const listening = (await makeKey(["events"])).secret;
+    const heard = (await app.inject({ method: "GET", url: "/v1/control/state", headers: { authorization: `Bearer ${listening}` } })).json().data;
+    expect(heard).toHaveProperty("scene");
+    expect(heard).toHaveProperty("show");
+    expect(heard).toHaveProperty("rules");
+  });
+
   it("stops working the moment the key is removed", async () => {
     const { key, secret } = await makeKey();
     await app.inject({ method: "DELETE", url: `/v1/users/me/control-keys/${key.id}` });

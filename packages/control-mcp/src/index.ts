@@ -72,7 +72,7 @@ server.registerTool(
   {
     title: "What's on",
     description:
-      "Whether the channel is live, and what's on: the scene (layout, card, which graphics are up), where the run of show is (how many segments, what's on air, what's next) and the show rules with their ids. Ask this first; everything else needs the channel live.",
+      "Whether the channel is live, and what's on as far as this key's scopes go: the scene (layout, card, which graphics are up), where the run of show is (how many segments, what's on air, what's next) and the show rules with their ids. Ask this first; everything else needs the channel live.",
     annotations: { readOnlyHint: true },
   },
   () => run(calls.state()),
