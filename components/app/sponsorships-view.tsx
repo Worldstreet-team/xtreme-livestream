@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft, Check, PencilSimple, Plus, Storefront, Ticket, Trash, Warning } from "@/components/icons";
+import { ArrowLeft, Check, PencilSimple, Plus, Ticket, Trash, Warning } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { SponsorForm } from "@/components/app/sponsor-form";
 import { Money } from "@/components/xtream/money";
@@ -115,7 +115,7 @@ export function SponsorshipsView({
               {data.campaigns.length === 0 ? (
                 <div className={TILE}>
                   <Empty
-                    icon={<Storefront size={28} />}
+                    scene="sponsors"
                     title="No campaigns running right now"
                     body="When a brand runs a campaign on Xtream, it shows up here for you to join."
                     goLive={false}
@@ -181,7 +181,7 @@ export function SponsorshipsView({
               {data.sponsors.length === 0 && editing !== "new" ? (
                 <div className={TILE}>
                   <Empty
-                    icon={<Storefront size={28} />}
+                    scene="sponsors"
                     title="No sponsors of your own yet"
                     body="Add a brand you've made a deal with, and its card is one tap away in the studio's Scenes panel."
                     goLive={false}

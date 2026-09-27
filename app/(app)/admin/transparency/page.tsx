@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { TransparencyReport } from "@xtreme/contracts";
-import { ShieldStar } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { AdminTabs } from "@/components/app/admin/admin-tabs";
 import { TransparencySections } from "@/components/app/admin/transparency-sections";
@@ -54,7 +53,7 @@ export default function TransparencyPage() {
     );
   }
   if (!user || !admin) {
-    return <Empty className="min-h-screen" icon={<ShieldStar size={36} />} title="Admins only" body="The transparency report is for the platform's trust and safety team." goLive={false} action={{ label: "Back home", href: "/" }} />;
+    return <Empty className="min-h-screen" scene="locked" title="Admins only" body="The transparency report is for the platform's trust and safety team." goLive={false} action={{ label: "Back home", href: "/" }} />;
   }
 
   const r = report?.year === year ? report.data : null;

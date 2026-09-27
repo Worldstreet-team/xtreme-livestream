@@ -15,7 +15,6 @@ import {
   DialogContent,
   DialogTrigger,
   DragSheet,
-  Empty,
   GiftAlert,
   GiftReceipt,
   GiftToken,
@@ -421,22 +420,6 @@ export function Surfaces() {
             <IconButton icon={Info} label="What does saving do?" />
           </Tooltip>
         </div>
-      </Spec>
-
-      <Spec
-        name="Empty"
-        summary="An empty screen is an invitation, so it always offers Go live, with the page's own way out beside it as the quieter button. The illustration is optional and transparent."
-        wire={`import { Empty } from "@/components/xtream";
-
-<Empty title="Nobody's live right now" body="…" action={{ label: "Browse categories", href: "/browse" }} />
-<Empty title="…" goLive={false} />   // on someone else's channel`}
-      >
-        <Empty
-          title="Nobody's live in IRL right now"
-          body="Which makes this a good minute to be the one on air."
-          action={{ label: "Browse categories", onClick: () => {} }}
-          className="py-6 md:py-8"
-        />
       </Spec>
     </Section>
   );

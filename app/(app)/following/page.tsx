@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { HeartBreak, Broadcast, Clock, MoonStars } from "@/components/icons";
+import { Broadcast, Clock, MoonStars } from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
 import { UpcomingCard } from "@/components/app/upcoming-card";
 import { ChannelCard } from "@/components/app/channel-card";
@@ -270,7 +270,7 @@ function EmptyFollowing({ trending }: { trending?: HomeRow }) {
   return (
     <div className="space-y-9">
       <Empty
-        icon={<HeartBreak size={36} />}
+        scene="allies"
         title="Nothing here yet"
         body="Follow a channel and it shows up here the moment they go live — or start a channel of your own."
         action={{ label: "Find channels", href: "/explore" }}

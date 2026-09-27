@@ -25,7 +25,6 @@ import {
   HandWaving,
   Check,
   Info,
-  ShieldStar,
   Ticket,
 } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
@@ -2181,7 +2180,7 @@ export default function StreamPage({
     return (
       <Empty
         className="min-h-screen"
-        icon={<ShieldStar size={36} />}
+        scene="locked"
         title="This stream was removed"
         body="It was taken down after a report, for breaking the community rules."
         action={{ label: "Browse live channels", href: "/explore" }}
@@ -2193,7 +2192,7 @@ export default function StreamPage({
     return (
       <Empty
         className="min-h-screen"
-        icon={<VideoCamera size={36} />}
+        scene="missing"
         title="Stream not found"
         body={error || "This stream may have ended or doesn't exist."}
         action={{ label: "Browse live channels", href: "/explore" }}

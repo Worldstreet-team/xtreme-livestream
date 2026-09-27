@@ -15,6 +15,7 @@ export const chapters = [
   { id: "talking", label: "Talking", group: "Components" },
   { id: "forms", label: "Forms", group: "Components" },
   { id: "surfaces", label: "Surfaces", group: "Components" },
+  { id: "empty", label: "Empty states", group: "Components" },
   { id: "rules", label: "Rules", group: "Appendix" },
 ] as const;
 

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { AppealView } from "@xtreme/contracts";
-import { ShieldStar } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { AdminTabs } from "@/components/app/admin/admin-tabs";
 import { AppealCard } from "@/components/app/admin/appeal-card";
@@ -50,7 +49,7 @@ export default function AppealsPage() {
     );
   }
   if (!user || !admin) {
-    return <Empty className="min-h-screen" icon={<ShieldStar size={36} />} title="Admins only" body="Appeals are for the platform's trust and safety team." goLive={false} action={{ label: "Back home", href: "/" }} />;
+    return <Empty className="min-h-screen" scene="locked" title="Admins only" body="Appeals are for the platform's trust and safety team." goLive={false} action={{ label: "Back home", href: "/" }} />;
   }
 
   return (
@@ -88,9 +87,9 @@ export default function AppealsPage() {
       {rows === null ? (
         !error && <div className="h-40 animate-pulse rounded-panel bg-surface" />
       ) : rows.length === 0 ? (
-        <p className="rounded-panel bg-surface px-6 py-10 text-center text-[14px] text-muted-foreground">
-          {tab === "open" ? "No appeals waiting." : "Nothing decided yet."}
-        </p>
+        <div className="rounded-panel bg-surface">
+          <Empty scene="cleared" title={tab === "open" ? "No appeals waiting." : "Nothing decided yet."} goLive={false} />
+        </div>
       ) : (
         <ul className="flex flex-col gap-3">
           {rows.map((a) => (

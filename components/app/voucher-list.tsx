@@ -42,7 +42,7 @@ export function VoucherList({
     return (
       <Empty
         className={emptyClassName}
-        icon={<Ticket size={26} />}
+        scene="sponsors"
         title="No vouchers yet"
         body="Sponsored quests pay in the brand's own vouchers — never points. Watch a stream while a sponsor's card is up to play."
       />

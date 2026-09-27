@@ -285,7 +285,7 @@ export default function WalletPage() {
             txns.length === 0 ? (
               <Empty
                 className={PANEL}
-                icon={<Gift size={26} />}
+                scene="wallet"
                 title="No gifts yet"
                 body="Gifts you send and receive show up here. Going live is how you start receiving them."
               />
@@ -344,7 +344,7 @@ export default function WalletPage() {
             payouts.length === 0 ? (
               <Empty
                 className={PANEL}
-                icon={<Receipt size={26} />}
+                scene="wallet"
                 title="No payouts yet"
                 body="Redeem points, or win a battle bonus, and the payout lands here."
                 action={{ label: "Open Rewards", href: "/rewards" }}
@@ -385,7 +385,7 @@ export default function WalletPage() {
           ) : !points || points.ledger.length === 0 ? (
             <Empty
               className={PANEL}
-              icon={<Coins size={26} />}
+              scene="points"
               title="No points yet"
               body="Watching, playing, winning and streaming all pay points. They are never for sale."
             />

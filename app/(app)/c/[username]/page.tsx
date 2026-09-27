@@ -12,7 +12,6 @@ import {
   Info,
   SealCheck,
   ShareNetwork,
-  Users,
   VideoCamera,
 } from "@/components/icons";
 import { StreamCard } from "@/components/app/stream-card";
@@ -218,7 +217,7 @@ export default function ChannelPage({
     return (
       <Empty
         className="min-h-screen"
-        icon={<Users size={40} />}
+        scene="missing"
         title={`No channel called @${username}`}
         body="The name may have changed, or the account no longer exists."
         action={{ label: "Browse live channels", href: "/explore" }}
@@ -448,10 +447,14 @@ export default function ChannelPage({
                     ))}
                   </div>
                 ) : (
-                  <div className={cn(TILE, "px-6 py-8")}>
-                    <p className="font-wide text-[18px] font-bold tracking-[-0.02em]">Nothing on the calendar yet.</p>
-                    <p className="mt-1.5 text-[14px] text-muted-foreground">Follow and you&apos;ll hear the moment {name} goes live.</p>
-                  </div>
+                  // Somebody else's calendar: no Go live here either.
+                  <Empty
+                    goLive={false}
+                    className={cn(TILE, "py-12")}
+                    scene="scheduled"
+                    title="Nothing on the calendar yet."
+                    body={`Follow and you'll hear the moment ${name} goes live.`}
+                  />
                 )}
               </section>
 
@@ -719,7 +722,7 @@ function EmptyBroadcasts({ name }: { name: string }) {
     <Empty
       goLive={false}
       className="rounded-panel bg-surface py-14"
-      icon={<VideoCamera size={32} />}
+      scene="broadcasts"
       title={`${name} hasn't streamed yet.`}
       body="Follow to get a notification when they go live."
     />

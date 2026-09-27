@@ -12,8 +12,6 @@ import {
   SkipForward,
   SpeakerHigh,
   SpeakerSlash,
-  UsersThree,
-  Warning,
   X,
 } from "@/components/icons";
 import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
@@ -102,7 +100,7 @@ export function ProducerConsole({ username }: { username: string }) {
   if (state.status === "missing") {
     return (
       <Empty
-        icon={<UsersThree size={22} />}
+        scene="missing"
         title={`There's no channel called @${username}`}
         body="Check the link — it's /produce/ and the host's username."
         goLive={false}
@@ -113,7 +111,7 @@ export function ProducerConsole({ username }: { username: string }) {
   if (state.status === "denied") {
     return (
       <Empty
-        icon={<UsersThree size={22} />}
+        scene="locked"
         title="This console is for the host's crew"
         body={`${state.message}. The host names producers in Settings → Chat & safety.`}
         goLive={false}
@@ -122,14 +120,14 @@ export function ProducerConsole({ username }: { username: string }) {
     );
   }
   if (state.status === "error") {
-    return <Empty icon={<Warning size={22} />} title="Couldn't reach the channel" body={state.message} goLive={false} />;
+    return <Empty scene="offline" title="Couldn't reach the channel" body={state.message} goLive={false} />;
   }
 
   const { data } = state;
   if (elsewhere) {
     return (
       <Empty
-        icon={<UsersThree size={22} />}
+        scene="locked"
         title="This console is open somewhere else"
         body="Another device is running it under your name — a phone in the other room, or another tab. Only one can at a time."
         goLive={false}

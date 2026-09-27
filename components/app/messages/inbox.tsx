@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   BellSlash,
   Broadcast,
-  ChatCircleDots,
   ImageSquare,
   MagnifyingGlass,
   Microphone,
@@ -290,7 +289,7 @@ export function InboxPane() {
 
         {rows && rows.length === 0 && !error && (
           <Empty
-            icon={<ChatCircleDots size={40} weight="duotone" className="text-ember-hi" />}
+            scene="messages"
             title="No conversations yet"
             body="Message a creator from their stream or channel, or start one here. Every thread follows you into WorldSpace and the app."
             action={{ label: "Start a conversation", onClick: () => setComposing(true) }}
@@ -299,9 +298,7 @@ export function InboxPane() {
         )}
 
         {rows && rows.length > 0 && shown.length === 0 && !(filter === "all" && !q && requests.length > 0) && (
-          <p className="mx-auto max-w-xs px-3 py-10 text-center text-[14px] text-muted-foreground">
-            {q ? `Nothing matches “${query.trim()}”.` : EMPTY_SHELF[filter]}
-          </p>
+          <Empty compact scene={q ? "search" : "messages"} title={q ? `Nothing matches “${query.trim()}”.` : EMPTY_SHELF[filter]} />
         )}
 
         {filter === "all" && !q && requests.length > 0 && (

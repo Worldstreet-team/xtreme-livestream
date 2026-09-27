@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, ShieldStar, Warning } from "@/components/icons";
+import { Warning } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { AdminTabs } from "@/components/app/admin/admin-tabs";
 import { ReportCard, type ReportRow } from "@/components/app/admin/report-card";
@@ -76,7 +76,7 @@ export default function ReportQueuePage() {
     return (
       <Empty
         className="min-h-screen"
-        icon={<ShieldStar size={36} />}
+        scene="locked"
         title="Admins only"
         body="The report queue is for the platform's trust and safety team."
         goLive={false}
@@ -147,7 +147,7 @@ export default function ReportQueuePage() {
       ) : rows.length === 0 ? (
         <div className="rounded-panel bg-surface">
           <Empty
-            icon={<Check size={32} />}
+            scene="cleared"
             title={tab === "open" ? "Nothing waiting" : "Nothing closed yet"}
             body={tab === "open" ? "Every report has been dealt with." : "Resolved reports show up here."}
             goLive={false}

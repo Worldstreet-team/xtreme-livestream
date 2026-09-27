@@ -1,0 +1,176 @@
+/*
+ * The art kit's paint and motion (components/app/art/primitives.tsx): the
+ * parts every in-house illustration is made of — empty states first
+ * (components/app/empty-scenes.tsx), then top gifters and key sections.
+ *
+ * Every colour is a theme token, so a drawing reads on the dark ground and
+ * on the light theme's paper without a second version: lines and fills are
+ * the page's own ink (`--tint`) mixed down, cards are `--surface-raised`.
+ * Accents follow the roles: Chili only where the art is about being live
+ * (and a gift's ribbon), Ember for a booked show or a pick, gold only for
+ * money.
+ *
+ * Flat, like the rest of Afterglow: no gradients, glows, blur or glass.
+ * Motion is transform and opacity only: one entrance, then a slow idle. It
+ * stops for prefers-reduced-motion (the resting pose is the still one) and
+ * while the drawing is off screen (`data-paused`, set by ArtCanvas).
+ */
+
+.canvas {
+  --art-line: color-mix(in srgb, var(--tint) 34%, transparent);
+  --art-line-soft: color-mix(in srgb, var(--tint) 17%, transparent);
+  --art-disc: color-mix(in srgb, var(--tint) 4.5%, transparent);
+  --art-bar: color-mix(in srgb, var(--tint) 13%, transparent);
+  --art-ink: color-mix(in srgb, var(--tint) 42%, transparent);
+  --art-card: var(--surface-raised);
+  --art-card-2: var(--control);
+  --art-hi: var(--inverse);
+  --art-on-hi: var(--on-inverse);
+  --art-enter: 720ms;
+
+  display: block;
+  height: auto;
+  overflow: visible;
+  pointer-events: none;
+  user-select: none;
+}
+
+.canvas * {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.canvas[data-paused="true"] * {
+  animation-play-state: paused !important;
+}
+
+/* ---- paint ------------------------------------------------------------ */
+
+.disc { fill: var(--art-disc); }
+.line { fill: none; stroke: var(--art-line); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.soft { fill: none; stroke: var(--art-line-soft); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dash { stroke-dasharray: 5 6; }
+.card { fill: var(--art-card); stroke: var(--art-line); stroke-width: 2; stroke-linejoin: round; }
+.card2 { fill: var(--art-card-2); stroke: var(--art-line); stroke-width: 2; stroke-linejoin: round; }
+.bar { fill: var(--art-bar); }
+.ink { fill: var(--art-ink); }
+.inkLine { fill: none; stroke: var(--art-ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hi { fill: var(--art-hi); }
+.onHi { fill: none; stroke: var(--art-on-hi); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.onHiBar { fill: color-mix(in srgb, var(--art-on-hi) 22%, transparent); }
+.speck { fill: var(--art-line); }
+
+/* Accents — a drawing carries one. */
+.live { fill: var(--chili); }
+.liveLine { fill: none; stroke: var(--chili); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ember { fill: var(--ember); }
+.emberLine { fill: none; stroke: var(--ember); stroke-width: 2; stroke-linecap: round; }
+.coin { fill: var(--tone-amber); stroke: var(--value); stroke-width: 2; }
+.coinLine { fill: none; stroke: var(--value); stroke-width: 1.75; stroke-linecap: round; }
+
+/* ---- entrance ---------------------------------------------------------- */
+
+.discIn { animation: art-disc var(--art-enter) var(--ease-glide) both; }
+.rise { animation: art-rise var(--art-enter) var(--ease-glide) both; animation-delay: var(--d, 0ms); }
+.pop { animation: art-pop 560ms var(--ease-spring) both; animation-delay: var(--d, 180ms); }
+.fromRight { animation: art-from-right var(--art-enter) var(--ease-glide) both; animation-delay: var(--d, 220ms); }
+.fade { animation: art-fade var(--art-enter) var(--ease-out) both; animation-delay: var(--d, 0ms); }
+
+@keyframes art-disc { from { opacity: 0; transform: scale(0.86); } to { opacity: 1; transform: none; } }
+@keyframes art-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes art-pop { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: none; } }
+@keyframes art-from-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes art-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- idle -------------------------------------------------------------- */
+
+.float { animation: art-float 6.4s ease-in-out infinite; }
+@keyframes art-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+.breathe { animation: art-breathe 4.8s ease-in-out infinite; }
+@keyframes art-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+.twinkle { animation: art-twinkle 4.2s ease-in-out infinite; }
+@keyframes art-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.blink { animation: art-blink 2.6s ease-in-out infinite; }
+@keyframes art-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* A signal going out: rings leave the dot and fade. At rest they sit still, faint. */
+.pulse { opacity: 0.35; animation: art-pulse 3.6s var(--ease-out) infinite; }
+.pulseFar { opacity: 0.16; }
+@keyframes art-pulse { 0% { opacity: 0.7; transform: scale(0.45); } 80%, 100% { opacity: 0; transform: scale(1.9); } }
+
+/* Typing: three dots taking turns. */
+.typing { animation: art-typing 1.6s ease-in-out infinite; }
+@keyframes art-typing { 0%, 60%, 100% { opacity: 0.45; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+/* The bell rings every few seconds, from its top. */
+.swing { transform-origin: 50% 0; animation: art-swing 5.2s ease-in-out infinite; }
+@keyframes art-swing {
+  0%, 34%, 100% { transform: rotate(0deg); }
+  6% { transform: rotate(9deg); }
+  13% { transform: rotate(-7deg); }
+  20% { transform: rotate(4deg); }
+  27% { transform: rotate(-2deg); }
+}
+.ringOut { opacity: 0; animation: art-ring-out 5.2s ease-out infinite; }
+@keyframes art-ring-out { 0%, 40%, 100% { opacity: 0; } 8%, 22% { opacity: 1; } }
+
+/* The lens looks around, slowly, and finds nothing. */
+.seek { animation: art-seek 8s ease-in-out infinite; }
+@keyframes art-seek {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-22px, -16px); }
+  50% { transform: translate(-40px, 4px); }
+  75% { transform: translate(-14px, 10px); }
+}
+
+.spin { animation: art-spin 24s linear infinite; }
+.tick { transform-origin: 50% 100%; animation: art-spin 12s linear infinite; }
+@keyframes art-spin { to { transform: rotate(360deg); } }
+
+/* A coin turns over now and then. */
+.flip { animation: art-flip 5.6s ease-in-out infinite; }
+@keyframes art-flip { 0%, 70%, 100% { transform: scaleX(1); } 78% { transform: scaleX(0.12); } 86% { transform: scaleX(1); } }
+
+/* The gift's lid lifts to peek. */
+.peek { animation: art-peek 5.6s ease-in-out infinite; }
+@keyframes art-peek { 0%, 60%, 100% { transform: translateY(0) rotate(0deg); } 70% { transform: translateY(-6px) rotate(-4deg); } 80% { transform: translateY(0) rotate(0deg); } }
+
+/* Stacked cards fan and settle. */
+.fanL { animation: art-fan-l 7s ease-in-out infinite; }
+.fanR { animation: art-fan-r 7s ease-in-out infinite; }
+@keyframes art-fan-l { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-3deg) translateX(-2px); } }
+@keyframes art-fan-r { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(3deg) translateX(2px); } }
+
+/* Signal bars look for a connection, inside out. */
+.search { animation: art-search 3.2s ease-in-out infinite; }
+@keyframes art-search { 0%, 100% { opacity: 1; } 40%, 60% { opacity: 0.22; } }
+
+/* Something that isn't there drifts in and out of view. */
+.wander { animation: art-wander 7.2s ease-in-out infinite; }
+@keyframes art-wander { 0%, 100% { opacity: 1; transform: translateX(0); } 50% { opacity: 0.35; transform: translateX(14px); } }
+
+/* A ticket sways on its string. */
+.sway { animation: art-sway 6.4s ease-in-out infinite; }
+@keyframes art-sway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(-2deg); } }
+
+/* Points float up and fade. At rest they sit where they're drawn. */
+.earn { animation: art-earn 4.2s var(--ease-out) infinite; }
+@keyframes art-earn { 0% { opacity: 0; transform: translateY(14px); } 20% { opacity: 1; } 70%, 100% { opacity: 0; transform: translateY(-14px); } }
+
+/* Every idle takes an offset (`--i`), so parts that share a loop fall out of step. */
+.float, .breathe, .twinkle, .blink, .pulse, .typing, .swing, .ringOut, .seek, .spin, .tick,
+.flip, .peek, .fanL, .fanR, .search, .wander, .sway, .earn {
+  animation-delay: var(--i, 0s);
+}
+
+/* ---- stillness --------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas,
+  .canvas * {
+    animation: none !important;
+  }
+}

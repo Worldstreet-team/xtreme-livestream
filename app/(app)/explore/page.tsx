@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { FunnelSimple, SquaresFour, ListBullets } from "@/components/icons";
+import { SquaresFour, ListBullets } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { SelectField } from "@/components/ui/select-field";
 import { StreamCard } from "@/components/app/stream-card";
@@ -459,7 +459,7 @@ function RowsHome({ home, loading }: { home: HomePage | null; loading: boolean }
         <Empty
           className="md:hidden"
           goLive={false}
-          artwork={{ src: "/images/empty-states/quiet-orbit.png" }}
+          scene="live"
           title="Nobody's live right now"
           body="The whole platform is quiet — which makes this a good minute to be the one on air."
           action={{ label: "Browse categories", href: "/browse" }}
@@ -617,7 +617,7 @@ function FilteredResults({
     ) : (
       <Empty
         className={searching && channels.length > 0 ? "py-10" : "py-24"}
-        icon={<FunnelSimple size={36} />}
+        scene="search"
         title={searching && channels.length > 0 ? "No stream titles match that" : "No streams found"}
         body={
           !(searching && channels.length > 0)
@@ -693,8 +693,8 @@ function FilteredResults({
         </div>
       </div>
 
-      {tab === "channels" && (channels.length > 0 ? channelGrid : <Empty icon={<FunnelSimple size={36} />} title="No channels match that name." />)}
-      {tab === "categories" && (matchedCategories.length > 0 ? categoryGrid : <Empty icon={<FunnelSimple size={36} />} title="No live categories match that." />)}
+      {tab === "channels" && (channels.length > 0 ? channelGrid : <Empty scene="search" title="No channels match that name." />)}
+      {tab === "categories" && (matchedCategories.length > 0 ? categoryGrid : <Empty scene="search" title="No live categories match that." />)}
       {tab === "live" && streamGrid("explore")}
       {tab === "all" && (
         <>

@@ -170,9 +170,9 @@ export default function FeedPage() {
         </div>
       ) : shown.length === 0 ? (
         tab === "following" ? (
-          <Empty onDark className="h-full" icon={<Play size={36} />} title="Nobody you follow is live" body="The moment one of them starts, they're first in this feed." action={{ label: "Back to For you", href: "/feed" }} />
+          <Empty onDark className="h-full" scene="live" title="Nobody you follow is live" body="The moment one of them starts, they're first in this feed." action={{ label: "Back to For you", href: "/feed" }} />
         ) : (
-          <Empty onDark className="h-full" icon={<Play size={36} />} title="Nobody's live right now" body="Nothing to scroll through until someone starts — it could be you." action={{ label: "Browse categories", href: "/browse" }} />
+          <Empty onDark className="h-full" scene="live" title="Nobody's live right now" body="Nothing to scroll through until someone starts — it could be you." action={{ label: "Browse categories", href: "/browse" }} />
         )
       ) : (
         <div ref={trackRef} className="h-full snap-y snap-mandatory overflow-y-auto scrollbar-none" style={{ scrollSnapStop: "always" }}>

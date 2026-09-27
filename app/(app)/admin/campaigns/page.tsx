@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, ShieldStar, Storefront } from "@/components/icons";
+import { Plus } from "@/components/icons";
 import { Empty } from "@/components/app/empty";
 import { AdminTabs } from "@/components/app/admin/admin-tabs";
 import { CampaignForm, type AdminCampaign, type CampaignDraft } from "@/components/app/admin/campaign-form";
@@ -81,7 +81,7 @@ export default function CampaignsPage() {
     return (
       <Empty
         className="min-h-screen"
-        icon={<ShieldStar size={36} />}
+        scene="locked"
         title="Admins only"
         body="Campaigns are set up by Xtream's partnerships team."
         goLive={false}
@@ -143,7 +143,7 @@ export default function CampaignsPage() {
         </div>
       ) : rows.length === 0 && editing !== "new" ? (
         <div className={TILE}>
-          <Empty icon={<Storefront size={30} />} title="No campaigns yet" body="Set up the first one from a brand's brief." goLive={false} action={{ label: "New campaign", onClick: () => setEditing("new") }} />
+          <Empty scene="sponsors" title="No campaigns yet" body="Set up the first one from a brand's brief." goLive={false} action={{ label: "New campaign", onClick: () => setEditing("new") }} />
         </div>
       ) : (
         <ul className="grid gap-3">

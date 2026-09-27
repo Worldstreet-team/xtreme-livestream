@@ -18,7 +18,8 @@ export type { PillVariant, PillTone, PillSize } from "@/components/ui/pill";
 export { Button, buttonVariants } from "@/components/ui/button";
 export { IconButton } from "@/components/ui/icon-button";
 export { GoLiveButton, Empty } from "@/components/app/empty";
-export type { EmptyAction } from "@/components/app/empty";
+export type { EmptyAction, EmptyScene } from "@/components/app/empty";
+export { EmptySceneArt, EMPTY_SCENES } from "@/components/app/empty-scenes";
 export { FollowButton } from "@/components/app/follow-button";
 
 /* ---- status ----------------------------------------------------------- */

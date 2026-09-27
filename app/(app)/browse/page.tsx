@@ -592,7 +592,7 @@ function EmptyCategory({
     <div className="py-6">
       <Empty
         className="rounded-sm border border-dashed border-tint/[0.1] py-12"
-        icon={<Broadcast size={32} />}
+        scene={tag ? "search" : "live"}
         title={tag ? `Nobody live with #${tag}${category ? ` in ${category}` : ""}` : category ? `Nobody live in ${category} right now` : "Nobody live right now"}
         body={
           tag
@@ -638,7 +638,7 @@ function UpcomingTab() {
     return (
       <Empty
         className="rounded-sm border border-dashed border-tint/[0.1] py-14"
-        icon={<Clock size={32} />}
+        scene="scheduled"
         title="Nothing scheduled yet"
         body="When a channel schedules a broadcast it shows up here — or skip the calendar and start now."
       />

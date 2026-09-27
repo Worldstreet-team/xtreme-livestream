@@ -14,6 +14,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { RemoteImage } from "@/components/ui/remote-image";
 import { StreamPreviewThumb } from "@/components/app/stream-preview-thumb";
 import { GoLiveLink } from "@/components/app/go-live-link";
+import { Empty } from "@/components/app/empty";
 import { Shelf } from "@/components/app/shelf";
 import { HealthReportTile } from "@/components/app/stream-health";
 import { BroadcastRecaps } from "@/components/app/broadcast-recaps";
@@ -257,13 +258,12 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
 
       <section aria-label="Recent broadcasts" className="mt-10 md:mt-14">
         {recentStreams.length === 0 ? (
-          <div className={cn(TILE, "flex flex-col items-start gap-4 p-7 md:flex-row md:items-center md:justify-between md:p-8")}>
-            <div>
-              <p className="font-wide text-[22px] font-bold tracking-[-0.03em]">Your first broadcast lands here.</p>
-              <p className="mt-1.5 max-w-[52ch] text-[14px] text-muted-foreground">End a stream and it shows up with its peak, its length and what it earned — the start of your record.</p>
-            </div>
-            <GoLiveLink className="w-auto px-6" />
-          </div>
+          <Empty
+            className={cn(TILE, "py-12 md:py-14")}
+            scene="broadcasts"
+            title="Your first broadcast lands here."
+            body="End a stream and it shows up with its peak, its length and what it earned — the start of your record."
+          />
         ) : (
           <Shelf id="recent-broadcasts" title="Recent broadcasts" reason={`Your last ${recentStreams.length} on air`} size="standard">
             {recentStreams.map((s) => (

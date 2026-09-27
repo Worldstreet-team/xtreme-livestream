@@ -10,6 +10,7 @@ import { Colour, Type, Shape, Light, Motion } from "@/components/design-system/f
 import { Themes } from "@/components/design-system/themes";
 import { Actions, Status, People, Discovery } from "@/components/design-system/component-demos";
 import { Giving, Competing, Talking, Forms, Surfaces, Rules } from "@/components/design-system/product-standards";
+import { EmptyStates } from "@/components/design-system/empty-states";
 import { STAGE } from "@/components/design-system/sample-data";
 import { BrandMark, ChatBubble, Chip, GiftAlert, GiftToken, LowerThird, Pill, UserAvatar } from "@/components/xtream";
 
@@ -46,6 +47,7 @@ export default function DesignSystemPage() {
         <Talking />
         <Forms />
         <Surfaces />
+        <EmptyStates />
         <Rules />
       </main>
       <footer className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-3 border-t border-hairline px-4 py-8 font-mono text-[11px] text-muted-foreground md:px-8">
