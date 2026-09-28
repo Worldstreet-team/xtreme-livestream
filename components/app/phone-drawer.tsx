@@ -132,7 +132,7 @@ export function PhoneDrawer({ open, onOpenChange }: { open: boolean; onOpenChang
         type="button"
         aria-label="Close menu"
         onClick={close}
-        className="absolute inset-0 bg-black/55 transition-opacity duration-300"
+        className="absolute inset-0 bg-black/30 transition-opacity duration-300"
         style={{ opacity: shown ? 1 : 0 }}
       />
       <div

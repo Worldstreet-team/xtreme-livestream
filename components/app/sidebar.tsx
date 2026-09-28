@@ -511,7 +511,7 @@ export function Sidebar({
 
         {/* The foot: the Wolf race, then the account — pinned, never scrolled
             out of view under the list. */}
-        <div className={cn("shrink-0", narrow ? "border-t border-tint/[0.06] px-2 pt-1" : "px-3 pt-1")}>
+        <div className={cn("shrink-0", narrow ? "px-2 pt-1" : "px-3 pt-1")}>
           {/* The Wolf of WorldStreet race, at the foot of the rail (owner,
               2026-09-24) — the one place foil is allowed: the pelt. */}
           <Tip label="Wolf of WorldStreet: the most-backed creator wears the pelt" side="right" disabled={!narrow}>
@@ -553,7 +553,7 @@ export function Sidebar({
                     <Wallet size={15} />
                     WorldStreet dashboard
                   </a>
-                  <div className="my-1 border-t border-tint/[0.06]" />
+                  <div className="my-1.5" />
                   <button onClick={() => logout()} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-tint/[0.04]">
                     <SignOut size={15} />
                     Log out @{user.username}
