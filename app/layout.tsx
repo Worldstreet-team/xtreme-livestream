@@ -3,7 +3,7 @@ import { Geist, Geist_Mono, DM_Sans, Archivo, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { AuthProvider } from "@/lib/auth-context";
 import { THEME_SCRIPT } from "@/lib/theme-script";
-import { ThemeSync } from "@/components/app/theme-switch";
+import { AccountThemeSync, ThemeSync } from "@/components/app/theme-switch";
 import "./globals.css";
 
 const dmSans = DM_Sans({subsets:['latin'],variable:'--font-sans'});
@@ -109,7 +109,10 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         >
           <ThemeSync />
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <AccountThemeSync />
+            {children}
+          </AuthProvider>
         </body>
       </html>
     </ClerkAuthProvider>

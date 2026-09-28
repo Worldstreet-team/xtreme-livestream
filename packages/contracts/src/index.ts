@@ -1493,6 +1493,8 @@ export const updateProfileBodySchema = z
         stageRequests: z.enum(STAGE_REQUEST_RULES).optional(),
         /** How old an account must be to ask to join, in days. */
         stageAccountDays: z.union([z.literal(0), z.literal(1), z.literal(7)]).optional(),
+        /** Appearance, kept with the account so every device and browser opens on it. */
+        theme: z.enum(["system", "light", "dark"]).optional(),
       })
       .strict()
       .optional(),

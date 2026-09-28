@@ -107,6 +107,8 @@ export interface IUser extends Document {
     evasion?: EvasionTreatment;
   };
   settings: {
+    /** Appearance, chosen on any device. Unset until someone picks one. */
+    theme?: "system" | "light" | "dark";
     autoRecord: boolean;
     slowMode: boolean;
     subscriberOnly: boolean;
@@ -243,6 +245,8 @@ const userSchema = new Schema<IUser>(
       evasion: { type: String, enum: EVASION_TREATMENTS, default: "flag" },
     },
     settings: {
+      // No default: unset means "never chosen", so a browser's own earlier choice can be kept.
+      theme: { type: String, enum: ["system", "light", "dark"] },
       autoRecord: { type: Boolean, default: false },
       slowMode: { type: Boolean, default: false },
       subscriberOnly: { type: Boolean, default: false },

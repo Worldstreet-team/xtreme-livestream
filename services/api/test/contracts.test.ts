@@ -51,4 +51,10 @@ describe("API contracts", () => {
 
     expect(profile.username).toBe("market_wizard");
   });
+
+  it("keeps the appearance with the account, and only the three choices", () => {
+    expect(updateProfileBodySchema.parse({ settings: { theme: "light" } }).settings?.theme).toBe("light");
+    expect(updateProfileBodySchema.parse({ settings: { theme: "system" } }).settings?.theme).toBe("system");
+    expect(() => updateProfileBodySchema.parse({ settings: { theme: "sepia" } })).toThrow();
+  });
 });

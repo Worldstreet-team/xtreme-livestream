@@ -27,6 +27,8 @@ export interface AppUser {
   isLive: boolean;
   streamKey: string;
   settings: {
+    /** Appearance, saved with the account; unset until chosen. */
+    theme?: "system" | "light" | "dark";
     autoRecord: boolean;
     slowMode: boolean;
     subscriberOnly: boolean;

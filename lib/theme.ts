@@ -18,7 +18,7 @@ export { DARK_ROOMS, THEME_CHOICES, isDarkRoom, type Theme, type ThemeChoice };
  * sit on paper.
  */
 
-function readChoice(): ThemeChoice {
+export function readChoice(): ThemeChoice {
   try {
     const v = localStorage.getItem(KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
