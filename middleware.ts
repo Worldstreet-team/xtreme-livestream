@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
-import { HUB_ORIGIN, HUB_REGISTER, HUB_SIGN_IN, isLocalClerk, signInReturn } from "@/lib/auth-urls";
+import { APP_ORIGIN, HUB_ORIGIN, HUB_REGISTER, HUB_SIGN_IN, isLocalClerk, signInReturn } from "@/lib/auth-urls";
 
 /**
  * Sign-in belongs to the WorldStreet hub, done the way WorldSpace does it
@@ -54,6 +54,17 @@ const isPublicRoute = createRouteMatcher([
 /** The cookie-less loop guard's marker (see `middleware` below). */
 const HS_MARK = "__xt_hs";
 
+/**
+ * This page's address as the visitor sees it. Behind the production proxy
+ * the request's own URL says https://localhost:3000, and a link or redirect
+ * built from it sent people to localhost (2026-09-28) — so in production the
+ * origin is always the app's public one, and only the path and query come
+ * from the request.
+ */
+function publicUrl(req: NextRequest): URL {
+  return new URL(req.nextUrl.pathname + req.nextUrl.search, isLocalClerk ? req.nextUrl.origin : APP_ORIGIN);
+}
+
 /** A Link prefetch or an RSC payload fetch: redirecting one poisons the router. */
 function isSpeculative(req: NextRequest): boolean {
   const h = req.headers;
@@ -91,9 +102,9 @@ small{display:block;margin-top:16px;color:rgba(242,242,243,0.42);word-break:brea
  * link, never a redirect.
  */
 function handshakeLoopPage(req: NextRequest, retry: number): string {
-  const again = new URL(req.nextUrl.href);
+  const again = publicUrl(req);
   again.searchParams.set("__xt_retry", String(retry + 1));
-  const clean = new URL(req.nextUrl.href);
+  const clean = publicUrl(req);
   clean.searchParams.delete("__xt_retry");
   const login = new URL(HUB_SIGN_IN);
   login.searchParams.set("redirect_url", clean.href);
@@ -112,7 +123,7 @@ function handshakeLoopPage(req: NextRequest, retry: number): string {
 
 /** For a browser that keeps no cookies (an in-app browser, a locked-down mode): no redirect, a way out. */
 function cookiesOffPage(req: NextRequest): string {
-  const clean = new URL(req.nextUrl.href);
+  const clean = publicUrl(req);
   clean.searchParams.delete(HS_MARK);
   return page(
     "Open in your browser",
@@ -134,14 +145,14 @@ const withClerk = clerkMiddleware(
     // The cookie-less guard's marker has done its job once there's a session:
     // one redirect to the clean URL, so it never lingers in a shared link.
     if (userId && req.nextUrl.searchParams.has(HS_MARK)) {
-      const clean = new URL(req.nextUrl.href);
+      const clean = publicUrl(req);
       clean.searchParams.delete(HS_MARK);
       return NextResponse.redirect(clean, 307);
     }
 
     // "Sign in" / "Sign up" anywhere in the app: to the hub, with the way back.
     if (pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) {
-      const back = signInReturn(req.nextUrl.origin, req.nextUrl.searchParams.get("redirect_url"), req.headers.get("referer"));
+      const back = signInReturn(publicUrl(req).origin, req.nextUrl.searchParams.get("redirect_url"), req.headers.get("referer"));
       if (userId) return NextResponse.redirect(back, 307);
       const hub = new URL(pathname.startsWith("/sign-up") ? HUB_REGISTER : HUB_SIGN_IN);
       hub.searchParams.set("redirect_url", back.href);
@@ -221,7 +232,7 @@ export default function middleware(req: NextRequest, evt: NextFetchEvent) {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
       });
     }
-    const marked = new URL(req.nextUrl.href);
+    const marked = publicUrl(req);
     marked.searchParams.set(HS_MARK, "1");
     const res = NextResponse.redirect(marked, 307);
     res.cookies.set("xt_ck", "1", { path: "/", maxAge: 600, sameSite: "lax", secure: true });

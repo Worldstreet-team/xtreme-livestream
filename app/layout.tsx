@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, DM_Sans, Archivo, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
-import { HUB_REGISTER, HUB_SIGN_IN, isLocalClerk } from "@/lib/auth-urls";
+import { APP_ORIGIN, HUB_REGISTER, HUB_SIGN_IN, isLocalClerk } from "@/lib/auth-urls";
 import { AuthProvider } from "@/lib/auth-context";
 import { THEME_SCRIPT } from "@/lib/theme-script";
 import { AccountThemeSync, ThemeSync } from "@/components/app/theme-switch";
@@ -56,8 +56,6 @@ export const metadata: Metadata = {
  * with its own /sign-in page. Two explicit branches — ClerkProvider's props
  * are a discriminated union, so a conditional spread doesn't type-check.
  */
-const APP_ORIGIN = "https://xtreme.worldstreetgold.com";
-
 /** Clerk's own sign-in card, wearing Xtream's mark and ground. */
 const clerkAppearance = {
   layout: { logoImageUrl: "/images/xtream-mark-square.png", logoPlacement: "inside" as const },

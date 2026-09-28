@@ -10,6 +10,8 @@
  * hub's /login with the page you were on as the way back, so you land where
  * you started instead of on the hub.
  */
+/** Xtream's public address in production (behind the proxy the request itself says localhost). */
+export const APP_ORIGIN = "https://xtreme.worldstreetgold.com";
 export const HUB_ORIGIN = "https://www.worldstreetgold.com";
 export const HUB_SIGN_IN = `${HUB_ORIGIN}/login`;
 export const HUB_REGISTER = `${HUB_ORIGIN}/register`;
