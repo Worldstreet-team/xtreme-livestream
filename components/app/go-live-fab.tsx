@@ -77,6 +77,92 @@ function OptionBody({ start, label, hint }: { start: boolean; label: string; hin
  * stream is holding" pill already sits down there: both are your live
  * state, and both open the studio.
  */
+const FLOATING = false;
+
+/**
+ * Go live as the middle tab of the phone's tab bar: a solid Chili tile with
+ * the play mark, opening the same Start now / Schedule live sheet. On air
+ * it reads "On air" and goes straight back to the studio; signed out it
+ * goes to sign in first.
+ */
+export function GoLiveTab() {
+  const pathname = usePathname();
+  const { user, isLoading } = useAuth();
+  const { live } = useOnAir();
+  const [open, setOpen] = useState(false);
+  const fresh = useStudioNew();
+  const tabRef = useRef<HTMLButtonElement>(null);
+
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (seenPath !== pathname) {
+    setSeenPath(pathname);
+    if (open) setOpen(false);
+  }
+
+  const cell = "press relative flex h-[58px] flex-col items-center justify-center gap-1 text-[11px] font-semibold tracking-[0.01em] text-foreground";
+  // A raised circle, like the floating button it replaced (owner, 2026-09-28: "maintain its circular shape").
+  const tile =
+    "relative -mt-4 flex size-12 items-center justify-center rounded-full bg-chili text-white shadow-[0_8px_18px_-8px_rgba(0,0,0,0.6)] ring-4 ring-background";
+
+  if (isLoading) {
+    return (
+      <span className={cell} aria-hidden>
+        <span className={cn(tile, "bg-control")} />
+        Go live
+      </span>
+    );
+  }
+  if (!user) {
+    return (
+      <a href={signInHref("/studio")} data-tour="go-live" aria-label="Sign in to go live" className={cell}>
+        <span className={tile}>
+          <Broadcast size={21} weight="fill" aria-hidden />
+        </span>
+        Go live
+      </a>
+    );
+  }
+  if (live) {
+    return (
+      <Link href="/studio" data-tour="go-live" aria-label="On air — open the studio" className={cell}>
+        <span className={tile}>
+          <AirDot />
+        </span>
+        On air
+      </Link>
+    );
+  }
+  return (
+    <>
+      <button
+        ref={tabRef}
+        type="button"
+        data-tour="go-live"
+        onClick={() => setOpen(true)}
+        aria-label={fresh ? "Go live, new" : "Go live"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={cell}
+      >
+        <span className={tile}>
+          <Broadcast size={21} weight="fill" aria-hidden />
+          {fresh && <NewBadge className="absolute -top-1.5 -right-4" />}
+        </span>
+        Go live
+      </button>
+      {open && (
+        <GoLiveSheet
+          onDismiss={() => {
+            setOpen(false);
+            tabRef.current?.focus();
+          }}
+          onPick={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 export function GoLiveFab({ held = false }: { held?: boolean }) {
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
@@ -93,6 +179,9 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
     if (open) setOpen(false);
   }
 
+  // Go live moved into the middle of the tab bar (owner, 2026-09-28); the
+  // floating button stays retired unless it's asked for again.
+  if (!FLOATING) return null;
   if (isLoading) return null;
   if (pathname.startsWith("/stream/") || pathname === "/feed") return null;
   if (session || held) return null;

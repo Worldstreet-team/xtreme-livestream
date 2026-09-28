@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { Fragment } from "react";
 import { usePathname } from "next/navigation";
 import { HouseLine, Compass, PlayCircle, ChatCircleDots } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-badge";
+import { GoLiveTab } from "@/components/app/go-live-fab";
 
 /**
  * The phone's primary navigation: four tabs — Home, Browse, Live feed,
@@ -44,11 +46,14 @@ export function MobileTabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="tabbar-glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
-      {TABS.map((t) => {
+      {TABS.map((t, i) => {
         const active = is(t.href);
         return (
+          <Fragment key={t.href}>
+          {/* Go live sits in the middle (owner, 2026-09-28). */}
+          {i === 2 && <GoLiveTab />}
           <Link
             key={t.href}
             href={t.href}
@@ -81,6 +86,7 @@ export function MobileTabBar() {
               <span aria-hidden className="absolute bottom-1 size-1 rounded-full bg-ember motion-safe:animate-[xt-pop_.35s_var(--ease-spring)_both]" />
             )}
           </Link>
+          </Fragment>
         );
       })}
     </nav>
