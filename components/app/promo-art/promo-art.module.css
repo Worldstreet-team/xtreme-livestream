@@ -3,11 +3,14 @@
  * beats at rest, and the stage garnish (hearts rising, the count).
  *
  * The canvas is the art kit's (components/app/art/primitives.module.css
- * `.canvas`), so the --art-* inks, the paused state and reduced motion are
- * the kit's own. The cards it sits on are dark islands (data-theme="dark"),
- * so the tokens resolve dark in both themes. Paint is tokens only and flat:
- * the one gradient is the heat ring (--promo-heat, set per drawing to its
- * own <linearGradient>, the --heat stops).
+ * `.canvas`), so the paused state and reduced motion are the kit's own.
+ *
+ * Each promo wears the theme of the app it sells (the owner, 2026-09-28):
+ * a `theme*` scope on its card sets the --pa-* palette, in the page's light
+ * or dark, and the canvas maps its --art-* inks onto it. Go live is ours, so
+ * its scope sets no art inks and the kit's Afterglow tokens show through.
+ * Flat: the one gradient is the heat ring (--promo-heat, its own
+ * <linearGradient> with the --heat stops), on Go live only.
  *
  * Every paint names all four of fill, stroke, width and dashes, so the
  * driver can blend any paint into any other while a part changes jobs. It
@@ -18,6 +21,123 @@
 .shape {
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* ---- the apps' themes ----------------------------------------------------------- */
+/* Values are each app's own tokens (sources in the comments). The art's
+   lines, bars and ground are mixes of the app's ink, the way the kit mixes
+   ours. */
+
+/* Xtream (Go live): Afterglow, following the page. */
+.themeGolive {
+  --pa-bg: var(--surface);
+  --pa-ink: var(--foreground);
+  --pa-muted: var(--muted-foreground);
+}
+
+/* WorldSpace, and the Wolf (it lives on WorldSpace's /votes): the socials'
+   "platform" theme, default "Tide" palette
+   (worldstreetsocialmedia-client src/styles/ws-tokens.css, with the black
+   ladder and white ink from src/app/globals.css html[data-ws-theme=platform]). */
+.themeWorldspace,
+.themeWolf {
+  --pa-bg: #0d0d0d; /* --ws-bg-surface (black ladder) */
+  --pa-ink: #ffffff; /* --ws-text-primary */
+  --pa-muted: rgb(255 255 255 / 0.62); /* --ws-text-muted */
+  --pa-card: #1a1a1a; /* --ws-bg-raised */
+  --pa-card2: #000000; /* --ws-bg-page */
+  --pa-line: rgb(255 255 255 / 0.3);
+  --pa-line-soft: rgb(255 255 255 / 0.15);
+  --pa-bar: rgb(255 255 255 / 0.13);
+  --pa-art-ink: rgb(255 255 255 / 0.42); /* --ws-text-subtle */
+  --pa-disc: rgb(255 255 255 / 0.045);
+  --pa-hi: #ffffff;
+  --pa-on-hi: #000000;
+  --pa-accent: #22b8d6; /* --ws-brand-primary */
+  --pa-on-accent: #0c0a09; /* --ws-brand-on-primary */
+  --pa-accent-hover: #3fcfe8; /* --ws-brand-active, dark */
+  --pa-accent-ink: #67dcf0; /* --ws-brand-gold-text ("brand ink"), dark */
+  --pa-live: #ef4444; /* --ws-status-danger: their LIVE and their like */
+}
+[data-theme="light"] .themeWorldspace,
+[data-theme="light"] .themeWolf {
+  /* html[data-ws-theme=platform-light] */
+  --pa-bg: #ffffff; /* --ws-bg-surface */
+  --pa-ink: #0c0a09; /* --ws-text-primary oklch(0.147 0.004 49.3) */
+  --pa-muted: #78716c; /* --ws-text-muted oklch(0.547 0.021 43.1) */
+  --pa-card: #f2f1f1; /* --ws-bg-raised oklch(0.96 0.002 17.2) */
+  --pa-card2: #e7e5e4; /* --ws-border-hairline oklch(0.922 0.005 34.3) */
+  --pa-line: rgb(12 10 9 / 0.3);
+  --pa-line-soft: rgb(12 10 9 / 0.14);
+  --pa-bar: rgb(12 10 9 / 0.1);
+  --pa-art-ink: rgb(12 10 9 / 0.38);
+  --pa-disc: rgb(12 10 9 / 0.035);
+  --pa-hi: #0c0a09;
+  --pa-on-hi: #ffffff;
+  --pa-accent: #22b8d6; /* the fill is the same on paper */
+  --pa-on-accent: #0c0a09;
+  --pa-accent-hover: #1a93ab; /* --ws-brand-active, light */
+  --pa-accent-ink: #0e6273; /* --ws-brand-gold-text, light */
+  --pa-live: #b91c1c; /* --ws-status-danger, light */
+}
+
+/* Prediction: prediction.worldstreetgold.com's own tokens (its
+   /_next/static/chunks/3mdax_pkrl2mq.css, :root and [data-theme=light]). */
+.themePrediction {
+  --pa-bg: #1a1816; /* --bg-page (neutral-0) */
+  --pa-ink: #e5e2de; /* --text-primary (neutral-950) */
+  --pa-muted: #a6a39e; /* --text-secondary (neutral-600) */
+  --pa-card: #25231f; /* --bg-surface (neutral-50) */
+  --pa-card2: #2c2a26; /* --bg-element-2 (neutral-100) */
+  --pa-line: #696660; /* --border-active (neutral-300) */
+  --pa-line-soft: #393732; /* --border-hover (neutral-200) */
+  --pa-bar: #393732; /* --bg-element-3 */
+  --pa-art-ink: #7e7a74; /* neutral-400 */
+  --pa-disc: rgb(255 255 255 / 0.03);
+  --pa-hi: #e5e2de;
+  --pa-on-hi: #1a1816;
+  --pa-accent: #fecc2f; /* --accent (brand-500) */
+  --pa-on-accent: #1a1408; /* --text-on-accent */
+  --pa-accent-hover: #ffd75c; /* --accent-hover */
+  --pa-yes: #3db468; /* --yes (green-500) */
+  --pa-yes-solid: #359a5e; /* --yes-solid (green-400) */
+  --pa-no: #d78282; /* --no (red-700) */
+  --pa-no-solid: #ac3031; /* --no-solid (red-400) */
+}
+[data-theme="light"] .themePrediction {
+  --pa-bg: #ffffff; /* --bg-surface (neutral-0) */
+  --pa-ink: #0e0f11; /* --text-primary */
+  --pa-muted: #5f6772; /* --text-secondary */
+  --pa-card: #f4f5f6; /* --bg-element (neutral-50) */
+  --pa-card2: #e6e8ea; /* --bg-element-2 (neutral-100) */
+  --pa-line: #aeb4bc; /* --border-active (neutral-300) */
+  --pa-line-soft: #caced3; /* --border-hover (neutral-200) */
+  --pa-bar: #e6e8ea;
+  --pa-art-ink: #939aa5; /* neutral-400 */
+  --pa-disc: rgb(14 15 17 / 0.03);
+  --pa-hi: #0e0f11;
+  --pa-on-hi: #ffffff;
+  --pa-accent: #1452f0; /* --accent (brand-500, light) */
+  --pa-on-accent: #ffffff; /* --text-on-accent, light */
+  --pa-accent-hover: #1043c9;
+  --pa-yes: #42c772;
+  --pa-yes-solid: #30a159;
+  --pa-no: #e23939;
+  --pa-no-solid: #c61d1d;
+}
+
+/* The canvas takes its inks from the card's app (svg.canvas outranks the
+   kit's .canvas); with no app palette, the kit's own Afterglow mixes. */
+svg.canvas {
+  --art-line: var(--pa-line, color-mix(in srgb, var(--tint) 34%, transparent));
+  --art-line-soft: var(--pa-line-soft, color-mix(in srgb, var(--tint) 17%, transparent));
+  --art-disc: var(--pa-disc, color-mix(in srgb, var(--tint) 4.5%, transparent));
+  --art-bar: var(--pa-bar, color-mix(in srgb, var(--tint) 13%, transparent));
+  --art-ink: var(--pa-art-ink, color-mix(in srgb, var(--tint) 42%, transparent));
+  --art-card: var(--pa-card, var(--surface-raised));
+  --art-card-2: var(--pa-card2, var(--control));
+  --art-hi: var(--pa-hi, var(--inverse));
+  --art-on-hi: var(--pa-on-hi, var(--on-inverse));
 }
 
 /* ---- paint ------------------------------------------------------------------ */
@@ -36,8 +156,8 @@
 /* Round dashes of zero length are dots: someone typing, on `hi`. */
 .onHiDots { fill: transparent; stroke: var(--art-on-hi); stroke-width: 4.5px; stroke-dasharray: 0 9; }
 
-/* Chili: being live, Go live, a gift. */
-.live { fill: var(--chili); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+/* Being live, Go live, a gift: Chili, or the app's own red. */
+.live { fill: var(--pa-live, var(--chili)); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
 .liveHalo { fill: transparent; stroke: var(--chili); stroke-width: 2px; stroke-dasharray: 1 0; }
 /* Heat: rings only. */
 .heat { fill: transparent; stroke: var(--promo-heat, var(--chili)); stroke-width: 3.5px; stroke-dasharray: 1 0; }
@@ -47,10 +167,16 @@
 .onLive { fill: transparent; stroke: var(--primary-foreground); stroke-width: 2.25px; stroke-dasharray: 1 0; }
 .onLiveBar { fill: color-mix(in srgb, var(--primary-foreground) 90%, transparent); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
 .onLiveDot { fill: var(--primary-foreground); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
-/* Ember, sparingly: a pick, a crown, a like, a price. */
-.ember { fill: var(--ember); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
-.emberLine { fill: transparent; stroke: var(--ember); stroke-width: 2px; stroke-dasharray: 1 0; }
-.onEmber { fill: transparent; stroke: var(--on-ember); stroke-width: 2.5px; stroke-dasharray: 1 0; }
+/* The app's accent (WorldSpace's cyan, Prediction's gold or blue), sparingly: a crown, a reply. */
+.accent { fill: var(--pa-accent, var(--ember)); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.accentLine { fill: transparent; stroke: var(--pa-accent, var(--ember)); stroke-width: 2.25px; stroke-dasharray: 1 0; }
+.onAccentDots { fill: transparent; stroke: var(--pa-on-accent, var(--on-ember)); stroke-width: 4.5px; stroke-dasharray: 0 9; }
+/* Prediction's answers: its own Yes green and No red. */
+.yes { fill: var(--pa-yes-solid, var(--success)); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.candleUp { fill: var(--pa-yes, var(--success)); stroke: var(--pa-yes, var(--success)); stroke-width: 2px; stroke-dasharray: 1 0; }
+.candleDown { fill: var(--pa-no-solid, var(--chili)); stroke: var(--pa-no-solid, var(--chili)); stroke-width: 2px; stroke-dasharray: 1 0; }
+.noBar { fill: var(--pa-no, var(--chili)); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.onYes { fill: transparent; stroke: #ffffff; stroke-width: 2.5px; stroke-dasharray: 1 0; }
 
 /* The heat ring's stops: the --heat token's own. */
 .heatA { stop-color: #ff2b45; }
@@ -202,16 +328,6 @@
   100% { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, -48px)) scale(0.85) rotate(var(--rot, 0deg)); }
 }
 
-.twinkle { transform-box: fill-box; }
-.canvas[data-stage="on"] .twinkle {
-  animation: pa-twinkle 2.8s ease-in-out infinite backwards;
-  animation-delay: var(--i, 0s);
-}
-@keyframes pa-twinkle {
-  0%, 100% { opacity: 1; transform: none; }
-  50% { opacity: 0.25; transform: scale(0.7) rotate(20deg); }
-}
-
 /* The count: numerals set in the app's face, tabular so it doesn't jitter. */
 .count {
   fill: var(--art-hi);
@@ -221,15 +337,14 @@
   letter-spacing: -0.01em;
 }
 .countSoft {
-  fill: var(--art-ink);
+  fill: var(--pa-muted, var(--art-ink));
   font-size: 9px;
   font-weight: 600;
 }
 .eye { fill: transparent; stroke: var(--art-ink); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
 .eyeDot { fill: var(--art-ink); }
 .glyph { fill: var(--art-ink); }
-.glyphLive { fill: var(--chili); }
-.glyphEmber { fill: var(--ember); }
+.glyphLive { fill: var(--pa-live, var(--chili)); }
 
 @media (prefers-reduced-motion: reduce) {
   .garnish { transition: none; }

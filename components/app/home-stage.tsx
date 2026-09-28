@@ -13,9 +13,10 @@ import { Badge, LiveBadge } from "@/components/ui/badge";
 import { PillLink } from "@/components/ui/pill";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { WolfIcon } from "@/components/ui/wolf-icon";
+import { WorldSpaceMark } from "@/components/ui/worldspace-mark";
 import { StreamArt } from "@/components/app/stream-art";
 import { LivePreview } from "@/components/app/live-preview";
-import { PromoArt } from "@/components/app/promo-art/promo-art";
+import { PromoArt, PROMO_THEME } from "@/components/app/promo-art/promo-art";
 import { RemindButton } from "@/components/app/upcoming-card";
 import { UserAvatar } from "@/components/ui/user-avatar";
 
@@ -190,10 +191,10 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
               aria-hidden={!shown}
             >
               <div
-                // A promo is a drawing on a dark card in both themes (a live room is a picture).
-                data-theme={s.kind === "promo" ? "dark" : undefined}
+                // A promo wears the theme of the app it sells, in the page's light or dark.
                 className={cn(
                   "relative isolate size-full overflow-hidden rounded-xl bg-ground",
+                  s.kind === "promo" && [PROMO_THEME[s.promo.art].scope, PROMO_THEME[s.promo.art].card],
                   !centre && "group/side",
                   centre ? "shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)]" : "shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]",
                 )}
@@ -206,8 +207,9 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
                 {!centre && (
                   <>
                     <SideLabel slide={s} />
+                    {/* A side seat recedes: into black over a picture, into the page over a drawn card. */}
                     <div
-                      className="pointer-events-none absolute inset-0 bg-black transition-opacity duration-300 group-hover/side:opacity-0"
+                      className={cn("pointer-events-none absolute inset-0 transition-opacity duration-300 group-hover/side:opacity-0", s.kind === "promo" ? "bg-background" : "bg-black")}
                       style={{ opacity: slot.shade }}
                     />
                     <button
@@ -256,11 +258,11 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
 function Media({ slide, centre }: { slide: Slide; centre: boolean }) {
   if (slide.kind === "promo") {
     // Drawn, not filmed: the art keeps to the right half, clear of the words
-    // (bottom left), on the card's own dark ground.
+    // (bottom left), on the ground of the app it sells.
     const { promo } = slide;
     return (
       <>
-        <div className={cn("absolute inset-0 -z-20", promo.ground ?? "bg-ground")} />
+        <div className="absolute inset-0 -z-20 bg-[color:var(--pa-bg)]" />
         <div className="pointer-events-none absolute inset-y-[4%] right-[2%] -z-10 w-[47%]">
           <PromoArt piece={promo.art} active={centre} style={{ width: "100%", height: "100%" }} />
         </div>
@@ -311,30 +313,38 @@ function Caption({ slide, on, reason }: { slide: Slide; on: boolean; reason?: Le
   let title: string;
   let action: React.ReactNode;
   let corner: React.ReactNode = null;
+  let titleClass = "font-wide tracking-[-0.035em] text-white [text-shadow:0_2px_24px_rgba(0,0,0,0.45)]";
 
   if (slide.kind === "promo") {
     const { promo } = slide;
+    const theme = PROMO_THEME[promo.art];
     const external = promo.href.startsWith("http");
     meta = (
-      <span className="flex items-center gap-2 text-white/80">
-        {promo.mark === "wolf" ? <WolfIcon size={20} /> : <BrandMark size={20} />}
+      <span className={cn("flex items-center gap-2", theme.muted)}>
+        <PromoMark art={promo.art} />
         <span className="caps font-mono text-[10.5px]">{promo.eyebrow}</span>
       </span>
     );
     title = promo.title;
-    action = (
-      <PillLink
-        href={promo.href}
-        external={external}
-        variant="primary"
-        size="md"
-        trailing={<ArrowRight size={14} weight="bold" />}
-        tabIndex={on ? 0 : -1}
-        {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      >
-        {promo.cta}
-      </PillLink>
-    );
+    titleClass = cn(theme.titleFont || "font-wide tracking-[-0.035em]", theme.titleFont && "tracking-[-0.02em]", "text-[color:var(--pa-ink)]");
+    // Go live keeps our own pill; the others wear their app's button.
+    action =
+      promo.art === "golive" ? (
+        <PillLink href={promo.href} variant="primary" size="md" trailing={<ArrowRight size={14} weight="bold" />} tabIndex={on ? 0 : -1}>
+          {promo.cta}
+        </PillLink>
+      ) : (
+        <a
+          href={promo.href}
+          target={external ? "_blank" : undefined}
+          rel={external ? "noopener noreferrer" : undefined}
+          tabIndex={on ? 0 : -1}
+          className={cn("press inline-flex h-9 items-center gap-2 px-4 text-sm font-semibold transition-colors", theme.cta)}
+        >
+          {promo.cta}
+          <ArrowRight size={14} weight="bold" />
+        </a>
+      );
   } else {
     const { item } = slide;
     const name = item.streamerId.displayName || item.streamerId.username;
@@ -396,7 +406,7 @@ function Caption({ slide, on, reason }: { slide: Slide; on: boolean; reason?: Le
         {/* The whole title, never cut with "…" (owner) — it wraps instead.
             The type lives on the h2 so the measure is in the title's own size.
             A promo's measure is shorter: its art owns the card's right half. */}
-        <h2 className={cn(mask, slide.kind === "promo" ? "max-w-[17ch]" : "max-w-[24ch]", "font-wide text-[clamp(1.05rem,1.55vw,1.55rem)] leading-[1.08] font-bold tracking-[-0.035em] text-balance text-white [text-shadow:0_2px_24px_rgba(0,0,0,0.45)]")}>
+        <h2 className={cn(mask, slide.kind === "promo" ? "max-w-[17ch]" : "max-w-[24ch]", "text-[clamp(1.05rem,1.55vw,1.55rem)] leading-[1.08] font-bold text-balance", titleClass)}>
           <span {...line(1)}>
             {title}
           </span>
@@ -409,13 +419,23 @@ function Caption({ slide, on, reason }: { slide: Slide; on: boolean; reason?: Le
   );
 }
 
+/** The mark on a promo's meta line: the app's own (Prediction's is the WorldStreet W it wears in its header). */
+function PromoMark({ art }: { art: HeroPromo["art"] }) {
+  if (art === "wolf") return <WolfIcon size={20} />;
+  if (art === "worldspace") return <WorldSpaceMark size={20} follow />;
+  if (art === "prediction")
+    // eslint-disable-next-line @next/next/no-img-element -- 2KB mark, from prediction.worldstreetgold.com
+    return <img src="/images/promo/worldstreet-logo.png" alt="" aria-hidden width={20} height={18} className="h-[18px] w-auto" />;
+  return <BrandMark size={20} />;
+}
+
 /** A side seat: the picture and just enough to know whose it is. */
 function SideLabel({ slide }: { slide: Slide }) {
   const label = slide.kind === "promo" ? slide.promo.eyebrow : slide.item.streamerId.displayName || slide.item.streamerId.username;
   return (
     <>
       {slide.kind === "live" && <LiveBadge size="md" className="absolute top-3 left-3" />}
-      <p className="absolute inset-x-0 bottom-0 truncate p-3.5 font-wide text-[15px] font-bold tracking-[-0.02em] text-white">{label}</p>
+      <p className={cn("absolute inset-x-0 bottom-0 truncate p-3.5 font-wide text-[15px] font-bold tracking-[-0.02em]", slide.kind === "promo" ? "text-[color:var(--pa-ink)]" : "text-white")}>{label}</p>
     </>
   );
 }

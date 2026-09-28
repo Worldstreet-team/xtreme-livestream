@@ -58,9 +58,11 @@ export const ECOSYSTEM: EcosystemApp[] = [
  * the heat ring, the room filling) and keeps a gentle life until it
  * leaves. No video: the clips in `public/promo/` are no longer used here.
  *
- * The Wolf is the one painted card, because the wolf itself is the brand:
- * a dark glossy ground, its own gold mark, and a gold button to match. It
- * is the only card that does not wear the W.
+ * Each card wears the theme of the app it sells, in the page's light or
+ * dark (components/app/promo-art/promo-themes.ts): WorldSpace and the Wolf
+ * (which lives on WorldSpace) in WorldSpace's, Prediction in Prediction's,
+ * Go live in our own Afterglow. The Wolf wears its own gold mark; every
+ * other card wears the W.
  */
 export interface HeroPromo {
   id: string;
@@ -73,8 +75,6 @@ export interface HeroPromo {
   action: string;
   /** The drawn piece in the card's art zone. */
   art: PromoArtId;
-  /** A painted ground under the art; the dark ground when absent. */
-  ground?: string;
   /** The Wolf wears its own mark; every other card wears the white W. */
   mark?: "wolf";
   /** Sweep a highlight across the card every few seconds. */
@@ -105,9 +105,8 @@ export const HERO_PROMOS: HeroPromo[] = [
     art: "worldspace",
   },
   {
-    // The painted one. Golds are the wolf's own (`WolfIcon`): #EAB308 for
-    // the button, lifting to #F5CE4E on hover, so the call to action is
-    // the same metal as the animal above it.
+    // It lives on WorldSpace (/votes), so its card is WorldSpace's; the
+    // wolf's own gold stays in its mark.
     id: "wolf",
     eyebrow: "Wolf of WorldStreet",
     title: "The most-backed creator wears the pelt",
@@ -116,7 +115,6 @@ export const HERO_PROMOS: HeroPromo[] = [
     href: "https://social.worldstreetgold.com/votes",
     action: "bg-[#EAB308] text-neutral-950 hover:bg-[#F5CE4E]",
     art: "wolf",
-    ground: "bg-[linear-gradient(150deg,#241a07,#161106_55%,#0b0906)]",
     mark: "wolf",
     shine: true,
   },

@@ -1,5 +1,4 @@
 import {
-  arcLine,
   at,
   bar,
   bubble,
@@ -34,7 +33,7 @@ import {
  * "30 14 180 144", close round the disc so the art reads at rail size.
  */
 
-export const PROMO_ART = ["golive", "worldspace", "wolf", "prediction", "market"] as const;
+export const PROMO_ART = ["golive", "worldspace", "wolf", "prediction"] as const;
 export type PromoArtId = (typeof PROMO_ART)[number];
 
 /** Paint classes in ./promo-art.module.css. Every colour is a theme token. */
@@ -57,9 +56,14 @@ export const PAINTS = [
   "onLive",
   "onLiveBar",
   "onLiveDot",
-  "ember",
-  "emberLine",
-  "onEmber",
+  "accent",
+  "accentLine",
+  "onAccentDots",
+  "yes",
+  "candleUp",
+  "candleDown",
+  "noBar",
+  "onYes",
 ] as const;
 export type PaintName = (typeof PAINTS)[number];
 
@@ -187,33 +191,6 @@ function candle(cx: number, wickTop: number, top: number, bottom: number, wickBo
   return outline(p.close());
 }
 
-/** A market awning: a flat top and a scalloped hem of `n` bells. */
-function awning(x: number, y: number, w: number, h: number, n: number) {
-  const r = w / n / 2;
-  const p = new Pen(x, y);
-  p.to(x + w, y).to(x + w, y + h);
-  for (let k = 0; k < n; k++) {
-    const cx = x + w - r - 2 * r * k;
-    p.arc(cx, y + h, r, r * 0.9, 0, 180);
-  }
-  p.to(x, y);
-  return outline(p.close());
-}
-
-/** A price tag pointing left, its hole end at (x, y). */
-function priceTag(x: number, y: number, w: number, h: number) {
-  return roundPoly(
-    [
-      [x, y],
-      [x + h / 2, y - h / 2],
-      [x + w, y - h / 2],
-      [x + w, y + h / 2],
-      [x + h / 2, y + h / 2],
-    ],
-    [2, 3, 3, 3, 3],
-  );
-}
-
 /** Map a whole outline from one box into another (the chart shrinking onto a card). */
 const into = (o: Outline, [ax, ay]: Pt, [bx, by]: Pt, k: number, ky = k) => mapPoints(o, (x, y) => [bx + (x - ax) * k, by + (y - ay) * ky]);
 
@@ -329,7 +306,7 @@ function worldSpace(): Piece {
       media: P(rrect(78, 52, 84, 54, 7), "screen"),
       play: P(roundPoly([[115, 72], [128, 79], [115, 86]], 3), "ink"),
       caption: P(bar(78, 114, 70, 4.5), "bar"),
-      tag: P(heart(86, 136, 5.5), "ember"),
+      tag: P(heart(86, 136, 5.5), "live"),
       cmt: P(rrect(98, 131, 13, 10, 5), "line"),
       b1: { fold: [160, 62] },
       b1bar: { fold: [160, 62] },
@@ -348,12 +325,12 @@ function worldSpace(): Piece {
       media: P(rrect(56, 52, 80, 52, 7), "screen"),
       play: P(roundPoly([[90, 71], [103, 78], [90, 85]], 3), "ink"),
       caption: P(bar(56, 112, 64, 4.5), "bar"),
-      tag: P(heart(64, 136, 5.5), "ember", idle("pop")),
+      tag: P(heart(64, 136, 5.5), "live", idle("pop")),
       cmt: P(rrect(76, 131, 13, 10, 5), "line"),
       b1: P(bubble(114, 48, 74, 28, 12, "left"), "card2", idle("hover", 0)),
       b1bar: P(bar(125, 59.75, 50, 4.5), "bar", idle("hover", 0)),
-      b2: P(bubble(126, 90, 60, 26, 11, "right"), "hi", idle("hover", -1.6)),
-      dots: P(line([145, 103], [165, 103]), "onHiDots", idle("typing")),
+      b2: P(bubble(126, 90, 60, 26, 11, "right"), "accent", idle("hover", -1.6)),
+      dots: P(line([145, 103], [165, 103]), "onAccentDots", idle("typing")),
     },
     { focus: [150, 80] },
   );
@@ -416,7 +393,7 @@ function wolf(): Piece {
       n1: P(at(digit(2), 78, 120, 0.75), "line"),
       n2: P(at(digit(1), 120, 110, 0.85), "line"),
       n3: P(at(digit(3), 162, 127, 0.6), "line"),
-      crown: P(crown(120, 44, 24, 14), "ember", idle("crown", 0, "bottom")),
+      crown: P(crown(120, 44, 24, 14), "accent", idle("crown", 0, "bottom")),
       ...clock,
     },
     { focus: [120, 60], tuck: [120, 30] },
@@ -447,21 +424,21 @@ function prediction(): Piece {
   const dormant = scene(
     cast,
     {
-      c1: P(chart.c1, "card"),
-      c2: P(chart.c2, "ink"),
-      c3: P(chart.c3, "card"),
-      c4: P(chart.c4, "card", idle("breathe", 0, "bottom")),
-      trend: P(chart.trend, "inkLine"),
+      c1: P(chart.c1, "candleUp"),
+      c2: P(chart.c2, "candleDown"),
+      c3: P(chart.c3, "candleUp"),
+      c4: P(chart.c4, "candleUp", idle("breathe", 0, "bottom")),
+      trend: P(chart.trend, "accentLine"),
       now: P(chart.now, "slot"),
     },
     { focus: [138, 70], tuck: [120, 110], hold: 520, z: onCard },
   );
   const cardParts = {
     card: P(rrect(52, 24, 136, 134, 13), "card"),
-    c1: P(small(chart.c1), "card"),
-    c2: P(small(chart.c2), "ink"),
-    c3: P(small(chart.c3), "card"),
-    trend: P(small(chart.trend), "inkLine"),
+    c1: P(small(chart.c1), "candleUp"),
+    c2: P(small(chart.c2), "candleDown"),
+    c3: P(small(chart.c3), "candleUp"),
+    trend: P(small(chart.trend), "accentLine"),
     now: P(small(chart.now), "slot", idle("shimmer")),
     q: P(bar(66, 88, 84, 5.5), "bar"),
     q2: P(bar(66, 98, 54, 4.5), "bar", { opacity: 0.65 }),
@@ -471,7 +448,7 @@ function prediction(): Piece {
     cast,
     {
       ...cardParts,
-      c4: P(small(chart.c4), "card"),
+      c4: P(small(chart.c4), "candleUp"),
       yes: P(rrect(66, 110, 52, 20, 10), "line"),
       tick: { fold: [92, 120] },
       split: { fold: [66, 140] },
@@ -483,81 +460,20 @@ function prediction(): Piece {
     cast,
     {
       ...cardParts,
-      c4: P(small(chart.c4), "card", idle("breathe", 0, "bottom")),
-      yes: P(rrect(66, 110, 52, 20, 10), "ember", idle("pop", 0, [92, 120])),
-      tick: P(line([84, 120], [89, 125], [99, 114.5]), "onEmber", idle("pop", 0, [92, 120])),
-      split: P(bar(66, 138, 72, 5), "ember"),
-      splitB: P(bar(142, 138, 32, 5), "bar"),
+      c4: P(small(chart.c4), "candleUp", idle("breathe", 0, "bottom")),
+      yes: P(rrect(66, 110, 52, 20, 10), "yes", idle("pop", 0, [92, 120])),
+      tick: P(line([84, 120], [89, 125], [99, 114.5]), "onYes", idle("pop", 0, [92, 120])),
+      split: P(bar(66, 138, 72, 5), "yes"),
+      splitB: P(bar(142, 138, 32, 5), "noBar"),
     },
     { focus: [92, 120], z: onCard },
   );
   return { id: "prediction", cast, scenes: [dormant, call, stage] };
 }
 
-/* ---- Market Square ---------------------------------------------------------------- */
-
-/**
- * A market stall with three goods on the counter; the goods lift and the
- * counter becomes a bag; they drop in, and a price tag swings off the
- * handle.
- */
-function market(): Piece {
-  const cast = ["awning", "postL", "postR", "i1", "i2", "i3", "counter", "handle", "string", "tag", "hole"] as const;
-  const top = (o: Outline) => into(o, [120, 38], [120, 22], 0.72);
-  const stall = awning(52, 38, 136, 18, 6);
-  const dormant = scene(
-    cast,
-    {
-      postL: P(line([60, 56], [60, 116]), "line"),
-      postR: P(line([180, 56], [180, 116]), "line"),
-      awning: P(stall, "card"),
-      i1: P(rrect(70, 92, 22, 22, 4), "card2"),
-      i2: P(circle(118, 101, 13), "card2"),
-      i3: P(rrect(144, 82, 18, 32, 5), "card2"),
-      counter: P(rrect(48, 114, 144, 24, 6), "card"),
-    },
-    { focus: [120, 114], tuck: [120, 100], hold: 400 },
-  );
-  const bag = roundPoly([[90, 86], [150, 86], [157, 148], [83, 148]], 7);
-  const lift = scene(
-    cast,
-    {
-      awning: P(top(stall), "card"),
-      postL: { fold: [60, 60] },
-      postR: { fold: [180, 60] },
-      i1: P(rrect(92, 50, 20, 20, 4), "card2"),
-      i2: P(circle(122, 50, 11), "card2"),
-      i3: P(rrect(136, 40, 14, 26, 4), "card2"),
-      counter: P(bag, "card"),
-      handle: P(arcLine(120, 86, 16, 180, 360), "line"),
-      string: { fold: [136, 86] },
-      tag: { fold: [150, 104] },
-      hole: { fold: [150, 104] },
-    },
-    { focus: [120, 100], hold: 300 },
-  );
-  const swing = (o?: number) => idle("swing", o, [136, 86]);
-  const stage = scene(
-    cast,
-    {
-      awning: P(top(stall), "card"),
-      i1: P(rrect(94, 68, 20, 20, 4), "card2", idle("hover", 0)),
-      i2: P(circle(122, 72, 11), "card2", idle("hover", -0.9)),
-      i3: P(rrect(136, 60, 14, 26, 4), "card2", idle("hover", -1.8)),
-      counter: P(bag, "card"),
-      handle: P(arcLine(120, 86, 16, 180, 360), "line"),
-      string: P(line([136, 86], [146, 104]), "line", swing()),
-      tag: P(priceTag(146, 106, 28, 16), "ember", swing()),
-      hole: P(circle(152, 106, 2), "onEmber", swing()),
-    },
-    { focus: [140, 100], z: ["awning", "postL", "postR", "handle", "i1", "i2", "i3", "counter", "string", "tag", "hole"] },
-  );
-  return { id: "market", cast, scenes: [dormant, lift, stage] };
-}
-
 /* ---- lookup ------------------------------------------------------------------------ */
 
-const BUILD: Record<PromoArtId, () => Piece> = { golive: goLive, worldspace: worldSpace, wolf, prediction, market };
+const BUILD: Record<PromoArtId, () => Piece> = { golive: goLive, worldspace: worldSpace, wolf, prediction };
 const cache = new Map<PromoArtId, Piece>();
 
 /** A piece, built once. Unknown ids fall back to Go live. */

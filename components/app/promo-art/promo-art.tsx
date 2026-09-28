@@ -10,6 +10,7 @@ import { heartPath, isPose, LOOP_ONLY, PAINTS, pieceOf, type Idle, type PaintNam
 import s from "./promo-art.module.css";
 
 export { PROMO_ART, type PromoArtId } from "./promo-art-pieces";
+export { PROMO_THEME, type PromoTheme } from "./promo-themes";
 
 /**
  * The art on a house slide (the home stage's promos, the rail's Spotlight):
@@ -29,8 +30,9 @@ export { PROMO_ART, type PromoArtId } from "./promo-art-pieces";
  *
  * Geometry and the morph technique are the walkthrough's
  * (components/app/tour/tour-art-morph.ts); the pieces are
- * ./promo-art-pieces.ts. Put it on a dark island: the slides are dark in
- * both themes.
+ * ./promo-art-pieces.ts. Put it inside its card's theme scope
+ * (`PROMO_THEME[piece].scope`, ./promo-themes.ts): the art takes that app's
+ * palette, in the page's light or dark.
  */
 export function PromoArt({ piece: id, active, className, style }: { piece: PromoArtId; active: boolean; className?: string; style?: CSSProperties }) {
   const svg = useRef<SVGSVGElement>(null);
@@ -114,11 +116,6 @@ function Hearts({ list, className }: { list: Drift[]; className: string }) {
   );
 }
 
-function sparklePath(cx: number, cy: number, R: number) {
-  const k = 0.16 * R;
-  return `M${cx} ${cy - R}C${cx + k} ${cy - k} ${cx + k} ${cy - k} ${cx + R} ${cy}C${cx + k} ${cy + k} ${cx + k} ${cy + k} ${cx} ${cy + R}C${cx - k} ${cy + k} ${cx - k} ${cy + k} ${cx - R} ${cy}C${cx - k} ${cy - k} ${cx - k} ${cy - k} ${cx} ${cy - R}Z`;
-}
-
 /** A counter the driver ticks up while the stage shows: `data-count` is where it starts. */
 function Count({ x, y, from, suffix = "", step = 3, anchor = "start", soft }: { x: number; y: number; from: number; suffix?: string; step?: number; anchor?: "start" | "middle"; soft?: boolean }) {
   return (
@@ -152,7 +149,7 @@ function Garnish({ id }: { id: PromoArtId }) {
     return (
       <g className={s.garnish}>
         <Hearts
-          className={s.glyphEmber}
+          className={s.glyphLive}
           list={[
             { x: 64, y: 128, size: 3.4, delay: 0.4, dx: -6, dy: -30, dur: 2.8 },
             { x: 66, y: 128, size: 2.8, delay: 1.8, dx: 7, dy: -34, dur: 2.8 },
@@ -178,22 +175,9 @@ function Garnish({ id }: { id: PromoArtId }) {
       </g>
     );
   }
-  if (id === "prediction") {
-    return (
-      <g className={s.garnish}>
-        <Count x={120} y={153} from={2418} step={3} suffix=" calls" anchor="middle" soft />
-      </g>
-    );
-  }
   return (
     <g className={s.garnish}>
-      {[
-        [68, 74, 5, 0],
-        [174, 60, 4, 0.9],
-        [172, 136, 3.5, 1.7],
-      ].map(([x, y, r, t]) => (
-        <path key={`${x}-${y}`} className={cn(s.twinkle, s.glyph)} style={{ "--i": `${t}s` } as CSSProperties} d={sparklePath(x!, y!, r!)} />
-      ))}
+      <Count x={120} y={153} from={2418} step={3} suffix=" calls" anchor="middle" soft />
     </g>
   );
 }
