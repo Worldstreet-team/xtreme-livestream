@@ -4,7 +4,7 @@ import { SIGN_IN_URL } from "@/lib/auth-urls";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MagnifyingGlass, MenuHalf, SignIn, X, ArrowLeft } from "@/components/icons";
+import { MagnifyingGlass, SignIn, X, ArrowLeft } from "@/components/icons";
 import { VividLauncher } from "@/components/vivid/vivid-voice-control";
 import { PointsChip } from "@/components/app/points-chip";
 import { BrandLockup } from "@/components/ui/brand-mark";
@@ -147,26 +147,19 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
     <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_var(--hairline-color)] backdrop-blur-xl backdrop-saturate-150 md:grid md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
       {/* Left: you (or the menu) and the brand on phones; the page text from lg. */}
       <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
-        {user ? (
-          <button
-            type="button"
-            onClick={onMenu}
-            aria-label={unreadThreads ? `Open your menu, ${unreadThreads} unread conversations` : "Open your menu"}
-            className="press relative shrink-0 rounded-full md:hidden"
-          >
-            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={34} className="size-[34px] ring-1 ring-tint/[0.1]" />
-            {user.isLive && <span className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
-            {/* Messages live in the drawer on a phone, so the way in says
-                when something's waiting (top corner: the live dot owns the
-                bottom one). */}
-            {unreadThreads > 0 && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-chili ring-2 ring-background" />}
-          </button>
-        ) : (
-          // The WorldSpace menu mark, bare — no chip behind it (owner, 2026-09-24).
-          <button type="button" onClick={onMenu} aria-label="Open menu" className="press -ml-1 flex size-9 shrink-0 items-center justify-center text-foreground md:hidden">
-            <MenuHalf size={22} />
-          </button>
-        )}
+        {/* The landing's two-line menu mark, not your photo (owner, 2026-09-28);
+            the live and unread dots ride on it. */}
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label={user ? (unreadThreads ? `Open your menu, ${unreadThreads} unread conversations` : "Open your menu") : "Open menu"}
+          className="press group relative -ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-foreground md:hidden"
+        >
+          <MenuBars />
+          {user?.isLive && <span className="absolute right-1 bottom-1.5 size-2.5 rounded-full bg-chili ring-2 ring-background" />}
+          {/* Messages live in the drawer on a phone, so the way in says when something's waiting. */}
+          {user && unreadThreads > 0 && <span aria-hidden className="absolute top-1.5 right-1 size-2.5 rounded-full bg-chili ring-2 ring-background" />}
+        </button>
         <Link href="/explore" className="flex shrink-0 items-center md:hidden" aria-label="Xtream home">
           <BrandLockup size={26} wordSize={19} />
         </Link>
@@ -308,5 +301,15 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
       </div>
     </header>
+  );
+}
+
+/** Two lines, the lower one shorter and to the right: the landing's menu mark. */
+function MenuBars() {
+  return (
+    <span aria-hidden className="relative block h-3.5 w-5">
+      <i className="absolute top-1/2 left-0 block h-[1.75px] w-full -translate-y-[4.9px] rounded-full bg-current" />
+      <i className="absolute top-1/2 left-0 block h-[1.75px] w-full origin-right translate-y-[3.1px] scale-x-[0.7] rounded-full bg-current transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-x-100" />
+    </span>
   );
 }

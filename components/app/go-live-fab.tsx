@@ -81,6 +81,7 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
   const { user, isLoading } = useAuth();
   const { session, live } = useOnAir();
   const [open, setOpen] = useState(false);
+  const fresh = useStudioNew();
   const fabRef = useRef<HTMLButtonElement>(null);
 
   // A new page closes the sheet — adjusted during render against the last
@@ -123,12 +124,13 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
         ref={fabRef}
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Go live"
+        aria-label={fresh ? "Go live, new" : "Go live"}
         aria-haspopup="menu"
         aria-expanded={open}
         className={cn(place, face, "size-14")}
       >
         <Broadcast size={24} weight="fill" aria-hidden />
+        {fresh && <NewBadge className="absolute -top-1 -left-2.5" />}
       </button>
       {open && (
         <GoLiveSheet
@@ -226,12 +228,62 @@ export function GoLiveSheet({ onDismiss, onPick }: { onDismiss: () => void; onPi
  * the icon rail — and its menu, a popover beside it (Radix: menu roles,
  * arrow keys, Escape, focus back on the button).
  */
+/* ---------- the New badge: the studio changed, until you've been ---------- */
+
+const STUDIO_SEEN = "xtream:studio-new-seen";
+const STUDIO_SEEN_EVENT = "xtream:studio-new-seen";
+
+function readStudioSeen() {
+  try {
+    return localStorage.getItem(STUDIO_SEEN) === "1";
+  } catch {
+    return true; // Storage blocked: no badge rather than one that never goes.
+  }
+}
+
+/**
+ * Whether to show "New" on the studio's way in (owner, 2026-09-28: "in the
+ * studio nav show a new badge"). It goes the first time you open the studio.
+ */
+function useStudioNew() {
+  const pathname = usePathname() ?? "";
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    const sync = () => setFresh(!readStudioSeen());
+    const frame = requestAnimationFrame(sync);
+    window.addEventListener(STUDIO_SEEN_EVENT, sync);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener(STUDIO_SEEN_EVENT, sync);
+    };
+  }, []);
+  useEffect(() => {
+    if (!pathname.startsWith("/studio")) return;
+    try {
+      localStorage.setItem(STUDIO_SEEN, "1");
+    } catch {
+      // Fine: it just shows again next time.
+    }
+    window.dispatchEvent(new Event(STUDIO_SEEN_EVENT));
+  }, [pathname]);
+  return fresh;
+}
+
+function NewBadge({ className }: { className?: string }) {
+  return (
+    <span className={cn("pointer-events-none rounded-full bg-inverse px-1.5 py-[3px] text-[10px] leading-none font-bold tracking-[0.02em] text-on-inverse uppercase motion-safe:animate-[pop-in_320ms_var(--ease-spring)_both]", className)}>
+      New
+    </span>
+  );
+}
+
 export function GoLiveRailButton({ collapsed = false, className }: { collapsed?: boolean; className?: string }) {
   const { user, isLoading } = useAuth();
   const { live } = useOnAir();
+  const fresh = useStudioNew();
 
   const face = cn(
-    "press flex shrink-0 items-center justify-center gap-2 rounded-full bg-chili font-semibold whitespace-nowrap text-white transition-[filter] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    "press relative flex shrink-0 items-center justify-center gap-2 rounded-full bg-chili font-semibold whitespace-nowrap text-white transition-[filter] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     collapsed ? "mx-auto size-10" : "h-11 w-full text-[15px]",
     className,
   );
@@ -259,9 +311,10 @@ export function GoLiveRailButton({ collapsed = false, className }: { collapsed?:
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
-        <button type="button" title={collapsed ? "Go live" : undefined} aria-label="Go live" className={face}>
+        <button type="button" title={collapsed ? "Go live" : undefined} aria-label={fresh ? "Go live, new" : "Go live"} className={face}>
           <Broadcast size={17} weight="fill" aria-hidden />
           {!collapsed && "Go live"}
+          {fresh && <NewBadge className={collapsed ? "absolute -top-1.5 -right-2" : "ml-0.5"} />}
         </button>
       </Menu.Trigger>
       <Menu.Portal>
