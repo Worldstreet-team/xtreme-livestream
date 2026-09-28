@@ -159,12 +159,19 @@ export function ChatLane({
       // Keep taps here from starting a drag on the room's sheet (a portal bubbles through React).
       onPointerDown={(e) => e.stopPropagation()}
       className={cn(
-        // The top edge dissolves, so a line leaving is a fade, not a cut.
-        "pointer-events-none flex max-h-full flex-col justify-end gap-1 overflow-hidden transition-opacity duration-200 [mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]",
+        // The top edge dissolves over a good few lines, so a line leaving is a
+        // fade, not a cut — the shade behind them fades with it.
+        "pointer-events-none relative isolate flex max-h-full flex-col justify-end gap-1 overflow-hidden transition-opacity duration-200 [mask-image:linear-gradient(to_bottom,transparent,rgb(0_0_0/0.55)_2.25rem,black_4.75rem)]",
         hidden && "opacity-0",
         className,
       )}
     >
+      {/* A light dark shade behind the lines (the owner, 2026-09-28), so they
+          read over any picture without a box around each one. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 rounded-[14px] bg-[linear-gradient(to_top,rgb(0_0_0/0.38),rgb(0_0_0/0.22)_55%,rgb(0_0_0/0.08))]"
+      />
 
       {shown.map((e, i) => {
         const fade = FADE[shown.length - 1 - i] ?? 0;
