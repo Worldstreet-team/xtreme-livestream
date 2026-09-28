@@ -25,19 +25,70 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
   const [align, setAlign] = useState(alignProp);
   const video = useRef<HTMLVideoElement>(null);
   const [lit, setLit] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const [played, setPlayed] = useState(false);
   const [hover, setHover] = useState<"go" | "watch" | null>(null);
 
-  // No scroll-in reveal for now (owner, 2026-09-27: "remove the entire
-  // animate on scroll"): the section shows at rest, lit, so hover still works.
-  // The reveal it had (appended words, then the wordmark swinging in on
-  // the WorldSpace timing) is sketch 03 in the Motion Design Ideas notebook.
+  // The film (sketch 03, restored and made cheaper, owner 2026-09-28): once
+  // the section is properly on screen — over half of it, not merely near —
+  // the words build one after another, "Xtream" swings in letter by letter
+  // with depth, then the wall blooms and the calls to action rise. Every
+  // move is transform and opacity on the compositor (Web Animations), so it
+  // costs no layout; it plays once. Without script or with reduced motion
+  // the section is simply at rest, lit.
   useEffect(() => {
+    const asked = process.env.NODE_ENV === "development" ? new URLSearchParams(location.search).get("everyone") : null;
+    const el = root.current;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches || new URLSearchParams(location.search).has("static");
     const frame = requestAnimationFrame(() => {
-      const asked = process.env.NODE_ENV === "development" ? new URLSearchParams(location.search).get("everyone") : null;
       if (asked === "left" || asked === "center") setAlign(asked);
-      setLit(true);
+      if (still || !el) {
+        setPlayed(true);
+        setLit(true);
+        return;
+      }
+      setArmed(true);
     });
-    return () => cancelAnimationFrame(frame);
+    if (still || !el) return () => cancelAnimationFrame(frame);
+
+    let timer = 0;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e?.isIntersecting) return;
+        io.disconnect();
+        const ease = "cubic-bezier(0.16, 1, 0.3, 1)";
+        el.querySelectorAll<HTMLElement>("[data-film='word']").forEach((w, i) =>
+          w.animate(
+            [
+              { opacity: 0, transform: "translate3d(0, 0.45em, 0)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 700, delay: i * 120, easing: ease, fill: "backwards" },
+          ),
+        );
+        const start = 520;
+        el.querySelectorAll<HTMLElement>("[data-film='letter']").forEach((l, i) =>
+          l.animate(
+            [
+              { opacity: 0, transform: "translate3d(0, 0.28em, 0) rotateX(-78deg)" },
+              { opacity: 1, offset: 0.35 },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 950, delay: start + i * 45, easing: ease, fill: "backwards" },
+          ),
+        );
+        setPlayed(true);
+        // The name has landed: the wall blooms and the calls to action rise.
+        timer = window.setTimeout(() => setLit(true), start + 5 * 45 + 620);
+      },
+      { threshold: 0.55 },
+    );
+    io.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      io.disconnect();
+      clearTimeout(timer);
+    };
   }, []);
 
   // The wall only runs while it can be seen, and never for reduced motion.
@@ -85,7 +136,7 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
       data-hover={hover ?? undefined}
       data-align={align}
       onPointerMove={onPointerMove}
-      className={cn(styles.section, lit && styles.lit)}
+      className={cn(styles.section, armed && styles.armed, played && styles.played, lit && styles.lit)}
     >
       <div aria-hidden className={styles.wall}>
         <video ref={video} muted loop playsInline preload="metadata" poster="/landing/everyone-wall.jpg">
@@ -99,7 +150,7 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
           <span className="sr-only">Everyone&apos;s going live on Xtream</span>
           <span aria-hidden className={styles.line}>
             {WORDS.map((w) => (
-              <span key={w} className={styles.word}>
+              <span key={w} data-film="word" className={styles.word}>
                 {w}
               </span>
             ))}
@@ -119,7 +170,7 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
             </svg>
             <span aria-hidden className={styles.mark}>
               {[...MARK].map((c, i) => (
-                <span key={i} className={styles.letter}>
+                <span key={i} data-film="letter" className={styles.letter}>
                   {c}
                 </span>
               ))}
