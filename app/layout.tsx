@@ -48,10 +48,9 @@ export const metadata: Metadata = {
 };
 
 /**
- * Satellite of the worldstreetgold.com hub in production, declared in CODE
- * the way WorldSpace, the dashboard, academy and arcade declare it (see
- * middleware.ts): sign-in happens on the hub's own /login, and anyone
- * already signed in there is handshaken over without a form. Locally (a
+ * In production sign-in happens on the worldstreetgold.com hub's own /login,
+ * and anyone already signed in there is handshaken over without a form (the
+ * satellite handshake lives in middleware.ts, on the server). Locally (a
  * pk_test_ key) the app runs standalone against the Clerk test instance
  * with its own /sign-in page. Two explicit branches — ClerkProvider's props
  * are a discriminated union, so a conditional spread doesn't type-check.
@@ -72,11 +71,19 @@ const clerkAppearance = {
 
 function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
   if (!isLocalClerk) {
+    // NOT isSatellite here, only in middleware.ts. A satellite clerk-js that
+    // finds nobody signed in sends the browser to `https://clerk.<domain>/
+    // v1/client/sync`, which for domain="worldstreetgold.com" is the hub's
+    // own Clerk, and it refuses the request ("link_domain must be included")
+    // — so every signed-out visitor to a public page ended on a raw JSON
+    // error (production, 2026-09-29). WorldSpace never shows it because it
+    // has no public pages: its server sends signed-out visitors to /login
+    // before clerk-js runs. On a subdomain of the hub the browser needs no
+    // sync anyway: it reads the hub's session from clerk.worldstreetgold.com
+    // directly, and the server-side handshake still runs in middleware.ts.
     return (
       <ClerkProvider
         appearance={clerkAppearance}
-        domain="worldstreetgold.com"
-        isSatellite
         signInUrl={HUB_SIGN_IN}
         signUpUrl={HUB_REGISTER}
         signInFallbackRedirectUrl={`${APP_ORIGIN}/explore`}
