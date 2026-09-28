@@ -151,6 +151,8 @@ import type {
   LocalAudioTrack,
   DisconnectReason as DisconnectReasonType,
 } from "livekit-client";
+import { TourArt, type TourScene } from "@/components/app/tour/tour-art";
+import { useOrphanWatch } from "@/components/app/studio/orphan-watch";
 
 type SourceType = "camera" | "screen" | "obs";
 /** The shape of the broadcast — chosen before going live, like a real camera. */
@@ -2109,6 +2111,28 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   } | null>(null);
   const [endingOrphan, setEndingOrphan] = useState(false);
   const [resuming, setResuming] = useState(false);
+  /** The stream the card was about went off the air (heard on its room): its title, shown a beat before the card goes. */
+  const [orphanEnded, setOrphanEnded] = useState<string | null>(null);
+  /** Bumped to ask the API again when the room can't tell us (see useOrphanWatch). */
+  const [orphanCheck, setOrphanCheck] = useState(0);
+
+  // The card stays true by itself: it listens on the stream's room.
+  useOrphanWatch(orphan && !resuming && !endingOrphan && !isLive ? orphan.id : null, {
+    ended: () => {
+      setOrphanEnded(orphan?.title ?? "Your stream");
+      setOrphan(null);
+    },
+    feed: (state, grace) => {
+      if (typeof grace === "number") setGraceMs(grace);
+      setOrphan((o) => (o ? { ...o, feedDroppedAt: state === "reconnecting" ? new Date().toISOString() : null } : o));
+    },
+    recheck: () => setOrphanCheck((n) => n + 1),
+  });
+  useEffect(() => {
+    if (!orphanEnded) return;
+    const t = setTimeout(() => setOrphanEnded(null), 6000);
+    return () => clearTimeout(t);
+  }, [orphanEnded]);
 
   useEffect(() => {
     if (!user || isLive) return;
@@ -2134,7 +2158,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [user, isLive]);
+  }, [user, isLive, orphanCheck]);
 
   // The account's permanent encoder key, ready before the stream exists so
   // OBS/vMix can be configured once. Fetched only when the encoder path is
@@ -2978,39 +3002,51 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   );
 
   /** What's going on before anything's set: a stream still live without this studio, a booking being started. */
-  const setupNotices = (orphan || booking) && (
+  const setupNotices = (orphan || orphanEnded || booking) && (
     <div className="flex flex-col gap-2.5">
-      {orphan && (() => {
-        // Three ways a stream can be live without this studio on it.
-        const obs = orphan.source === "obs";
-        const holding = !obs && Boolean(orphan.feedDroppedAt);
+      {(orphan || orphanEnded) && (() => {
+        // Three ways a stream can be live without this studio on it — and,
+        // heard on its room, the moment it isn't any more.
+        const obs = orphan?.source === "obs";
+        const holding = Boolean(orphan) && !obs && Boolean(orphan?.feedDroppedAt);
         const minutes = Math.round(graceMs / 60_000);
-        const heading = obs ? "is still live" : holding ? "is on hold" : "is live on another device";
-        const body = obs
-          ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and gifts back."
-          : holding
-            ? `Your ${orphan.source === "screen" ? "screen share" : "camera"} dropped off the air, and viewers are seeing “Be right back”. Pick it up within ${minutes} minutes and the stream carries on where it left off.`
-            : "Continue here to move it to this device — the other one steps off the air the moment this one joins.";
+        const title = orphan?.title ?? orphanEnded ?? "";
+        const heading = !orphan ? "has ended" : obs ? "is still live" : holding ? "is on hold" : "is live on another device";
+        const body = !orphan
+          ? "It went off the air on the other device. You're clear to go live here."
+          : obs
+            ? "Your encoder is the broadcaster, so closing this tab changed nothing for viewers. Reopen the studio to get chat, guests and gifts back."
+            : holding
+              ? `Your ${orphan.source === "screen" ? "screen share" : "camera"} dropped off the air, and viewers are seeing “Be right back”. Pick it up within ${minutes} minutes and the stream carries on where it left off.`
+              : "Continue here to move it to this device — the other one steps off the air the moment this one joins.";
         const action = obs ? "Reopen studio" : holding ? "Resume stream" : "Continue here";
+        // One drawing, morphing with the state: two devices, the hold, the end.
+        const art: TourScene = !orphan ? "play" : holding ? "shield" : "second-cam";
         return (
-          <div className={cn("rounded-[12px] px-4 py-3.5 @[620px]:col-span-2", holding ? "bg-chili/[0.12]" : "bg-ember/[0.1]")}>
-            <div className="flex items-start gap-3">
-              {holding ? <Warning size={18} className="mt-0.5 shrink-0 text-chili-hi" /> : <Broadcast size={18} weight="fill" className="mt-0.5 shrink-0 text-ember-hi" />}
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold">
-                  &ldquo;{orphan.title}&rdquo; {heading}
-                </p>
-                <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{body}</p>
-              </div>
+          <div className="overflow-hidden rounded-[14px] bg-surface @[620px]:col-span-2" role="status" aria-live="polite">
+            <div aria-hidden className="flex h-[108px] items-center justify-center bg-control/60">
+              <TourArt scene={art} className="w-[120px]" />
             </div>
-            <div className="mt-3 flex gap-2">
-              <button onClick={resumeStream} disabled={resuming || endingOrphan} className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-white text-[13.5px] font-semibold text-[#0b0708] disabled:opacity-50">
-                {resuming ? <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={14} weight="fill" />}
-                {action}
-              </button>
-              <button onClick={endOrphan} disabled={endingOrphan || resuming} className="press h-10 flex-1 rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover disabled:opacity-50">
-                {endingOrphan ? "Ending…" : "End it"}
-              </button>
+            <div className="px-4 pt-3.5 pb-4">
+              <p className="text-[14.5px] font-semibold text-balance">
+                &ldquo;{title}&rdquo; {heading}
+              </p>
+              <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{body}</p>
+              {orphan ? (
+                <div className="mt-3.5 flex gap-2">
+                  <button onClick={resumeStream} disabled={resuming || endingOrphan} className="press flex h-10 flex-1 items-center justify-center gap-1.5 rounded-full bg-inverse text-[13.5px] font-semibold text-on-inverse disabled:opacity-50">
+                    {resuming ? <span className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={14} weight="fill" />}
+                    {action}
+                  </button>
+                  <button onClick={endOrphan} disabled={endingOrphan || resuming} className="press h-10 flex-1 rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover disabled:opacity-50">
+                    {endingOrphan ? "Ending…" : "End it"}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setOrphanEnded(null)} className="press mt-3.5 h-10 w-full rounded-full bg-control text-[13.5px] font-semibold text-foreground hover:bg-control-hover">
+                  Got it
+                </button>
+              )}
             </div>
           </div>
         );
