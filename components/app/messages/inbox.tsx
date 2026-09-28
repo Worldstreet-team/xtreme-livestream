@@ -331,7 +331,7 @@ export function InboxPane() {
         {shown.length > 0 && (
           <ul ref={listRef} className="space-y-0.5">
             {shown.map((row, i) => (
-              <li key={row._id} data-row={row._id} style={{ "--i": i } as React.CSSProperties} className="msg-rise">
+              <li key={row._id} data-row={row._id} data-tour={i === 0 ? "messages-thread" : undefined} style={{ "--i": i } as React.CSSProperties} className="msg-rise">
                 <InboxRow
                   row={row}
                   meId={meId}

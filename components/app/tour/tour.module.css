@@ -4,26 +4,45 @@
  * in one place. Only transform, opacity and clip-path ever move.
  *
  *   the dim     a clip-path polygon with a rounded hole; it closes in on the
- *               first target (iris) and glides between the rest
+ *               first target (iris) and glides between the rest, with a 2px
+ *               Ember ring on the same path and, once it lands, a flat pulse
+ *   the card    phones: a compact card docked to the top or the foot, gliding
+ *               from one to the other (a transform) when the target changes
+ *               ends, with a pointer line drawn across to the target
  *   the card    rides a transform from target to target, a beat behind the
  *               light, on the same curve; its arrow slides along its edge
  *   the words   outgoing lines lift up and out through a mask, incoming ones
  *               rise in behind them, title first, then the line
  *
- * Reduced motion: the light and the card cut, the words cross-fade.
+ * Reduced motion: the light and the card cut, the words cross-fade, the
+ * ring doesn't pulse and the pointer fades in rather than drawing.
  */
 
 .root {
   position: fixed;
   inset: 0;
   z-index: 90;
-  /* Always a dark dim, in both themes: the page steps back, the target doesn't. */
-  --tour-scrim: rgb(6 3 3 / 0.66);
-  --tour-ring: rgb(255 255 255 / 0.78);
+  /* Always a dark dim, in both themes, dark enough that the lit thing is plainly the lit thing. */
+  --tour-scrim: rgb(4 2 2 / 0.8);
+  /* The ring and the pointer: the brand's Ember, flat. */
+  --tour-ring: var(--ember);
+  --tour-pulse: color-mix(in srgb, var(--ember) 55%, transparent);
+  --tour-pulse-end: color-mix(in srgb, var(--ember) 0%, transparent);
 }
 :global([data-theme="light"]) .root {
-  --tour-scrim: rgb(22 12 10 / 0.46);
-  --tour-ring: rgb(255 255 255 / 0.92);
+  --tour-scrim: rgb(22 12 10 / 0.7);
+}
+
+/* Reads the screen's safe areas for the script. */
+.probe {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ---- The light -------------------------------------------------------- */
@@ -74,6 +93,84 @@
   opacity: 1;
 }
 
+/* Once the light lands: a flat Ember pulse leaving the ring, no blur. */
+.pulse {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms linear;
+}
+.root[data-arrived] .pulse {
+  opacity: 1;
+  transition-duration: 240ms;
+  animation: pulse 1700ms cubic-bezier(0.2, 0.7, 0.3, 1) 120ms infinite both;
+}
+@keyframes pulse {
+  from {
+    box-shadow: 0 0 0 0 var(--tour-pulse);
+  }
+  70%,
+  to {
+    box-shadow: 0 0 0 11px var(--tour-pulse-end);
+  }
+}
+
+/* The lit thing takes a tap (as Next); the dim around it just swallows them. */
+.hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  cursor: pointer;
+  background: transparent;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The phone's pointer: drawn from the card to the target once the light has landed. */
+.pointer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.pointerLine,
+.pointerHead {
+  fill: none;
+  stroke: var(--tour-ring);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pointerDot {
+  fill: var(--tour-ring);
+}
+.pointerLine {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 0s;
+}
+.pointerDot,
+.pointerHead {
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.root[data-arrived] .pointerLine {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 380ms var(--tour-ease-text);
+}
+.root[data-arrived] .pointerDot {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+.root[data-arrived] .pointerHead {
+  opacity: 1;
+  transition: opacity 160ms linear 300ms;
+}
+
 /* ---- The card --------------------------------------------------------- */
 
 .positioner {
@@ -110,24 +207,28 @@
   }
 }
 
-/* The phone's sheet floats at the foot and lifts over a target it would cover. */
-.sheet {
+/* The phone's card, docked to whichever end the target isn't at. Changing
+   ends is one transform glide, a beat behind the light, on its curve. */
+.dock {
   position: fixed;
-  left: var(--tour-inset);
-  right: var(--tour-inset);
-  bottom: calc(var(--tour-inset) + env(safe-area-inset-bottom));
+  left: 0;
+  top: 0;
   will-change: transform;
 }
-.root[data-phase="glide"] .sheet[data-settled] {
+.root[data-phase="glide"] .dock[data-settled] {
   transition: transform var(--tour-glide) var(--tour-ease-glide) var(--tour-trail);
 }
-.sheet .card {
-  animation-name: sheet-in;
+.dock .card {
+  --from: 24px;
+  animation-name: dock-in;
 }
-@keyframes sheet-in {
+.dock[data-dock="top"] .card {
+  --from: -24px;
+}
+@keyframes dock-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 56px, 0);
+    transform: translate3d(0, var(--from), 0) scale(0.98);
   }
   to {
     opacity: 1;
@@ -167,8 +268,7 @@
   top: 0;
   right: -14px;
 }
-.positioner:not([data-settled]) .arrow,
-.sheet:not([data-settled]) .arrow {
+.positioner:not([data-settled]) .arrow {
   transition: none;
 }
 
@@ -254,14 +354,30 @@
   .root[data-phase] .scrim,
   .root[data-phase] .ring,
   .root[data-phase] .positioner,
-  .root[data-phase] .sheet,
+  .root[data-phase] .dock,
   .arrow,
   .arrow[data-on],
   .pip {
     transition: none !important;
   }
+  .root[data-arrived] .pulse {
+    animation: none;
+    box-shadow: none;
+  }
+  .pointerLine,
+  .root[data-arrived] .pointerLine {
+    stroke-dashoffset: 0;
+    transition: none;
+  }
+  .pointer {
+    opacity: 0;
+    transition: opacity var(--tour-fade) linear;
+  }
+  .root[data-arrived] .pointer {
+    opacity: 1;
+  }
   .card,
-  .sheet .card,
+  .dock .card,
   .scrim {
     animation: fade-in var(--tour-fade) linear both;
   }

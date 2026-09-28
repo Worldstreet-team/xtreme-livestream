@@ -6,16 +6,22 @@ import { CaretLeft } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
 import { TourArt } from "@/components/app/tour/tour-art";
 import { DURATION, EASE } from "@/lib/motion";
-import { closedHole, holeFor, openHole, placeCard, placeSheet, ringClip, scrimClip, type Box, type Hole, type Side, type Viewport } from "@/lib/tour/geometry";
+import { closedHole, holeFor, openHole, placeCard, placeDock, ringClip, scrimClip, type Box, type Dock, type Hole, type Side, type Viewport } from "@/lib/tour/geometry";
 import { resolveStep, stepButtons, type Tour, type TourMove } from "@/lib/tour/story";
 import { cn } from "@/lib/utils";
 import styles from "./tour.module.css";
 
 /**
  * One step of a tour, drawn: the dim with its rounded cut-out around the
- * thing being named, and the card — a floating card with a pointer beside
- * it on a desktop, a sheet at the foot of a phone — carrying the morphing
- * art, the words, progress and the buttons.
+ * thing being named, an Ember ring (and a flat pulse) around it, and the
+ * card — a floating card with a pointer beside it on a desktop; on a phone a
+ * compact card docked to whichever end of the screen the target isn't at,
+ * with a pointer line reaching across to it — carrying the morphing art,
+ * the words, progress and the buttons.
+ *
+ * Tapping the lit thing itself is the same as Next (it never performs the
+ * thing: opening the Go live sheet mid-tour would bury the tour under it).
+ * Tapping the dim does nothing, so nobody closes a tour by accident.
  *
  * The host (tour-host.tsx) owns which tour and which step; this owns how it
  * looks and moves: finding the target, scrolling it into view, measuring it
@@ -27,8 +33,12 @@ import styles from "./tour.module.css";
  * reads each new step.
  */
 
-/** The phone sheet's distance from the screen's edges. */
+/** The phone card's distance from the screen's edges (safe areas added on top). */
 const SHEET_INSET = 8;
+/** Targets smaller than this are measured with whatever pokes out of them (the tab bar's raised Go live). */
+const SMALL = 120;
+/** A phone card never gets wider than this, even on a big phone held sideways. */
+const PHONE_CARD_MAX = 440;
 const CARD_W = 348;
 
 /** The curves and timings, as the custom properties tour.module.css reads. */
@@ -50,8 +60,18 @@ const TOUR_VARS = {
   "--tour-inset": `${SHEET_INSET}px`,
 } as CSSProperties;
 /** How long a missing target is looked for before the step plays centred. */
-const FIND_FOR_MS = 1800;
+const FIND_FOR_MS = 4000;
 const FIND_EVERY_MS = 150;
+/** A target counts as settled once its box has held still this long… */
+const STABLE_MS = 150;
+const SETTLE_EVERY_MS = 50;
+/** …and the page has stopped loading, but no step waits longer than this for that. */
+const SETTLE_CAP_MS = 3500;
+/** Waiting longer than this for a step's target, the light leaves the last one. */
+const LET_GO_MS = 320;
+/** Bringing a target into view: done once scrolling has been quiet this long, or after the most it may take. */
+const SCROLL_QUIET_MS = 140;
+const SCROLL_MAX_MS = 1200;
 
 /* ---- Small stores --------------------------------------------------- */
 
@@ -95,44 +115,171 @@ export function findTarget(names: string[]): HTMLElement | null {
 
 const viewport = (): Viewport => ({ w: window.innerWidth, h: window.innerHeight });
 
+/** Inside something position: fixed (the tab bar, a floating button): it never scrolls, so it's never scrolled to. */
+function pinned(el: HTMLElement): boolean {
+  for (let n: HTMLElement | null = el; n && n !== document.body; n = n.parentElement) {
+    if (getComputedStyle(n).position === "fixed") return true;
+  }
+  return false;
+}
+
+interface Bars {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * How much of the screen the app's own bars hold at its top and foot (the
+ * top bar, the tab bar): whatever fixed or sticky thing is uppermost at the
+ * very edge. Scrolling a target into view keeps it out from under them.
+ */
+function barInsets(vp: Viewport): Bars {
+  const at = (y: number): DOMRect | null => {
+    for (const el of document.elementsFromPoint(vp.w / 2, y)) {
+      if (!(el instanceof HTMLElement) || el.closest("[data-tour-root]")) continue;
+      for (let n: HTMLElement | null = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+        const pos = getComputedStyle(n).position;
+        if (pos === "fixed" || pos === "sticky") return n.getBoundingClientRect();
+      }
+      return null;
+    }
+    return null;
+  };
+  const top = at(1);
+  const foot = at(vp.h - 1);
+  return {
+    top: top && top.top <= 1 ? Math.min(Math.max(0, top.bottom), vp.h * 0.3) : 0,
+    bottom: foot && foot.bottom >= vp.h - 1 ? Math.min(Math.max(0, vp.h - foot.top), vp.h * 0.3) : 0,
+  };
+}
+
+/**
+ * The target's box. A small one counts whatever pokes out of it, so the tab
+ * bar's Go live is lit round its raised circle, not just its cell.
+ */
 function boxOf(el: HTMLElement | null, vp: Viewport): Box | null {
   if (!el || !el.isConnected) return null;
   const r = el.getBoundingClientRect();
   if (r.width < 2 || r.height < 2) return null;
+  let { left, top, right, bottom } = r;
+  if (r.width < SMALL && r.height < SMALL) {
+    const kids = el.querySelectorAll<HTMLElement>("*");
+    for (let i = 0; i < kids.length && i < 40; i++) {
+      const k = kids[i].getBoundingClientRect();
+      if (k.width < 1 || k.height < 1) continue;
+      left = Math.min(left, k.left);
+      top = Math.min(top, k.top);
+      right = Math.max(right, k.right);
+      bottom = Math.max(bottom, k.bottom);
+    }
+  }
   // Scrolled right out of view: the step plays centred until it's back.
-  if (r.bottom < 0 || r.top > vp.h || r.right < 0 || r.left > vp.w) return null;
-  return { x: r.left, y: r.top, w: r.width, h: r.height };
+  if (bottom < 0 || top > vp.h || right < 0 || left > vp.w) return null;
+  // Its own corner, unless something poking out of it set the shape.
+  const grown = left < r.left - 0.5 || top < r.top - 0.5 || right > r.right + 0.5 || bottom > r.bottom + 0.5;
+  return { x: left, y: top, w: right - left, h: bottom - top, r: grown ? undefined : radiusOf(el, r) };
 }
 
-/** Where everything is right now. offsetTop ignores the sheet's lift: it's where the sheet rests. */
-function readGeo(target: HTMLElement | null, sheet: HTMLElement | null): Geo {
+const near = (a: number, b: number) => Math.abs(a - b) < 0.75;
+function sameBox(a: Box, b: Box) {
+  return near(a.x, b.x) && near(a.y, b.y) && near(a.w, b.w) && near(a.h, b.h) && a.r === b.r;
+}
+function sameGeo(a: Geo, b: Geo) {
+  if (a.vp.w !== b.vp.w || a.vp.h !== b.vp.h || a.safe.top !== b.safe.top || a.safe.bottom !== b.safe.bottom) return false;
+  if (!a.box || !b.box) return a.box === b.box;
+  return sameBox(a.box, b.box);
+}
+
+/**
+ * Something on screen is still loading: a skeleton, a spinner, a region
+ * marked busy. Small pulsing things (a live dot) don't count.
+ */
+export function pageBusy(): boolean {
   const vp = viewport();
-  return { vp, box: boxOf(target, vp), sheetBottom: sheet ? sheet.offsetTop + sheet.offsetHeight : null };
+  const all = document.querySelectorAll<HTMLElement>('[aria-busy="true"], [data-loading="true"], .animate-pulse, .animate-spin');
+  for (const el of all) {
+    if (el.closest("[data-tour-root]")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 24 || r.height < 12) continue;
+    if (r.bottom <= 0 || r.top >= vp.h || r.right <= 0 || r.left >= vp.w) continue;
+    if (getComputedStyle(el).visibility === "hidden") continue;
+    return true;
+  }
+  return false;
+}
+
+/** Calls back once a scroll has come to rest: scrollend where there is one, or quiet (Safari), or a cap. */
+function afterScroll(instant: boolean, done: () => void) {
+  if (instant) {
+    requestAnimationFrame(() => done());
+    return;
+  }
+  let over = false;
+  let quiet: ReturnType<typeof setTimeout> | undefined;
+  const finish = () => {
+    if (over) return;
+    over = true;
+    clearTimeout(quiet);
+    clearTimeout(cap);
+    window.removeEventListener("scrollend", finish, true);
+    window.removeEventListener("scroll", onScroll, true);
+    done();
+  };
+  const onScroll = () => {
+    clearTimeout(quiet);
+    quiet = setTimeout(finish, SCROLL_QUIET_MS);
+  };
+  window.addEventListener("scrollend", finish, true);
+  window.addEventListener("scroll", onScroll, true);
+  quiet = setTimeout(finish, 220);
+  const cap = setTimeout(finish, SCROLL_MAX_MS);
+}
+
+/** An element's own corner, in px (a round one reads as half its short side). */
+function radiusOf(el: HTMLElement, r: DOMRect): number {
+  const raw = getComputedStyle(el).borderTopLeftRadius;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const px = raw.trim().endsWith("%") ? (Math.min(r.width, r.height) * n) / 100 : n;
+  return Math.min(px, Math.min(r.width, r.height) / 2);
+}
+
+/** The screen's safe areas, read off a probe padded with env(). */
+function safeOf(probe: HTMLElement | null): Bars {
+  if (!probe) return { top: 0, bottom: 0 };
+  const cs = getComputedStyle(probe);
+  return { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 };
+}
+
+/** Where everything is right now. */
+function readGeo(target: HTMLElement | null, probe: HTMLElement | null): Geo {
+  const vp = viewport();
+  return { vp, box: boxOf(target, vp), safe: safeOf(probe) };
 }
 
 /** Tall things are read from the top: only their top needs to be in view. */
-function isTall(el: HTMLElement) {
-  return el.getBoundingClientRect().height > window.innerHeight * 0.56;
+function isTall(el: HTMLElement, bars: Bars) {
+  return el.getBoundingClientRect().height > (window.innerHeight - bars.top - bars.bottom) * 0.56;
 }
 
-function inView(el: HTMLElement): boolean {
+function inView(el: HTMLElement, bars: Bars): boolean {
+  if (pinned(el)) return true;
   const r = el.getBoundingClientRect();
-  const vh = window.innerHeight;
-  if (isTall(el)) return r.top >= 56 && r.top <= vh * 0.35;
-  return r.top >= 72 && r.bottom <= vh - 24 && r.left >= 0 && r.right <= window.innerWidth;
+  const top = bars.top + 8;
+  const bottom = window.innerHeight - bars.bottom - 8;
+  if (isTall(el, bars)) return r.top >= top && r.top <= top + (bottom - top) * 0.35;
+  return r.top >= top && r.bottom <= bottom && r.left >= 0 && r.right <= window.innerWidth;
 }
 
-/** Bring it into view: centred, or a tall one's top just under the bar. */
-function reveal(el: HTMLElement, smooth: boolean) {
+/** Bring it into view, clear of the bars: centred, or a tall one's top just under the top bar. */
+function reveal(el: HTMLElement, smooth: boolean, bars: Bars) {
   const behavior: ScrollBehavior = smooth ? "smooth" : "auto";
-  if (!isTall(el)) {
-    el.scrollIntoView({ block: "center", inline: "nearest", behavior });
-    return;
-  }
-  const before = el.style.scrollMarginTop;
-  el.style.scrollMarginTop = "96px";
-  el.scrollIntoView({ block: "start", inline: "nearest", behavior });
-  el.style.scrollMarginTop = before;
+  const { scrollMarginTop, scrollMarginBottom } = el.style;
+  el.style.scrollMarginTop = `${bars.top + 16}px`;
+  el.style.scrollMarginBottom = `${bars.bottom + 16}px`;
+  el.scrollIntoView({ block: isTall(el, bars) ? "start" : "center", inline: "nearest", behavior });
+  el.style.scrollMarginTop = scrollMarginTop;
+  el.style.scrollMarginBottom = scrollMarginBottom;
 }
 
 /* ---- The overlay ------------------------------------------------------ */
@@ -149,8 +296,8 @@ interface Layer {
 interface Geo {
   vp: Viewport;
   box: Box | null;
-  /** The sheet's resting bottom edge (phones), untransformed. */
-  sheetBottom: number | null;
+  /** The screen's safe areas (a notch, a home bar). */
+  safe: Bars;
 }
 
 export function TourOverlay({
@@ -177,12 +324,14 @@ export function TourOverlay({
   const lineId = useId();
 
   const cardRef = useRef<HTMLDivElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const probeRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
 
   const [phase, setPhase] = useState<Phase>(reduced ? "glide" : "pre");
   const [target, setTarget] = useState<HTMLElement | null>(null);
-  const [geo, setGeo] = useState<Geo>(() => ({ vp: typeof window === "undefined" ? { w: 1280, h: 800 } : viewport(), box: null, sheetBottom: null }));
+  const [geo, setGeo] = useState<Geo>(() => ({ vp: typeof window === "undefined" ? { w: 1280, h: 800 } : viewport(), box: null, safe: { top: 0, bottom: 0 } }));
+  /** Counts each landing on a target, so the ring's pulse and the pointer wait for the light to arrive. */
+  const [landed, setLanded] = useState(0);
   const [card, setCard] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [settled, setSettled] = useState(false);
 
@@ -215,7 +364,7 @@ export function TourOverlay({
   }, [index, step.then]);
   const scene = pose.second && pose.index === index && step.then ? step.then : step.scene;
 
-  /* -- Finding the target: wait a little for it to render, bring it into view, then light it. */
+  /* -- Finding the target: wait for it to render and hold still, bring it into view, then light it. */
   const targetsKey = copy.targets.join("|");
   useEffect(() => {
     const names = targetsKey ? targetsKey.split("|") : [];
@@ -224,32 +373,57 @@ export function TourOverlay({
     const started = Date.now();
     const land = (el: HTMLElement | null) => {
       if (!alive) return;
+      clearTimeout(timer);
       setTarget(el);
-      setGeo(readGeo(el, sheetRef.current));
+      setGeo(readGeo(el, probeRef.current));
+      setLanded((n) => n + 1);
       setPhase((p) => (p === "track" ? "glide" : p));
     };
+    // While the target is still loading, the light leaves the last one (after a moment, so a target
+    // that's simply settling doesn't make the light blink): the new words never sit beside the old
+    // spotlight. It glides on once the target turns up.
+    let letGo = false;
+    let revealed = false;
+    let seen: Box | null = null;
+    let seenAt = 0;
     const look = () => {
       if (!alive) return;
-      const el = names.length ? findTarget(names) : null;
-      if (!el && names.length && Date.now() - started < FIND_FOR_MS) {
-        timer = setTimeout(look, FIND_EVERY_MS);
+      const waited = Date.now() - started;
+      if (names.length === 0) return land(null);
+      if (!letGo && waited > LET_GO_MS) {
+        letGo = true;
+        setTarget(null);
+        setGeo(readGeo(null, probeRef.current));
+      }
+      const el = findTarget(names);
+      if (!el) {
+        if (waited < FIND_FOR_MS) timer = setTimeout(look, FIND_EVERY_MS);
+        else land(null);
         return;
       }
-      if (el && !inView(el)) {
-        reveal(el, !reduced);
-        // Light it once the page has come to rest (scrollend where there is one).
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          window.removeEventListener("scrollend", finish, true);
-          land(el);
-        };
-        window.addEventListener("scrollend", finish, true);
-        timer = setTimeout(finish, reduced ? 0 : 520);
+      // Bring it into view once, then light it when the page has come to rest.
+      const bars = barInsets(viewport());
+      if (!revealed && !inView(el, bars)) {
+        revealed = true;
+        reveal(el, !reduced, bars);
+        afterScroll(reduced, () => {
+          if (alive) look();
+        });
         return;
       }
-      land(el);
+      // Settled: its box has held still for a moment, and nothing on screen is still loading.
+      // A page that never settles gets its light anyway, at the cap.
+      const vp = viewport();
+      const box = boxOf(el, vp);
+      // Not yet: a sheet still sliding up from below the screen can hold still at its edge for a moment.
+      const shown = box !== null && Math.min(box.y + box.h, vp.h) - Math.max(box.y, 0) >= Math.min(box.h, 48);
+      const still = shown && seen !== null && sameBox(box, seen);
+      if (!still) {
+        seen = box;
+        seenAt = Date.now();
+      }
+      if ((still && Date.now() - seenAt >= STABLE_MS && !pageBusy()) || waited >= SETTLE_CAP_MS) return land(el);
+      timer = setTimeout(look, SETTLE_EVERY_MS);
     };
     timer = setTimeout(look, 0);
     return () => {
@@ -258,37 +432,33 @@ export function TourOverlay({
     };
   }, [targetsKey, index, reduced]);
 
-  /* -- Measuring: read-only, batched to a frame, on every scroll, resize and change of size. */
+  /* -- Following it: a scroll cuts the light to the target as it moves (no glide lagging behind a
+     finger); a frame loop catches everything else that moves it — a resize, a layout shift as
+     something above it loads, a sticky bar, a transformed or animating container — and hands the
+     new box over only when it has actually changed. */
   useEffect(() => {
     let frame = 0;
-    const track = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        setPhase((p) => (p === "glide" ? "track" : p));
-        setGeo(readGeo(target, sheetRef.current));
-      });
+    let last: Geo | null = null;
+    const measure = () => {
+      frame = requestAnimationFrame(measure);
+      const next = readGeo(target, probeRef.current);
+      if (last && sameGeo(last, next)) return;
+      last = next;
+      setGeo(next);
     };
+    frame = requestAnimationFrame(measure);
     // Only scrolling that moves the target counts: the page, or a box it sits in —
     // not a carousel sliding somewhere else on the page.
     const onScroll = (e: Event) => {
       const at = e.target;
-      if (at === document || at === document.documentElement || (target && at instanceof Node && at.contains(target))) track();
+      if (at === document || at === document.documentElement || (target && at instanceof Node && at.contains(target))) {
+        setPhase((p) => (p === "glide" ? "track" : p));
+      }
     };
-    // A ResizeObserver reports once on observing; that's not a change.
-    let first = true;
-    const ro = new ResizeObserver(() => {
-      if (first) first = false;
-      else track();
-    });
-    window.addEventListener("resize", track);
     window.addEventListener("scroll", onScroll, true);
-    if (target) ro.observe(target);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener("resize", track);
       window.removeEventListener("scroll", onScroll, true);
-      ro.disconnect();
     };
   }, [target]);
 
@@ -388,23 +558,41 @@ export function TourOverlay({
     };
   }, []);
 
+  /* -- Arriving: the ring's pulse and the pointer wait for the light (and the card) to get there. */
+  const arriveKey = `${index}:${landed}`;
+  const [arrivedFor, setArrivedFor] = useState<string | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => setArrivedFor(arriveKey), reduced ? 0 : Math.max(DURATION.tourIris, DURATION.tourGlide + DURATION.tourTrail));
+    return () => clearTimeout(t);
+  }, [arriveKey, reduced]);
+  const arrived = arrivedFor === arriveKey && phase !== "pre" && phase !== "exit";
+
   /* -- Geometry for this render. */
+  const [kept, setKept] = useState<Dock | null>(null);
   const { vp } = geo;
   let hole: Hole | null = geo.box ? holeFor(geo.box, vp) : null;
-  const size = { w: card.w || (phone ? vp.w - SHEET_INSET * 2 : CARD_W), h: card.h || 320 };
+  const size = { w: card.w || (phone ? vp.w - SHEET_INSET * 2 : CARD_W), h: card.h || 220 };
 
   let cardX = 0;
   let cardY = 0;
   let arrow: { side: Side; along: number } | null = null;
-  let lift = 0;
+  let pointer: { x1: number; y1: number; x2: number; y2: number } | null = null;
+  let dock: Dock | null = null;
   let centre: { x: number; y: number };
   if (phone) {
-    const bottom = geo.sheetBottom ?? vp.h - SHEET_INSET;
-    const sp = placeSheet(hole, { h: size.h }, vp, SHEET_INSET, vp.h - SHEET_INSET - bottom);
-    lift = sp.lift;
-    hole = sp.hole;
-    if (sp.along !== null) arrow = { side: "bottom", along: sp.along };
-    centre = { x: vp.w / 2, y: bottom - size.h / 2 };
+    // Docked to the end the target isn't at; while the page only scrolls, it stays where it is.
+    const edges = { top: geo.safe.top + SHEET_INSET, bottom: geo.safe.bottom + SHEET_INSET };
+    const p = placeDock(hole, { h: size.h }, vp, edges, phase === "track" ? kept : null);
+    hole = p.hole;
+    dock = p.dock;
+    cardY = p.y;
+    cardX = Math.max(SHEET_INSET, (vp.w - size.w) / 2);
+    if (p.pointer) {
+      // The line leaves the card from its nearest point to the target.
+      const x1 = Math.min(Math.max(p.pointer.x, cardX + 20), cardX + size.w - 20);
+      pointer = { x1, y1: p.pointer.from, x2: p.pointer.x, y2: p.pointer.to };
+    }
+    centre = { x: vp.w / 2, y: p.y + size.h / 2 };
   } else {
     const p = placeCard(hole, size, vp);
     hole = p.hole;
@@ -413,28 +601,133 @@ export function TourOverlay({
     if (p.side) arrow = { side: p.side, along: p.along };
     centre = { x: p.x + size.w / 2, y: p.y + size.h / 2 };
   }
+  // Remember the end the card is at, for the next scroll.
+  if (phone && kept !== dock) setKept(dock);
 
   const shape: Hole =
     phase === "pre" || (phase === "exit" && !reduced) ? openHole(vp) : hole ?? closedHole(centre);
   const lit = Boolean(hole) && phase !== "pre" && phase !== "exit";
+  // Tapping the lit thing moves on, where moving on is what the step's button does.
+  const tapNext = lit && hole !== null && primary.move === "next";
 
   /* -- The words for a step, on this screen. */
   const words = (i: number) => resolveStep(tour.steps[i], phone);
   const announce = `Step ${index + 1} of ${tour.steps.length}. ${copy.title}. ${copy.line}`;
 
-  const body = (
+  const words_ = (
+    <div className={styles.stack}>
+      {/* Every step's words, unseen: the cell takes the tallest, so the card never jumps. */}
+      {tour.steps.map((_, i) => {
+        const w = words(i);
+        return (
+          <div key={`size-${i}`} aria-hidden className={styles.sizer}>
+            <Title compact={phone}>{w.title}</Title>
+            <Line compact={phone}>{w.line}</Line>
+          </div>
+        );
+      })}
+      {layers.map((l) => {
+        const w = words(l.index);
+        const incoming = l.state === "in";
+        return (
+          <div
+            key={l.key}
+            aria-hidden={incoming ? undefined : true}
+            className={incoming ? styles.in : styles.out}
+            style={{ "--dir": l.dir, "--lead": moved ? `${DURATION.tourTextLead}ms` : `${Math.round(DURATION.tourIris * 0.42)}ms` } as CSSProperties}
+          >
+            <div className={styles.mask}>
+              <Title id={incoming ? titleId : undefined} className={styles.rise} i={0} compact={phone}>
+                {w.title}
+              </Title>
+            </div>
+            <div className={styles.mask}>
+              <Line id={incoming ? lineId : undefined} className={styles.rise} i={1} compact={phone}>
+                {w.line}
+              </Line>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const live = (
+    <p className="sr-only" aria-live="polite" aria-atomic="true">
+      {moved ? announce : ""}
+    </p>
+  );
+
+  // Phones: Back on the left (or the first step's "Later"), dots in the middle, the way on at the right;
+  // Skip — or the last step's own way out — in the corner.
+  const quiet = secondary && secondary.move !== "back" ? secondary : null;
+  const phoneBack = index > 0;
+  const corner: { label: string; move: TourMove } | null = phoneBack && quiet ? quiet : !last ? { label: "Skip", move: "finish" } : null;
+  const left = phoneBack ? null : quiet;
+
+  const body = phone ? (
     <div
       ref={cardRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={lineId}
-      className={cn(
-        styles.card,
-        "bg-popover text-popover-foreground shadow-popover",
-        phone ? "w-full rounded-[24px] p-2" : "rounded-overlay p-2",
+      className={cn(styles.card, "relative w-full rounded-[20px] bg-popover p-3 text-popover-foreground shadow-popover")}
+    >
+      {corner && (
+        <button
+          type="button"
+          onClick={() => onMove(corner.move)}
+          className="press absolute top-1.5 right-1.5 flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-semibold text-subtle transition-colors outline-none hover:bg-tint/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ember"
+        >
+          {corner.label}
+        </button>
       )}
-      style={phone ? undefined : { width: CARD_W }}
+
+      <div className="flex items-start gap-3">
+        {/* The drawing as a thumbnail: a 5:4 box to match its viewBox, so it's scaled, never cropped. */}
+        <div aria-hidden className="w-[104px] shrink-0 rounded-[12px] bg-tint/[0.04] p-1">
+          <div className="aspect-[5/4] w-full">
+            <TourArt scene={scene} className="block size-full" />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5">{words_}</div>
+      </div>
+
+      <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+        <div className="flex min-w-0 justify-start">
+          {phoneBack ? (
+            <Pill variant="glass" size="md" iconOnly aria-label="Back" icon={<CaretLeft size={16} weight="bold" />} onClick={() => onMove("back")} />
+          ) : left ? (
+            <Pill variant="ghost" size="md" onClick={() => onMove(left.move)} className="-ml-1 px-3 text-[13.5px]">
+              {left.label}
+            </Pill>
+          ) : null}
+        </div>
+        <Dots count={tour.steps.length} at={index} />
+        <div className="flex min-w-0 justify-end">
+          <Pill
+            ref={primaryRef}
+            variant={primary.move === "practice" ? "ember" : "primary"}
+            size="md"
+            onClick={() => onMove(primary.move)}
+            className="px-3.5 text-[13.5px]"
+          >
+            {primary.label}
+          </Pill>
+        </div>
+      </div>
+      {live}
+    </div>
+  ) : (
+    <div
+      ref={cardRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={lineId}
+      className={cn(styles.card, "rounded-overlay bg-popover p-2 text-popover-foreground shadow-popover")}
+      style={{ width: CARD_W }}
     >
       {/* Where you are, and the way out. */}
       <div className="flex h-8 items-center justify-between pr-1 pl-3">
@@ -454,48 +747,14 @@ export function TourOverlay({
           viewBox, generous, and never clipped — parts that overshoot or grow mid-morph
           spill into the padding around it, not off a cropped edge. One drawing for the
           whole tour: only its scene changes, so it morphs rather than replays. */}
-      <div aria-hidden className={cn("mx-auto px-3 py-3", phone ? "w-[min(344px,100%,calc(40vh+24px))]" : "w-[296px]")}>
+      <div aria-hidden className="mx-auto w-[296px] px-3 py-3">
         <div className="aspect-[5/4] w-full">
           <TourArt scene={scene} className="w-full" />
         </div>
       </div>
 
       <div className="px-3 pt-1 pb-2">
-        <div className={styles.stack}>
-          {/* Every step's words, unseen: the cell takes the tallest, so the card never jumps. */}
-          {tour.steps.map((_, i) => {
-            const w = words(i);
-            return (
-              <div key={`size-${i}`} aria-hidden className={styles.sizer}>
-                <Title>{w.title}</Title>
-                <Line>{w.line}</Line>
-              </div>
-            );
-          })}
-          {layers.map((l) => {
-            const w = words(l.index);
-            const incoming = l.state === "in";
-            return (
-              <div
-                key={l.key}
-                aria-hidden={incoming ? undefined : true}
-                className={incoming ? styles.in : styles.out}
-                style={{ "--dir": l.dir, "--lead": moved ? `${DURATION.tourTextLead}ms` : `${Math.round(DURATION.tourIris * 0.42)}ms` } as CSSProperties}
-              >
-                <div className={styles.mask}>
-                  <Title id={incoming ? titleId : undefined} className={styles.rise} i={0}>
-                    {w.title}
-                  </Title>
-                </div>
-                <div className={styles.mask}>
-                  <Line id={incoming ? lineId : undefined} className={styles.rise} i={1}>
-                    {w.line}
-                  </Line>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {words_}
 
         <div className="mt-5 flex items-center justify-end gap-2">
           {back && (
@@ -516,33 +775,62 @@ export function TourOverlay({
           </Pill>
         </div>
       </div>
-
-      <p className="sr-only" aria-live="polite" aria-atomic="true">
-        {moved ? announce : ""}
-      </p>
+      {live}
     </div>
   );
+
+  // The ring's outer edge, where the pulse starts.
+  const RING = 2;
+  const ringBox = hole
+    ? { x: hole.x - RING, y: hole.y - RING, w: hole.w + RING * 2, h: hole.h + RING * 2, r: hole.r + RING }
+    : null;
 
   return createPortal(
     <div
       data-tour-root
       data-phase={phase}
       data-lit={lit || undefined}
+      data-arrived={(lit && arrived) || undefined}
+      data-target={(lit && target?.dataset.tour) || undefined}
       className={styles.root}
       style={TOUR_VARS}
     >
+      <div ref={probeRef} aria-hidden className={styles.probe} />
       <div aria-hidden className={styles.scrim} style={{ clipPath: scrimClip(shape) }} />
-      <div aria-hidden className={styles.ring} style={{ clipPath: ringClip(shape) }} />
+      <div aria-hidden className={styles.ring} style={{ clipPath: ringClip(shape, RING) }} />
+      {ringBox && (
+        <div
+          aria-hidden
+          className={styles.pulse}
+          style={{
+            transform: `translate3d(${ringBox.x}px, ${ringBox.y}px, 0)`,
+            width: ringBox.w,
+            height: ringBox.h,
+            borderRadius: ringBox.r,
+          }}
+        />
+      )}
+      {/* The lit thing, tappable: it's the same as Next. The dim swallows taps and does nothing. */}
+      {tapNext && hole && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className={styles.hit}
+          onClick={() => onMove("next")}
+          style={{ transform: `translate3d(${hole.x}px, ${hole.y}px, 0)`, width: hole.w, height: hole.h, borderRadius: hole.r }}
+        />
+      )}
+      {phone && <Pointer line={lit ? pointer : null} />}
 
       {phone ? (
         <div
-          ref={sheetRef}
           data-settled={settled || undefined}
-          className={styles.sheet}
-          style={{ transform: `translate3d(0, ${-lift}px, 0)` }}
+          data-dock={dock ?? "centre"}
+          className={styles.dock}
+          style={{ transform: `translate3d(${Math.round(cardX)}px, ${Math.round(cardY)}px, 0)`, width: Math.min(vp.w - SHEET_INSET * 2, PHONE_CARD_MAX) }}
         >
           {body}
-          <Arrow arrow={arrow} />
         </div>
       ) : (
         <div
@@ -561,11 +849,16 @@ export function TourOverlay({
 
 /* ---- Pieces ----------------------------------------------------------- */
 
-function Title({ children, id, className, i }: { children: string; id?: string; className?: string; i?: number }) {
+function Title({ children, id, className, i, compact }: { children: string; id?: string; className?: string; i?: number; compact?: boolean }) {
   return (
     <h2
       id={id}
-      className={cn("font-wide text-[19px] leading-[1.18] font-bold tracking-[-0.02em] text-balance text-foreground", className)}
+      className={cn(
+        "font-wide font-bold tracking-[-0.02em] text-balance text-foreground",
+        // On a phone the corner holds Skip: the title keeps clear of it.
+        compact ? "pr-10 text-[16px] leading-[1.2]" : "text-[19px] leading-[1.18]",
+        className,
+      )}
       style={i === undefined ? undefined : ({ "--i": i } as CSSProperties)}
     >
       {children}
@@ -573,11 +866,11 @@ function Title({ children, id, className, i }: { children: string; id?: string; 
   );
 }
 
-function Line({ children, id, className, i }: { children: string; id?: string; className?: string; i?: number }) {
+function Line({ children, id, className, i, compact }: { children: string; id?: string; className?: string; i?: number; compact?: boolean }) {
   return (
     <p
       id={id}
-      className={cn("mt-1.5 text-[14.5px] leading-[1.5] text-pretty text-subtle", className)}
+      className={cn("text-pretty text-subtle", compact ? "mt-1 text-[13.5px] leading-[1.42]" : "mt-1.5 text-[14.5px] leading-[1.5]", className)}
       style={i === undefined ? undefined : ({ "--i": i } as CSSProperties)}
     >
       {children}
@@ -628,5 +921,23 @@ function Arrow({ arrow }: { arrow: { side: Side; along: number } | null }) {
         );
       })}
     </>
+  );
+}
+
+/**
+ * The phone's pointer: an Ember line from the card to the lit thing, with a
+ * dot where it leaves the card and a head where it arrives. It draws itself
+ * once the light has landed, and is simply not there while things glide.
+ */
+function Pointer({ line }: { line: { x1: number; y1: number; x2: number; y2: number } | null }) {
+  if (!line) return <svg aria-hidden className={styles.pointer} />;
+  const { x1, y1, x2, y2 } = line;
+  const turn = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
+  return (
+    <svg aria-hidden className={styles.pointer}>
+      <circle cx={x1} cy={y1} r={3} className={styles.pointerDot} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} pathLength={1} className={styles.pointerLine} />
+      <path d="M-7 -6 L0 0 L-7 6" transform={`translate(${x2} ${y2}) rotate(${turn})`} className={styles.pointerHead} />
+    </svg>
   );
 }

@@ -93,6 +93,12 @@ export interface Tour {
   offAir?: boolean;
   /** Also allowed over this dialog (the gift keyboard's tour plays over the keyboard). */
   over?: string;
+  /**
+   * Plays even with the panel holding this target up — a panel that's part of the screen, not
+   * something in the way (the studio's room sheet on a phone, which is up the whole time you're live).
+   * Unlike `over`, the tour doesn't need it there to start.
+   */
+  beside?: string;
   steps: TourStep[];
 }
 
@@ -233,6 +239,8 @@ export const TOURS: Tour[] = [
     name: "Live in the studio, explained",
     trigger: [{ kind: "action", action: "first-live" }],
     audience: "signed-in",
+    // On a phone the room (chat, Guests, Scenes…) is a sheet that's always up while you're live.
+    beside: "studio-scenes",
     steps: [
       {
         scene: "countdown",
@@ -290,6 +298,9 @@ export const TOURS: Tour[] = [
         target: "points",
         title: "Points for watching",
         line: "Watching earns points, and coming back each day grows your streak.",
+        // A phone's watch page has no points chip (the picture owns the screen): the step plays
+        // centred, and says where the points live instead of waiting for a target that won't come.
+        phone: { target: [], line: "Watching earns points, and coming back each day grows your streak. They're in Rewards, in the menu." },
       },
       {
         scene: "rings",
@@ -368,6 +379,8 @@ export const TOURS: Tour[] = [
         target: "messages-calls",
         title: "Call from any chat",
         line: "Voice or video, right from the thread. It rings in WorldSpace too.",
+        // A phone shows the list, not the calls tile: the calls are one tap into any chat.
+        phone: { target: "messages-thread", line: "Open any chat: voice and video calls are at the top. It rings in WorldSpace too." },
       },
     ],
   },

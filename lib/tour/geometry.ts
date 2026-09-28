@@ -17,6 +17,8 @@ export interface Box {
   y: number;
   w: number;
   h: number;
+  /** The target's own corner radius, when it has one of its own to follow. */
+  r?: number;
 }
 
 export interface Hole extends Box {
@@ -95,7 +97,12 @@ export function ringClip(hole: Hole, width = 1.5): string {
 /** A target taller than this share of the screen is lit from its top down, leaving room for the card. */
 const TALL = 0.56;
 
-/** The hole around a target: a little air, and a radius that suits its size. */
+/**
+ * The hole around a target: its real box, a little air, and its own corner
+ * grown by that air, so the ring runs parallel to the element's edge. A
+ * target with no corner of its own gets a round hole when it's small (a tab,
+ * an avatar) and a card's corner when it's big.
+ */
 export function holeFor(target: Box, vp: Viewport): Hole {
   const pad = target.w < 64 && target.h < 64 ? 6 : 8;
   const x = Math.max(4, target.x - pad);
@@ -104,8 +111,15 @@ export function holeFor(target: Box, vp: Viewport): Hole {
   const bottom = Math.min(vp.h - 4, target.y + target.h + pad, y + vp.h * TALL);
   const w = Math.max(0, right - x);
   const h = Math.max(0, bottom - y);
-  // Round things stay round (a Go live button, an avatar); panels get a panel's corner.
-  const r = Math.min(w, h) <= 72 ? Math.min(w, h) / 2 : 16;
+  const short = Math.min(w, h);
+  const own = target.r;
+  const round = own !== undefined && own >= Math.min(target.w, target.h) / 2 - 1;
+  const r =
+    round || (own === undefined || own === 0 ? short <= 72 : false)
+      ? short / 2
+      : own !== undefined && own > 0
+        ? Math.min(own + pad, short / 2)
+        : Math.min(12, short / 2);
   return { x, y, w, h, r };
 }
 
@@ -210,29 +224,75 @@ export function placeCard(hole: Hole | null, card: { w: number; h: number }, vp:
   return { x: (vp.w - card.w) / 2, y: vp.h - card.h - MARGIN * 2, side: null, along: 0, hole };
 }
 
+/* ---- Phones: a compact card docked to one end ---------------------- */
+
+export type Dock = "top" | "bottom";
+
+export interface DockPlacement {
+  /** The card's top edge, in viewport pixels. */
+  y: number;
+  /** The end it's docked to; null when it's centred (no target). */
+  dock: Dock | null;
+  /** The hole as lit (a target too big to clear is lit where the card isn't). */
+  hole: Hole | null;
+  /** The pointer: a line at `x` from the card's edge (`from`) to the hole's (`to`). */
+  pointer: { x: number; from: number; to: number } | null;
+}
+
+/** Clear air between the card and the hole, so the pointer has room to be a pointer. */
+export const DOCK_GAP = 30;
+/** The pointer starts this far off the card and stops this far short of the ring. */
+const POINTER_OFF_CARD = 4;
+const POINTER_OFF_RING = 9;
+
 /**
- * Phones: a sheet floating at the foot of the screen. When the target sits
- * where the sheet would cover it (the tab bar, the Go live button), the
- * sheet lifts to sit just above it and points down at it; a big target
- * (a grid) is lit down to the sheet's top edge instead.
+ * Phones: the card never covers what it names. A target in the lower half
+ * (the tab bar, Go live, the studio's tools) puts the card at the top of the
+ * screen; one in the upper half puts it at the foot. `edges` are the card's
+ * margins from the screen's top and bottom (safe areas included). `keep` is
+ * the end it's at now: while the page merely scrolls, it stays put for as
+ * long as the target stays clear of it, rather than flapping at the midline.
+ *
+ * A target too big to clear from either end (a grid of covers) is lit only
+ * where the card isn't, a gap short of it.
  */
-export function placeSheet(
+export function placeDock(
   hole: Hole | null,
-  sheet: { h: number },
+  card: { h: number },
   vp: Viewport,
-  inset: number,
-  safeBottom: number,
-): { lift: number; along: number | null; hole: Hole | null } {
-  if (!hole || hole.w === 0) return { lift: 0, along: null, hole: null };
-  const top = vp.h - safeBottom - inset - sheet.h;
-  if (hole.y + hole.h <= top - 8) return { lift: 0, along: null, hole };
-  const lift = vp.h - safeBottom - inset - (hole.y - 12);
-  if (top - lift >= MARGIN) {
-    const cx = hole.x + hole.w / 2 - inset;
-    return { lift, along: clamp(cx, CORNER, vp.w - inset * 2 - CORNER), hole };
+  edges: { top: number; bottom: number },
+  keep: Dock | null = null,
+): DockPlacement {
+  if (!hole || hole.w === 0) return { y: Math.round((vp.h - card.h) / 2), dock: null, hole: null, pointer: null };
+
+  const topY = edges.top;
+  const bottomY = vp.h - edges.bottom - card.h;
+  const room = (d: Dock, h: Hole) => (d === "top" ? h.y - (topY + card.h) : bottomY - (h.y + h.h));
+  const docked = (d: Dock, h: Hole): DockPlacement => {
+    const x = clamp(h.x + h.w / 2, MARGIN + CORNER / 2, vp.w - MARGIN - CORNER / 2);
+    const pointer =
+      d === "top"
+        ? { x, from: topY + card.h + POINTER_OFF_CARD, to: h.y - POINTER_OFF_RING }
+        : { x, from: bottomY - POINTER_OFF_CARD, to: h.y + h.h + POINTER_OFF_RING };
+    return { y: d === "top" ? topY : bottomY, dock: d, hole: h, pointer: Math.abs(pointer.to - pointer.from) >= 8 ? pointer : null };
+  };
+
+  const byHalf: Dock = hole.y + hole.h / 2 > vp.h / 2 ? "top" : "bottom";
+  const other: Dock = byHalf === "top" ? "bottom" : "top";
+  const order: Dock[] = keep && room(keep, hole) >= DOCK_GAP ? [keep] : [byHalf, other];
+  for (const d of order) if (room(d, hole) >= DOCK_GAP) return docked(d, hole);
+
+  // Too big to clear: light it down to a gap above the card, or failing that, up from below it.
+  const belowEnd = bottomY - DOCK_GAP; // card at the foot: light down to here
+  const aboveStart = topY + card.h + DOCK_GAP; // card at the top: light from here
+  const litBottom = Math.min(hole.y + hole.h, belowEnd) - hole.y;
+  const litTop = hole.y + hole.h - Math.max(hole.y, aboveStart);
+  if (Math.max(litBottom, litTop) >= MIN_LIT) {
+    // Its top is where its heading is: keep that in the light when there's enough of it.
+    if (litBottom >= MIN_LIT) return docked("bottom", { ...hole, h: litBottom, r: Math.min(hole.r, litBottom / 2) });
+    const y = Math.max(hole.y, aboveStart);
+    return docked("top", { ...hole, y, h: litTop, r: Math.min(hole.r, litTop / 2) });
   }
-  // Can't lift over it: light what's above the sheet, if that's enough to see.
-  const room = top - 12 - hole.y;
-  if (room >= MIN_LIT) return { lift: 0, along: null, hole: { ...hole, h: Math.min(hole.h, room) } };
-  return { lift: 0, along: null, hole };
+  // Nothing sensible to light around it: keep the card clear of its middle at least.
+  return { ...docked(byHalf, hole), pointer: null };
 }

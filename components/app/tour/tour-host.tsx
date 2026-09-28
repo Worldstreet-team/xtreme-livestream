@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLiveSession } from "@/lib/live-session";
 import { TOURS, tourById, type Tour, type TourId, type TourMove } from "@/lib/tour/story";
 import { PRACTICE_EVENT, PRACTICE_HREF, forcedTour, isTourDue, markTourSeen, onTourAction, resetTours, snoozeTour } from "@/lib/tour/state";
-import { TourOverlay } from "./tour-overlay";
+import { TourOverlay, pageBusy } from "./tour-overlay";
 
 /**
  * Plays the walkthrough — one tour at a time, never over another dialog.
@@ -33,7 +33,17 @@ const SETTLE_MS = 1100;
 const ACTION_SETTLE_MS = 1600;
 /** How often, and for how long, to wait for another dialog to close. */
 const POLL_MS = 700;
+const READY_POLL_MS = 200;
 const GIVE_UP_MS = 30_000;
+/** How long a tour waits for the page to finish loading (fonts, skeletons) before starting regardless. */
+const READY_CAP_MS = 8000;
+
+/** The page has finished loading: the document and its fonts are in, and no skeleton or spinner is showing. */
+function pageReady(): boolean {
+  if (document.readyState !== "complete") return false;
+  if (document.fonts && document.fonts.status !== "loaded") return false;
+  return !pageBusy();
+}
 
 interface Playing {
   tour: Tour;
@@ -124,8 +134,8 @@ export function TourHost() {
     const forced = forcedTour();
     const href = window.location.pathname + window.location.search;
     if (forced && forcedFor.current !== href) {
-      forcedFor.current = href;
       if (forced.id === "reset") {
+        forcedFor.current = href;
         resetTours(uid);
       } else {
         const tour = tourById(forced.id);
@@ -172,11 +182,19 @@ export function TourHost() {
         return;
       }
       if (!pick.forced && inPreview()) return;
-      if (somethingOpen(pick.tour.over)) {
+      if (somethingOpen(pick.tour.over ?? pick.tour.beside)) {
         timer = setTimeout(attempt, POLL_MS);
         return;
       }
+      // Let the page finish loading first (up to a point: a page that never settles still gets its tour).
+      if (!pageReady() && Date.now() - started < pick.settle + READY_CAP_MS) {
+        timer = setTimeout(attempt, READY_POLL_MS);
+        return;
+      }
       setQueued((q) => q.filter((id) => id !== pick.tour.id));
+      // A replay counts as played only once it starts: the page settling (auth, the live session)
+      // re-runs this effect and clears the wait, and the replay must survive that.
+      if (pick.forced) forcedFor.current = window.location.pathname + window.location.search;
       setPlaying({ tour: pick.tour, index: pick.index, forced: pick.forced, closing: false, path: pathname });
     };
     timer = setTimeout(attempt, pick.settle);
