@@ -34,6 +34,12 @@
   --pa-ink: var(--foreground);
   --pa-muted: var(--muted-foreground);
 }
+/* On paper: a faint warm wash (Go live is heat), so the card isn't a cut-out. */
+[data-theme="light"] .themeGolive {
+  --pa-bg: color-mix(in srgb, var(--chili) 7%, #ffffff);
+  --pa-card: #ffffff;
+  --pa-disc: color-mix(in srgb, var(--chili) 9%, transparent);
+}
 
 /* WorldSpace, and the Wolf (it lives on WorldSpace's /votes): the socials'
    "platform" theme, default "Tide" palette
@@ -62,16 +68,18 @@
 [data-theme="light"] .themeWorldspace,
 [data-theme="light"] .themeWolf {
   /* html[data-ws-theme=platform-light] */
-  --pa-bg: #ffffff; /* --ws-bg-surface */
+  /* On paper a white card on the off-white page reads as a cut-out, so the
+     ground is a wash of the brand cyan and the drawn cards are the white. */
+  --pa-bg: #e3f4f8; /* ~10% --ws-brand-primary on white */
   --pa-ink: #0c0a09; /* --ws-text-primary oklch(0.147 0.004 49.3) */
-  --pa-muted: #78716c; /* --ws-text-muted oklch(0.547 0.021 43.1) */
-  --pa-card: #f2f1f1; /* --ws-bg-raised oklch(0.96 0.002 17.2) */
-  --pa-card2: #e7e5e4; /* --ws-border-hairline oklch(0.922 0.005 34.3) */
+  --pa-muted: #57534e; /* a step darker than --ws-text-muted, for the wash */
+  --pa-card: #ffffff; /* --ws-bg-surface */
+  --pa-card2: #cfe9f0; /* the wash, a step deeper */
   --pa-line: rgb(12 10 9 / 0.3);
   --pa-line-soft: rgb(12 10 9 / 0.14);
   --pa-bar: rgb(12 10 9 / 0.1);
   --pa-art-ink: rgb(12 10 9 / 0.38);
-  --pa-disc: rgb(12 10 9 / 0.035);
+  --pa-disc: rgb(34 184 214 / 0.12);
   --pa-hi: #0c0a09;
   --pa-on-hi: #ffffff;
   --pa-accent: #22b8d6; /* the fill is the same on paper */
@@ -105,16 +113,18 @@
   --pa-no-solid: #ac3031; /* --no-solid (red-400) */
 }
 [data-theme="light"] .themePrediction {
-  --pa-bg: #ffffff; /* --bg-surface (neutral-0) */
+  /* A wash of its blue for the ground (a white card alone reads as a
+     cut-out on the off-white page); the drawn cards are its white surface. */
+  --pa-bg: #e8eefd; /* ~9% --accent on white */
   --pa-ink: #0e0f11; /* --text-primary */
-  --pa-muted: #5f6772; /* --text-secondary */
-  --pa-card: #f4f5f6; /* --bg-element (neutral-50) */
-  --pa-card2: #e6e8ea; /* --bg-element-2 (neutral-100) */
+  --pa-muted: #4d5560; /* a step darker than --text-secondary, for the wash */
+  --pa-card: #ffffff; /* --bg-surface (neutral-0) */
+  --pa-card2: #d7e1fb; /* the wash, a step deeper */
   --pa-line: #aeb4bc; /* --border-active (neutral-300) */
   --pa-line-soft: #caced3; /* --border-hover (neutral-200) */
   --pa-bar: #e6e8ea;
   --pa-art-ink: #939aa5; /* neutral-400 */
-  --pa-disc: rgb(14 15 17 / 0.03);
+  --pa-disc: rgb(20 82 240 / 0.08);
   --pa-hi: #0e0f11;
   --pa-on-hi: #ffffff;
   --pa-accent: #1452f0; /* --accent (brand-500, light) */
