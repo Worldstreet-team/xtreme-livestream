@@ -6,12 +6,13 @@ import { useClerk } from "@clerk/nextjs";
 import { ArrowUpRight, Camera, Check, Copy, Eye, EyeSlash, Plus, Shield, SignOut, Warning, X } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { CATEGORY_GROUPS, POPULAR_CATEGORIES, formatNumber } from "@/lib/categories";
+import { POPULAR_CATEGORIES, formatNumber } from "@/lib/categories";
 import { categoryArt } from "@/lib/category-art";
 import { useTheme } from "@/lib/theme";
 import { compressImage } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select-field";
+import { CategoryField } from "@/components/app/category-chooser";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { ShowRules } from "@/components/app/show-rules";
@@ -769,7 +770,6 @@ function FeedSection() {
   const { user, refreshUser } = useAuth();
   const [picked, setPicked] = useState<string[]>(() => user?.onboarding?.categories ?? []);
   const [language, setLanguage] = useState(() => user?.onboarding?.language || "en");
-  const [adding, setAdding] = useState("");
   const [saving, setSaving] = useState(false);
   const [flash, show] = useSavedFlash();
 
@@ -833,18 +833,15 @@ function FeedSection() {
           )}
 
           <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <SelectField
+            <CategoryField
               id="settings-add-interest"
-              full
-              value={adding}
+              value=""
               placeholder={full ? "That's eight — remove one to add another" : "Add a category"}
-              searchPlaceholder="Search 170 categories"
-              art={(v) => categoryArt(v, { w: 72, h: 96 }, theme)}
-              onChange={(v) => {
-                add(v);
-                setAdding("");
-              }}
-              groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.filter((t) => !picked.includes(t)).map((t) => ({ value: t, label: t })) })).filter((g) => g.options.length > 0)}
+              label="Add a category"
+              disabled={full}
+              exclude={picked}
+              fly={false}
+              onChange={add}
             />
           </div>
           {suggestions.length > 0 && !full && (

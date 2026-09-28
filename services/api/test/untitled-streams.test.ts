@@ -4,8 +4,8 @@ import type { FastifyInstance } from "fastify";
 
 /**
  * Going live is one tap (owner, 2026-09-28: "let them just click Live"): a
- * title is optional. The API names an untitled stream after its host, a
- * booking keeps the name it was booked under, and renaming a stream on air
+ * title is optional. The API names an untitled stream from its host and its
+ * category, a booking keeps the name it was booked under, and renaming a stream on air
  * reaches everyone watching — without the rename (or the studio's thumbnail
  * refresh) resetting anything it didn't send.
  */
@@ -78,6 +78,7 @@ const models = await import("../src/models.js");
 const db = models as unknown as Record<string, import("./fake-mongo.js").FakeModel>;
 const { createStreamBodySchema, updateStreamBodySchema } = await import("@xtreme/contracts");
 const { defaultStreamTitle } = await import("../src/stream-service.js");
+const { GAME_TITLES } = await import("../src/stream-names.js");
 
 beforeEach(() => {
   for (const m of Object.values(db)) m.reset();
@@ -104,11 +105,45 @@ describe("the stream contracts", () => {
 });
 
 describe("the default name", () => {
-  it("is 'Live with' the host's display name, then their username, then the app", () => {
-    expect(defaultStreamTitle({ displayName: "Amara", username: "amara" })).toBe("Live with Amara");
-    expect(defaultStreamTitle({ displayName: "", username: "tolu" })).toBe("Live with tolu");
-    expect(defaultStreamTitle({})).toBe("Live on Xtream");
-    expect(defaultStreamTitle({ displayName: "A".repeat(120) }).length).toBe(100);
+  const amara = { displayName: "Amara", username: "amara" };
+
+  it("lets a hangout lead with the category", () => {
+    expect(defaultStreamTitle(amara, "Just Chatting")).toBe("Just Chatting with Amara");
+    expect(defaultStreamTitle(amara, "IRL")).toBe("IRL with Amara");
+    expect(defaultStreamTitle(amara, "Podcasts & Talk")).toBe("Podcasts & Talk with Amara");
+  });
+
+  it("has the host play a game", () => {
+    expect(defaultStreamTitle(amara, "VALORANT")).toBe("Amara plays VALORANT");
+    expect(defaultStreamTitle(amara, "EA Sports FC 26")).toBe("Amara plays EA Sports FC 26");
+    expect(defaultStreamTitle(amara, "Video Games")).toBe("Amara plays Video Games");
+  });
+
+  it("puts the host on anything else, by the category's first half", () => {
+    expect(defaultStreamTitle(amara, "Afrobeats & Amapiano")).toBe("Amara on Afrobeats");
+    expect(defaultStreamTitle(amara, "Football (Soccer)")).toBe("Amara on Football");
+    expect(defaultStreamTitle(amara, "R&B, Soul & Jazz")).toBe("Amara on R&B");
+    expect(defaultStreamTitle(amara, "Personal Finance")).toBe("Amara on Personal Finance");
+    // A retired or custom label still reads.
+    expect(defaultStreamTitle(amara, "Music")).toBe("Amara on Music");
+  });
+
+  it("falls back to 'Live with' the host, then the app — and never runs long", () => {
+    expect(defaultStreamTitle(amara)).toBe("Live with Amara");
+    expect(defaultStreamTitle({ displayName: "", username: "tolu" }, "  ")).toBe("Live with tolu");
+    expect(defaultStreamTitle({}, "VALORANT")).toBe("Live on Xtream");
+    expect(defaultStreamTitle({ displayName: "A".repeat(120) }, "IRL").length).toBe(100);
+  });
+
+  it("is the same every time", () => {
+    expect(defaultStreamTitle(amara, "Fortnite")).toBe(defaultStreamTitle(amara, "Fortnite"));
+  });
+
+  it("knows every title in the web app's Games group", async () => {
+    const { CATEGORY_GROUPS } = await import("../../../lib/categories");
+    const games = CATEGORY_GROUPS.find((g) => g.label === "Games")?.topics ?? [];
+    expect(games.length).toBeGreaterThan(0);
+    expect(games.filter((t) => !GAME_TITLES.has(t))).toEqual([]);
   });
 });
 
@@ -125,18 +160,21 @@ describe("going live and renaming, through the routes", () => {
   const call = (method: "POST" | "PATCH", url: string, payload?: unknown) =>
     app.inject({ method, url: `/v1${url}`, ...(payload ? { payload } : {}) });
 
-  it("names an untitled stream after its host", async () => {
+  it("names an untitled stream from its host and category", async () => {
     state.caller = "host";
     const res = await call("POST", "/streams", { category: "Just Chatting" });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.stream.title).toBe("Live with Amara");
-    expect(db.Stream!.rows[0]).toMatchObject({ title: "Live with Amara", category: "Just Chatting", isLive: true });
+    expect(res.json().data.stream.title).toBe("Just Chatting with Amara");
+    expect(db.Stream!.rows[0]).toMatchObject({ title: "Just Chatting with Amara", category: "Just Chatting", isLive: true });
+    db.Stream!.rows[0]!.isLive = false;
+    const game = await call("POST", "/streams", { category: "VALORANT" });
+    expect(game.json().data.stream.title).toBe("Amara plays VALORANT");
   });
 
   it("treats a blank title as no title, and keeps a real one", async () => {
     state.caller = "host";
     const blank = await call("POST", "/streams", { title: "   ", category: "IRL" });
-    expect(blank.json().data.stream.title).toBe("Live with Amara");
+    expect(blank.json().data.stream.title).toBe("IRL with Amara");
     // Over before the next one (the fake can't run the route's own "end the old one").
     db.Stream!.rows[0]!.isLive = false;
     const named = await call("POST", "/streams", { title: "Market day in Balogun", category: "IRL" });
@@ -187,10 +225,15 @@ describe("going live and renaming, through the routes", () => {
     expect(state.sent).toEqual([]);
     expect(db.Stream!.rows[0]).toMatchObject({ title: "Friday vibes", source: "obs", postToWorldSpace: true, tags: ["amapiano"] });
 
-    // Cleared again: back to the default name, and the room hears that too.
+    // Cleared again: back to the default name — from the category it has now — and the room hears that too.
     await call("PATCH", `/streams/${id}`, { title: "" });
-    expect(db.Stream!.rows[0]!.title).toBe("Live with Amara");
-    expect(state.sent).toEqual([{ room, data: { __evt: "details", title: "Live with Amara", category: "Music" } }]);
+    expect(db.Stream!.rows[0]!.title).toBe("Amara on Music");
+    expect(state.sent).toEqual([{ room, data: { __evt: "details", title: "Amara on Music", category: "Music" } }]);
+
+    // Cleared with a new category in the same save: named from the new one.
+    state.sent = [];
+    await call("PATCH", `/streams/${id}`, { title: "", category: "Afrobeats & Amapiano" });
+    expect(db.Stream!.rows[0]!.title).toBe("Amara on Afrobeats");
   });
 
   it("says nothing to a room when the stream isn't live", async () => {

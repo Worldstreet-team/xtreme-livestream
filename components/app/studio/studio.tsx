@@ -51,7 +51,7 @@ import { BrandMark } from "@/components/ui/brand-mark";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
 import { VividLauncher } from "@/components/vivid/vivid-voice-control";
-import { Appear, CategoryChip, DetailsPill, StreamDetailsSheet, TitleField } from "@/components/app/studio/quick-setup";
+import { Appear, DetailsField, DetailsPill, StreamDetailsSheet } from "@/components/app/studio/quick-setup";
 import { CountdownOverlay, useGoLiveCountdown } from "@/components/app/studio/go-live-countdown";
 import { readLastDetails, readMarketTools, saveLastDetails, saveMarketTools } from "@/lib/go-live-prefs";
 import { StreamArt } from "@/components/app/stream-art";
@@ -3011,17 +3011,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     <ThumbnailPicker streamId={endedStreamId} note="From the stream you just ended, picked for sharpness and light. Tap one to use it." onClose={() => setEndedStreamId(null)} className="@[620px]:col-span-2" />
   ) : null;
 
-  /** The two things the go-live screen offers, both optional: a title and a category. */
+  /**
+   * The two things the go-live screen offers, both optional, as one field: the
+   * category's cover and the title. On the console the cover grid opens over
+   * the console itself.
+   */
   const quickFields = (variant: "picture" | "panel") => (
-    <div className="flex min-w-0 flex-col gap-2.5">
-      <TitleField id="studio-title" variant={variant} value={title} onChange={setTitle} />
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <CategoryChip id="studio-category" variant={variant} value={category} onChange={setCategory} />
-        </div>
-        {variant === "picture" && moreButton("pill")}
-      </div>
-    </div>
+    <DetailsField
+      id="studio-title"
+      variant={variant}
+      title={title}
+      onTitleChange={setTitle}
+      category={category}
+      onCategoryChange={setCategory}
+      cover={variant === "panel"}
+      trailing={variant === "picture" ? moreButton("pill") : undefined}
+    />
   );
 
   /**
@@ -4791,6 +4796,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       {mode !== "phone" && (
         <aside
           aria-label={isLive ? "Your room" : "Stream setup"}
+          // The category chooser opens over the console, not as a popover beside it.
+          data-chooser-host
           className={cn(
             "absolute z-20 flex flex-col overflow-hidden rounded-[20px] bg-surface shadow-[inset_0_1px_0_rgba(255,236,230,0.06)]",
             mode === "side"

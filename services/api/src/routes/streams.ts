@@ -288,7 +288,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const fields = {
         ...body,
         // Going live needs no name: a blank title is the host's default.
-        title: body.title || defaultStreamTitle(dbUser),
+        title: body.title || defaultStreamTitle(dbUser, body.category),
         practice,
         // A fresh program every broadcast — a reused booking must not
         // inherit last time's card.
@@ -630,9 +630,9 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const patch = { ...request.body };
-      // Clearing the title names the stream after its host again.
+      // Clearing the title names the stream after its host (and category) again.
       if (patch.title !== undefined && !patch.title) {
-        patch.title = defaultStreamTitle(dbUser);
+        patch.title = defaultStreamTitle(dbUser, patch.category ?? stream.category);
       }
       const detailsChanged =
         (patch.title !== undefined && patch.title !== stream.title) ||

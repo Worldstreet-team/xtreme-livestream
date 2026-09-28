@@ -5,12 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { ArrowRight, CalendarPlus, Check, ImageEdit, ImageSquare, Warning, X } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { CATEGORY_GROUPS } from "@/lib/categories";
 import { categoryArt } from "@/lib/category-art";
 import { useTheme } from "@/lib/theme";
 import type { RowItem } from "@/lib/discovery";
 import { cn } from "@/lib/utils";
-import { SelectField } from "@/components/ui/select-field";
+import { CategoryField } from "@/components/app/category-chooser";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { VanishingPlaceholder } from "@/components/ui/vanishing-placeholder";
 import { CalendarMonth, TimeList, dayKey, startOfDay, zoneName } from "@/components/ui/date-time-picker";
@@ -126,7 +125,6 @@ async function toCover(file: File): Promise<string> {
 }
 
 export default function SchedulePage() {
-  const theme = useTheme();
   const { user } = useAuth();
   const [now, setNow] = useState(() => Date.now());
   const today = useMemo(() => startOfDay(new Date(now)), [now]);
@@ -301,15 +299,7 @@ export default function SchedulePage() {
                 Where it lives
               </label>
               <div className="mt-2">
-                <SelectField
-                  id="schedule-category"
-                  full
-                  value={category}
-                  onChange={setCategory}
-                  searchPlaceholder="Search 170 categories"
-                  art={(v) => categoryArt(v, { w: 72, h: 96 }, theme)}
-                  groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.map((t) => ({ value: t, label: t })) }))}
-                />
+                <CategoryField id="schedule-category" value={category} onChange={setCategory} recent label="Where it lives" />
               </div>
             </div>
 
