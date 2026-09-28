@@ -26,6 +26,7 @@ let caller: {
   save: () => Promise<void>;
 };
 let followers: Array<{ followerId: string }>;
+let followersFail = false;
 let inserted: Array<Record<string, unknown>>;
 let notifications: Array<{
   _id: string;
@@ -54,6 +55,9 @@ vi.mock("../src/livekit.js", () => ({
   sendRoomData: async () => {},
   setParticipantPublishPermission: async () => {},
 }));
+
+// The rehearsal's simulated audience is practice.test.ts's business.
+vi.mock("../src/practice.js", () => ({ startPractice: () => {} }));
 
 vi.mock("../src/stream-service.js", () => ({
   reconcileStream: async (s: { isLive: boolean }) => s.isLive,
@@ -87,7 +91,10 @@ vi.mock("../src/models.js", () => ({
   Follow: {
     find: () => ({
       select: () => ({
-        lean: async () => followers,
+        lean: async () => {
+          if (followersFail) throw new Error("mongo down");
+          return followers;
+        },
       }),
     }),
   },
@@ -153,6 +160,7 @@ describe("go-live notifications", () => {
       save: async () => {},
     };
     followers = [{ followerId: F1 }, { followerId: F2 }];
+    followersFail = false;
     inserted = [];
     notifications = [];
     readMarks = [];
@@ -178,6 +186,8 @@ describe("go-live notifications", () => {
 
     expect(inserted).toHaveLength(2);
     expect(inserted.map((n) => String(n.userId)).sort()).toEqual([F1, F2]);
+    // The studio's coach says how many were told — the real fan-out size.
+    expect(res.json().data.followersTold).toBe(2);
     expect(inserted[0]).toMatchObject({
       type: "live",
       actorName: "Streamer",
@@ -191,6 +201,26 @@ describe("go-live notifications", () => {
     expect(res.statusCode).toBe(200);
     await new Promise((r) => setTimeout(r, 20));
     expect(inserted).toHaveLength(0);
+    expect(res.json().data.followersTold).toBe(0);
+  });
+
+  it("tells nobody on a practice run, and says so", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/streams",
+      payload: { title: "Rehearsal", category: "Bitcoin Trading", practice: true },
+    });
+    expect(res.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(inserted).toHaveLength(0);
+    expect(res.json().data.followersTold).toBe(0);
+  });
+
+  it("reports no number when the follower lookup fails, and still goes live", async () => {
+    followersFail = true;
+    const res = await goLive();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.followersTold).toBeNull();
   });
 
   it("serves the bell: list plus unread count", async () => {

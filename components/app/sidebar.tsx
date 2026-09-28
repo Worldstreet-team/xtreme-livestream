@@ -44,6 +44,7 @@ import { TopBar } from "@/components/app/topbar";
 import { RightRail } from "@/components/app/right-rail";
 import { StudioHost } from "@/components/app/studio/studio-host";
 import { HeldStreamPill, LiveSessionCard, useHeldStream } from "@/components/app/studio/live-session-card";
+import { useViewerFrame } from "@/lib/viewer-view";
 import { GoLiveFab, GoLiveRailButton } from "@/components/app/go-live-fab";
 import { LiveRingsBar } from "@/components/app/live-rings";
 import { StudioEdgeSwipe } from "@/components/app/studio-edge-swipe";
@@ -119,6 +120,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // One look for a stream that's holding without this tab: its pill and the
   // Go live button share the corner, so they share the answer too.
   const held = useHeldStream();
+  // The studio's "See what viewers see" frame: the watch page alone (lib/viewer-view.ts).
+  const viewerFrame = useViewerFrame();
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -142,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return next;
     });
 
-  if (CHROMELESS.includes(pathname)) {
+  if (CHROMELESS.includes(pathname) || viewerFrame) {
     return <div className="min-h-screen bg-background">{children}</div>;
   }
   const phoneChromeless = PHONE_CHROMELESS.some((p) => pathname.startsWith(p));

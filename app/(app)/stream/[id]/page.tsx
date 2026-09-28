@@ -93,6 +93,7 @@ import {
 } from "@/components/app/floating-hearts";
 import { readStageLine } from "@/components/app/stage-line";
 import { PracticeBadge, PreviewBanner, PreviewGone, usePreviewMode } from "@/components/app/practice-preview";
+import { useViewerView } from "@/lib/viewer-view";
 
 /** How sharp a camera comes in, in LiveKit's words: the angle says which tile gets which. */
 const QUALITY = { high: VideoQuality.HIGH, medium: VideoQuality.MEDIUM, low: VideoQuality.LOW } as const;
@@ -253,6 +254,8 @@ export default function StreamPage({
   const { user, isLoading: authLoading } = useAuth();
   // A practice run's preview link (?preview=): watch-only, with a banner.
   const preview = usePreviewMode();
+  // The host's own "See what viewers see" frame (?as=viewer): a viewer's page, sound locked off.
+  const viewerView = useViewerView();
   const router = useRouter();
   const [stream, setStream] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1497,22 +1500,25 @@ export default function StreamPage({
   }, []);
 
   const toggleMute = useCallback(() => {
+    // Beside the host's live mic, sound here would feed back into the stream.
+    if (viewerView) return;
     setMuted((prev) => {
       const next = !prev;
       applyAudioState(next, volumeRef.current);
       return next;
     });
-  }, [applyAudioState]);
+  }, [applyAudioState, viewerView]);
 
   const changeVolume = useCallback(
     (next: number) => {
+      if (viewerView) return;
       setVolume(next);
       // Dragging the slider up is an intent to hear — unmute like every
       // other player does.
       setMuted(next === 0);
       applyAudioState(next === 0, next);
     },
-    [applyAudioState]
+    [applyAudioState, viewerView]
   );
 
   const toggleFullscreen = useCallback(() => {
@@ -2940,7 +2946,7 @@ export default function StreamPage({
         )}
 
         {/* Unmute — the one control that never hides. */}
-        {muted && stream.isLive && hasVideo && !playbackError && (
+        {muted && stream.isLive && hasVideo && !playbackError && !viewerView && (
           <button
             onClick={toggleMute}
             className="obj-on press absolute top-[max(env(safe-area-inset-top),12px)] left-1/2 z-40 mt-24 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
@@ -3039,7 +3045,7 @@ export default function StreamPage({
               </>
             )
           )}
-          {isOwner && stream.isLive && (
+          {isOwner && !viewerView && stream.isLive && (
             <RailButton
               title="Stage requests"
               label="Stage"
@@ -3066,7 +3072,7 @@ export default function StreamPage({
               streamId={id}
               room={roomRef.current}
               isLive={stream.isLive}
-              isHost={isOwner}
+              isHost={isOwner && !viewerView}
               initialPinned={stream.pinnedMessage ?? null}
                   topGifters={topGifters}
                   topFans={topFans}
@@ -3412,7 +3418,7 @@ export default function StreamPage({
             {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
 
             {/* Muted-start affordance — the one control that must never hide */}
-            {muted && stream.isLive && hasVideo && !playbackError && (
+            {muted && stream.isLive && hasVideo && !playbackError && !viewerView && (
               <button
                 onClick={toggleMute}
                 className="obj-on press absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"

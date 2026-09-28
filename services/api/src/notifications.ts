@@ -9,10 +9,13 @@ import {
 /**
  * Fan a "went live" notification out to every follower.
  *
- * Fire-and-forget from the go-live path — a stream must never fail to start
- * because notifications didn't write. Rows are denormalized (actor name,
- * stream title) so the bell renders without populates, and a TTL index on
- * the collection reaps them after 30 days.
+ * A stream must never fail to start because notifications didn't write, so
+ * only the follower lookup is awaited: it answers how many people are being
+ * told (the studio's coach says "We're telling your N followers"), and the
+ * inserts carry on in the background. Null when the lookup failed and
+ * nobody is being told. Rows are denormalized (actor name, stream title) so
+ * the bell renders without populates, and a TTL index on the collection
+ * reaps them after 30 days.
  */
 export async function notifyFollowersOfLive(
   stream: IStream,
@@ -21,32 +24,43 @@ export async function notifyFollowersOfLive(
     username: string;
     displayName?: string;
   },
-) {
-  try {
-    const followers = await Follow.find({ followingId: streamer._id })
-      .select("followerId")
-      .lean();
-    if (followers.length === 0) return;
+): Promise<number | null> {
+  const followers = await Follow.find({ followingId: streamer._id })
+    .select("followerId")
+    .lean()
+    .then(
+      (rows) => rows,
+      (error: unknown) => {
+        console.error("go-live notification fan-out failed:", error);
+        return null;
+      },
+    );
+  if (!followers) return null;
+  if (followers.length === 0) return 0;
 
-    const rows = followers.map((f) => ({
-      userId: f.followerId,
-      type: "live" as const,
-      actorId: streamer._id,
-      actorName: streamer.displayName || streamer.username,
-      streamId: stream._id,
-      streamTitle: stream.title,
-      read: false,
-    }));
+  const rows = followers.map((f) => ({
+    userId: f.followerId,
+    type: "live" as const,
+    actorId: streamer._id,
+    actorName: streamer.displayName || streamer.username,
+    streamId: stream._id,
+    streamTitle: stream.title,
+    read: false,
+  }));
 
-    // Chunked inserts bound memory and one bad row doesn't sink the batch.
-    for (let i = 0; i < rows.length; i += 1000) {
-      await Notification.insertMany(rows.slice(i, i + 1000), {
-        ordered: false,
-      });
+  // Chunked inserts bound memory and one bad row doesn't sink the batch.
+  void (async () => {
+    try {
+      for (let i = 0; i < rows.length; i += 1000) {
+        await Notification.insertMany(rows.slice(i, i + 1000), {
+          ordered: false,
+        });
+      }
+    } catch (error) {
+      console.error("go-live notification fan-out failed:", error);
     }
-  } catch (error) {
-    console.error("go-live notification fan-out failed:", error);
-  }
+  })();
+  return followers.length;
 }
 
 /**

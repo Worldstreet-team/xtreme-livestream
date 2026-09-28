@@ -49,13 +49,15 @@ import { Tip } from "@/components/ui/tip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { SwitchField } from "@/components/ui/selection-controls";
-import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
+import { RoomTabs, type RoomTab } from "@/components/app/studio/room-tabs";
+import { useChatOnScreen } from "@/components/app/studio/chat-on-screen";
 import { VividLauncher } from "@/components/vivid/vivid-voice-control";
 import { Appear, DetailsField, DetailsPill, StreamDetailsSheet } from "@/components/app/studio/quick-setup";
 import { CountdownOverlay, useGoLiveCountdown } from "@/components/app/studio/go-live-countdown";
 import { readLastDetails, readMarketTools, saveLastDetails, saveMarketTools } from "@/lib/go-live-prefs";
 import { StreamArt } from "@/components/app/stream-art";
-import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
+import { ViewerView } from "@/components/app/viewer-view";
+import { openStreamReport } from "@/lib/stream-report";
 import { offerThumbnailCandidate } from "@/lib/thumbnail-candidates";
 import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
@@ -107,6 +109,7 @@ import { usePracticeRequest } from "@/lib/tour/use-practice-request";
 import { setPushToTalk, setTalkHeld, usePushToTalk } from "@/lib/vivid/ptt";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
+import { noteFollowersTold, useCoachDriver } from "@/lib/coach";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import { gainFor, withLayer } from "@/lib/scene";
 import { serverNow } from "@/lib/server-clock";
@@ -670,8 +673,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   // Custom thumbnail (base64 data URI) chosen by the host
   const [customThumbnail, setCustomThumbnail] = useState<string | null>(null);
-  // The stream just ended here: its kept frames are offered as thumbnails on the setup screen.
-  const [endedStreamId, setEndedStreamId] = useState<string | null>(null);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
@@ -1783,6 +1784,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             livekitToken: string;
             livekitUrl: string;
             ingress?: { url: string; streamKey: string };
+            /** How many followers the go-live bell went to (the coach says so). */
+            followersTold?: number | null;
           };
         }>("/api/streams", {
           method: "POST",
@@ -1802,6 +1805,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
         ({ livekitToken, livekitUrl } = res.data);
         createdStreamId = res.data.stream.id;
+        noteFollowersTold(createdStreamId, res.data.followersTold);
         setStreamId(createdStreamId);
         setAirTitle(res.data.stream.title ?? null);
         if (res.data.ingress) setIngressInfo(res.data.ingress);
@@ -1891,7 +1895,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     roomRef.current = null;
     room?.disconnect();
 
-    if (streamId) setEndedStreamId(streamId);
+    // The post-live report (stream-report.tsx) opens the moment End lands; it holds the thumbnail picker now.
+    if (streamId) openStreamReport({ streamId, from: "studio" });
     resetAfterLive();
   };
 
@@ -2687,6 +2692,34 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     saveMarketTools(on);
   };
 
+  // The coach (lib/coach.ts): host-only lines while live — "We're telling
+  // your N followers", share, invite, add a title, data saver. Local to
+  // this studio; nothing goes to the room.
+  useCoachDriver({
+    isLive,
+    streamId,
+    practice,
+    visible: !minimized,
+    untitled: !title.trim(),
+    viewers: viewerCount,
+    guests: liveGuests.length,
+    canInvite: otherLive.length > 0,
+    // Data saver lightens a browser camera's send; an encoder's is set in OBS.
+    health: source === "camera" ? health.verdict : null,
+    saveData,
+    actions: {
+      share: () => void shareStream(),
+      invite: () => setPanel("stage"),
+      addTitle: () => setDetailsOpen(true),
+      saveData: () => {
+        setSaveData(true);
+        // Live, the camera restarts in place at 540p: a cut, not a drop.
+        void videoTrackRef.current?.restartTrack({ resolution: captureResolution(orientation, true), facingMode: facing }).catch(() => {});
+      },
+      practiceShare: () => setPanel("more"),
+    },
+  });
+
   /* ------------------------------------------------------------------ */
   /* Render                                                              */
   /* ------------------------------------------------------------------ */
@@ -2880,8 +2913,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       >
         <DotsThree size={17} weight="bold" />
         More
-        {/* The last stream's frames are waiting in there. */}
-        {endedStreamId && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-ember" />}
       </button>
     );
 
@@ -3009,11 +3040,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     </div>
   );
 
-  /** The stream just ended: its best frames, to pick the thumbnail from. The console shows it; phones keep it in More. */
-  const endedPicker = endedStreamId ? (
-    <ThumbnailPicker streamId={endedStreamId} note="From the stream you just ended, picked for sharpness and light. Tap one to use it." onClose={() => setEndedStreamId(null)} className="@[620px]:col-span-2" />
-  ) : null;
-
   /**
    * The two things the go-live screen offers, both optional, as one field: the
    * category's cover and the title. On the console the cover grid opens over
@@ -3040,9 +3066,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    */
   const moreSections = (
     <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
-      {/* Phones: the last stream's frames wait here (the console shows them up front). */}
-      {phone && endedPicker}
-
       {/* A practice run: the same studio, a private room, simulated chat and gifts. */}
       <div data-tour="studio-practice" className="rounded-[12px] bg-tint/[0.04] px-3.5 py-3 @[620px]:col-span-2">
         <SwitchField
@@ -3483,15 +3506,19 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     );
   };
 
-  /* ---- Live: the room's header — two numbers you can open, then the capsule ---- */
-  const roomTabs: CapsuleTab<Panel>[] = [
-    { id: "chat", label: "Chat", icon: ChatText },
-    { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length, tour: "studio-stage" },
-    { id: "requests", label: "Requests", icon: Ticket, badge: requestQueue.pending.length },
-    { id: "scenes", label: "Scenes", icon: LayoutIcon, tour: "studio-scenes" },
-    { id: "battle", label: "Battle", icon: Sword },
-    { id: "games", label: "Games", icon: Sparkle },
-    { id: "more", label: "More", icon: DotsThree },
+  // The chat on screen: the lane over the picture, and the compact room sheet it brings on phones.
+  const chatOnScreen = useChatOnScreen<Panel>({ phone, live: isLive, source, panel, setPanel });
+
+  /* ---- Live: the room's header — two numbers you can open, then the tools ---- */
+  // The tools, each with its name under its icon (Greg couldn't tell the icon-only row apart).
+  const roomTabs: RoomTab<Panel>[] = [
+    { id: "chat", label: "Chat", icon: ChatText, tip: chatOnScreen.compact ? "Open the full chat" : "The chat" },
+    { id: "stage", label: "Guests", icon: HandWaving, tip: "Bring guests on stage, or co-live", badge: stageRequests.length, tour: "studio-stage" },
+    { id: "requests", label: "Requests", icon: Ticket, tip: "Paid requests from viewers", badge: requestQueue.pending.length },
+    { id: "scenes", label: "Scenes", icon: LayoutIcon, tip: "Layouts, cards and graphics", tour: "studio-scenes" },
+    { id: "battle", label: "Battle", icon: Sword, tip: "Battle another host" },
+    { id: "games", label: "Games", icon: Sparkle, tip: "Predictions, raffles and quizzes" },
+    { id: "more", label: "More", icon: DotsThree, tip: "Everything else" },
   ];
   const statChip = (key: Panel, icon: React.ReactNode, value: React.ReactNode, word: string) => {
     const on = panel === key;
@@ -3517,8 +3544,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         {statChip("viewers", <Eye size={15} weight="bold" />, <span className="font-mono tabular-nums">{viewerCount}</span>, "watching")}
         {statChip("stats", <Gift size={15} weight="fill" className={panel === "stats" ? undefined : "text-value"} />, <span className={cn("font-money text-[15px] leading-none", panel !== "stats" && "text-value")}>{tipsLabel}</span>, "gifts")}
       </div>
-      {/* The capsule: icons at rest, the open one a white pill that says its name. */}
-      <CapsuleTabs className="mt-3" label="Your room" items={roomTabs} value={roomTabs.some((t) => t.id === panel) ? panel : null} onChange={setPanel} />
+      {/* The tools, named; the open one a white pill. With the chat on screen, none is open. */}
+      <RoomTabs
+        className="mt-3"
+        label="Your room"
+        items={roomTabs}
+        value={chatOnScreen.tabValue !== null && roomTabs.some((t) => t.id === chatOnScreen.tabValue) ? chatOnScreen.tabValue : null}
+        onChange={chatOnScreen.onTab}
+      />
     </div>
   );
 
@@ -4230,6 +4263,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           {shareCopied ? "Link copied" : "Share the stream"}
         </button>
       )}
+      {/* The watch page as a viewer gets it, muted (viewer-view.tsx). */}
+      {isLive && streamId && <ViewerView streamId={streamId} practice={practice} />}
       {/* A screen beside the camera — when the screen is the stream, stopping it here would take the picture down. */}
       {source === "camera" && (
         <button onClick={toggleScreenShare} className={cn("press flex h-11 items-center justify-center gap-2 rounded-full text-[14px] font-semibold transition-colors", screenShareActive ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]")}>
@@ -4466,6 +4501,19 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             />
             {/* The Set's stinger between layouts, over the whole picture. */}
             <SetStinger set={activeSet} trigger={scene.layout} />
+            {/* The chat on screen (host-only, never in the program): LiveChat draws its lane in here. */}
+            {chatOnScreen.shows && (
+              <div
+                ref={chatOnScreen.targetRef}
+                style={chatOnScreen.laneStyle}
+                className={cn(
+                  "pointer-events-none absolute z-20",
+                  mode === "phone"
+                    ? "bottom-0 left-3 h-[min(34dvh,17rem)] w-[min(18rem,calc(100%-5.5rem))]"
+                    : "bottom-24 left-4 h-[min(40cqh,16rem)] w-[min(24rem,calc(100%-2rem))]",
+                )}
+              />
+            )}
           </div>
         </div>
 
@@ -4832,7 +4880,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   {setupHeader}
                   <div className="mt-5 flex flex-col gap-3">
                     {setupNotices}
-                    {endedPicker}
                     {quickFields("panel")}
                     {moreButton("row")}
                   </div>
@@ -4867,6 +4914,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                     featureSeconds={featureSeconds}
                     onScene={takeScene}
                     onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
+                    lane={chatOnScreen.lane}
+                    onScreen={source !== "obs" ? { on: chatOnScreen.on, onChange: chatOnScreen.setOn } : null}
                   />
                 )}
               </div>
@@ -4880,8 +4929,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           games and more are its tabs; fold it to the thumb for a clean
           picture, pull it up when the room needs you. ---- */}
       {isLive && streamId && mode === "phone" && (
-        <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} header={<div className="pb-1">{roomHeader}</div>}>
-          <div className={cn("h-full", panel !== "chat" && "hidden")}>
+        <DragSheet label="Your room" collapsible detents={[0.46, 0.84]} defaultDetent={0} {...chatOnScreen.sheet} header={<div className="pb-1">{roomHeader}</div>}>
+          {/* Compact (the chat on screen), this hugs the composer and the sheet hugs it. */}
+          <div className={cn(!chatOnScreen.compact && "h-full", panel !== "chat" && "hidden")}>
             <LiveChat
               streamId={streamId}
               room={liveRoom}
@@ -4893,6 +4943,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               featureSeconds={featureSeconds}
               onScene={takeScene}
               onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
+              lane={chatOnScreen.lane}
+              compact={chatOnScreen.compact}
+              onScreen={source !== "obs" ? { on: chatOnScreen.on, onChange: chatOnScreen.setOn } : null}
             />
           </div>
           {panel !== "chat" && <div className="flex h-full flex-col">{panelBody}</div>}

@@ -113,14 +113,14 @@ const BACKER_R = 24;
 const BACKER_ROW_GAP = 12;
 
 type Face = "display" | "money" | "sans" | "mono";
-interface Families {
+export interface Families {
   display: string;
   sans: string;
   mono: string;
 }
 
 /** The app's own faces, by the names next/font gave them on this page. */
-function families(): Families {
+export function families(): Families {
   const read = (el: Element, name: string) => getComputedStyle(el).getPropertyValue(name).trim();
   return {
     display: read(document.documentElement, "--font-display") || "Archivo",
@@ -137,7 +137,7 @@ function families(): Families {
  * neither sets it plain — every width is measured in the same context, so
  * the fitting holds either way.
  */
-function typesetter(ctx: CanvasRenderingContext2D, fam: Families) {
+export function typesetter(ctx: CanvasRenderingContext2D, fam: Families) {
   const set = (face: Face, size: number, weight: number) => {
     const family = face === "sans" ? fam.sans : face === "mono" ? fam.mono : fam.display;
     const stretch = face === "money" ? "expanded" : face === "display" ? "semi-expanded" : "normal";
@@ -162,7 +162,7 @@ function typesetter(ctx: CanvasRenderingContext2D, fam: Families) {
 }
 type Type = ReturnType<typeof typesetter>;
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const rad = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + rad, y);
@@ -449,14 +449,14 @@ function loadPhoto(src: string, wait = PHOTO_WAIT_MS): Promise<HTMLImageElement 
 }
 
 /** The faces the card sets, loaded for what it says — a canvas won't wait for a font. */
-async function loadFonts(fam: Families, text: string) {
+export async function loadFonts(fam: Families, text: string) {
   if (typeof document === "undefined" || !document.fonts) return;
   const specs = [`800 64px ${fam.display}`, `700 64px ${fam.display}`, `300 64px ${fam.display}`, `500 64px ${fam.sans}`, `600 64px ${fam.sans}`, `700 64px ${fam.sans}`, `500 64px ${fam.mono}`];
   const loading = Promise.all(specs.map((spec) => document.fonts.load(spec, text).catch(() => [])));
   await Promise.race([loading, new Promise((r) => setTimeout(r, FONT_WAIT_MS))]);
 }
 
-function toPng(canvas: HTMLCanvasElement): Promise<Blob> {
+export function toPng(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     try {
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("The image came out empty"))), "image/png");

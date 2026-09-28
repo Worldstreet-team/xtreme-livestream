@@ -358,6 +358,13 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         stream = await Stream.create({ streamerId: dbUser._id, ...fields });
       }
 
+      /**
+       * How many followers the go-live bell went to: the studio's coach says
+       * "We're telling your N followers". 0 when nobody is told (a practice
+       * run, a booking that opted out, no followers); null when the lookup
+       * failed.
+       */
+      let followersTold: number | null = 0;
       if (practice) {
         // A rehearsal: the live ring stays off, nobody is told, nothing is
         // posted — whatever the body said about followers or WorldSpace —
@@ -373,7 +380,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         // In-app bell for our own users; the socials relay handles that
         // platform's feed separately.
         if (stream.notifyFollowers !== false) {
-          void notifyFollowersOfLive(stream, dbUser);
+          followersTold = await notifyFollowersOfLive(stream, dbUser);
         }
         if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
       }
@@ -393,6 +400,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
+          followersTold,
           // OBS connection details — shown once to the broadcaster.
           ...(ingress
             ? { ingress: { url: ingress.url, streamKey: ingress.streamKey } }

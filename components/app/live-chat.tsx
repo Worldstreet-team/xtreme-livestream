@@ -2,6 +2,7 @@
 
 import { SIGN_IN_URL } from "@/lib/auth-urls";
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown,
   ArrowUp,
@@ -25,8 +26,12 @@ import { apiFetch, ApiError } from "@/lib/api-client";
 import { GIFT_MAX_MINOR, GIFT_MIN_MINOR, REQUEST_GIFT, centsToDollars, type GiftDef } from "@/lib/gifts";
 import { GiftKeyboard, type GiftTab } from "@/components/app/gift-keyboard";
 import { GiftArt } from "@/components/app/gift-art";
-import { foldLines, giftUnit, isDrop, isShout, mentions, readFan, type ChatMsg, type ChatPlatform, type FanStanding } from "@/components/app/chat/lines";
+import { foldLines, giftUnit, isDrop, isShout, mentions, readFan, type ChatLine, type ChatMsg, type ChatPlatform, type FanStanding } from "@/components/app/chat/lines";
+import { ChatLane, LANE_LINES, type LaneEntry } from "@/components/app/chat/chat-lane";
+import { LineActions, type LineAction } from "@/components/app/chat/line-actions";
+import { dismissCoach, useCoachLines } from "@/lib/coach";
 import { ShoutRail } from "@/components/app/chat/shout-rail";
+import { CoachRows } from "@/components/app/chat/coach-rows";
 import { useViewerRequests, type RequestOrder } from "@/lib/requests";
 import { serverNow } from "@/lib/server-clock";
 import { useFeaturedShowing } from "@/lib/use-featured";
@@ -110,7 +115,19 @@ interface LiveChatProps {
   onFeatureQueue?: (queue: unknown) => void;
   /** A practice preview (components/app/practice-preview.tsx): read the room, say nothing — no composer, gifts, reactions or requests. */
   watchOnly?: boolean;
+  /**
+   * Host studio: the chat on screen (components/app/chat/chat-lane.tsx),
+   * drawn into `target` over the picture. `hidden` while the full chat is
+   * open, so it keeps its place and comes back as it was.
+   */
+  lane?: { target: HTMLElement | null; hidden?: boolean } | null;
+  /** Sheet only: the lines are on screen, so this is the composer and the room's notices. */
+  compact?: boolean;
+  /** Host: the "Show chat on screen" switch — under the panel's header, or atop the sheet's list. */
+  onScreen?: { on: boolean; onChange: (on: boolean) => void } | null;
 }
+
+type LaneLine = LaneEntry & { kind: "line" };
 
 /** The room's rules as this viewer meets them (GET /streams/:id/role, then room events). */
 interface RoomRules {
@@ -168,6 +185,9 @@ export function LiveChat({
   onScene,
   onFeatureQueue,
   watchOnly = false,
+  lane = null,
+  compact = false,
+  onScreen = null,
 }: LiveChatProps) {
   const skin: ChatSkin = variant === "overlay" ? "overlay" : "panel";
   const overlay = skin === "overlay";
@@ -176,6 +196,10 @@ export function LiveChat({
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [arrival, setArrival] = useState<{ name: string; others: number; key: number; at: number } | null>(null);
+  /** Arrivals as the on-screen lane draws them: a line per burst, the last few kept. */
+  const [joins, setJoins] = useState<{ id: string; name: string; others: number; at: number; last: number }[]>([]);
+  /** The lane line whose actions are open. */
+  const [laneFor, setLaneFor] = useState<LaneLine | null>(null);
   const [input, setInput] = useState("");
   const [showReactions, setShowReactions] = useState(false);
   const [showGiftPanel, setShowGiftPanel] = useState(false);
@@ -334,6 +358,11 @@ export function LiveChat({
     );
     if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);
     arrivalTimerRef.current = setTimeout(() => setArrival(null), ARRIVAL_MS);
+    setJoins((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && now - last.last < ARRIVAL_MS) return [...prev.slice(0, -1), { ...last, name, others: last.others + 1, last: now }];
+      return [...prev, { id: `join-${now}`, name, others: 0, at: now, last: now }].slice(-4);
+    });
   }, []);
 
   useEffect(
@@ -422,9 +451,14 @@ export function LiveChat({
     attachedRef.current = true;
 
     let eventName: string | undefined;
+    // Torn down before the import landed (StrictMode's double run, a room
+    // swap): attaching now would leave a second listener counting every
+    // arrival twice.
+    let cancelled = false;
 
     const setup = async () => {
       const { RoomEvent } = await import("livekit-client");
+      if (cancelled) return;
       eventName = RoomEvent.DataReceived;
 
       const handleData = (payload: Uint8Array, participant?: { identity: string }) => {
@@ -583,6 +617,7 @@ export function LiveChat({
     setup();
 
     return () => {
+      cancelled = true;
       if (eventName && room) {
         const handler = (room as unknown as Record<string, unknown>).__chatHandler;
         if (handler) room.off(eventName as Parameters<typeof room.off>[0], handler as Parameters<typeof room.off>[1]);
@@ -604,6 +639,14 @@ export function LiveChat({
     }
     el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Out of compact (the full chat opened over the lane): the list was out of
+  // layout while lines arrived, so it lands on the latest now.
+  useEffect(() => {
+    if (compact || pausedRef.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [compact]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -1105,6 +1148,72 @@ export function LiveChat({
   const giftFeaturable = (msg: ChatMsg) => canModerate && giftUnit(msg) === "usd" && !isDrop(msg) && featureTool(msg) !== null;
   const giftToolsFor = (msg: ChatMsg) => (giftFeaturable(msg) ? toolbar(msg.id, featureTool(msg, "gift")) : null);
 
+  // ---- The chat on screen (host studio) ----
+
+  /** The lane's lines: the last few, arrivals among them, oldest first. */
+  const laneOn = Boolean(lane?.target);
+  const laneShowing = laneOn && !lane?.hidden;
+  const laneEntries = useMemo<LaneEntry[]>(() => {
+    if (!laneOn) return [];
+    const fromChat = foldLines(messages.slice(-(LANE_LINES * 4)))
+      .filter((l): l is Exclude<ChatLine, { kind: "drops" }> => l.kind !== "drops")
+      .map((l) => ({ kind: "line" as const, id: l.id, at: l.msg.at, line: l }));
+    const arrivals = joins.map((j) => ({ kind: "join" as const, id: j.id, at: j.at, name: j.name, others: j.others }));
+    return [...fromChat, ...arrivals].sort((a, b) => a.at - b.at).slice(-(LANE_LINES + 1));
+  }, [laneOn, messages, joins]);
+  // The coach's tips, for the lane (the chat's own rows step aside while it shows).
+  const coachLines = useCoachLines(isHost && isLive && laneOn ? streamId : null);
+
+  /**
+   * A lane line's actions, in words: the same set, and the same rules, as
+   * the line's tools above — only reachable with a tap on a name.
+   */
+  const actionsFor = (line: LaneLine["line"]): LineAction[] => {
+    const msg = line.msg;
+    const act = (id: string, label: string, icon: ReactNode, run: () => void, tone?: LineAction["tone"]): LineAction => ({
+      id,
+      label,
+      icon,
+      tone,
+      run: () => {
+        setLaneFor(null);
+        run();
+      },
+    });
+    const onStream = onStreamId !== null && (line.kind === "gift" ? line.ids.includes(onStreamId) : onStreamId === msg.id);
+    const screen = (what: "comment" | "gift"): LineAction | null =>
+      canFeature
+        ? onStream
+          ? act("unfeature", "Take it off the screen", <MonitorPlay size={18} weight="fill" />, () => void modUnfeature(msg.id), "on")
+          : act("feature", `Put this ${what} on screen`, <MonitorPlay size={18} />, () => void modFeature(msg.id))
+        : canModerate && rules.modsCanFeature === "suggest"
+          ? act("suggest", "Suggest it for the screen", <MonitorPlay size={18} />, () => void modFeature(msg.id))
+          : null;
+    if (line.kind === "gift") {
+      const s = giftFeaturable(msg) ? screen("gift") : null;
+      return s ? [s] : [];
+    }
+    if (line.kind !== "chat" || msg.pending || isMine(msg)) return [];
+    const hostLine = Boolean(hostUsername) && msg.username === hostUsername;
+    if (!canModerate) {
+      if (!user || hostLine) return [];
+      return [{ id: "report", label: "Report this message", icon: <Flag size={18} />, run: () => setReportFor(msg.id) }];
+    }
+    if (role !== "host" && (hostLine || msg.isMod)) return [];
+    const list: (LineAction | null)[] = [
+      screen("comment"),
+      act("pin", "Pin in chat", <PushPin size={18} />, () => void modPinMessage(msg.id)),
+      act("delete", "Delete this message", <Trash size={18} />, () => void modDeleteMessage(msg.id)),
+      ...(msg.userId && !msg.isMod
+        ? [
+            act("timeout", "Time out for 10 minutes", <Timer size={18} />, () => void modBanUser(msg.userId!, 10)),
+            act("ban", "Ban from this stream", <Prohibit size={18} />, () => void modBanUser(msg.userId!), "danger"),
+          ]
+        : []),
+    ];
+    return list.filter((a): a is LineAction => a !== null);
+  };
+
   // Slow mode — or Shield, which brings it — holds back viewers, never moderators.
   const slowFor = (slowMode || rules.shield) && !canModerate;
   const canSend = Boolean(input.trim()) && cooldownLeft === 0 && !sending;
@@ -1183,6 +1292,8 @@ export function LiveChat({
             )}
           </header>
 
+          {onScreen && <OnScreenSwitch on={onScreen.on} onChange={onScreen.onChange} />}
+
           <TopGiftersBar gifters={topGifters ?? []} fans={topFans ?? []} me={myFan} />
 
           {canModerate && showModTools && (
@@ -1229,6 +1340,8 @@ export function LiveChat({
         </>
       )}
 
+      {variant === "sheet" && !compact && onScreen && <OnScreenSwitch on={onScreen.on} onChange={onScreen.onChange} />}
+
       {/* Shield: the room hears it's up, and why the rules are tighter. */}
       {rules.shield && (
         <div
@@ -1259,8 +1372,8 @@ export function LiveChat({
 
       <ShoutRail shouts={shouts} skin={skin} />
 
-      {/* The lines, and the pill that brings a reader back down. */}
-      <div className={cn("relative", overlay ? "" : "min-h-0 flex-1")}>
+      {/* The lines, and the pill that brings a reader back down. Compact, they're on screen instead. */}
+      <div className={cn("relative", overlay ? "" : "min-h-0 flex-1", compact && "hidden")}>
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -1355,7 +1468,10 @@ export function LiveChat({
         )}
       </div>
 
-      <ArrivalTicker arrival={arrival} skin={skin} />
+      {!laneShowing && <ArrivalTicker arrival={arrival} skin={skin} />}
+
+      {/* The studio's coach (lib/coach.ts): the host's eyes only, never the room's. */}
+      {isHost && isLive && !laneShowing && <CoachRows streamId={streamId} skin={skin} />}
 
       {/* The host is taking requests: one tap to their menu. */}
       {requestsForMe && isLive && !showGiftPanel && !watchOnly && (
@@ -1533,6 +1649,73 @@ export function LiveChat({
           <p className="py-2 text-center text-[12px] text-muted-foreground/60">Chat is offline — the stream has ended</p>
         )}
       </div>
+
+      {/* The chat on screen, drawn over the picture. */}
+      {lane?.target &&
+        createPortal(
+          <ChatLane
+            entries={laneEntries}
+            coach={coachLines}
+            badgesFor={badgesFor}
+            actionable={(e) => actionsFor(e.line).length > 0}
+            onAct={(e) => {
+              setReportFor(null);
+              setLaneFor(e);
+            }}
+            onDismissCoach={dismissCoach}
+            hidden={lane.hidden}
+            className="size-full"
+          />,
+          lane.target,
+        )}
+      {laneFor && (
+        <LineActions
+          msg={laneFor.line.msg}
+          badges={laneFor.line.kind === "stage" ? null : badgesFor(laneFor.line.msg)}
+          actions={actionsFor(laneFor.line)}
+          busy={modBusy}
+          onClose={() => {
+            setLaneFor(null);
+            setReportFor(null);
+          }}
+        >
+          {reportFor === laneFor.line.msg.id && streamId && (
+            <div className="relative h-[196px]">
+              <ReportMenu
+                streamId={streamId}
+                messageId={laneFor.line.msg.id}
+                username={laneFor.line.msg.username}
+                onClose={() => {
+                  setReportFor(null);
+                  setLaneFor(null);
+                }}
+              />
+            </div>
+          )}
+        </LineActions>
+      )}
+    </div>
+  );
+}
+
+/** The host's "Show chat on screen" switch: the latest lines over the picture, TikTok-style. */
+function OnScreenSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="mx-3 mb-2 flex shrink-0 items-center justify-between gap-3 rounded-[12px] bg-tint/[0.04] py-1.5 pr-2.5 pl-3">
+      <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-foreground/90">
+        <MonitorPlay size={15} className="shrink-0 text-muted-foreground" />
+        Show chat on screen
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(!on)}
+        role="switch"
+        aria-checked={on}
+        aria-label="Show chat on screen"
+        className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", on ? "bg-ember" : "bg-white/15")}
+      >
+        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-all", on ? "left-[calc(100%-1.125rem)]" : "left-0.5")} />
+      </button>
     </div>
   );
 }
@@ -1553,7 +1736,7 @@ function ModSwitch({ label, hint, on, onChange }: { label: string; hint: string;
         aria-label={label}
         className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", on ? "bg-ember" : "bg-white/15")}
       >
-        <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-all", on ? "left-[calc(100%-1.125rem)]" : "left-0.5")} />
+        <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-white transition-transform duration-200", on && "translate-x-4")} />
       </button>
     </div>
   );

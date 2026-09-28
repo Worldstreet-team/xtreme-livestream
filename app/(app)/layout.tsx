@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app/sidebar";
 import { VividVoiceProvider } from "@/components/vivid-provider";
 import { CallProvider } from "@/components/app/calls/call-provider";
 import { useAuth } from "@/lib/auth-context";
+import { useViewerFrame } from "@/lib/viewer-view";
 
 
 /** Routes browsable without an account (interactions still require sign-in). */
@@ -31,6 +32,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { isLoading, isAuthenticated, error, refreshUser } = useAuth();
   const pathname = usePathname();
   const publicPath = isPublicPath(pathname);
+  // The studio's "See what viewers see" frame is a second copy of the app: it mustn't ring for calls too.
+  const viewerFrame = useViewerFrame();
 
   // Signed out on a protected page — actually send the visitor to sign-in
   // (the fallback UI below only shows while the navigation happens)
@@ -52,7 +55,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <VividVoiceProvider>
         {/* Calls ring on every page, public ones included, once you're signed in. */}
-        <CallProvider enabled={isAuthenticated}>
+        <CallProvider enabled={isAuthenticated && !viewerFrame}>
           <AppShell>{children}</AppShell>
         </CallProvider>
       </VividVoiceProvider>

@@ -2012,3 +2012,30 @@ callSchema.index({ streamId: 1 });
 callSchema.index({ nextCheckAt: 1 }, { partialFilterExpression: { nextCheckAt: { $type: "date" } } });
 
 export const Call = mongoose.model<ICall>("Call", callSchema);
+
+/**
+ * The host's answer to "How likely are you to recommend Xtream to a
+ * friend?", asked once on the post-live report (0–10, NPS). One row per
+ * stream — the unique index holds it; tapping another number changes the
+ * answer rather than adding a second. Only the stream's host writes it.
+ */
+export interface IStreamRating extends Document {
+  userId: mongoose.Types.ObjectId;
+  streamId: mongoose.Types.ObjectId;
+  score: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const streamRatingSchema = new Schema<IStreamRating>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    streamId: { type: Schema.Types.ObjectId, ref: "Stream", required: true },
+    score: { type: Number, required: true, min: 0, max: 10 },
+  },
+  { timestamps: true },
+);
+streamRatingSchema.index({ streamId: 1 }, { unique: true });
+streamRatingSchema.index({ createdAt: -1 });
+
+export const StreamRating = mongoose.model<IStreamRating>("StreamRating", streamRatingSchema);

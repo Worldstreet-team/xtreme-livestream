@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useLiveSession } from "@/lib/live-session";
+import { StreamReportHost } from "@/components/app/stream-report-host";
 
 /**
  * Where the studio lives: in the app shell, beside every page, rather than
@@ -23,8 +24,13 @@ export function StudioHost() {
   const pathname = usePathname();
   const onStudio = pathname === "/studio";
   const session = useLiveSession();
-  if (!onStudio && !session) return null;
-  return <Studio minimized={!onStudio} />;
+  return (
+    <>
+      {(onStudio || session) && <Studio minimized={!onStudio} />}
+      {/* The post-live report: here, not in the studio, so it stays up when the studio closes. */}
+      <StreamReportHost />
+    </>
+  );
 }
 
 /** The studio's frame while its code arrives: the stage, waiting. */

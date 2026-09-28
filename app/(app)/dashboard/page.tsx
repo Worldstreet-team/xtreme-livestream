@@ -22,6 +22,7 @@ import { Takedowns } from "@/components/app/takedowns";
 import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
 import { Dialog, DialogContent, DialogTrigger, Pill } from "@/components/xtream";
 import { report as healthReport, type HealthWindow } from "@/lib/stream-health";
+import { openStreamReport } from "@/lib/stream-report";
 
 /**
  * Your channel — the channel and its numbers in one place (owner,
@@ -513,9 +514,12 @@ function TopTile({ top }: { top: RecentStream[] }) {
 function BroadcastCard({ stream: s }: { stream: RecentStream }) {
   // A thumbnail picked here shows on the card straight away.
   const [thumb, setThumb] = useState(s.thumbnailUrl);
+  // The card opens its post-live report — the same one the studio shows at End.
+  const openReport = () => openStreamReport({ streamId: s.id, from: "channel" });
   return (
     <article className="min-w-0">
       <div className="relative aspect-video overflow-hidden rounded-xl bg-surface">
+        <button type="button" onClick={openReport} aria-label={`Open the report for ${s.title}`} className="absolute inset-0 z-[1] rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ember" />
         <RemoteImage
           key={thumb ?? ""}
           src={apiUrl(thumb)}
@@ -532,7 +536,7 @@ function BroadcastCard({ stream: s }: { stream: RecentStream }) {
         {(s.thumbnailCandidates ?? 0) > 0 && (
           <Dialog>
             <DialogTrigger asChild>
-              <Pill size="sm" className="absolute top-2 left-2 bg-black/65 text-white hover:bg-black/75">
+              <Pill size="sm" className="absolute top-2 left-2 z-[2] bg-black/65 text-white hover:bg-black/75">
                 Thumbnail
               </Pill>
             </DialogTrigger>
@@ -542,7 +546,9 @@ function BroadcastCard({ stream: s }: { stream: RecentStream }) {
           </Dialog>
         )}
       </div>
-      <p className="mt-2.5 truncate text-[15px] font-bold">{s.title}</p>
+      <button type="button" onClick={openReport} className="mt-2.5 block w-full truncate text-left text-[15px] font-bold hover:underline">
+        {s.title}
+      </button>
       <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground">
         <span>{shortDate(s.date)}</span>
         <span aria-hidden>·</span>
