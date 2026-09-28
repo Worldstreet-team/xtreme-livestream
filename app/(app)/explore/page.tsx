@@ -305,6 +305,7 @@ export default function ExplorePage() {
   }, []);
 
   const coverTheme = useTheme();
+  const chromeH = useChromeHeight();
   const chipNames =
     liveCategories.length > 0 ? liveCategories.map((c) => c.category) : POPULAR_CATEGORIES;
   const chips =
@@ -397,7 +398,16 @@ export default function ExplorePage() {
             the box-art row under the stage (owner, 2026-09-23). */}
         {/* The chips lead the page in both modes (owner, 2026-09-24:
             "I wanted them above"): on Home they sit over the stage. */}
-        {chipRow && <div className={filtered ? "mb-8" : "mb-5"}>{chipRow}</div>}
+        {/* Sticky under the app's header (owner, 2026-09-28), whose height moves
+            on phones as the live rings tuck away, so it's measured, not guessed. */}
+        {chipRow && (
+          <div
+            style={{ top: chromeH }}
+            className={cn("sticky z-20 -mx-4 bg-background px-4 py-2 md:-mx-6 md:px-6", filtered ? "mb-6" : "mb-3")}
+          >
+            {chipRow}
+          </div>
+        )}
 
         {!filtered ? (
           <RowsHome home={home} loading={homeLoading} />
@@ -765,4 +775,19 @@ function FilteredResults({
       )}
     </>
   );
+}
+
+/** The height of the app's sticky header (top bar, and on phones the live rings), kept current as it changes. */
+function useChromeHeight() {
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>("div[data-app-chrome].sticky");
+    if (!el) return;
+    const measure = () => setH(el.offsetParent ? Math.round(el.getBoundingClientRect().height) : 0);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return h;
 }
