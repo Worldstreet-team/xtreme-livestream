@@ -15,6 +15,7 @@ import { VividVoiceProvider } from "@/components/vivid-provider";
 import "@/components/landing/motion.css";
 import "@/components/landing/scroll-stage.css";
 import { ScrollStage } from "@/components/landing/scroll-stage";
+import { PageTransition } from "@/components/landing/page-transition";
 
 /**
  * The landing page: the platform told as a story, in the order a creator
@@ -33,6 +34,7 @@ export default function Page() {
     <VividVoiceProvider>
       <ScrollStage />
       <main className="min-h-screen overflow-x-clip bg-ground">
+        <PageTransition />
         <Navbar />
         <Hero />
         <Manifesto />

@@ -1,0 +1,285 @@
+/* The landing's page transition: the five takes of the transition lookbook
+   (2026-09-28; the owner picked E, "Aperture"), each with its scenery cut
+   back to a small, calm layer at the foot of the frame. Run by <PageTransition>
+   (page-transition.tsx); nothing shows unless its head gate put
+   `data-xt-intro` on <html>, so without JavaScript, with `?static`, or on a
+   client-side visit the page is simply there.
+
+   Geometry is shared with the script through container units: `.xti` is a
+   size container the size of the viewport, and the word's width, its centre
+   line and the dot radius are the same formulas as layout() in the script,
+   so the CSS dots (they bounce from the first paint, before hydration) hand
+   over to the SVG morph without a jump. Motion is transform, opacity and
+   clip-path only. */
+
+.xti {
+  display: none;
+}
+
+html[data-xt-intro] .xti {
+  display: block;
+  position: fixed;
+  inset: 0;
+  /* above everything on the landing: the navbar (50), the side menu (100) */
+  z-index: 2147483000;
+  container: xti / size;
+  contain: strict;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Scroll waits until the frame has opened. The gutter stays reserved so a
+   classic scrollbar coming back doesn't shift the page. */
+html[data-xt-intro="full"],
+html[data-xt-intro="trim"] {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* ---------- grounds (switch with GROUND in page-transition.tsx) ---------- */
+
+/* night: the landing's own ground and ink (it is always dark, DARK_PAGES) */
+.xti[data-ground="night"] {
+  --xi-ground: #0b0708;
+  --xi-ink: #f6f1ee;
+  --xi-chili: #e3122a;
+  --xi-ember: #f85810;
+  --xi-hill: #1a1314;
+  --xi-stem: #4a3c3b;
+  --xi-body: #1d1516;
+  --xi-off: #0f0a0b;
+  --xi-lit: #4a2c27;
+  --xi-t1: #3b2c2d;
+  --xi-t2: #5a4344;
+  --xi-t3: #7c5f5c;
+  --xi-t4: #2a1f20;
+}
+
+/* paper: the lookbook's light paper, where sample E was first shown */
+.xti[data-ground="paper"] {
+  --xi-ground: #f6f3f0;
+  --xi-ink: #1a1213;
+  --xi-chili: #e3122a;
+  --xi-ember: #f85810;
+  --xi-hill: #e6d8cc;
+  --xi-stem: #b8a597;
+  --xi-body: #1c1314;
+  --xi-off: #2a1f20;
+  --xi-lit: #fff8f3;
+  --xi-t1: #e3d4c9;
+  --xi-t2: #cbb5a6;
+  --xi-t3: #a88c7c;
+  --xi-t4: #efe5dd;
+}
+
+/* ---------- the loader frame (the iris clones this) ---------- */
+
+.xti-ld {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100cqw;
+  height: 100cqh;
+  overflow: hidden;
+  /* layout(): the word is 80% wide on narrow screens, 56% (max 1000px)
+     from 820px; its centre line sits at 43% (40% in portrait) */
+  --ww: 80cqw;
+  --cy: 43cqh;
+  --r: max(7px, calc(var(--ww) * 75 / var(--xi-adv)));
+}
+
+@container xti (min-width: 820px) {
+  .xti-ld {
+    --ww: min(56cqw, 1000px);
+  }
+}
+
+@container xti (orientation: portrait) {
+  .xti-ld {
+    --cy: 40cqh;
+  }
+}
+
+.xti-ground {
+  position: absolute;
+  inset: 0;
+  background: var(--xi-ground);
+}
+
+.xti-lay {
+  position: absolute;
+  inset: 0;
+}
+
+.xti-it {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.xti-it > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.xti-it .xti-lit {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+.xti-it .xti-lit svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.xti-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.xti-word {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+/* the resting word, for the trimmed repeat and the reduced-motion fade */
+.xti-static {
+  display: none;
+  position: absolute;
+  left: calc(50cqw - var(--ww) / 2);
+  top: calc(var(--cy) - var(--ww) * 345 / var(--xi-adv));
+  width: var(--ww);
+  height: calc(var(--ww) * 690 / var(--xi-adv));
+  overflow: visible;
+  fill: var(--xi-ink);
+}
+
+.xti[data-x="chili"] .xti-static .xti-x {
+  fill: var(--xi-chili);
+}
+
+html[data-xt-intro="trim"] .xti-static,
+html[data-xt-intro="fade"] .xti-static {
+  display: block;
+}
+
+/* ---------- the loading dots (CSS until the morph takes over) ---------- */
+
+.xti-dots {
+  display: none;
+}
+
+html[data-xt-intro="full"] .xti-dots {
+  display: block;
+}
+
+.xti[data-phase="morph"] .xti-dots {
+  visibility: hidden;
+}
+
+.xti-dot {
+  position: absolute;
+  left: calc(50cqw + (var(--k) - 1) * var(--r) * 3.3 - var(--r));
+  top: calc(var(--cy) - var(--r));
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  animation: xti-dot-in 280ms cubic-bezier(0.5, 0, 0.2, 1.45) calc(20ms + var(--k) * 60ms) both;
+}
+
+.xti-dot > i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--xi-ink);
+  transform-origin: 50% 100%;
+  /* the lookbook's DOT: first hop at 180 ms, 115 ms apart, every 820 ms */
+  animation: xti-hop 820ms linear calc(180ms + var(--k) * 115ms) infinite;
+}
+
+@keyframes xti-dot-in {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* A ballistic hop (height 2.7 radii) stretched in the air, then a squash on
+   landing; sampled from the lookbook's dotTransform() so the script can
+   pick it up at any landing. */
+@keyframes xti-hop {
+  0% { transform: translateY(0px) scale(0.9366, 1.14); }
+  3.582% { transform: translateY(calc(var(--r) * -0.6328)) scale(0.9439, 1.1225); }
+  7.165% { transform: translateY(calc(var(--r) * -1.1813)) scale(0.9513, 1.105); }
+  10.747% { transform: translateY(calc(var(--r) * -1.6453)) scale(0.9589, 1.0875); }
+  14.329% { transform: translateY(calc(var(--r) * -2.025)) scale(0.9667, 1.07); }
+  17.912% { transform: translateY(calc(var(--r) * -2.3203)) scale(0.9747, 1.0525); }
+  21.494% { transform: translateY(calc(var(--r) * -2.5313)) scale(0.9829, 1.035); }
+  25.076% { transform: translateY(calc(var(--r) * -2.6578)) scale(0.9914, 1.0175); }
+  28.659% { transform: translateY(calc(var(--r) * -2.7)) scale(1, 1); }
+  32.241% { transform: translateY(calc(var(--r) * -2.6578)) scale(0.9914, 1.0175); }
+  35.823% { transform: translateY(calc(var(--r) * -2.5313)) scale(0.9829, 1.035); }
+  39.405% { transform: translateY(calc(var(--r) * -2.3203)) scale(0.9747, 1.0525); }
+  42.988% { transform: translateY(calc(var(--r) * -2.025)) scale(0.9667, 1.07); }
+  46.57% { transform: translateY(calc(var(--r) * -1.6453)) scale(0.9589, 1.0875); }
+  50.152% { transform: translateY(calc(var(--r) * -1.1813)) scale(0.9513, 1.105); }
+  53.735% { transform: translateY(calc(var(--r) * -0.6328)) scale(0.9439, 1.1225); }
+  57.317% { transform: translateY(0px) scale(0.9366, 1.14); }
+  57.318% { transform: translateY(0px) scale(1.1625, 0.74); }
+  60.366% { transform: translateY(0px) scale(1.1047, 0.8194); }
+  63.415% { transform: translateY(0px) scale(1.0633, 0.8844); }
+  66.463% { transform: translateY(0px) scale(1.0342, 0.935); }
+  69.512% { transform: translateY(0px) scale(1.0148, 0.9711); }
+  72.561% { transform: translateY(0px) scale(1.0036, 0.9928); }
+  75.61%,
+  100% { transform: translateY(0px) scale(1, 1); }
+}
+
+/* ---------- the iris ---------- */
+
+.xti-tiles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.xti-tile {
+  position: absolute;
+  overflow: hidden;
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: strict;
+}
+
+.xti-tin {
+  position: absolute;
+}
+
+/* ---------- reduced motion: a quick fade, no script needed ---------- */
+
+html[data-xt-intro="fade"] .xti {
+  pointer-events: none;
+  animation: xti-fade 300ms ease 260ms both;
+}
+
+@keyframes xti-fade {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
