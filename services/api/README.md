@@ -72,6 +72,30 @@ The canonical prefix is `/v1`. Identical compatibility routes are exposed under
 
 Interactive OpenAPI documentation is served at `/docs`.
 
+### A phone as a second camera
+
+`GET /v1/user/me` carries `user.liveSecondCamera`, for a signed-in phone app
+that wants to offer "Use this phone" while its owner is live elsewhere:
+
+```ts
+liveSecondCamera: { streamId: string; connected: boolean } | null
+```
+
+- `null`: not live, or live from an encoder (OBS/RTMP/WHIP), where the studio
+  places no phone camera.
+- `{ streamId, connected }`: live from a browser; a practice run counts.
+  `connected` is whether a phone camera (`cam-<userId>`) is in the room now.
+  The answer is reused for up to 5 seconds and refreshed at once by the
+  phone camera's own LiveKit join/leave webhook.
+
+To become that camera, mint a one-time code with
+`POST /v1/users/me/camera-link` and join on it with
+`POST /v1/camera/:code/join` (a camera-only token, no mic).
+
+`settings.secondCameraTip` (`"on" | "off"`, unset means on) is the studio's
+"use your phone as a second camera" suggestion; `PATCH /v1/user/me` with
+`{ "settings": { "secondCameraTip": "off" } }` is its "Don't show again".
+
 ## Realtime model
 
 REST persists users, streams, follows, settings, analytics, and chat history.

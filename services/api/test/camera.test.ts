@@ -67,7 +67,7 @@ vi.mock("../src/watch-sessions.js", () => ({
 
 const models = await import("../src/models.js");
 const db = models as unknown as Record<string, import("./fake-mongo.js").FakeModel>;
-const { resetCameraLinks, CAMERA_LINK_TTL_MS, CAMERA_RETRY_MS } = await import("../src/routes/camera.js");
+const { resetCameraLinks, resetSecondCameraSeen, CAMERA_LINK_TTL_MS, CAMERA_RETRY_MS, SECOND_CAMERA_TTL_MS } = await import("../src/routes/camera.js");
 const { nextPhoneSlot } = await import("../src/scene-put.js");
 
 describe("a second phone as a camera", () => {
@@ -83,6 +83,7 @@ describe("a second phone as a camera", () => {
   beforeEach(() => {
     for (const m of Object.values(db)) m.reset();
     resetCameraLinks();
+    resetSecondCameraSeen();
     state.signedIn = true;
     state.tokens = [];
     state.inRoom = [];
@@ -319,5 +320,63 @@ describe("a second phone as a camera", () => {
     expect(nextPhoneSlot({ angle: "main" }, { phoneSlot: "beside", angle: "both" })).toBe("off");
     expect(nextPhoneSlot({}, { angle: "phone" })).toBe("main");
     expect(nextPhoneSlot({}, null)).toBe("off");
+  });
+  /* ---- The phone app's flag and the studio's tip ---- */
+
+  const me = async () => {
+    const res = await app.inject({ method: "GET", url: "/api/user/me" });
+    expect(res.statusCode).toBe(200);
+    return res.json().data.user as { liveSecondCamera: { streamId: string; connected: boolean } | null };
+  };
+
+  it("says on /user/me whether a phone camera is in the live room — null off air", async () => {
+    expect((await me()).liveSecondCamera).toBeNull();
+    const stream = goLive();
+    expect((await me()).liveSecondCamera).toEqual({ streamId: String(stream._id), connected: false });
+
+    // The phone joins: its webhook forgets the remembered answer at once.
+    state.inRoom = [String(HOST), `cam-${HOST}`];
+    expect((await deliver("participant_joined", `cam-${HOST}`)).statusCode).toBe(200);
+    expect((await me()).liveSecondCamera).toEqual({ streamId: String(stream._id), connected: true });
+
+    // And leaves.
+    state.inRoom = [String(HOST)];
+    await deliver("participant_left", `cam-${HOST}`);
+    expect((await me()).liveSecondCamera).toEqual({ streamId: String(stream._id), connected: false });
+  });
+
+  it("remembers the room's answer a few seconds, so a polling phone costs one roster read", async () => {
+    const stream = goLive();
+    expect((await me()).liveSecondCamera?.connected).toBe(false);
+    // No webhook reached us (a dev tunnel, say): the answer stands until it's stale.
+    state.inRoom = [`cam-${HOST}`];
+    expect((await me()).liveSecondCamera?.connected).toBe(false);
+    const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + SECOND_CAMERA_TTL_MS + 1);
+    try {
+      expect((await me()).liveSecondCamera).toEqual({ streamId: String(stream._id), connected: true });
+    } finally {
+      later.mockRestore();
+    }
+  });
+
+  it("counts a practice run, and leaves an encoder stream out", async () => {
+    const practice = goLive(true);
+    expect((await me()).liveSecondCamera).toEqual({ streamId: String(practice._id), connected: false });
+    db.Stream!.reset();
+    db.Stream!.insert({ ...practice, _id: new mongoose.Types.ObjectId(), practice: false, source: "obs" });
+    expect((await me()).liveSecondCamera).toBeNull();
+  });
+
+  it("keeps \"Don't show again\" on the account, and turns it back on", async () => {
+    const row = db.User!.rows.find((r) => String(r._id) === String(HOST))!;
+    row.settings = { profanityFilter: true };
+    const patch = (secondCameraTip: unknown) =>
+      app.inject({ method: "PATCH", url: "/api/user/me", payload: { settings: { secondCameraTip } } });
+    const off = await patch("off");
+    expect(off.statusCode).toBe(200);
+    expect(off.json().data.user.settings).toEqual({ profanityFilter: true, secondCameraTip: "off" });
+    expect((await me() as unknown as { settings: Record<string, unknown> }).settings.secondCameraTip).toBe("off");
+    expect((await patch("on")).json().data.user.settings.secondCameraTip).toBe("on");
+    expect((await patch("snooze")).statusCode).toBe(400);
   });
 });

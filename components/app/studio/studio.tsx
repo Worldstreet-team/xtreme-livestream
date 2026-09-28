@@ -81,11 +81,12 @@ import { PracticeShare } from "@/components/app/practice-share";
 import { LiveAudience } from "@/components/app/stream-recap";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { SecondCameraPanel } from "@/components/app/second-camera-panel";
+import { SecondCameraTip } from "@/components/app/studio/second-camera-tip";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { SetsPanel } from "@/components/app/sets-panel";
 import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
-import { CollapsibleSection } from "@/components/app/collapsible-section";
+import { CollapsibleSection, openSection } from "@/components/app/collapsible-section";
 import { applyShield, getShieldSettings, getShieldStatus, setShieldSettings, shareShieldedScreen, useShieldSettings } from "@/lib/privacy-shield";
 import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
@@ -477,6 +478,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // program, never a guest. Where it sits is scene.phoneSlot.
   const phoneTrackRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneConnected, setPhoneConnected] = useState(false);
+  /** Bumped by the second-camera tip: the live panel comes up with a code on it. */
+  const [phoneAsk, setPhoneAsk] = useState(0);
   // The published camera, as state: the face tracker follows it (the ref alone wouldn't tell it).
   const [liveCam, setLiveCam] = useState<LocalVideoTrack | null>(null);
   // The privacy shield on a screen share: the share's track while there is
@@ -3625,6 +3628,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             hasCamera={source === "camera"}
             phoneConnected={phoneConnected}
             headless
+            startSignal={phoneAsk}
           />
         </CollapsibleSection>
       )}
@@ -4840,6 +4844,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           ) : (
             <>
               {roomHeader}
+              {/* Live from a computer with no phone in: a phone as a second camera, suggested once. */}
+              <SecondCameraTip
+                streamId={streamId}
+                eligible={isLive && !practice && source !== "obs" && !cameraTurnsWithDevice()}
+                phoneConnected={phoneConnected}
+                onUse={() => {
+                  setPanel("stage");
+                  openSection("live-second-camera");
+                  setPhoneAsk((n) => n + 1);
+                }}
+              />
               <div className={cn("min-h-0 flex-1", panel !== "chat" && "hidden")}>
                 {streamId && (
                   <LiveChat

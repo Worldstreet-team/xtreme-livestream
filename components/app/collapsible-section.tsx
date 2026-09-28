@@ -19,6 +19,17 @@ function readOpen(id: string): "1" | "0" | null {
   return mem.get(id) ?? null;
 }
 
+/** Open a section from elsewhere — a tip that leads to it, say — and remember it open. */
+export function openSection(id: string) {
+  mem.set(id, "1");
+  try {
+    localStorage.setItem(KEY(id), "1");
+  } catch {
+    // Remembered for this page only.
+  }
+  window.dispatchEvent(new Event(EVENT));
+}
+
 function subscribe(onChange: () => void) {
   window.addEventListener(EVENT, onChange);
   window.addEventListener("storage", onChange);
@@ -58,9 +69,10 @@ export function CollapsibleSection({
   const open = stored === null ? defaultOpen : stored === "1";
   const bodyId = useId();
   const toggle = () => {
-    mem.set(id, open ? "0" : "1");
+    if (!open) return openSection(id);
+    mem.set(id, "0");
     try {
-      localStorage.setItem(KEY(id), open ? "0" : "1");
+      localStorage.setItem(KEY(id), "0");
     } catch {
       // Remembered for this page only.
     }

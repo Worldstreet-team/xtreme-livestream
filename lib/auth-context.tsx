@@ -29,6 +29,8 @@ export interface AppUser {
   settings: {
     /** Appearance, saved with the account; unset until chosen. */
     theme?: "system" | "light" | "dark";
+    /** The studio's "use your phone as a second camera" tip; unset is on. Saved with the account, so "Don't show again" holds on every device. */
+    secondCameraTip?: "on" | "off";
     autoRecord: boolean;
     slowMode: boolean;
     subscriberOnly: boolean;
@@ -50,6 +52,12 @@ export interface AppUser {
     language?: string;
   };
   createdAt: string;
+  /**
+   * GET /user/me only: while you're live from a browser (a practice run
+   * counts), the stream and whether a phone camera is in its room; null
+   * off air or on an encoder stream.
+   */
+  liveSecondCamera?: { streamId: string; connected: boolean } | null;
 }
 
 interface AuthContextValue {

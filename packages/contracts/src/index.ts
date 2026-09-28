@@ -1495,6 +1495,8 @@ export const updateProfileBodySchema = z
         stageAccountDays: z.union([z.literal(0), z.literal(1), z.literal(7)]).optional(),
         /** Appearance, kept with the account so every device and browser opens on it. */
         theme: z.enum(["system", "light", "dark"]).optional(),
+        /** The studio's "use your phone as a second camera" suggestion; "off" once they said don't show it again. */
+        secondCameraTip: z.enum(["on", "off"]).optional(),
       })
       .strict()
       .optional(),

@@ -57,4 +57,11 @@ describe("API contracts", () => {
     expect(updateProfileBodySchema.parse({ settings: { theme: "system" } }).settings?.theme).toBe("system");
     expect(() => updateProfileBodySchema.parse({ settings: { theme: "sepia" } })).toThrow();
   });
+
+  it("keeps the second-camera tip's on/off with the account", () => {
+    expect(updateProfileBodySchema.parse({ settings: { secondCameraTip: "off" } }).settings?.secondCameraTip).toBe("off");
+    expect(updateProfileBodySchema.parse({ settings: { secondCameraTip: "on" } }).settings?.secondCameraTip).toBe("on");
+    expect(() => updateProfileBodySchema.parse({ settings: { secondCameraTip: "later" } })).toThrow();
+    expect(() => updateProfileBodySchema.parse({ settings: { secondCameraTip: false } })).toThrow();
+  });
 });

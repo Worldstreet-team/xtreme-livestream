@@ -13,6 +13,7 @@ import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
 import { recordViewers } from "../analytics.js";
 import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
 import { evictStalePreview, isPreviewIdentity } from "../preview.js";
+import { forgetSecondCamera } from "./camera.js";
 
 /**
  * How long a stage guest — asking, backstage or on stage — who drops out of
@@ -157,6 +158,10 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
 
       const roomName = event.room?.name;
       if (!roomName) return { success: true };
+
+      // The phone cam coming or going changes what /user/me says about it.
+      const who = event.participant?.identity;
+      if (who && isCameraIdentity(who)) forgetSecondCamera(who);
 
       if (event.event === "room_finished") {
         const stream = await Stream.findOne({

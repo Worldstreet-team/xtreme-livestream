@@ -109,6 +109,8 @@ export interface IUser extends Document {
   settings: {
     /** Appearance, chosen on any device. Unset until someone picks one. */
     theme?: "system" | "light" | "dark";
+    /** The studio's second-camera suggestion; unset reads as "on", "off" after "Don't show again". */
+    secondCameraTip?: "on" | "off";
     autoRecord: boolean;
     slowMode: boolean;
     subscriberOnly: boolean;
@@ -247,6 +249,8 @@ const userSchema = new Schema<IUser>(
     settings: {
       // No default: unset means "never chosen", so a browser's own earlier choice can be kept.
       theme: { type: String, enum: ["system", "light", "dark"] },
+      // No default either: unset is "on" — the tip is off only once someone said so.
+      secondCameraTip: { type: String, enum: ["on", "off"] },
       autoRecord: { type: Boolean, default: false },
       slowMode: { type: Boolean, default: false },
       subscriberOnly: { type: Boolean, default: false },

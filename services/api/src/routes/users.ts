@@ -16,6 +16,7 @@ import { Follow, Stream, User, type IUser } from "../models.js";
 import { bumpGoal } from "../goals.js";
 import { parseImageDataUri, thumbnailUrlFor } from "../stream-service.js";
 import { fireRules } from "../rules.js";
+import { liveSecondCamera } from "./camera.js";
 
 /**
  * The brand kit as clients see it: the logo as a versioned URL (never its
@@ -301,12 +302,18 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Users"],
         summary: "Get the authenticated user's profile",
+        description:
+          "`liveSecondCamera` is `{ streamId, connected }` while you're live from a browser (a practice run counts) and `null` otherwise, " +
+          "including on an encoder stream. `connected` says whether a phone camera (`cam-<userId>`) is in the room now. " +
+          "A signed-in phone can offer to become it: `POST /users/me/camera-link`, then `POST /camera/:code/join`.",
         security: [{ bearerAuth: [] }],
       },
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      return { success: true, data: { user: privateUser(dbUser) } };
+      // Never lets the profile fail: LiveKit unreachable reads as "no phone in".
+      const secondCamera = await liveSecondCamera(dbUser._id).catch(() => null);
+      return { success: true, data: { user: { ...privateUser(dbUser), liveSecondCamera: secondCamera } } };
     },
   );
 

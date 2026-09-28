@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera, Check, Copy } from "@/components/icons";
 import { QrCode } from "@/components/app/qr-code";
 import { LayoutThumb } from "@/components/app/scene-controls";
@@ -40,6 +40,7 @@ export function SecondCameraPanel({
   phoneConnected,
   disabled = false,
   headless = false,
+  startSignal = 0,
 }: {
   hostId: string;
   /** The layout on air (`scene.layout`). */
@@ -58,6 +59,12 @@ export function SecondCameraPanel({
   disabled?: boolean;
   /** Inside a section that already names it: no title of its own. */
   headless?: boolean;
+  /**
+   * Bumped to start from somewhere else (the studio's second-camera tip):
+   * the panel comes into view with a fresh code on it, unless a phone is
+   * already sending.
+   */
+  startSignal?: number;
 }) {
   // The address as this browser reaches the app; empty on the server's paint.
   const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "");
@@ -73,6 +80,10 @@ export function SecondCameraPanel({
     setLink(null);
     setError(null);
   }, [hostId]);
+
+  const rootRef = useRef<HTMLElement>(null);
+  // The latest of what a start needs, read when the signal comes rather than re-running on every change.
+  const startRef = useRef({ ready: false, ask: async () => {} });
 
   const ask = async () => {
     setBusy(true);
@@ -97,6 +108,17 @@ export function SecondCameraPanel({
     }
   };
 
+  // Asked for from elsewhere: once the panel is showing (a frame after its
+  // tab and section open), bring it into view and make the code.
+  useEffect(() => {
+    if (!startSignal) return;
+    const raf = requestAnimationFrame(() => {
+      rootRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (startRef.current.ready) void startRef.current.ask();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [startSignal]);
+
   // `now` keeps this re-rendering; the clock itself is the server's.
   void now;
   const msLeft = link ? Date.parse(link.expiresAt) - serverNow() : 0;
@@ -104,9 +126,12 @@ export function SecondCameraPanel({
   const absolute = link && origin ? `${origin}${link.url}` : "";
   const shown = absolute.replace(/^https?:\/\//, "");
   const canSwitch = phoneConnected && !disabled;
+  useEffect(() => {
+    startRef.current = { ready: !phoneConnected && !disabled && !busy && (!link || expired), ask };
+  });
 
   return (
-    <section aria-labelledby="second-camera-title" className="rounded-[14px] bg-white/[0.04] p-3.5" data-camera={cameraIdentityOf(hostId)}>
+    <section ref={rootRef} aria-labelledby="second-camera-title" className="scroll-my-3 rounded-[14px] bg-white/[0.04] p-3.5" data-camera={cameraIdentityOf(hostId)}>
       <p id="second-camera-title" className={cn("flex items-center gap-2 text-[13.5px] font-semibold", headless && "sr-only")}>
         <Camera size={16} className="text-ember-hi" />
         Second camera

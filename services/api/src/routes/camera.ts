@@ -1,13 +1,14 @@
 import crypto from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
+import type { Types } from "mongoose";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createToken } from "../livekit.js";
+import { createToken, isIdentityInRoom } from "../livekit.js";
 import { Stream, User } from "../models.js";
-import { cameraIdentity } from "../safety/roles.js";
+import { cameraIdentity, isCameraIdentity } from "../safety/roles.js";
 import { reconcileStream } from "../stream-service.js";
 
 /**
@@ -101,6 +102,60 @@ export function releaseCameraLink(code: string) {
 /** Tests only: start from nothing. */
 export function resetCameraLinks() {
   links.clear();
+}
+
+/**
+ * Whether the creator's live stream has a phone camera in it right now —
+ * what `GET /user/me` reports as `liveSecondCamera`, so a signed-in phone
+ * (the WorldSpace app) can offer "Use this phone" while its owner is live
+ * from somewhere else.
+ *
+ * - `null`: not live, or live from an encoder (the studio places no phone
+ *   camera on an OBS stream). A practice run counts: it's their own phone.
+ * - `{ streamId, connected }`: live; `connected` is whether `cam-<userId>`
+ *   is in the room. To become that camera, mint a code with
+ *   `POST /users/me/camera-link` and join on it (`POST /camera/:code/join`).
+ *
+ * One indexed read of the live stream, then — only while live — one roster
+ * read from LiveKit, remembered a few seconds per creator so a polling
+ * client costs little. The phone cam's own join or leave (the webhook)
+ * forgets the answer at once.
+ */
+export interface LiveSecondCamera {
+  streamId: string;
+  connected: boolean;
+}
+
+/** How long a roster answer is reused. */
+export const SECOND_CAMERA_TTL_MS = 5_000;
+const secondCameraSeen = new Map<string, { at: number; value: LiveSecondCamera }>();
+
+export async function liveSecondCamera(userId: Types.ObjectId | string, now = Date.now()): Promise<LiveSecondCamera | null> {
+  const id = String(userId);
+  const stream = await Stream.findOne({ streamerId: userId, isLive: true }).select("_id source livekitRoomName").lean();
+  if (!stream || stream.source === "obs") {
+    secondCameraSeen.delete(id);
+    return null;
+  }
+  const streamId = String(stream._id);
+  const seen = secondCameraSeen.get(id);
+  if (seen && seen.value.streamId === streamId && now - seen.at < SECOND_CAMERA_TTL_MS) return seen.value;
+  const connected = await isIdentityInRoom(stream.livekitRoomName, cameraIdentity(id));
+  const value = { streamId, connected };
+  secondCameraSeen.set(id, { at: now, value });
+  // Bounded like the codes: one entry per creator who asked lately.
+  if (secondCameraSeen.size > MAX_LINKS) secondCameraSeen.delete(secondCameraSeen.keys().next().value!);
+  return value;
+}
+
+/** The phone cam came or went (webhooks.ts): the next read asks the room again. */
+export function forgetSecondCamera(identity: string) {
+  if (isCameraIdentity(identity)) secondCameraSeen.delete(identity.slice("cam-".length));
+}
+
+/** Tests only. */
+export function resetSecondCameraSeen() {
+  secondCameraSeen.clear();
 }
 
 /** Why a code won't do, in the phone's words. */
