@@ -167,14 +167,15 @@ export async function buildApp() {
     encoding: false,
     runFirst: true,
   });
-  const clerkOptions: ClerkFastifyOptions & {
-    authorizedParties?: string[];
-  } = {
+  // authorizedParties is NOT handed to Clerk: @clerk/backend 3.x then
+  // refuses any token without an `azp` claim, and a native app's session
+  // token has none, so every signed-in call from the WorldSpace phone app
+  // was a 401. The same list is enforced in auth.ts (`signedInUserId`): a
+  // token that names a party must name one of ours, a token that names
+  // none (native) is accepted (owner approved 2026-09-28).
+  const clerkOptions: ClerkFastifyOptions = {
     publishableKey: config.CLERK_PUBLISHABLE_KEY,
     secretKey: config.CLERK_SECRET_KEY,
-    ...(config.clerkAuthorizedParties.length > 0
-      ? { authorizedParties: config.clerkAuthorizedParties }
-      : {}),
   };
   await app.register(clerkPlugin, clerkOptions);
   await app.register(swagger, {

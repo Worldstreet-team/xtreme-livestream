@@ -4,6 +4,7 @@ import {
   getAuth,
 } from "@clerk/fastify";
 import type { FastifyRequest } from "fastify";
+import { config } from "./config.js";
 import { ApiError } from "./errors.js";
 import { User, type IUser } from "./models.js";
 
@@ -43,10 +44,28 @@ async function findAvailableUsername(base: string) {
   return candidate;
 }
 
+/**
+ * The signed-in Clerk user, with the authorized-parties rule applied here
+ * instead of in Clerk (see app.ts): a session token that names a party
+ * (`azp`, a browser origin) must name one of CLERK_AUTHORIZED_PARTIES; a
+ * token that names none, which is what a native app's session token looks
+ * like, is accepted. With no list configured, every verified token passes.
+ */
+export function signedInUserId(request: FastifyRequest): string | null {
+  const auth = getAuth(request);
+  if (!auth.userId) return null;
+  const parties = config.clerkAuthorizedParties;
+  const azp = (auth.sessionClaims as { azp?: unknown } | null)?.azp;
+  if (parties.length > 0 && typeof azp === "string" && azp && !parties.includes(azp)) {
+    return null;
+  }
+  return auth.userId;
+}
+
 export async function authenticate(
   request: FastifyRequest,
 ): Promise<AuthenticatedUser> {
-  const { userId } = getAuth(request);
+  const userId = signedInUserId(request);
 
   if (!userId) {
     throw new ApiError(401, "Authentication required", "UNAUTHORIZED");
@@ -124,5 +143,5 @@ export async function authenticate(
 }
 
 export function getOptionalAuthUserId(request: FastifyRequest) {
-  return getAuth(request).userId ?? null;
+  return signedInUserId(request);
 }
