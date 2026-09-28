@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { apiFetch, ApiError } from "@/lib/api-client";
+import { hydrateTours, type AccountTours } from "@/lib/tour/state";
 
 // Shape of the local DB user object returned by /api/user/me
 export interface AppUser {
@@ -58,6 +59,8 @@ export interface AppUser {
    * off air or on an encoder stream.
    */
   liveSecondCamera?: { streamId: string; connected: boolean } | null;
+  /** The walkthrough tours seen or snoozed on this account, on the web or in the app. */
+  tours?: AccountTours;
 }
 
 interface AuthContextValue {
@@ -107,6 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }>("/api/user/me");
 
         if (data.success && data.data?.user) {
+          // Before the user is published, so the tour host never decides without it.
+          hydrateTours(data.data.user.id, data.data.user.tours);
           setUser(data.data.user);
           setError(null);
           setIsLoading(false);

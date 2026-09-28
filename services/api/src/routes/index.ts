@@ -29,6 +29,7 @@ import { sponsorRoutes } from "./sponsors.js";
 import { streamActionRoutes } from "./stream-actions.js";
 import { streamRoutes } from "./streams.js";
 import { streamReportRoutes } from "./stream-report.js";
+import { tourRoutes } from "./tours.js";
 import { thumbnailRoutes } from "./thumbnails.js";
 import { userRoutes } from "./users.js";
 import { webhookRoutes } from "./webhooks.js";
@@ -51,6 +52,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(ruleRoutes);
   await fastify.register(analyticsRoutes);
   await fastify.register(streamReportRoutes);
+  await fastify.register(tourRoutes);
   await fastify.register(controlRoutes);
   await fastify.register(appealRoutes);
   await fastify.register(healthRoutes);

@@ -1,13 +1,17 @@
+import { apiFetch } from "@/lib/api-client";
 import type { TourAction, TourId } from "./story";
 
 /**
  * What each person has seen of the walkthrough, and the way the rest of the
  * app starts a tour.
  *
- * Seen and snoozed live in localStorage, per signed-in user id (a server
- * flag can come later): finishing or skipping a tour marks it seen for
- * good; "Later" snoozes it for a day. Signed out, the same record lives
- * under "guest". Storage that's blocked just means a tour may play again.
+ * Finishing or skipping a tour marks it seen for good; "Later" snoozes it
+ * for a day. Signed in, the record lives on the account (`tours` on
+ * /user/me, written through /user/me/tours), shared with the mobile app,
+ * so a tour seen on one never plays on the other. localStorage keeps a
+ * copy per user id (and the whole record when signed out, as "guest"), so
+ * nothing waits on the network; blocked storage just means a tour may
+ * play again.
  *
  * Other code calls `tourAction("first-live")` and friends when the moment
  * happens; the host (components/app/tour/tour-host.tsx) decides whether a
@@ -33,7 +37,49 @@ interface TourRecord {
 const empty = (): TourRecord => ({ seen: {}, snoozed: {} });
 const keyFor = (userId: string | null) => `${KEY}:${userId ?? "guest"}`;
 
-function read(userId: string | null): TourRecord {
+/** The account's record as /user/me sends it: tour id → ISO time. */
+export interface AccountTours {
+  seen: Record<string, string>;
+  snoozed: Record<string, string>;
+}
+
+/** The signed-in account's record, from the profile (see `hydrateTours`). */
+let account: { userId: string; record: TourRecord } | null = null;
+
+function toMs(from: Record<string, string> | undefined): Partial<Record<TourId, number>> {
+  const out: Partial<Record<TourId, number>> = {};
+  for (const [id, iso] of Object.entries(from ?? {})) {
+    const at = Date.parse(iso);
+    if (Number.isFinite(at)) out[id as TourId] = at;
+  }
+  return out;
+}
+
+/**
+ * The profile arrived: remember the account's record, and hand the account
+ * anything this device saw before the record moved there (so the app
+ * knows too). Called by the auth context before it publishes the user, so
+ * the tour host never decides without it.
+ */
+export function hydrateTours(userId: string, tours: AccountTours | undefined) {
+  if (!tours) return;
+  const record: TourRecord = { seen: toMs(tours.seen), snoozed: toMs(tours.snoozed) };
+  account = { userId, record };
+  if (typeof window === "undefined") return;
+  const local = readLocal(userId);
+  const carry = (Object.keys(local.seen) as TourId[]).filter((id) => !record.seen[id]).slice(0, 50);
+  if (carry.length === 0) return;
+  for (const id of carry) record.seen[id] = local.seen[id]!;
+  void apiFetch("/api/user/me/tours/seen", { method: "POST", body: JSON.stringify({ ids: carry }) }).catch(() => {});
+}
+
+/** Tell the account (signed in only). Best effort: the local copy already holds it. */
+function tellAccount(userId: string | null, path: string, init: { method: string; body?: string }) {
+  if (!userId) return;
+  void apiFetch(`/api/user/me/tours${path}`, init).catch(() => {});
+}
+
+function readLocal(userId: string | null): TourRecord {
   try {
     const raw = window.localStorage.getItem(keyFor(userId));
     if (!raw) return empty();
@@ -42,6 +88,18 @@ function read(userId: string | null): TourRecord {
   } catch {
     return empty();
   }
+}
+
+/** This device's copy, with the account's record folded in: seen on either counts, the later snooze wins. */
+function read(userId: string | null): TourRecord {
+  const local = readLocal(userId);
+  if (!userId || account?.userId !== userId) return local;
+  const { seen, snoozed } = account.record;
+  const merged: TourRecord = { seen: { ...seen, ...local.seen }, snoozed: { ...local.snoozed } };
+  for (const [id, until] of Object.entries(snoozed) as [TourId, number][]) {
+    merged.snoozed[id] = Math.max(until, merged.snoozed[id] ?? 0);
+  }
+  return merged;
 }
 
 function write(userId: string | null, record: TourRecord) {
@@ -66,6 +124,11 @@ export function markTourSeen(id: TourId, userId: string | null) {
   r.seen[id] = Date.now();
   delete r.snoozed[id];
   write(userId, r);
+  if (userId && account?.userId === userId) {
+    account.record.seen[id] ??= r.seen[id];
+    delete account.record.snoozed[id];
+  }
+  tellAccount(userId, `/${id}`, { method: "PUT", body: JSON.stringify({ state: "seen" }) });
 }
 
 /** "Later": back in a day. */
@@ -73,6 +136,9 @@ export function snoozeTour(id: TourId, userId: string | null, ms = SNOOZE_MS) {
   const r = read(userId);
   r.snoozed[id] = Date.now() + ms;
   write(userId, r);
+  if (userId && account?.userId === userId) account.record.snoozed[id] = r.snoozed[id]!;
+  const hours = Math.min(720, Math.max(1, Math.round(ms / 3_600_000)));
+  tellAccount(userId, `/${id}`, { method: "PUT", body: JSON.stringify({ state: "snoozed", hours }) });
 }
 
 /** Forget everything this person has seen (the dev `?tour=reset`, or a "replay the tours" setting). */
@@ -82,6 +148,8 @@ export function resetTours(userId: string | null) {
   } catch {
     // Nothing to forget.
   }
+  if (userId && account?.userId === userId) account.record = empty();
+  tellAccount(userId, "", { method: "DELETE" });
 }
 
 /* ---- Actions -------------------------------------------------------- */

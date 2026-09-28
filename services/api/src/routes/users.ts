@@ -17,6 +17,7 @@ import { bumpGoal } from "../goals.js";
 import { parseImageDataUri, thumbnailUrlFor } from "../stream-service.js";
 import { fireRules } from "../rules.js";
 import { liveSecondCamera } from "./camera.js";
+import { toursView } from "../tours.js";
 
 /**
  * The brand kit as clients see it: the logo as a versioned URL (never its
@@ -58,6 +59,8 @@ function privateUser(user: IUser) {
     streamKey: user.streamKey,
     settings: user.settings,
     onboarding: user.onboarding ?? { completedAt: null, categories: [], language: "" },
+    // The walkthrough, shared with the app (routes/tours.ts).
+    tours: toursView(user.tours),
     createdAt: user.createdAt,
   };
 }

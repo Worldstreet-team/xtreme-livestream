@@ -117,6 +117,17 @@ function applyUpdate(doc: Row, update: Row, inserting: boolean) {
         const cur = get(doc, k);
         if (cur == null || num(v) > num(cur)) setPath(doc, k, v);
       }
+    } else if (op === "$min") {
+      for (const [k, v] of Object.entries(fields as Row)) {
+        const cur = get(doc, k);
+        if (cur == null || num(v) < num(cur)) setPath(doc, k, v);
+      }
+    } else if (op === "$unset") {
+      for (const k of Object.keys(fields as Row)) {
+        const at = k.lastIndexOf(".");
+        const parent = at < 0 ? doc : get(doc, k.slice(0, at));
+        if (parent && typeof parent === "object") delete (parent as Row)[at < 0 ? k : k.slice(at + 1)];
+      }
     } else if (op === "$push") {
       for (const [k, v] of Object.entries(fields as Row)) {
         const items: unknown[] = v && typeof v === "object" && "$each" in (v as Row) ? (v as Row).$each : [v];

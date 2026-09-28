@@ -143,6 +143,15 @@ export interface IUser extends Document {
     /** Content language the viewer asked for; "" when never set. */
     language: string;
   };
+  /**
+   * The walkthrough, shared by the web and the app: tour id → when it was
+   * finished or skipped (never plays again), and tour id → when "Later"
+   * runs out. Unset until the first tour ends.
+   */
+  tours?: {
+    seen?: Map<string, Date>;
+    snoozed?: Map<string, Date>;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -265,6 +274,10 @@ const userSchema = new Schema<IUser>(
       completedAt: { type: Date, default: null },
       categories: { type: [String], default: [] },
       language: { type: String, default: "", maxlength: 12 },
+    },
+    tours: {
+      seen: { type: Map, of: Date, default: undefined },
+      snoozed: { type: Map, of: Date, default: undefined },
     },
   },
   { timestamps: true },
