@@ -56,8 +56,15 @@ export function signedInUserId(request: FastifyRequest): string | null {
   if (!auth.userId) return null;
   const parties = config.clerkAuthorizedParties;
   const azp = (auth.sessionClaims as { azp?: unknown } | null)?.azp;
-  if (parties.length > 0 && typeof azp === "string" && azp && !parties.includes(azp)) {
-    return null;
+  if (parties.length > 0) {
+    if (typeof azp === "string" && azp) {
+      if (!parties.includes(azp)) return null;
+    } else if (!/^Bearer\s+\S/i.test(request.headers.authorization ?? "")) {
+      // A token with no party is a native app's, and a native app sends it
+      // in the Authorization header. One that arrived any other way (a
+      // cookie a browser attaches by itself) doesn't get the exemption.
+      return null;
+    }
   }
   return auth.userId;
 }
