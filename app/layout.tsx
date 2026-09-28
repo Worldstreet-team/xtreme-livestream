@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, DM_Sans, Archivo, Poppins } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { HUB_REGISTER, HUB_SIGN_IN, isLocalClerk } from "@/lib/auth-urls";
 import { AuthProvider } from "@/lib/auth-context";
 import { THEME_SCRIPT } from "@/lib/theme-script";
 import { AccountThemeSync, ThemeSync } from "@/components/app/theme-switch";
@@ -46,19 +47,16 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: "Xtream Worldstreet" },
 };
 
-const isSatellite = process.env.NEXT_PUBLIC_CLERK_IS_SATELLITE === "true";
-const clerkDomain = process.env.NEXT_PUBLIC_CLERK_DOMAIN;
-const signInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || "/sign-in";
-const signUpUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL || "/sign-up";
-
 /**
- * Satellite mode is a PRODUCTION arrangement: there this app is a satellite
- * of the worldstreetgold.com hub and sign-in happens on the hub. Locally
- * there is no hub to hand off to, so unless satellite is explicitly switched
- * on the app runs standalone against the same Clerk test instance with its
- * own /sign-in route. Two explicit branches — ClerkProvider's props are a
- * discriminated union, so a conditional spread doesn't type-check.
+ * Satellite of the worldstreetgold.com hub in production, declared in CODE
+ * the way WorldSpace, the dashboard, academy and arcade declare it (see
+ * middleware.ts): sign-in happens on the hub's own /login, and anyone
+ * already signed in there is handshaken over without a form. Locally (a
+ * pk_test_ key) the app runs standalone against the Clerk test instance
+ * with its own /sign-in page. Two explicit branches — ClerkProvider's props
+ * are a discriminated union, so a conditional spread doesn't type-check.
  */
+const APP_ORIGIN = "https://xtreme.worldstreetgold.com";
 
 /** Clerk's own sign-in card, wearing Xtream's mark and ground. */
 const clerkAppearance = {
@@ -73,21 +71,23 @@ const clerkAppearance = {
 };
 
 function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
-  if (isSatellite && clerkDomain) {
+  if (!isLocalClerk) {
     return (
       <ClerkProvider
         appearance={clerkAppearance}
-        domain={clerkDomain}
+        domain="worldstreetgold.com"
         isSatellite
-        signInUrl={signInUrl}
-        signUpUrl={signUpUrl}
+        signInUrl={HUB_SIGN_IN}
+        signUpUrl={HUB_REGISTER}
+        signInFallbackRedirectUrl={`${APP_ORIGIN}/explore`}
+        signUpFallbackRedirectUrl={`${APP_ORIGIN}/explore`}
       >
         {children}
       </ClerkProvider>
     );
   }
   return (
-    <ClerkProvider appearance={clerkAppearance} signInUrl={signInUrl} signUpUrl={signUpUrl}>
+    <ClerkProvider appearance={clerkAppearance} signInUrl="/sign-in" signUpUrl="/sign-up">
       {children}
     </ClerkProvider>
   );
