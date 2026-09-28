@@ -5,15 +5,18 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DropdownMenu as Menu } from "radix-ui";
-import { Broadcast, CalendarPlus } from "@/components/icons";
+import { Broadcast, CalendarPlus, Sword, type Icon } from "@/components/icons";
 import { Tip } from "@/components/ui/tip";
 import { useAuth } from "@/lib/auth-context";
 import { signInHref } from "@/lib/auth-urls";
+import { BATTLE_EVENT, BATTLE_HREF } from "@/lib/battles";
 import { useLiveSession } from "@/lib/live-session";
 import { cn } from "@/lib/utils";
 
 /**
- * Go live, as one floating action with two ways in: Start now (the studio)
+ * Go live, as one floating action with three ways in: Start now (the
+ * studio), Start a battle (the studio, headed for its Battle tab — owner,
+ * 2026-09-28: "bring in the battles as an option as part of the go live")
  * or Schedule live (the booking form on /schedule). On phones it's a round
  * Chili button over the bottom-right of the page, above the tab bar; on
  * wider screens it's the rail's Go live button, and the menu floats beside
@@ -24,9 +27,26 @@ import { cn } from "@/lib/utils";
  * to the studio.
  */
 
-const START = { href: "/studio", label: "Start now", hint: "Open the studio and go on air" };
+type Option = { href: string; label: string; hint: string; glyph: Icon; lead?: boolean };
+const START: Option = { href: "/studio", label: "Start now", hint: "Open the studio and go on air", glyph: Broadcast, lead: true };
+// The studio says you'll pick your opponent once you're live, and opens Battle when you are.
+const BATTLE: Option = { href: BATTLE_HREF, label: "Start a battle", hint: "Go live and take on another host — or try a practice round first", glyph: Sword };
 // The schedule page opens on its booking form — that's the "new booking".
-const SCHEDULE = { href: "/schedule", label: "Schedule live", hint: "Book it so Allies can set a reminder" };
+const SCHEDULE: Option = { href: "/schedule", label: "Schedule live", hint: "Book it so Allies can set a reminder", glyph: CalendarPlus };
+const OPTIONS = [START, BATTLE, SCHEDULE];
+
+/**
+ * An option picked: a battle asked for while the studio is already open
+ * (the same page, so no remount to read the address) is told directly.
+ */
+function picked(o: Option, pathname: string | null) {
+  if (o === BATTLE && pathname === "/studio") window.dispatchEvent(new Event(BATTLE_EVENT));
+}
+
+/** Where an option goes: signed out, by way of signing in (the battle keeps its way back). */
+function hrefOf(o: Option, signedIn: boolean) {
+  return signedIn || o !== BATTLE ? o.href : signInHref(BATTLE_HREF);
+}
 
 /** Your broadcast here (the studio's session) or anywhere (the account says so). */
 export function useOnAir() {
@@ -45,15 +65,14 @@ function AirDot({ className }: { className?: string }) {
   );
 }
 
-/** One row of the menu: a glyph tile, the action, and why you'd pick it. */
-function OptionBody({ start, label, hint }: { start: boolean; label: string; hint: string }) {
-  const Glyph = start ? Broadcast : CalendarPlus;
+/** One row of the menu: a glyph tile, the action, and why you'd pick it. Only Start now's tile is Chili. */
+function OptionBody({ option: { glyph: Glyph, label, hint, lead } }: { option: Option }) {
   return (
     <>
       <span
         className={cn(
           "flex size-10 shrink-0 items-center justify-center rounded-[10px]",
-          start ? "bg-chili text-white" : "bg-control text-foreground",
+          lead ? "bg-chili text-white" : "bg-control text-foreground",
         )}
       >
         <Glyph size={19} weight="fill" aria-hidden />
@@ -244,6 +263,8 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
  */
 export function GoLiveSheet({ onDismiss, onPick }: { onDismiss: () => void; onPick: () => void }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const { user } = useAuth();
   const [closing, setClosing] = useState(false);
 
   // The exit plays before unmounting; a hidden tab never ends an
@@ -295,15 +316,18 @@ export function GoLiveSheet({ onDismiss, onPick }: { onDismiss: () => void; onPi
       >
         <div aria-hidden className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/40" />
         <p className="px-3 pb-2 text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">Go live</p>
-        {[START, SCHEDULE].map((o) => (
+        {OPTIONS.map((o) => (
           <Link
             key={o.href}
-            href={o.href}
+            href={hrefOf(o, Boolean(user))}
             role="menuitem"
-            onClick={onPick}
-            className="flex h-[64px] w-full items-center gap-3.5 rounded-control px-3 transition-colors outline-none hover:bg-control focus-visible:bg-control"
+            onClick={() => {
+              picked(o, pathname);
+              onPick();
+            }}
+            className="flex min-h-[64px] w-full items-center gap-3.5 rounded-control px-3 py-2 transition-colors outline-none hover:bg-control focus-visible:bg-control"
           >
-            <OptionBody start={o === START} label={o.label} hint={o.hint} />
+            <OptionBody option={o} />
           </Link>
         ))}
       </div>
@@ -370,6 +394,7 @@ function NewBadge({ className }: { className?: string }) {
 
 export function GoLiveRailButton({ collapsed = false, className }: { collapsed?: boolean; className?: string }) {
   const { user, isLoading } = useAuth();
+  const pathname = usePathname();
   const { live } = useOnAir();
   const fresh = useStudioNew();
 
@@ -424,13 +449,14 @@ export function GoLiveRailButton({ collapsed = false, className }: { collapsed?:
           aria-label="Go live"
           className="z-[70] w-[320px] rounded-panel bg-popover p-1.5 shadow-popover outline-none motion-safe:animate-[pop-in_220ms_var(--ease-spring)_both]"
         >
-          {[START, SCHEDULE].map((o) => (
+          {OPTIONS.map((o) => (
             <Menu.Item key={o.href} asChild>
               <Link
-                href={o.href}
+                href={hrefOf(o, Boolean(user))}
+                onClick={() => picked(o, pathname)}
                 className="flex w-full cursor-pointer items-center gap-3 rounded-control px-2.5 py-2 transition-colors outline-none data-[highlighted]:bg-control"
               >
-                <OptionBody start={o === START} label={o.label} hint={o.hint} />
+                <OptionBody option={o} />
               </Link>
             </Menu.Item>
           ))}

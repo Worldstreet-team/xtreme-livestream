@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowClockwise, Broadcast, CalendarPlus, Copy, DownloadIcon, Fire, ShareNetwork, X } from "@/components/icons";
+import { ArrowClockwise, ArrowRight, Broadcast, CalendarPlus, Copy, DownloadIcon, Fire, ShareNetwork, Sword, X } from "@/components/icons";
 import { Confetti } from "@/components/app/art";
 import { AudienceCurve } from "@/components/app/audience-curve";
 import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
@@ -14,6 +14,8 @@ import { minuteStamp, MOMENT_LABELS } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { DURATION, EASE, prefersReducedMotion } from "@/lib/motion";
 import { recapFileName, renderRecapPng } from "@/lib/stream-report-png";
+import { BATTLE_EVENT, PRACTICE_BATTLE_HREF } from "@/lib/battles";
+import { PRACTICE_EVENT } from "@/lib/tour/state";
 import {
   durationLabel,
   rateStream,
@@ -173,6 +175,18 @@ function ReportBody({
     onClose();
     if (pathname !== "/studio") router.push("/studio");
   };
+  // Another practice run, for the battle this one didn't try: the studio
+  // switches one on and opens Battle once it starts (a URL it's already on
+  // wouldn't remount it, hence the events).
+  const tryBattle = () => {
+    onClose();
+    if (pathname === "/studio") {
+      window.dispatchEvent(new Event(PRACTICE_EVENT));
+      window.dispatchEvent(new Event(BATTLE_EVENT));
+    } else {
+      router.push(PRACTICE_BATTLE_HREF);
+    }
+  };
 
   return (
     <>
@@ -183,7 +197,7 @@ function ReportBody({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 md:px-6">
         {report ? (
-          <Report report={report} shown={shown} reduce={reduce} phone={phone} />
+          <Report report={report} shown={shown} reduce={reduce} phone={phone} onTryBattle={tryBattle} />
         ) : failed ? (
           <div className="flex flex-col items-center gap-4 py-20 text-center">
             <p className="text-[15px] font-semibold">Couldn&apos;t load the report.</p>
@@ -252,7 +266,20 @@ function Count({ value }: { value: number }) {
   return <>{value.toLocaleString()}</>;
 }
 
-function Report({ report: r, shown, reduce, phone }: { report: StreamReportData; shown: boolean; reduce: boolean; phone: boolean }) {
+function Report({
+  report: r,
+  shown,
+  reduce,
+  phone,
+  onTryBattle,
+}: {
+  report: StreamReportData;
+  shown: boolean;
+  reduce: boolean;
+  phone: boolean;
+  /** A practice run that tried no battle: go and try one. */
+  onTryBattle: () => void;
+}) {
   const s = r.analytics?.summary;
   const practice = r.tone === "practice";
   // Starts as the phone on air, then becomes what the stream was.
@@ -263,6 +290,8 @@ function Report({ report: r, shown, reduce, phone }: { report: StreamReportData;
   }, [r.tone, reduce]);
 
   const moments = r.analytics?.moments.filter((m) => m.kind !== "peak") ?? [];
+  // A practice run's battle shows as a moment; without one, the list suggests it.
+  const triedBattle = moments.some((m) => m.kind === "battle");
   const best = r.bestMinute;
 
   return (
@@ -347,7 +376,7 @@ function Report({ report: r, shown, reduce, phone }: { report: StreamReportData;
         <section aria-label="What you ran through" className="mt-3 rounded-[12px] bg-tint/[0.045] p-4" style={rise(shown, 4, reduce)}>
           <p className={EYEBROW}>What you ran through</p>
           {moments.length === 0 ? (
-            <p className="mt-2 text-[13px] leading-snug text-muted-foreground">Segments, cards, guests and goals you try in a practice run show up here.</p>
+            <p className="mt-2 text-[13px] leading-snug text-muted-foreground">Segments, cards, guests, goals and battles you try in a practice run show up here.</p>
           ) : (
             <ol className="mt-2 flex flex-col gap-1.5">
               {moments.slice(0, 8).map((m, i) => (
@@ -360,6 +389,20 @@ function Report({ report: r, shown, reduce, phone }: { report: StreamReportData;
                 </li>
               ))}
             </ol>
+          )}
+          {!triedBattle && (
+            <button
+              type="button"
+              onClick={onTryBattle}
+              className="press mt-3 flex w-full items-center gap-2.5 rounded-[10px] bg-tint/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-tint/[0.08]"
+            >
+              <Sword size={16} weight="fill" className="shrink-0 text-foreground" />
+              <span className="min-w-0 flex-1 text-[13px] leading-snug">
+                <span className="font-semibold text-foreground">Try a battle</span>
+                <span className="text-muted-foreground"> · 90 seconds against a sparring partner, next practice run</span>
+              </span>
+              <ArrowRight size={14} weight="bold" className="shrink-0 text-muted-foreground" />
+            </button>
           )}
         </section>
       )}

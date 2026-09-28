@@ -28,6 +28,7 @@ import { FeaturedPanel } from "@/components/app/featured-panel";
 import { RunOfShow } from "@/components/app/run-of-show";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
+import { SparringTile } from "@/components/app/battles/sparring-tile";
 import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { newerGoal, newerHeat, readGoal, readHeat } from "@/lib/goals";
@@ -514,11 +515,14 @@ function LiveConsole({
       ];
     }
     return [
-      opponentCell(
-        "opponent",
-        opponent.displayName,
-        <LivePreview streamId={opponent.streamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-      ),
+      // A practice battle's sparring partner is drawn: there's no stream behind it.
+      battleOn.practice
+        ? { key: "opponent", node: <SparringTile battle={battleOn} /> }
+        : opponentCell(
+            "opponent",
+            opponent.displayName,
+            <LivePreview streamId={opponent.streamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+          ),
       ...stageGuests.map(guestCell),
     ];
   })();

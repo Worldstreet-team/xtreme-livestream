@@ -1,15 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
-import { Gift, Lightning, Trophy, ArrowSquareOut, ShareNetwork } from "@/components/icons";
-import { filterGifts, formatClock, giftFilterLine, hostShare, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleView } from "@/lib/battles";
+import { useRef, useState, type ReactNode } from "react";
+import { Gift, Lightning, Trophy, ArrowSquareOut, ShareNetwork, Sword } from "@/components/icons";
+import {
+  filterGifts,
+  formatClock,
+  formatPracticeScore,
+  giftFilterLine,
+  hostShare,
+  inMultiplierWindow,
+  isBattleActive,
+  secondsLeft,
+  sideOf,
+  teamName,
+  type BattleView,
+} from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { GiftArt } from "@/components/app/gift-art";
 import { Pill, PillLink } from "@/components/ui/pill";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
+import { ClashView } from "@/components/app/battles/clash-view";
+import { PracticeBadge } from "@/components/app/practice-preview";
 
 function usd(minor: number) {
   // A million reads as one ("$9.9M"), not "$9876.5K".
@@ -32,6 +46,11 @@ function usd(minor: number) {
  * moment, so heat) — and the door to the other side's room. The result
  * stays up for a while after the clock so nobody misses who won, with the
  * card to post it (Share result).
+ *
+ * A practice battle (a practice run against the sparring partner) keeps
+ * all of it but the money: its scores are practice points in a plain face,
+ * nobody can back a side or visit the other one, the clash view opens in
+ * their place, and the result is there to see, not to post.
  */
 export function BattleBar({
   battle,
@@ -39,6 +58,7 @@ export function BattleBar({
   actionsEnd,
   className,
   onShare,
+  feedQuery = "",
 }: {
   battle: BattleView;
   /** The stream this bar is rendered in — decides which side "you" are on. */
@@ -52,6 +72,8 @@ export function BattleBar({
    * go with it. Unset, the scoreboard opens its own.
    */
   onShare?: (battle: BattleView) => void;
+  /** More for the clash view's feed ("?previewKey=…"), for a practice run's preview link. */
+  feedQuery?: string;
 }) {
   const now = useNow(isBattleActive(battle));
   const left = secondsLeft(battle, now);
@@ -67,6 +89,14 @@ export function BattleBar({
   const loser = ended && battle.winnerId ? (battle.winnerId === battle.host.userId ? battle.challenger : battle.host) : null;
   // A battle that counts only some gifts says which, while it runs.
   const filterLine = ended ? null : giftFilterLine(battle.giftFilter);
+  // Practice points, never money.
+  const practice = Boolean(battle.practice);
+  const score = practice ? (minor: number) => formatPracticeScore(minor, true) : usd;
+  const totals = practice ? "font-mono text-[14px] font-bold" : "font-money text-[17px]";
+  // The clash view, opened from the scoreboard in a practice battle.
+  const clashFrom = useRef<HTMLButtonElement>(null);
+  const [clash, setClash] = useState<DOMRect | null>(null);
+  const [clashShown, setClashShown] = useState(false);
 
   // A late gift just reset the clock: say so beside it for a moment.
   const [resetSeen, setResetSeen] = useState(Boolean(battle.lateResetUsed));
@@ -127,14 +157,14 @@ export function BattleBar({
           )}
         </span>
 
-        <Side side={battle.challenger} won={ended && battle.winnerId === battle.challenger.userId} align="right" />
+        <Side side={battle.challenger} won={ended && battle.winnerId === battle.challenger.userId} align="right" standIn={practice} />
       </div>
 
       {/* The totals in money numerals, the lead called out, then the actions. */}
       <div className="flex items-center justify-between gap-2 px-1 text-white drop-shadow">
         <span className="flex items-center gap-1.5">
-          <span className="font-money text-[17px]">{usd(battle.host.usdMinor)}</span>
-          {!ended && lead > 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {usd(lead)}</span>}
+          <span className={totals}>{score(battle.host.usdMinor)}</span>
+          {!ended && lead > 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {score(lead)}</span>}
           <Backers backers={battle.host.top} ring="ring-chili" />
         </span>
         {ended ? (
@@ -153,6 +183,8 @@ export function BattleBar({
                 <span className="sm:hidden">G</span>
                 <span className="hidden sm:inline">g</span>ifts count double
               </>
+            ) : practice ? (
+              "Practice · simulated gifts"
             ) : (
               "Gifts decide it"
             )}
@@ -160,8 +192,8 @@ export function BattleBar({
         )}
         <span className="flex items-center gap-1.5">
           <Backers backers={battle.challenger.top} ring="ring-ember" />
-          {!ended && lead < 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {usd(-lead)}</span>}
-          <span className="font-money text-[17px]">{usd(battle.challenger.usdMinor)}</span>
+          {!ended && lead < 0 && <span className="text-[10.5px] font-bold text-ember-hi">▲ {score(-lead)}</span>}
+          <span className={totals}>{score(battle.challenger.usdMinor)}</span>
         </span>
       </div>
 
@@ -190,7 +222,35 @@ export function BattleBar({
         </div>
       )}
 
-      {!ended && (
+      {/* A practice battle: nothing to back, no other room — the clash view instead. */}
+      {practice && (
+        <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+          <PracticeBadge size="sm" />
+          <Pill
+            ref={clashFrom}
+            size="sm"
+            variant="glass"
+            icon={<Sword size={14} weight="fill" />}
+            onClick={() => {
+              setClash(clashFrom.current?.getBoundingClientRect() ?? null);
+              setClashShown(true);
+            }}
+          >
+            {ended ? "See the clash view" : "Watch the clash"}
+          </Pill>
+          {ended && (
+            <Pill size="sm" variant="ghost" icon={<Trophy size={14} weight="fill" />} onClick={() => (onShare ? onShare(battle) : setSharing(battle))}>
+              See the result
+            </Pill>
+          )}
+          {actionsEnd && <div className="ml-auto flex shrink-0 items-center gap-1.5">{actionsEnd}</div>}
+        </div>
+      )}
+      {practice && clash && (
+        <ClashView battle={battle} from={clash} open={clashShown} triggerRef={clashFrom} onClose={() => setClashShown(false)} onGone={() => setClash(null)} feedQuery={feedQuery} />
+      )}
+
+      {!ended && !practice && (
         // On a phone the names give way: "Back Ada" keeps its length in check
         // and the other room is just "Their side".
         <div className="pointer-events-auto flex min-w-0 items-center gap-2">
@@ -212,7 +272,7 @@ export function BattleBar({
       )}
 
       {/* After the clock, the one thing to do here is post it. */}
-      {ended && (
+      {ended && !practice && (
         <div className="pointer-events-auto flex min-w-0 items-center gap-2">
           <Pill size="sm" variant="primary" icon={<ShareNetwork size={14} weight="fill" />} onClick={() => (onShare ? onShare(battle) : setSharing(battle))}>
             Share result
@@ -241,10 +301,11 @@ function Backers({ backers, ring }: { backers?: BattleView["host"]["top"]; ring:
   );
 }
 
-function Side({ side, won, align }: { side: BattleView["host"]; won: boolean; align: "left" | "right" }) {
+function Side({ side, won, align, standIn = false }: { side: BattleView["host"]; won: boolean; align: "left" | "right"; standIn?: boolean }) {
   const ring = align === "left" ? "ring-chili" : "ring-ember";
+  const Frame = standIn ? StandIn : Link;
   return (
-    <Link
+    <Frame
       href={`/c/${side.username}`}
       className={cn("flex shrink-0 items-center gap-2", align === "right" && "flex-row-reverse text-right")}
       title={teamName(side)}
@@ -267,6 +328,15 @@ function Side({ side, won, align }: { side: BattleView["host"]; won: boolean; al
         )}
       </span>
       <span className="hidden max-w-[130px] truncate text-[12.5px] font-semibold sm:block">{teamName(side)}</span>
-    </Link>
+    </Frame>
+  );
+}
+
+/** The sparring partner's side: nobody's channel to go to, so not a link. */
+function StandIn({ className, title, children }: { href: string; className?: string; title?: string; children: ReactNode }) {
+  return (
+    <span className={className} title={title}>
+      {children}
+    </span>
   );
 }

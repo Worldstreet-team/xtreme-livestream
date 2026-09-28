@@ -16,6 +16,14 @@ import { sendRoomData } from "./livekit.js";
 import { audit, payBattleBonus } from "./rewards.js";
 import { relayBattleResult } from "./socials-relay.js";
 import { fireRules } from "./rules.js";
+import {
+  PRACTICE_BATTLE_SEC,
+  PRACTICE_FIRST_MOVE_MS,
+  PRACTICE_GIFTS_KEPT,
+  SPARRING_NAME,
+  practiceMove,
+  type PracticeGiftDef,
+} from "./practice-battle.js";
 
 /**
  * Live battles: two creators, one clock, the audience decides with gifts.
@@ -26,6 +34,10 @@ import { fireRules } from "./rules.js";
  * starts and ends, how much a gift counts (double in the closing window),
  * whether there is overtime, who won and what they get. Clients render the
  * view this module fans out and never compute a result themselves.
+ *
+ * A practice battle (practice-battle.ts) runs through all of it too —
+ * against a stand-in, with simulated gifts, and with every payout, list
+ * and notification skipped.
  */
 
 /** Share of the platform's commission on battle gifts paid to the winner. */
@@ -65,6 +77,8 @@ export interface BattleView {
   /** Catalog ids of the gifts that count toward the score; [] for every gift. */
   giftFilter: string[];
   endedReason: string | null;
+  /** A practice battle: the challenger is the stand-in, and the scores are simulated — never money. */
+  practice: boolean;
 }
 interface PartnerView {
   userId: string;
@@ -109,12 +123,32 @@ async function topBackers(b: IBattle) {
   return { host: view("host"), challenger: view("challenger") };
 }
 
+/** A practice battle's top backers: the made-up names its simulated gifts came from. */
+function practiceBackers(b: IBattle) {
+  const sums = new Map<string, { side: "host" | "challenger"; sender: string; usd: number }>();
+  for (const g of b.practiceGifts ?? []) {
+    const key = `${g.side}|${g.sender}`;
+    const row = sums.get(key) ?? { side: g.side, sender: g.sender, usd: 0 };
+    row.usd += g.usdMinor;
+    sums.set(key, row);
+  }
+  const rows = [...sums.values()].sort((x, y) => y.usd - x.usd);
+  const view = (side: "host" | "challenger") =>
+    rows
+      .filter((r) => r.side === side)
+      .slice(0, TOP_BACKERS)
+      .map((r) => ({ userId: `practice:${r.sender}`, username: "", displayName: r.sender, avatar: "", usdMinor: r.usd }));
+  return { host: view("host"), challenger: view("challenger") };
+}
+
 export async function toBattleView(b: IBattle): Promise<BattleView> {
   const partnerIds = [b.hostPartnerId, b.challengerPartnerId].filter((id): id is mongoose.Types.ObjectId => Boolean(id));
+  const practice = Boolean(b.practice);
   const [host, challenger, top, partners] = await Promise.all([
     User.findById(b.hostId).select(USER_FIELDS).lean(),
-    User.findById(b.challengerId).select(USER_FIELDS).lean(),
-    topBackers(b),
+    // The sparring partner is nobody: there's no one to look up.
+    practice ? Promise.resolve(null) : User.findById(b.challengerId).select(USER_FIELDS).lean(),
+    practice ? practiceBackers(b) : topBackers(b),
     partnerIds.length ? User.find({ _id: { $in: partnerIds } }).select(USER_FIELDS).lean() : Promise.resolve([]),
   ]);
   const partnerView = (id: mongoose.Types.ObjectId | null | undefined): PartnerView | null => {
@@ -149,7 +183,12 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     multiplierWindowSec: b.multiplierWindowSec,
     multiplier: b.multiplier,
     host: side(host, b.hostId, b.hostStreamId, b.hostUsdMinor, top.host, partnerView(b.hostPartnerId)),
-    challenger: side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, partnerView(b.challengerPartnerId)),
+    challenger: practice
+      ? {
+          ...side(null, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, null),
+          displayName: SPARRING_NAME,
+        }
+      : side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, partnerView(b.challengerPartnerId)),
     winnerId: b.winnerId ? String(b.winnerId) : null,
     bonusUsdMinor: b.bonusUsdMinor,
     overtimeUsed: b.overtimeUsed,
@@ -158,6 +197,7 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     mode: b.mode ?? "1v1",
     giftFilter: [...(b.giftFilter ?? [])],
     endedReason: b.endedReason,
+    practice,
   };
 }
 
@@ -209,6 +249,23 @@ export async function battleActivity(battleId: mongoose.Types.ObjectId, since: D
         at: new Date(r.createdAt).toISOString(),
       };
     });
+}
+
+/** A practice battle's simulated gifts, as the same feed: newest first, only after `since` when given. */
+export function practiceActivity(b: IBattle, since: Date | null, limit = ACTIVITY_LIMIT): BattleGiftView[] {
+  return [...(b.practiceGifts ?? [])]
+    .filter((g) => !since || new Date(g.at).getTime() > since.getTime())
+    .sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime())
+    .slice(0, Math.max(1, Math.min(limit, ACTIVITY_LIMIT)))
+    .map((g) => ({
+      id: String(g._id),
+      side: g.side,
+      usdMinor: g.usdMinor,
+      giftName: g.giftName,
+      emoji: g.emoji,
+      sender: { userId: `practice:${g.sender}`, displayName: g.sender },
+      at: new Date(g.at).toISOString(),
+    }));
 }
 
 /**
@@ -346,7 +403,8 @@ export async function startBattle(battle: IBattle) {
  */
 export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, sender: { _id: mongoose.Types.ObjectId; createdAt?: Date }) {
   const battle = await currentBattleForStream(stream._id);
-  if (!battle || !battle.endsAt) return null;
+  // A practice battle scores simulated gifts only (recordPracticeGift) — never money.
+  if (!battle || !battle.endsAt || battle.practice) return null;
   const side: "host" | "challenger" = battle.hostStreamId.equals(stream._id) ? "host" : "challenger";
 
   // Self-backing and brand-new accounts don't move the score.
@@ -365,19 +423,110 @@ export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, s
   const inc: Record<string, number> = { commissionUsdMinor: gift.commissionUsdMinor };
   if (score > 0) inc[side === "host" ? "hostUsdMinor" : "challengerUsdMinor"] = score;
   let updated = await Battle.findByIdAndUpdate(battle._id, { $inc: inc }, { new: true });
-
-  // A gift that counts in the last seconds resets the clock — once a battle,
-  // decided by the write itself so two late gifts can't both reset it.
-  if (score > 0 && battle.endsAt.getTime() - now <= LATE_WINDOW_SEC * 1000) {
-    const reset = await Battle.findOneAndUpdate(
-      { _id: battle._id, status: { $in: ["live", "overtime"] }, lateResetUsed: { $ne: true } },
-      { $set: { lateResetUsed: true, endsAt: new Date(now + LATE_RESET_SEC * 1000) } },
-      { new: true },
-    );
-    if (reset) updated = reset;
-  }
+  if (score > 0) updated = (await lateReset(battle, now)) ?? updated;
   if (updated) await fanOutBattle(updated);
   return updated;
+}
+
+/**
+ * A gift that counts in the last seconds resets the clock — once a battle,
+ * decided by the write itself so two late gifts can't both reset it. The
+ * battle as reset, or null when it didn't.
+ */
+async function lateReset(battle: IBattle, now: number) {
+  if (!battle.endsAt || battle.endsAt.getTime() - now > LATE_WINDOW_SEC * 1000) return null;
+  return Battle.findOneAndUpdate(
+    { _id: battle._id, status: { $in: ["live", "overtime"] }, lateResetUsed: { $ne: true } },
+    { $set: { lateResetUsed: true, endsAt: new Date(now + LATE_RESET_SEC * 1000) } },
+    { new: true },
+  );
+}
+
+/**
+ * Start a practice battle for a host in a practice run: the clock starts
+ * at once, against the sparring partner. Nobody is invited or told; the
+ * challenger's ids are fresh and point at no user and no stream.
+ */
+export async function startPracticeBattle(host: { _id: mongoose.Types.ObjectId }, stream: IStream) {
+  const now = new Date();
+  const battle = await Battle.create({
+    hostId: host._id,
+    challengerId: new mongoose.Types.ObjectId(),
+    hostStreamId: stream._id,
+    challengerStreamId: new mongoose.Types.ObjectId(),
+    status: "live",
+    invitedAt: now,
+    startsAt: now,
+    durationSec: PRACTICE_BATTLE_SEC,
+    endsAt: new Date(now.getTime() + PRACTICE_BATTLE_SEC * 1000),
+    mode: "1v1",
+    practice: true,
+    practiceGifts: [],
+    practiceNextAt: new Date(now.getTime() + PRACTICE_FIRST_MOVE_MS),
+  });
+  await fanOutBattle(battle);
+  return battle;
+}
+
+/**
+ * A simulated gift in a practice battle: scored by the same rules as a real
+ * one (×2 in the closing window, the late reset), kept on the battle, and
+ * fanned out the same way. Nothing is charged, and no gift ledger row is
+ * written. Null when the battle isn't running any more.
+ */
+export async function recordPracticeGift(battle: IBattle, side: "host" | "challenger", gift: Pick<PracticeGiftDef, "name" | "emoji" | "usdMinor">, sender: string, now = Date.now()) {
+  if (!battle.practice || !battle.endsAt) return null;
+  const inWindow = battle.endsAt.getTime() - now <= battle.multiplierWindowSec * 1000;
+  const score = gift.usdMinor * (inWindow ? battle.multiplier : 1);
+  const row = { _id: new mongoose.Types.ObjectId(), side, usdMinor: score, giftName: gift.name, emoji: gift.emoji, sender, at: new Date(now) };
+  let updated = await Battle.findOneAndUpdate(
+    { _id: battle._id, practice: true, status: { $in: ["live", "overtime"] } },
+    {
+      $inc: { [side === "host" ? "hostUsdMinor" : "challengerUsdMinor"]: score },
+      $push: { practiceGifts: { $each: [row], $slice: -PRACTICE_GIFTS_KEPT } },
+    },
+    { new: true },
+  );
+  if (!updated) return null;
+  updated = (await lateReset(updated, now)) ?? updated;
+  await fanOutBattle(updated);
+  return updated;
+}
+
+/**
+ * The sparring partner's turn, once a second from the sweep: for each
+ * running practice battle whose next move is due, claim the move (a
+ * conditional write on `practiceNextAt`, so two sweeps never both make it)
+ * and play it.
+ */
+export async function playPracticeBattles(now = Date.now(), rand: () => number = Math.random) {
+  const running = await Battle.find({ practice: true, status: { $in: ["live", "overtime"] }, practiceNextAt: { $lte: new Date(now) } });
+  for (const b of running) {
+    if (!b.endsAt || !b.practiceNextAt || b.endsAt.getTime() <= now) continue;
+    try {
+      const move = practiceMove(
+        {
+          now,
+          endsAt: b.endsAt.getTime(),
+          hostUsdMinor: b.hostUsdMinor,
+          challengerUsdMinor: b.challengerUsdMinor,
+          multiplier: b.multiplier,
+          multiplierWindowSec: b.multiplierWindowSec,
+          lateResetUsed: Boolean(b.lateResetUsed),
+        },
+        rand,
+      );
+      const claimed = await Battle.findOneAndUpdate(
+        { _id: b._id, practiceNextAt: b.practiceNextAt },
+        { $set: { practiceNextAt: new Date(move.nextAt) } },
+        { new: true },
+      );
+      if (!claimed) continue;
+      await recordPracticeGift(claimed, move.side, move.gift, move.sender, now);
+    } catch (error) {
+      console.error("practice battle move failed:", error);
+    }
+  }
 }
 
 /** A live stream that isn't already in a battle or holding an open invite. */
@@ -445,6 +594,10 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
   battle.endedReason = reason;
   if (!battle.endsAt || battle.endsAt.getTime() > Date.now()) battle.endsAt = new Date();
 
+  // Practice: a result for the host to see, and nothing else — no bonus,
+  // no earnings, no payout or audit row, no relay, no notifications.
+  if (battle.practice) return settlePracticeBattle(battle);
+
   if (battle.status === "ended") {
     const hostWins = battle.hostUsdMinor > battle.challengerUsdMinor;
     const tie = battle.hostUsdMinor === battle.challengerUsdMinor;
@@ -501,6 +654,24 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
   return battle;
 }
 
+/** The end of a practice battle: the winner is named, nothing is paid, and only the host's own show rules hear of it. */
+async function settlePracticeBattle(battle: IBattle) {
+  battle.bonusUsdMinor = 0;
+  if (battle.status === "ended") {
+    const tie = battle.hostUsdMinor === battle.challengerUsdMinor;
+    battle.winnerId = tie ? null : battle.hostUsdMinor > battle.challengerUsdMinor ? battle.hostId : battle.challengerId;
+  }
+  await battle.save();
+  await fanOutBattle(battle);
+  // The host's "when I win a battle" rules rehearse too, like the practice
+  // run's simulated gifts do. The sparring partner has no stream to tell.
+  if (battle.status === "ended" && battle.winnerId) {
+    const won = battle.winnerId.equals(battle.hostId);
+    void fireRules({ _id: battle.hostStreamId, streamerId: battle.hostId }, { kind: won ? "battle_won" : "battle_lost", opponent: SPARRING_NAME });
+  }
+  return battle;
+}
+
 /** A scheduled battle waits past its time this long for both to be live before it lapses. */
 const SCHEDULE_GRACE_MS = 15 * 60_000;
 
@@ -537,15 +708,16 @@ export async function scheduleBattle(
 
 /** Booked battles, soonest first. */
 export async function upcomingBattles(limit = 12) {
-  return Battle.find({ status: "scheduled", scheduledAt: { $gte: new Date(Date.now() - SCHEDULE_GRACE_MS) } })
+  return Battle.find({ status: "scheduled", practice: { $ne: true }, scheduledAt: { $gte: new Date(Date.now() - SCHEDULE_GRACE_MS) } })
     .sort({ scheduledAt: 1 })
     .limit(limit);
 }
 
 /**
  * Once a second: end battles past their clock, expire unanswered invites,
- * start booked battles whose time has come, and cancel battles whose
- * streams have gone offline.
+ * start booked battles whose time has come, cancel battles whose
+ * streams have gone offline — and play the sparring partner's moves in
+ * practice battles.
  */
 export function startBattleSweep() {
   const tick = async () => {
@@ -579,9 +751,10 @@ export function startBattleSweep() {
     const due = await Battle.find({ status: { $in: ["live", "overtime"] }, endsAt: { $lte: now } });
     for (const b of due) {
       try {
-        // Both streams still live? Otherwise the battle doesn't count.
+        // Both streams still live? Otherwise the battle doesn't count. A
+        // practice battle has one stream: the host's practice run.
         const live = await Stream.countDocuments({ _id: { $in: [b.hostStreamId, b.challengerStreamId] }, isLive: true });
-        await settleBattle(b, live === 2 ? "clock" : "disconnect");
+        await settleBattle(b, live === (b.practice ? 1 : 2) ? "clock" : "disconnect");
       } catch (error) {
         console.error("battle settle failed:", error);
       }
@@ -590,6 +763,7 @@ export function startBattleSweep() {
       { status: "invited", invitedAt: { $lte: new Date(now.getTime() - INVITE_TTL_MS) } },
       { $set: { status: "cancelled", endedReason: "expired" } },
     );
+    await playPracticeBattles(now.getTime());
   };
   setInterval(() => void tick().catch((e) => console.error("battle sweep failed:", e)), 1000);
 }

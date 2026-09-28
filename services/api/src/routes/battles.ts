@@ -2,10 +2,14 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { giftFilterSchema, streamIdParamsSchema } from "@xtreme/contracts";
-import { authenticate } from "../auth.js";
+import { GIFT_IDS, giftFilterSchema, streamIdParamsSchema } from "@xtreme/contracts";
+import type { FastifyRequest } from "fastify";
+import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
-import { Battle, Stream, User } from "../models.js";
+import { Battle, Stream, User, type IBattle } from "../models.js";
+import { previewAccess } from "../preview.js";
+import { atLeast, roleIn } from "../safety/roles.js";
+import { practiceGiftDef } from "../practice-battle.js";
 import {
   ACTIVITY_LIMIT,
   battleActivity,
@@ -14,12 +18,15 @@ import {
   inQuickMatch,
   inviteToBattle,
   leaveQuickMatch,
+  practiceActivity,
   quickMatch,
   recentResultForStream,
+  recordPracticeGift,
   scheduleBattle,
   settleBattle,
   stagePartner,
   startBattle,
+  startPracticeBattle,
   toBattleView,
   upcomingBattles,
 } from "../battles.js";
@@ -59,7 +66,26 @@ const activityQuerySchema = z.object({
   /** ISO time of the newest gift already seen; only newer gifts come back. */
   since: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(ACTIVITY_LIMIT).optional(),
+  /** A practice run's preview key (preview.ts): how a preview viewer sees its practice battle. */
+  previewKey: z.string().max(128).optional(),
 });
+const previewQuerySchema = z.object({ previewKey: z.string().max(128).optional() });
+/** A test gift in a practice battle: any catalog gift, by id. Simulated — nobody is charged. */
+const practiceGiftBodySchema = z.object({ giftId: z.enum(GIFT_IDS) });
+
+/**
+ * A practice battle is as private as the practice run it's in: its host and
+ * their producers see it, and so does anyone holding the run's preview
+ * link. Everyone else gets the 404 a battle that doesn't exist would.
+ */
+async function assertMaySeePractice(request: FastifyRequest, battle: Pick<IBattle, "practice" | "hostId" | "hostStreamId">, previewKey: string | undefined) {
+  if (!battle.practice) return;
+  if (await previewAccess(battle.hostStreamId, previewKey)) return;
+  const viewer = getOptionalAuthUserId(request) ? await authenticate(request).catch(() => null) : null;
+  const host = viewer ? await User.findById(battle.hostId).select("safety").lean() : null;
+  if (viewer && host && atLeast(roleIn(host, viewer.dbUser._id), "producer")) return;
+  throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+}
 
 export const battleRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -110,6 +136,58 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       // An invite out means not waiting for a stranger any more.
       await leaveQuickMatch(dbUser._id);
       return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/practice",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "Start a practice battle: 90 seconds against a sparring partner, in a practice run — simulated, nobody sees it, no money moves",
+        security: [{ bearerAuth: [] }],
+      },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      if (!stream || !stream.practice) {
+        throw new ApiError(409, "Practice battles run in a practice run — start one from the studio", "NOT_PRACTICE");
+      }
+      const busy = await Battle.exists({
+        status: { $in: ["invited", "live", "overtime"] },
+        $or: [{ hostStreamId: stream._id }, { challengerStreamId: stream._id }, { hostId: dbUser._id, practice: true }],
+      });
+      if (busy) throw new ApiError(409, "A battle is already running", "BATTLE_BUSY");
+      const battle = await startPracticeBattle({ _id: dbUser._id }, stream);
+      return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/:id/practice-gift",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "Send a test gift to your own side of a practice battle — simulated, never charged",
+        security: [{ bearerAuth: [] }],
+        params: battleIdParamsSchema,
+        body: practiceGiftBodySchema,
+      },
+      config: { rateLimit: { max: 40, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const battle = await Battle.findById(request.params.id);
+      if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      if (!battle.hostId.equals(dbUser._id)) throw new ApiError(403, "Only the host sends test gifts", "NOT_HOST");
+      if (!battle.practice) throw new ApiError(409, "Test gifts are for practice battles", "NOT_PRACTICE");
+      if (!["live", "overtime"].includes(battle.status)) throw new ApiError(409, "This battle is already over", "BATTLE_OVER");
+      const gift = practiceGiftDef(request.body.giftId)!;
+      const updated = await recordPracticeGift(battle, "host", gift, `${dbUser.displayName || dbUser.username} · test`);
+      if (!updated) throw new ApiError(409, "This battle is already over", "BATTLE_OVER");
+      return { success: true, data: { battle: await toBattleView(updated) } };
     },
   );
 
@@ -191,7 +269,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
 
   app.post(
     "/battles/:id/cancel",
-    { schema: { tags: ["Battles"], summary: "Withdraw an invite, or end a battle early (no bonus)", security: [{ bearerAuth: [] }], params: battleIdParamsSchema } },
+    { schema: { tags: ["Battles"], summary: "Withdraw an invite, or end a battle early (no bonus) — a practice battle too", security: [{ bearerAuth: [] }], params: battleIdParamsSchema } },
     async (request) => {
       const { dbUser } = await authenticate(request);
       const battle = await Battle.findById(request.params.id);
@@ -238,6 +316,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
   app.get(
     "/battles/upcoming",
     { schema: { tags: ["Battles"], summary: "Booked battles, soonest first" } },
+    // Never a practice battle: upcomingBattles leaves them out.
     async () => ({ success: true, data: { battles: await Promise.all((await upcomingBattles()).map(toBattleView)) } }),
   );
 
@@ -245,7 +324,8 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
     "/battles/live",
     { schema: { tags: ["Battles"], summary: "Battles happening right now, biggest pot first" } },
     async () => {
-      const battles = await Battle.find({ status: { $in: ["live", "overtime"] } }).sort({ startsAt: -1 }).limit(20);
+      // A practice battle is its host's alone: never listed.
+      const battles = await Battle.find({ status: { $in: ["live", "overtime"] }, practice: { $ne: true } }).sort({ startsAt: -1 }).limit(20);
       const views = await Promise.all(battles.map(toBattleView));
       views.sort((a, b) => b.host.usdMinor + b.challenger.usdMinor - (a.host.usdMinor + a.challenger.usdMinor));
       return { success: true, data: { battles: views } };
@@ -270,10 +350,11 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
 
   app.get(
     "/battles/:id",
-    { schema: { tags: ["Battles"], summary: "A battle's state, scores and clock", params: battleIdParamsSchema } },
+    { schema: { tags: ["Battles"], summary: "A battle's state, scores and clock", params: battleIdParamsSchema, querystring: previewQuerySchema } },
     async (request) => {
       const battle = await Battle.findById(request.params.id);
       if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      await assertMaySeePractice(request, battle, request.query.previewKey);
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
   );
@@ -291,18 +372,31 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const battle = await Battle.findById(request.params.id);
       if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      await assertMaySeePractice(request, battle, request.query.previewKey);
       const since = request.query.since ? new Date(request.query.since) : null;
-      const [view, gifts] = await Promise.all([toBattleView(battle), battleActivity(battle._id as mongoose.Types.ObjectId, since, request.query.limit)]);
+      const [view, gifts] = await Promise.all([
+        toBattleView(battle),
+        battle.practice ? practiceActivity(battle, since, request.query.limit) : battleActivity(battle._id as mongoose.Types.ObjectId, since, request.query.limit),
+      ]);
       return { success: true, data: { battle: view, gifts } };
     },
   );
 
   app.get(
     "/streams/:id/battle",
-    { schema: { tags: ["Battles"], summary: "The battle this stream is in now, or the one it just finished", params: streamIdParamsSchema } },
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "The battle this stream is in now, or the one it just finished",
+        params: streamIdParamsSchema,
+        querystring: previewQuerySchema,
+      },
+    },
     async (request) => {
       const id = new mongoose.Types.ObjectId(request.params.id);
-      const battle = (await currentBattleForStream(id)) ?? (await recentResultForStream(id));
+      let battle = (await currentBattleForStream(id)) ?? (await recentResultForStream(id));
+      // A practice run's battle is for its crew and its preview link; to anyone else there's none.
+      if (battle?.practice) battle = await assertMaySeePractice(request, battle, request.query.previewKey).then(() => battle, () => null);
       return { success: true, data: { battle: battle ? await toBattleView(battle) : null } };
     },
   );

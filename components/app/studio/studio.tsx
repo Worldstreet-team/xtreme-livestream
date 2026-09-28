@@ -62,11 +62,13 @@ import { offerThumbnailCandidate } from "@/lib/thumbnail-candidates";
 import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
+import { SparringTile } from "@/components/app/battles/sparring-tile";
+import { BattleAskStrip } from "@/components/app/studio/battle-ask-strip";
 import { GamesPanel } from "@/components/app/games-panel";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { MiniLive } from "@/components/app/studio/mini-live";
 import { publishLiveSession, type LiveActions } from "@/lib/live-session";
-import { sideOf, type BattleView } from "@/lib/battles";
+import { BATTLE_EVENT, sideOf, type BattleView } from "@/lib/battles";
 import { isMarketCategory, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
@@ -328,6 +330,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [openOnCard, setOpenOnCard] = useState(false);
   /** A practice run: a private room with simulated chat and gifts — nothing announced, listed or paid. */
   const [practice, setPractice] = useState(false);
+  // "Try one in a practice run", asked from a real broadcast's Battle tab: a
+  // practice run starts off air, so it's set up for when this stream ends.
+  const [practiceNext, setPracticeNext] = useState(false);
+  const practiceNextRef = useRef(practiceNext);
+  practiceNextRef.current = practiceNext;
+  // "Start a battle", from the Go live chooser (/studio?battle=1, or its
+  // event when the studio's already open): a line above Go live, then the
+  // Battle tab — once — as the broadcast starts, practice run or real.
+  const [battleAsk, setBattleAsk] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("battle") === "1");
+  const battleAskRef = useRef(battleAsk);
+  battleAskRef.current = battleAsk;
+  useEffect(() => {
+    const on = () => setBattleAsk(true);
+    window.addEventListener(BATTLE_EVENT, on);
+    return () => window.removeEventListener(BATTLE_EVENT, on);
+  }, []);
   // The walkthrough's "Practice run" (/studio?practice=1): switch it on — never mid-broadcast.
   usePracticeRequest(() => {
     if (!isLive) setPractice(true);
@@ -1835,7 +1853,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
       setConn("live");
       setIsLive(true);
-      setPanel("chat");
+      // Asked for a battle: straight to it, this once.
+      setPanel(battleAskRef.current ? "battle" : "chat");
+      setBattleAsk(false);
       // The first time on air (a practice run counts), the walkthrough shows the live console.
       if (!resume) tourAction("first-live");
       return true;
@@ -1905,8 +1925,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   /** Back to setup after a broadcast, however it ended. */
   const resetAfterLive = () => {
     stopRejoin();
-    // The next stream is real unless they say otherwise again.
-    setPractice(false);
+    // The next stream is real unless they say otherwise again — or asked,
+    // from the Battle tab, to try a practice battle next.
+    setPractice(practiceNextRef.current);
+    // …and that practice run goes to its Battle tab when it starts.
+    if (practiceNextRef.current) setBattleAsk(true);
+    setPracticeNext(false);
     setAirTitle(null);
     setDetailsOpen(false);
     // The mic track went with the room, and the desk with it.
@@ -2795,10 +2819,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             key: "opponent",
             node: (
               <div className="relative size-full bg-black">
-                <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-                <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
-                  {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
-                </span>
+                {/* A practice battle's sparring partner is drawn: there's no stream behind it. */}
+                {battle.practice ? (
+                  <SparringTile battle={battle} />
+                ) : (
+                  <>
+                    <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+                    <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
+                      {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
+                    </span>
+                  </>
+                )}
               </div>
             ),
           },
@@ -3108,8 +3139,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           label="Practice run"
           description={
             practice
-              ? "Private. Nobody's told, nothing's listed, and chat and gifts are simulated. Your producers can still join."
-              : "Rehearse in a private room with simulated chat and gifts before the real thing."
+              ? "Private. Nobody's told, nothing's listed, and chat and gifts are simulated. Try a practice battle from Battle. Your producers can still join."
+              : "Rehearse in a private room with simulated chat and gifts, and try a battle against a sparring partner, before the real thing."
           }
           checked={practice}
           onCheckedChange={setPractice}
@@ -3473,6 +3504,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     const counting = countdown.running;
     return (
       <div className={variant === "console" ? "p-4 pt-3" : undefined}>
+        {/* Going live for a battle: the opponent comes after — or a practice round first. */}
+        {battleAsk && !counting && (
+          <BattleAskStrip practice={practice} onPracticeFirst={() => setPractice(true)} onDismiss={() => setBattleAsk(false)} onPicture={variant === "picture"} />
+        )}
         {practice && !counting && (
           <div className="mb-2.5 flex justify-center">
             <button
@@ -3552,7 +3587,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     { id: "stage", label: "Guests", icon: HandWaving, tip: "Bring guests on stage, or co-live", badge: stageRequests.length, tour: "studio-stage" },
     { id: "requests", label: "Requests", icon: Ticket, tip: "Paid requests from viewers", badge: requestQueue.pending.length },
     { id: "scenes", label: "Scenes", icon: LayoutIcon, tip: "Layouts, cards and graphics", tour: "studio-scenes" },
-    { id: "battle", label: "Battle", icon: Sword, tip: "Battle another host" },
+    { id: "battle", label: "Battle", icon: Sword, tip: practice ? "Try a practice battle" : "Battle another host" },
     { id: "games", label: "Games", icon: Sparkle, tip: "Predictions, raffles and quizzes" },
     { id: "more", label: "More", icon: DotsThree, tip: "Everything else" },
   ];
@@ -4362,6 +4397,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             inline
             streamId={streamId}
             onBattle={setBattle}
+            practice={practice}
+            practiceNext={practiceNext}
+            onPracticeNext={setPracticeNext}
             partner={liveGuests[0] ? { userId: liveGuests[0].userId, username: liveGuests[0].username, avatar: liveGuests[0].avatar } : null}
           />
         )}

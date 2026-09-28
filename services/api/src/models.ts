@@ -1178,8 +1178,31 @@ export interface IBattle extends Document {
    */
   giftFilter: string[];
   endedReason: "clock" | "cancelled" | "disconnect" | "declined" | "expired" | null;
+  /**
+   * A practice battle (practice-battle.ts): the host of a practice run
+   * against a stand-in "Sparring partner". The challenger ids point at no
+   * user and no stream; the scores are simulated and no money, bonus,
+   * notification, fan or list ever hears about it.
+   */
+  practice: boolean;
+  /** A practice battle's simulated gifts, newest last — the activity feed and top backers. Never real money. */
+  practiceGifts: IPracticeGift[];
+  /** When the practice battle's next simulated gift is due; claimed by a conditional write. */
+  practiceNextAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** One simulated gift in a practice battle. `usdMinor` is what it scored (×2 applied); nobody paid it. */
+export interface IPracticeGift {
+  _id: mongoose.Types.ObjectId;
+  side: "host" | "challenger";
+  usdMinor: number;
+  giftName: string;
+  emoji: string;
+  /** A made-up name, or "<host> · test" for the host's own test gifts. */
+  sender: string;
+  at: Date;
 }
 
 export type BattleMode = "1v1" | "2v2";
@@ -1215,6 +1238,21 @@ const battleSchema = new Schema<IBattle>(
     challengerPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     giftFilter: { type: [String], default: [] },
     endedReason: { type: String, default: null },
+    practice: { type: Boolean, default: false },
+    practiceGifts: {
+      type: [
+        new Schema<IPracticeGift>({
+          side: { type: String, enum: ["host", "challenger"], required: true },
+          usdMinor: { type: Number, required: true },
+          giftName: { type: String, default: "" },
+          emoji: { type: String, default: "" },
+          sender: { type: String, default: "" },
+          at: { type: Date, default: Date.now },
+        }),
+      ],
+      default: [],
+    },
+    practiceNextAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

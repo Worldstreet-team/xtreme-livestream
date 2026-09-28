@@ -116,7 +116,8 @@ export async function payBattleBonus(
   /** Who gets what — a 2v2's winning pair splits it (battles.ts, bonusShares). The winner alone by default. */
   shares?: Array<{ userId: mongoose.Types.ObjectId; usdMinor: number }>,
 ) {
-  if (!battle.winnerId || battle.bonusUsdMinor <= 0) return [];
+  // A practice battle never pays, whatever its numbers say.
+  if (battle.practice || !battle.winnerId || battle.bonusUsdMinor <= 0) return [];
   const split = shares ?? [{ userId: battle.winnerId, usdMinor: battle.bonusUsdMinor }];
   const out: IPayout[] = [];
   for (const share of split) {

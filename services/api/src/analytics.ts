@@ -1,6 +1,7 @@
 import type mongoose from "mongoose";
 import type { MomentKind, StreamAnalytics } from "@xtreme/contracts";
 import { Battle, ChatMessage, Follow, GiftTransaction, Stream, User, WatchSession } from "./models.js";
+import { SPARRING_NAME } from "./practice-battle.js";
 
 /**
  * Live analytics (Phase 3): a broadcast minute by minute. The audience
@@ -48,7 +49,8 @@ export interface AnalyticsInput {
   chats: Array<{ at: number; userId: string }>;
   gifts: Array<{ at: number; minor: number; senderId: string; sender: string; name: string }>;
   moments: Array<{ at: number; kind: MomentKind; label: string }>;
-  battles: Array<{ at: number; result: "won" | "lost" | "tie"; opponent: string }>;
+  /** `practice`: a practice battle against the sparring partner — only ever on a practice run's own report. */
+  battles: Array<{ at: number; result: "won" | "lost" | "tie"; opponent: string; practice?: boolean }>;
   newAllies: number;
   uniqueViewers: number;
   avgWatchMinutes: number;
@@ -83,11 +85,14 @@ export function buildAnalytics(input: AnalyticsInput): StreamAnalytics {
   const moments: StreamAnalytics["moments"] = [
     ...input.moments.map((m) => ({ minute: minuteOf(m.at), kind: m.kind, label: m.label })),
     ...input.gifts.filter((g) => g.minor >= BIG_GIFT_MINOR).map((g) => ({ minute: minuteOf(g.at), kind: "gift" as const, label: `${g.sender} sent ${g.name ? `a ${g.name}` : "a gift"} · ${money(g.minor)}` })),
-    ...input.battles.map((b) => ({
-      minute: minuteOf(b.at),
-      kind: "battle" as const,
-      label: b.result === "won" ? `Won the battle against ${b.opponent}` : b.result === "lost" ? `Lost the battle to ${b.opponent}` : `Drew the battle with ${b.opponent}`,
-    })),
+    ...input.battles.map((b) => {
+      const what = b.practice ? "the practice battle" : "the battle";
+      return {
+        minute: minuteOf(b.at),
+        kind: "battle" as const,
+        label: b.result === "won" ? `Won ${what} against ${b.opponent}` : b.result === "lost" ? `Lost ${what} to ${b.opponent}` : `Drew ${what} with ${b.opponent}`,
+      };
+    }),
     ...(peakViewers > 0 ? [{ minute: peakMinute, kind: "peak" as const, label: `Peak — ${peakViewers} watching` }] : []),
   ].sort((a, b) => a.minute - b.minute);
 
@@ -167,8 +172,10 @@ export async function streamAnalytics(
       .limit(50_000)
       .lean(),
     GiftTransaction.find({ streamId: stream._id }).select("createdAt grossUsdMinor senderId giftName").lean(),
+    // A practice battle is only ever on a practice run, so it only ever
+    // shows on that run's own report ("What you ran through").
     Battle.find({ $or: [{ hostStreamId: stream._id }, { challengerStreamId: stream._id }], status: "ended" })
-      .select("hostStreamId hostId challengerId winnerId endsAt")
+      .select("hostStreamId hostId challengerId winnerId endsAt practice")
       .lean(),
     Follow.countDocuments({ followingId: stream.streamerId, createdAt: { $gte: new Date(start), $lte: new Date(end) } }),
     WatchSession.find({ streamId: stream._id }).select("userId joinedAt leftAt").limit(20_000).lean(),
@@ -178,7 +185,7 @@ export async function streamAnalytics(
   const nameIds = [
     ...new Set([
       ...gifts.filter((g) => g.grossUsdMinor >= BIG_GIFT_MINOR).map((g) => String(g.senderId)),
-      ...battles.map((b) => String(String(b.hostStreamId) === String(stream._id) ? b.challengerId : b.hostId)),
+      ...battles.filter((b) => !b.practice).map((b) => String(String(b.hostStreamId) === String(stream._id) ? b.challengerId : b.hostId)),
     ]),
   ];
   const people = nameIds.length ? await User.find({ _id: { $in: nameIds } }).select("username displayName").lean() : [];
@@ -212,7 +219,8 @@ export async function streamAnalytics(
       return {
         at: b.endsAt ? new Date(b.endsAt).getTime() : end,
         result: !b.winnerId ? "tie" : String(b.winnerId) === String(mine) ? "won" : "lost",
-        opponent: nameOf(theirs),
+        opponent: b.practice ? `your ${SPARRING_NAME.toLowerCase()}` : nameOf(theirs),
+        practice: Boolean(b.practice),
       };
     }),
     newAllies,

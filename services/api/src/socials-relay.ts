@@ -166,8 +166,10 @@ export async function relayBattleResult(battle: {
   challengerUsdMinor: number;
   bonusUsdMinor: number;
   endsAt: Date | null;
+  /** A practice battle is nobody's result: it never leaves Xtream. */
+  practice?: boolean;
 }) {
-  if (!socialsRelayEnabled()) return false;
+  if (!socialsRelayEnabled() || battle.practice) return false;
   try {
     const users = await User.find({ _id: { $in: [battle.hostId, battle.challengerId] } })
       .select("authUserId username")

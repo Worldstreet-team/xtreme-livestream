@@ -52,6 +52,44 @@ export interface BattleView {
   /** Catalog ids of the gifts that count toward the score; empty (or absent) for every gift. */
   giftFilter?: string[];
   endedReason: string | null;
+  /**
+   * A practice battle: a practice run's host against a stand-in "Sparring
+   * partner" (no user, no stream behind it), scored with simulated gifts.
+   * Never listed, never paid, and its scores are practice points — never
+   * written as money.
+   */
+  practice?: boolean;
+}
+
+/**
+ * Going live into a battle — the Go live chooser's "Start a battle": the
+ * studio says you'll pick your opponent once you're live, and opens its
+ * Battle tab (once) when you are. With practice=1 it's a practice run
+ * first, whose Battle tab leads with a practice battle.
+ */
+export const BATTLE_HREF = "/studio?battle=1";
+export const PRACTICE_BATTLE_HREF = "/studio?practice=1&battle=1";
+/** The studio listens for this when it's already open (a URL change to the same page doesn't remount it). */
+export const BATTLE_EVENT = "xtream:battle-ask";
+
+/** What a practice battle's stand-in is called. */
+export const SPARRING_NAME = "Sparring partner";
+
+/** The studio's "Send a test gift" chips: a small, a medium and a big one (catalog ids). */
+export const PRACTICE_TEST_GIFTS = [
+  { id: "fire", size: "Small" },
+  { id: "party", size: "Medium" },
+  { id: "crown", size: "Big" },
+] as const;
+
+/**
+ * A practice battle's score, as points and never money: "1,250 pts" (or
+ * "12.5K pts" compact). A point is a cent of the gift it stands in for.
+ */
+export function formatPracticeScore(minor: number, compact = false) {
+  const n = Math.max(0, Math.round(minor));
+  if (compact && n >= 10_000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1).replace(/\.0$/, "")}K pts`;
+  return `${n.toLocaleString("en-US")} pts`;
 }
 
 /** A side as people say it: "Ada", or a pair, "Ada & Tolu". */

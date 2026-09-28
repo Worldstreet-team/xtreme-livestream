@@ -41,6 +41,7 @@ import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
 import { BattleBar } from "@/components/app/battle-bar";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
+import { SparringTile } from "@/components/app/battles/sparring-tile";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
@@ -1488,7 +1489,8 @@ export default function StreamPage({
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${id}/battle`)
+      // A preview link sees its practice run's practice battle through its key.
+      apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${id}/battle${preview.query}`)
         .then((r) => !cancelled && setBattle(r.data.battle))
         .catch(() => {});
     void load();
@@ -1497,7 +1499,7 @@ export default function StreamPage({
       cancelled = true;
       clearInterval(t);
     };
-  }, [id]);
+  }, [id, preview.query]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2567,11 +2569,14 @@ export default function StreamPage({
     ),
   });
   const opponentCell = (o: BattleView["host"]): SceneCell =>
-    previewCell(
-      "opponent",
-      o.displayName,
-      <LivePreview streamId={o.streamId} enabled={!radio} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-    );
+    // A practice battle's sparring partner is nobody, so it's drawn, not watched.
+    battle?.practice
+      ? { key: "opponent", node: <SparringTile battle={battle} label="practice" /> }
+      : previewCell(
+          "opponent",
+          o.displayName,
+          <LivePreview streamId={o.streamId} enabled={!radio} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+        );
   /**
    * Everyone else in the picture, in the order the scene brings them in: a
    * battle's other side, the guests, you. A 2v2 is a 2×2 — our pair down
@@ -2770,6 +2775,7 @@ export default function StreamPage({
             battle={battle}
             streamId={id}
             onShare={setShareBattle}
+            feedQuery={preview.query}
             className={band ? "top-[calc(var(--band-top)+var(--band-h)+10px)]" : "top-[calc(var(--band-top)+4px)]"}
             // Like and share ride in the scoreboard's row while the band is
             // up — the side rail would climb over the totals on a short phone.
@@ -3448,7 +3454,7 @@ export default function StreamPage({
 
             {/* The battle scoreboard, while a battle is on or just ended. */}
             {battle && (isBattleActive(battle) || battle.status === "ended") && (
-              <BattleBar battle={battle} streamId={id} onShare={setShareBattle} />
+              <BattleBar battle={battle} streamId={id} onShare={setShareBattle} feedQuery={preview.query} />
             )}
             {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
 

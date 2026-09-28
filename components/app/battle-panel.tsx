@@ -1,11 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree, ShareNetwork } from "@/components/icons";
+import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree, ShareNetwork, ArrowRight } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatScorePair, winnerSide } from "@/lib/battle-result";
-import { formatClock, giftFilterLine, inMultiplierWindow, isBattleActive, secondsLeft, sideOf, teamName, type BattleMode, type BattleView } from "@/lib/battles";
+import {
+  formatClock,
+  formatPracticeScore,
+  giftFilterLine,
+  inMultiplierWindow,
+  isBattleActive,
+  PRACTICE_TEST_GIFTS,
+  secondsLeft,
+  sideOf,
+  teamName,
+  type BattleMode,
+  type BattleView,
+} from "@/lib/battles";
+import { GIFT_CATALOG } from "@/lib/gifts";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
 import { useNow } from "@/lib/use-now";
@@ -17,13 +30,19 @@ import { LiveBadge } from "@/components/ui/badge";
 import { CapsuleTabs } from "@/components/ui/capsule-tabs";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
 import { BattleGiftFilter } from "@/components/app/battle-gift-filter";
+import { ClashView } from "@/components/app/battles/clash-view";
+import { GiftArt } from "@/components/app/gift-art";
+import { PracticeBadge } from "@/components/app/practice-preview";
 
 /** The host's own line about the battle that just ended: "You won", "$1,234 to $987". */
 function resultLine(b: BattleView, streamId: string) {
   const mine = sideOf(b, streamId) ?? "host";
   const theirs = mine === "host" ? "challenger" : "host";
   const winner = winnerSide(b);
-  const scores = formatScorePair(b.host.usdMinor, b.challenger.usdMinor);
+  // A practice battle's scores are points, never money.
+  const scores = b.practice
+    ? { host: formatPracticeScore(b.host.usdMinor), challenger: formatPracticeScore(b.challenger.usdMinor) }
+    : formatScorePair(b.host.usdMinor, b.challenger.usdMinor);
   const me = b[mine];
   return {
     won: winner === mine,
@@ -41,12 +60,21 @@ function resultLine(b: BattleView, streamId: string) {
  * A 2v2 is two pairs: you and the partner on your stage (a guest, or a
  * creator you co-live with) against another pair. Gifts count per stream
  * as ever, and a winning pair splits the bonus.
+ *
+ * In a practice run the tab leads with a practice battle: 90 seconds
+ * against a sparring partner, the real clock and rules, simulated gifts
+ * (the host's own come from the "Send a test gift" chips), nothing seen
+ * and nothing paid. The real options stay in view, switched off. Outside
+ * one, a line at the foot points the way to it.
  */
 export function BattlePanel({
   streamId,
   onBattle,
   inline = false,
   partner = null,
+  practice = false,
+  practiceNext = false,
+  onPracticeNext,
 }: {
   streamId: string;
   onBattle?: (b: BattleView | null) => void;
@@ -54,6 +82,12 @@ export function BattlePanel({
   inline?: boolean;
   /** Who's on your stage to pair with for a 2v2, if anyone. */
   partner?: { userId: string; username: string; avatar: string } | null;
+  /** This broadcast is a practice run: a practice battle is what's on offer. */
+  practice?: boolean;
+  /** A practice run is set up for when this stream ends. */
+  practiceNext?: boolean;
+  /** Set one up (or not): a practice run starts off air, so it waits for this stream to end. */
+  onPracticeNext?: (on: boolean) => void;
 }) {
   const { user } = useAuth();
   const [mine, setMine] = useState<BattleView[]>([]);
@@ -191,6 +225,34 @@ export function BattlePanel({
     apiFetch(`/api/battles/quick`, { method: "DELETE" }).catch(() => {});
   };
 
+  /** A test gift on your side of a practice battle: simulated, never charged. */
+  const testGift = async (battleId: string, giftId: string) => {
+    setError(null);
+    try {
+      const r = await apiFetch<{ success: boolean; data: { battle: BattleView } }>(`/api/battles/${battleId}/practice-gift`, {
+        method: "POST",
+        body: JSON.stringify({ giftId }),
+      });
+      setMine((m) => [r.data.battle, ...m.filter((b) => b.id !== r.data.battle.id)]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send the test gift");
+    }
+  };
+
+  // The clash view, opened from a practice battle — the view viewers get from a battle card.
+  const clashFrom = useRef<HTMLButtonElement>(null);
+  const [clash, setClash] = useState<{ battle: BattleView; from: DOMRect | null } | null>(null);
+  const [clashShown, setClashShown] = useState(false);
+  const openClash = (b: BattleView) => {
+    setClash({ battle: b, from: clashFrom.current?.getBoundingClientRect() ?? null });
+    setClashShown(true);
+  };
+  const clashView = clash && (
+    <ClashView battle={clash.battle} from={clash.from} open={clashShown} triggerRef={clashFrom} onClose={() => setClashShown(false)} onGone={() => setClash(null)} />
+  );
+  // Outside a practice run: the way to one, opened.
+  const [howOpen, setHowOpen] = useState(false);
+
   const candidates = live.filter((s) => {
     const term = q.trim().toLowerCase();
     if (!term) return true;
@@ -209,7 +271,7 @@ export function BattlePanel({
         {side.partner && <UserAvatar src={side.partner.avatar} name={side.partner.displayName} size={28} className={cn("size-7 ring-2", ring)} />}
       </span>
     );
-    return (
+    const board = (
       <div className={cn("flex items-center gap-3 rounded-sm bg-white/[0.05] px-3 py-2", hot && "ring-1 ring-ember/60")}>
         {pairFaces(active.host, "ring-chili")}
         <div className="w-40">
@@ -218,8 +280,17 @@ export function BattlePanel({
             <div className="absolute inset-y-0 right-0 bg-ember transition-[width]" style={{ width: `${(1 - share) * 100}%` }} />
           </div>
           <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground tabular-nums">
-            <span>${Math.round(active.host.usdMinor / 100)}</span>
-            <span>${Math.round(active.challenger.usdMinor / 100)}</span>
+            {active.practice ? (
+              <>
+                <span>{formatPracticeScore(active.host.usdMinor, true)}</span>
+                <span>{formatPracticeScore(active.challenger.usdMinor, true)}</span>
+              </>
+            ) : (
+              <>
+                <span>${Math.round(active.host.usdMinor / 100)}</span>
+                <span>${Math.round(active.challenger.usdMinor / 100)}</span>
+              </>
+            )}
           </div>
           {giftFilterLine(active.giftFilter) && <p className="mt-0.5 truncate text-[10.5px] font-semibold text-ember-hi">{giftFilterLine(active.giftFilter)}</p>}
         </div>
@@ -229,11 +300,53 @@ export function BattlePanel({
           {active.status === "overtime" ? "OT " : ""}
           {formatClock(left)}
         </span>
-        <Pill size="sm" variant="ghost" icon={<X size={13} />} onClick={() => act(`/api/battles/${active.id}/cancel`)} disabled={busy} title="End the battle early — no bonus">
+        <Pill
+          size="sm"
+          variant="ghost"
+          icon={<X size={13} />}
+          onClick={() => act(`/api/battles/${active.id}/cancel`)}
+          disabled={busy}
+          title={active.practice ? "End the practice battle" : "End the battle early — no bonus"}
+        >
           End
         </Pill>
         {/* The last result stays open if the next battle starts under it. */}
         {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
+      </div>
+    );
+    if (!active.practice) return board;
+    // A practice battle: the score, then the host's own test gifts and the clash view.
+    return (
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+          <PracticeBadge size="xs" />
+          <span className="text-[12px] text-muted-foreground">Against your sparring partner · practice points</span>
+        </div>
+        {board}
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">Send a test gift</p>
+          <div className="flex flex-wrap gap-1.5">
+            {PRACTICE_TEST_GIFTS.map(({ id, size }) => {
+              const g = GIFT_CATALOG.find((c) => c.id === id);
+              if (!g) return null;
+              return (
+                <Tip key={id} label={`Simulated: +${formatPracticeScore(g.usdMinor)} for your side (×2 in the last 30 s). Nobody is charged.`}>
+                  <Pill size="sm" variant="glass" icon={<GiftArt art={g.art} emoji={g.emoji} size={16} />} onClick={() => void testGift(active.id, id)}>
+                    {size} · {g.name}
+                  </Pill>
+                </Tip>
+              );
+            })}
+          </div>
+          {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <Pill ref={clashFrom} size="sm" variant="ghost" icon={<Sword size={13} weight="fill" />} onClick={() => openClash(active)}>
+            Watch the clash
+          </Pill>
+          <span className="text-[12px] text-muted-foreground">What viewers see when they open a battle.</span>
+        </div>
+        {clashView}
       </div>
     );
   }
@@ -257,9 +370,21 @@ export function BattlePanel({
               <span className="font-semibold text-foreground">{line.said}</span>
               <span className="text-muted-foreground"> · {line.scores}</span>
             </p>
-            <Pill size="sm" variant="primary" icon={<ShareNetwork size={14} weight="fill" />} onClick={() => setSharing(result)} className="mt-2">
-              Share the result
-            </Pill>
+            {result.practice ? (
+              // A practice result is there to see, never to post.
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Pill size="sm" variant="primary" icon={<Trophy size={14} weight="fill" />} onClick={() => setSharing(result)}>
+                  See the result
+                </Pill>
+                <Pill ref={clashFrom} size="sm" variant="ghost" icon={<Sword size={13} weight="fill" />} onClick={() => openClash(result)}>
+                  Replay the clash view
+                </Pill>
+              </div>
+            ) : (
+              <Pill size="sm" variant="primary" icon={<ShareNetwork size={14} weight="fill" />} onClick={() => setSharing(result)} className="mt-2">
+                Share the result
+              </Pill>
+            )}
           </div>
           <button
             type="button"
@@ -272,6 +397,22 @@ export function BattlePanel({
         </div>
       )}
       {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
+      {clashView}
+      {/* A practice run: try the whole thing against a stand-in first. */}
+      {practice && (
+        <div className={cn("rounded-sm bg-white/[0.05] p-3.5", inline ? "w-full" : "w-[360px]")}>
+          <div className="flex items-center gap-2">
+            <Sword size={16} weight="fill" className="shrink-0 text-foreground" />
+            <p className="font-wide text-[15px] font-bold tracking-[-0.02em] text-foreground">Try a practice battle</p>
+          </div>
+          <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">
+            A 90-second round against a sparring partner. Nobody sees it and no money moves, so you can see how a battle goes.
+          </p>
+          <Pill size="md" variant="primary" icon={<Sword size={15} weight="fill" />} onClick={() => act(`/api/battles/practice`)} disabled={busy} className="mt-3">
+            Start practice battle
+          </Pill>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {incoming.map((b) => (
           <div key={b.id} className="flex flex-wrap items-center gap-2 rounded-sm bg-ember/[0.12] py-1.5 pr-1.5 pl-2.5 text-sm text-ember-hi">
@@ -323,8 +464,14 @@ export function BattlePanel({
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
 
+      {/* The real thing, in view but off until the broadcast is. */}
+      {practice && open && <p className="text-[12px] text-muted-foreground">Go live for real to battle another host</p>}
       {open && !outgoing && (
-        <div className={cn("rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-popover shadow-2xl")}>
+        <fieldset
+          disabled={practice}
+          aria-label={practice ? "Battle another host — go live for real first" : undefined}
+          className={cn("min-w-0 rounded-sm p-3", inline ? "w-full bg-white/[0.03]" : "w-[360px] border border-white/[0.08] bg-popover shadow-2xl", practice && "opacity-50")}
+        >
           {/* One on one, or you and your stage partner against another pair. */}
           <CapsuleTabs
             label="Kind of battle"
@@ -476,6 +623,50 @@ export function BattlePanel({
               </div>
             )}
           </div>
+        </fieldset>
+      )}
+
+      {/* Outside a practice run: the way to one. It starts off air, so it waits for this stream to end. */}
+      {!practice && onPracticeNext && (
+        <div className={cn("pt-1", inline ? "w-full" : "w-[360px]")}>
+          {!howOpen && !practiceNext ? (
+            <button
+              type="button"
+              onClick={() => setHowOpen(true)}
+              className="flex items-center gap-1 text-[12px] font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              How battles work <ArrowRight size={12} weight="bold" /> try one in a practice run
+            </button>
+          ) : (
+            <div className="rounded-sm bg-white/[0.04] p-3 text-[12.5px] leading-snug text-muted-foreground">
+              {practiceNext ? (
+                <>
+                  <p>
+                    <span className="font-semibold text-foreground">Set.</span> When this stream ends, the studio sets up a practice run. Start it and open
+                    Battle for a 90-second round against a sparring partner.
+                  </p>
+                  <button type="button" onClick={() => onPracticeNext(false)} className="mt-1.5 font-semibold text-foreground underline-offset-2 hover:underline">
+                    Not now
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>
+                    A practice run is a private rehearsal with simulated chat and gifts. Its Battle tab runs a 90-second round against a sparring partner, with the
+                    real rules — nobody sees it and no money moves. Practice runs start off air, so it can wait for this stream to end.
+                  </p>
+                  <div className="mt-2 flex gap-1.5">
+                    <Pill size="sm" variant="primary" onClick={() => onPracticeNext(true)}>
+                      Set up a practice run for after
+                    </Pill>
+                    <Pill size="sm" variant="ghost" onClick={() => setHowOpen(false)}>
+                      Not now
+                    </Pill>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

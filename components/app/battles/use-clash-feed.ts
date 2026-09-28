@@ -38,7 +38,13 @@ const MAX_GIFT_HITS = 8;
 
 let seq = 0;
 
-export function useClashFeed(initial: BattleView | null, open: boolean, onHits: (hits: ClashHit[], next: BattleView) => void) {
+export function useClashFeed(
+  initial: BattleView | null,
+  open: boolean,
+  onHits: (hits: ClashHit[], next: BattleView) => void,
+  /** More for the query ("?previewKey=…"): how a practice run's preview link reads its practice battle. */
+  feedQuery = "",
+) {
   const [battle, setBattle] = useState(initial);
   const [history, setHistory] = useState<BattleGift[]>([]);
   const onHitsRef = useRef(onHits);
@@ -73,7 +79,8 @@ export function useClashFeed(initial: BattleView | null, open: boolean, onHits: 
       }
       try {
         const q = since ? `?since=${encodeURIComponent(since)}` : "?limit=6";
-        const r = await apiFetch<Feed>(`/api/battles/${initial.id}/activity${q}`);
+        const more = feedQuery ? `&${feedQuery.replace(/^\?/, "")}` : "";
+        const r = await apiFetch<Feed>(`/api/battles/${initial.id}/activity${q}${more}`);
         if (cancelled) return;
         const next = r.data.battle;
         // Oldest first, never the same gift twice.

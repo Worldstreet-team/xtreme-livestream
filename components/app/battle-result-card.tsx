@@ -9,8 +9,9 @@ import { Pill } from "@/components/ui/pill";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { MARK_ON_CARD, PAIR_LEAD, PAIR_OVERLAP, PAIR_PARTNER, backersOf, formatScore, resultOf, type BattleResult } from "@/lib/battle-result";
 import { renderBattleResultPng } from "@/lib/battle-result-png";
-import type { BattleSide, BattleView } from "@/lib/battles";
+import { formatPracticeScore, type BattleSide, type BattleView } from "@/lib/battles";
 import { cn } from "@/lib/utils";
+import { PracticeBadge } from "@/components/app/practice-preview";
 
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
 
@@ -38,6 +39,9 @@ function scoreSize(scores: BattleResult["scores"]) {
  *
  * Host in Chili on the left, challenger in Ember on the right, as on the
  * scoreboard. Gold is only the money; the foil trophy is only the winner's.
+ *
+ * A practice battle's card says Practice where the mark is, and its scores
+ * are practice points in a plain face — never gold, never money.
  */
 export function BattleResultCard({ battle, className }: { battle: BattleView; className?: string }) {
   const result = useMemo(() => resultOf(battle), [battle]);
@@ -47,15 +51,18 @@ export function BattleResultCard({ battle, className }: { battle: BattleView; cl
   ];
   const backers = sides.map(({ side }) => backersOf(side));
   const share = result.hostShare * 100;
+  const practice = Boolean(battle.practice);
+  const points = practice ? "font-mono font-bold text-foreground" : "font-money text-value";
   return (
     <article aria-label={`Battle result: ${result.headline}`} className={cn("flex flex-col gap-4 rounded-panel bg-background p-4 sm:p-5", className)}>
       <header className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-1.5">
           {MARK_ON_CARD && <BrandMark size={20} />}
           <span className="text-[15px] font-bold tracking-tight text-foreground">Xtream</span>
+          {practice && <PracticeBadge size="xs" />}
         </span>
         <span className="text-right leading-tight">
-          <span className={cn(EYEBROW, "block text-[9.5px]")}>{result.pair ? "2v2 battle result" : "Battle result"}</span>
+          <span className={cn(EYEBROW, "block text-[9.5px]")}>{practice ? "Practice battle" : result.pair ? "2v2 battle result" : "Battle result"}</span>
           <span className="block text-[12px] font-medium text-foreground">{result.date}</span>
         </span>
       </header>
@@ -85,7 +92,7 @@ export function BattleResultCard({ battle, className }: { battle: BattleView; cl
                 {side.partner ? `& ${side.partner.displayName}` : "\u00a0"}
               </p>
             )}
-            <p className={cn("mt-1.5 font-money whitespace-nowrap text-value", scoreSize(result.scores), "leading-none")}>{score}</p>
+            <p className={cn("mt-1.5 whitespace-nowrap", points, scoreSize(result.scores), "leading-none")}>{score}</p>
           </div>
         ))}
         {/* "VS" where the two fields meet, level with the faces. */}
@@ -124,7 +131,7 @@ export function BattleResultCard({ battle, className }: { battle: BattleView; cl
                     <li key={b.userId} className="flex min-w-0 items-center gap-2">
                       <UserAvatar src={b.avatar} name={b.displayName} size={20} className={cn("size-5 ring-[1.5px]", ring)} />
                       <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-foreground">{b.displayName}</span>
-                      <span className="shrink-0 font-money text-[12.5px] leading-none text-value">{formatScore(b.usdMinor)}</span>
+                      <span className={cn("shrink-0 text-[12.5px] leading-none", points)}>{practice ? formatPracticeScore(b.usdMinor, true) : formatScore(b.usdMinor)}</span>
                     </li>
                   ))}
                 </ol>
@@ -285,7 +292,9 @@ function sheetHost(): HTMLElement {
 
 /**
  * The result card in a sheet from the bottom on phones, a dialog on wider
- * screens — the stream page's grammar — with Save image and Share. Give it
+ * screens — the stream page's grammar — with Save image and Share. A
+ * practice battle's has neither: it's there to see how a result looks, and
+ * nothing about it is real enough to post. Give it
  * the battle as it was when it opened: a live `battle` prop moving on to the
  * next battle shouldn't change the card someone is about to post.
  */
@@ -368,12 +377,23 @@ export function BattleResultSheet({ battle, streamId, onClose }: { battle: Battl
         <div aria-hidden className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20 sm:hidden" />
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 id={titleId} className="font-wide text-[18px] font-bold tracking-[-0.02em]">
-            Share the result
+            {battle.practice ? "Practice result" : "Share the result"}
           </h2>
           <IconButton icon={X} label="Close" onClick={() => closeRef.current()} className="-mr-2" />
         </div>
         <BattleResultCard battle={battle} />
-        <ResultActions battle={battle} result={result} streamId={streamId} />
+        {battle.practice ? (
+          <div className="sticky bottom-0 -mx-4 mt-1 bg-surface-raised px-4 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] sm:-mx-5 sm:rounded-b-overlay sm:px-5 sm:pb-4">
+            <Pill size="lg" variant="primary" className="w-full" onClick={() => closeRef.current()}>
+              Done
+            </Pill>
+            <p className="mt-2 text-center text-[12.5px] leading-snug text-muted-foreground">
+              A real battle&apos;s card can be saved and shared. This one was practice, so it stays here.
+            </p>
+          </div>
+        ) : (
+          <ResultActions battle={battle} result={result} streamId={streamId} />
+        )}
       </div>
     </div>,
     sheetHost(),

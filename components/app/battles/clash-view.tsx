@@ -6,6 +6,7 @@ import { Lightning, Play, X } from "@/components/icons";
 import {
   formatClock,
   formatCountdown,
+  formatPracticeScore,
   giftFilterLine,
   inMultiplierWindow,
   isBattleActive,
@@ -21,7 +22,8 @@ import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Badge, LiveBadge } from "@/components/ui/badge";
-import { PillLink } from "@/components/ui/pill";
+import { Pill, PillLink } from "@/components/ui/pill";
+import { PracticeBadge } from "@/components/app/practice-preview";
 import { GiftArt } from "@/components/app/gift-art";
 import { formatUsd } from "@/components/xtream/money";
 import { BattleField } from "./battle-field";
@@ -55,6 +57,10 @@ import s from "./battles.module.css";
  *   lead"); top backers per side; for a 2v2, the pairs;
  * - one clear way in: Watch the battle.
  *
+ * A practice battle (a practice run against the sparring partner) plays
+ * out the same, with its scores as practice points rather than money, a
+ * Practice badge, and no way into a room — there's no other side to watch.
+ *
  * Performance: transform, opacity and clip-path only. Flights run on the
  * Web Animations API over a fixed pool of elements (no React per frame),
  * capped, and a hit that finds the pool empty sends fewer sparks. Reduced
@@ -79,6 +85,7 @@ export function ClashView({
   triggerRef,
   onClose,
   onGone,
+  feedQuery = "",
 }: {
   battle: BattleView | null;
   /** The card's rect when it was tapped: the window unfolds out of it. */
@@ -88,6 +95,8 @@ export function ClashView({
   onClose: () => void;
   /** After the exit has played out. */
   onGone?: () => void;
+  /** More for the feed's query ("?previewKey=…"), for a practice run's preview link. */
+  feedQuery?: string;
 }) {
   const [present, setPresent] = useState(false);
   const [state, setState] = useState<ShellState>("measure");
@@ -211,7 +220,7 @@ export function ClashView({
   if (!present || !battle || typeof document === "undefined") return null;
 
   const label = `${teamName(battle.host)} versus ${teamName(battle.challenger)}`;
-  const content = <Clash initial={battle} phone={mode === "phone"} active={state === "open"} onClose={onClose} />;
+  const content = <Clash initial={battle} phone={mode === "phone"} active={state === "open"} onClose={onClose} feedQuery={feedQuery} />;
 
   return createPortal(
     <div
@@ -269,8 +278,12 @@ function restScene(b: BattleView): EmblemScene {
   return "vs";
 }
 
-function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone: boolean; active: boolean; onClose: () => void }) {
+function Clash({ initial, phone, active, onClose, feedQuery }: { initial: BattleView; phone: boolean; active: boolean; onClose: () => void; feedQuery: string }) {
   const now = useNow(true);
+  // A practice battle's scores are points, never money: written plainly, not in the money face.
+  const practice = Boolean(initial.practice);
+  const fmt = practice ? formatPracticeScore : formatUsd;
+  const moneyFace = practice ? "font-mono font-bold text-foreground" : "font-money text-value";
   const reduced = useRef(false);
   const [play, setPlay] = useState<"idle" | "go">("idle");
   const [burst, setBurst] = useState(false);
@@ -313,10 +326,10 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
   useLayoutEffect(() => {
     reduced.current = prefersReducedMotion();
     for (const side of both) {
-      if (score[side].current) score[side].current.textContent = formatUsd(shown.current[side]);
+      if (score[side].current) score[side].current.textContent = fmt(shown.current[side]);
     }
     writeShare();
-    if (layerRef.current) pool.current = new FlightPool(layerRef.current, POOL, FLOATS);
+    if (layerRef.current) pool.current = new FlightPool(layerRef.current, POOL, FLOATS, practice);
     const ts = timers.current;
     const tw = tweens.current;
     return () => {
@@ -352,7 +365,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
     if (!el) return;
     cancelAnimationFrame(tweens.current[side]);
     if (reduced.current) {
-      el.textContent = formatUsd(to);
+      el.textContent = fmt(to);
       el.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: DURATION.fade });
       return;
     }
@@ -362,7 +375,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
     const step = (t: number) => {
       const k = Math.min(1, (t - t0) / dur);
       // Whole dollars while it counts (cents flicker), the exact amount when it lands.
-      el.textContent = formatUsd(k < 1 ? Math.round((from + (to - from) * ease(k)) / 100) * 100 : to);
+      el.textContent = fmt(k < 1 ? Math.round((from + (to - from) * ease(k)) / 100) * 100 : to);
       if (k < 1) tweens.current[side] = requestAnimationFrame(step);
     };
     tweens.current[side] = requestAnimationFrame(step);
@@ -424,7 +437,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
         easing: EASE.clash,
       });
       const at = score[hit.side].current?.getBoundingClientRect();
-      if (at) pool.current?.float(`+${formatUsd(hit.usdMinor, true)}`, at, hit.side);
+      if (at) pool.current?.float(`+${fmt(hit.usdMinor, true)}`, at, hit.side);
     }
 
     setFeed((f) => [{ key: hit.key, side: hit.side, usdMinor: hit.usdMinor, gift: hit.gift, fresh: true }, ...f.map((r) => ({ ...r, fresh: false }))].slice(0, 5));
@@ -525,17 +538,22 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
     setFieldShare(shareOf(shown.current));
   }
 
-  const { battle, history } = useClashFeed(initial, active, (hits, next) => {
-    serverRef.current = next;
-    names.current = { host: next.host.displayName, challenger: next.challenger.displayName };
-    if (hits.length === 0) {
-      settleIfIdle();
-      return;
-    }
-    // Spread a poll's hits across the gap to the next, so they land as a stream.
-    const gap = Math.min(420, (POLL_MS - 500) / hits.length);
-    hits.forEach((h, i) => later(() => launch(h), i * gap));
-  });
+  const { battle, history } = useClashFeed(
+    initial,
+    active,
+    (hits, next) => {
+      serverRef.current = next;
+      names.current = { host: next.host.displayName, challenger: next.challenger.displayName };
+      if (hits.length === 0) {
+        settleIfIdle();
+        return;
+      }
+      // Spread a poll's hits across the gap to the next, so they land as a stream.
+      const gap = Math.min(420, (POLL_MS - 500) / hits.length);
+      hits.forEach((h, i) => later(() => launch(h), i * gap));
+    },
+    feedQuery,
+  );
 
   // The ending, and the start of a booked one, are called out and stay.
   const status = battle?.status ?? initial.status;
@@ -594,7 +612,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
           {booked ? (
             <p className="truncate text-[12.5px] text-muted-foreground">@{v.username}</p>
           ) : (
-            <p className="mt-0.5 font-money text-[22px] leading-none tracking-[-0.01em] text-foreground tabular-nums sm:text-[26px]">
+            <p className={cn("mt-0.5 text-[22px] leading-none tracking-[-0.01em] text-foreground tabular-nums sm:text-[26px]", practice ? "font-mono font-bold" : "font-money")}>
               <span ref={score[which]} />
             </p>
           )}
@@ -608,8 +626,10 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
       {/* The top line: what this is, the clock, the way out. */}
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-3 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {/* A practice run isn't on air: Practice where LIVE would be, as on its preview. */}
+          {practice && <PracticeBadge size="sm" />}
           {live ? (
-            <LiveBadge>{" · Battle"}</LiveBadge>
+            practice ? <Badge variant="muted">Battle</Badge> : <LiveBadge>{" · Battle"}</LiveBadge>
           ) : booked ? (
             <Badge variant="muted">Booked battle</Badge>
           ) : (
@@ -773,7 +793,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
                         </>
                       )}
                     </span>
-                    <span className="shrink-0 font-money text-[14px] text-value tabular-nums">+{formatUsd(r.usdMinor, true)}</span>
+                    <span className={cn("shrink-0 text-[14px] tabular-nums", moneyFace)}>+{fmt(r.usdMinor, true)}</span>
                   </li>
                 ))}
               </ul>
@@ -803,7 +823,7 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
                             <span className="w-3 shrink-0 text-center font-mono text-[11px] font-bold text-muted-foreground">{i + 1}</span>
                             <UserAvatar src={t.avatar} name={t.displayName} size={22} className="size-[22px]" />
                             <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{t.displayName}</span>
-                            <span className="shrink-0 font-money text-[12.5px] text-value tabular-nums">{formatUsd(t.usdMinor, true)}</span>
+                            <span className={cn("shrink-0 text-[12.5px] tabular-nums", moneyFace)}>{fmt(t.usdMinor, true)}</span>
                           </li>
                         ))}
                       </ol>
@@ -825,7 +845,15 @@ function Clash({ initial, phone, active, onClose }: { initial: BattleView; phone
 
       {/* One clear way in. */}
       <div className="flex shrink-0 flex-col gap-2 px-4 pt-3 pb-4 shadow-[inset_0_1px_0_var(--hairline-color)] sm:flex-row sm:items-center sm:px-5">
-        {booked ? (
+        {practice ? (
+          // Nobody's room to go to: the sparring partner is a stand-in.
+          <>
+            <Pill variant="primary" size="lg" className="w-full sm:w-auto" onClick={onClose}>
+              Back to the practice run
+            </Pill>
+            <p className="text-[12.5px] leading-snug text-muted-foreground">Practice points from simulated gifts. Nobody sees this and no money moves.</p>
+          </>
+        ) : booked ? (
           <>
             <PillLink href={`/c/${b.host.username}`} variant="primary" size="lg" className="w-full sm:w-auto" onClick={onClose}>
               Visit {b.host.displayName}
@@ -894,6 +922,8 @@ class FlightPool {
     private readonly layer: HTMLDivElement,
     size: number,
     floats: number,
+    /** A practice battle's "+500 pts" floats aren't money. */
+    practice = false,
   ) {
     for (let i = 0; i < size; i++) {
       // Three layers: across (x), the arc (y), and the thing itself (scale, spin, fade).
@@ -919,7 +949,7 @@ class FlightPool {
     }
     for (let i = 0; i < floats; i++) {
       const f = document.createElement("span");
-      f.className = cn(s.float, "font-money text-[15px] font-semibold text-value tabular-nums");
+      f.className = cn(s.float, "text-[15px] font-semibold tabular-nums", practice ? "font-mono text-foreground" : "font-money text-value");
       layer.appendChild(f);
       this.floats.push(f);
     }
@@ -993,7 +1023,7 @@ class FlightPool {
     return true;
   }
 
-  /** "+$5" rising off a score. */
+  /** "+$5" (or "+500 pts") rising off a score. */
   float(text: string, at: DOMRect, side: ClashSide) {
     const f = this.floats[this.floatAt++ % this.floats.length];
     if (!f) return;
