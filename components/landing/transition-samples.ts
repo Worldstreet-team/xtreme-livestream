@@ -16,8 +16,10 @@
  *   D  Blinds         the dots become slats; a short skyline of phones, one
  *                     lit LIVE; the blinds wipe off, alternating
  *   E  Aperture       the dots gather into the play mark, which beats and
- *                     bursts into the word; one hill, three rings on stems and
- *                     a coin; eight wedges open like a lens iris
+ *                     bursts into the word; the lookbook's meadow, lightly
+ *                     trimmed (two hills, five rings on stems, two flags, the
+ *                     coin sun, one tossed coin, a few sparkles); eight wedges
+ *                     open like a lens iris
  */
 
 import {
@@ -421,104 +423,142 @@ const E: Sample = {
     };
     return { tweens, formed: B0 + 5 * 38 + 820, group };
   },
-  sceneryLead: 600,
-  // One low paper-cut hill rises; a coin comes up behind it like a sun; three live rings rise on stems (two on a phone).
+  sceneryLead: 700,
+  // The lookbook's paper-cut meadow, a touch lighter (owner, 2026-09-28: "a little weeny bit minimal"): two hills
+  // rise in parallax, back then front; the coin sun comes up behind the back hill; five live rings sprout on stems
+  // (three on a phone); two play flags plant on the front hill (one on a phone); one coin is tossed up; a few sparkles.
   scenery(G, rng) {
     const { W, H, u, phone } = G;
     const k = phone ? 1.3 : 1;
     const items: Item[] = [];
-    const top = H * (phone ? 0.84 : 0.82),
-      amp = H * 0.03;
-    const surf = (x: number) => top + amp * (0.6 * Math.sin(2 * Math.PI * ((x / W) * 1.1 + 0.15)) + 0.4 * Math.sin(2 * Math.PI * ((x / W) * 2.4 + 0.6)));
-    const sw = u * (phone ? 1.05 : 1) * 104;
-    const sx = W * (phone ? 0.64 : 0.72);
-    items.push({
-      depth: 0,
-      sym: "xti-coin",
-      vb: "0 0 100 100",
-      w: sw,
-      h: sw,
-      x: sx,
-      y: surf(sx) - sw * 0.16,
-      r: -10,
-      s: 1,
-      kf: [],
-      dur: 1400,
-      delay: 180,
-      fade: 0.3,
+    const hills = [
+      { top: H * (phone ? 0.66 : 0.64), amp: H * (phone ? 0.045 : 0.07), f: 1.2, ph: 0.1, fill: "var(--xi-hill)", delay: 0, dur: 1300, depth: 0 as const },
+      { top: H * (phone ? 0.87 : 0.86), amp: H * (phone ? 0.03 : 0.045), f: 2.1, ph: 0.3, fill: "var(--xi-hill-front)", delay: 200, dur: 1000, depth: 1 as const },
+    ];
+    const surf = hills.map(
+      (hl) => (x: number) => hl.top + hl.amp * (0.55 * Math.sin(2 * Math.PI * ((x / W) * hl.f + hl.ph)) + 0.45 * Math.sin(2 * Math.PI * ((x / W) * hl.f * 2.3 + hl.ph * 1.7))),
+    );
+    // The sun first, so the back hill covers its foot.
+    const sw = u * (phone ? 140 : 160);
+    const sunX = W * (phone ? 0.72 : 0.78);
+    items.push({ depth: 0, sym: "xti-coin", vb: "0 0 100 100", w: sw, h: sw, x: sunX, y: hills[0].top - sw * 0.18, r: -10, s: 1, kf: [], dur: 1400, delay: 520, fade: 0.01 });
+    const rises: number[] = [];
+    hills.forEach((hl, i) => {
+      const top = hl.top - hl.amp - 4,
+        hh = H - top + 40;
+      let d = "M0 " + hh + " L0 " + (surf[i](0) - top).toFixed(1);
+      for (let n = 1; n <= 96; n++) {
+        const x = (n / 96) * W;
+        d += " L" + x.toFixed(1) + " " + (surf[i](x) - top).toFixed(1);
+      }
+      d += " L" + W + " " + hh + " Z";
+      rises.push(items.length);
+      items.push({
+        depth: hl.depth,
+        html: '<svg viewBox="0 0 ' + W + " " + hh + '" preserveAspectRatio="none"><path d="' + d + '" style="fill:' + hl.fill + '"/></svg>',
+        w: W,
+        h: hh,
+        x: W / 2,
+        y: top + hh / 2,
+        r: 0,
+        s: 1,
+        kf: [],
+        dur: hl.dur,
+        delay: hl.delay,
+      });
     });
-    const hillTop = top - amp - 4,
-      hh = H - hillTop + 40;
-    let d = "M0 " + hh + " L0 " + (surf(0) - hillTop).toFixed(1);
-    for (let i = 1; i <= 64; i++) {
-      const x = (i / 64) * W;
-      d += " L" + x.toFixed(1) + " " + (surf(x) - hillTop).toFixed(1);
-    }
-    d += " L" + W + " " + hh + " Z";
-    items.push({
-      depth: 1,
-      html: '<svg viewBox="0 0 ' + W + " " + hh + '" preserveAspectRatio="none"><path d="' + d + '" style="fill:var(--xi-hill)"/></svg>',
-      w: W,
-      h: hh,
-      x: W / 2,
-      y: hillTop + hh / 2,
-      r: 0,
-      s: 1,
-      kf: [],
-      dur: 1100,
-      delay: 0,
-    });
-    const rings = phone
+    // Live rings on stems: on the back hill only outside the word, on the front hill anywhere.
+    const flowers = phone
       ? [
-          { x: 0.16, w: 58 },
-          { x: 0.86, w: 48 },
+          { x: 0.12, hl: 0 },
+          { x: 0.42, hl: 1 },
+          { x: 0.86, hl: 1 },
         ]
       : [
-          { x: 0.12, w: 58 },
-          { x: 0.21, w: 44 },
-          { x: 0.87, w: 52 },
+          { x: 0.07, hl: 0 },
+          { x: 0.27, hl: 1 },
+          { x: 0.45, hl: 1 },
+          { x: 0.64, hl: 1 },
+          { x: 0.92, hl: 0 },
         ];
-    rings.forEach((p, i) => {
-      const w = u * k * p.w,
-        h = w * 2.3,
-        x = W * p.x,
-        base = surf(x) + h * 0.12;
+    flowers.forEach((p, i) => {
+      const hl = hills[p.hl];
+      const w = u * k * (p.hl ? 84 : 62) * (0.88 + rng() * 0.24),
+        h = w * 2.3;
+      const x = W * p.x + (rng() - 0.5) * W * 0.02,
+        base = surf[p.hl](x) + 6;
       items.push({
-        depth: 0,
+        depth: hl.depth,
         sym: "xti-flower",
         vb: "0 0 100 230",
         w,
         h,
         x,
         y: base - h / 2,
-        r: (rng() - 0.5) * 8,
+        r: (rng() - 0.5) * 10,
         s: 1,
         vars: tone(pick(rng, TONES)),
         origin: "50% 100%",
         kf: [],
-        dur: 1000,
-        delay: 420 + i * 110,
+        dur: 760,
+        delay: hl.delay + hl.dur * 0.55 + i * 55 + rng() * 80,
       });
     });
-    for (const it of items) {
+    // Play flags planted on the front hill.
+    (phone ? [0.64] : [0.15, 0.545]).forEach((fx, i) => {
+      const w = u * k * 56,
+        h = w * (130 / 70),
+        x = W * fx,
+        base = surf[1](x) + 4;
+      items.push({ depth: 2, sym: "xti-flag", vb: "0 0 70 130", w, h, x, y: base - h / 2, r: i ? 5 : -4, s: 1, origin: "50% 100%", kf: [], dur: 680, delay: hills[1].delay + hills[1].dur * 0.5 + i * 90 });
+    });
+    // One coin tossed up, and a few sparkles, all clear of the word.
+    const avoid = [inflate(G.rect, 26 * u, 22 * u)],
+      placed = [{ x: sunX, y: hills[0].top, s: sw }];
+    const [c] = scatter(rng, 1, { x0: W * 0.06, x1: W * 0.3, y0: H * 0.1, y1: H * 0.4 }, () => u * k * 44, avoid, placed, 1.6);
+    items.push({ depth: 1, sym: "xti-coin", vb: "0 0 100 100", w: c.s, h: c.s, x: c.x, y: c.y, r: (rng() - 0.5) * 20, s: 1, kf: [], dur: 1300, delay: 560 });
+    const sparkCols = [CHILI, EMBER, INK];
+    scatter(rng, phone ? 3 : 5, { x0: W * 0.04, x1: W * 0.96, y0: H * 0.06, y1: H * 0.55 }, () => u * k * (14 + rng() * 12), avoid, placed, 1.6).forEach((p, i) => {
+      items.push({ depth: 1, sym: "xti-sparkle", vb: "0 0 100 100", w: p.s, h: p.s, x: p.x, y: p.y, r: (rng() - 0.5) * 20, s: 1, vars: { "--c": sparkCols[i % 3] }, kf: [], dur: 560, delay: 820 + rng() * 480 });
+    });
+
+    for (const [n, it] of items.entries()) {
       const { x, y, r, w, h } = it;
-      if (it.html) {
-        const rise = hh * 0.7 + H * 0.1;
+      if (rises.includes(n)) {
+        const rise = h * 0.7 + H * 0.1;
         it.kf = [
           { transform: T(x, y + rise, 0, 1, 1, w, h), easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-          { transform: T(x, y - 6 * u, 0, 1, 1, w, h), offset: 0.72, easing: "ease-in-out" },
+          { transform: T(x, y - 8 * u, 0, 1, 1, w, h), offset: 0.72, easing: "ease-in-out" },
           { transform: T(x, y, 0, 1, 1, w, h) },
         ];
-      } else if (it.sym === "xti-coin") {
+      } else if (n === 0) {
+        // the sun
         it.kf = [
           { transform: T(x, y + h * 1.1, r - 40, 1, 1, w, h), easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
           { transform: T(x, y, r, 1, 1, w, h) },
         ];
-      } else {
-        // Rise gently from below the frame, up behind the hill, with a little lean that settles.
+      } else if (it.origin) {
+        // sprout: grow from the ground with a springy lean
         it.kf = [
-          { transform: T(x, H + 10 + h / 2, r - 6, 1, 1, w, h), easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-          { transform: T(x, y - 4 * u, r + 3, 1, 1, w, h), offset: 0.7, easing: "ease-in-out" },
+          { transform: T(x, y, r - 12, 0.2, 0, w, h), easing: "cubic-bezier(0.3, 1.5, 0.5, 1)" },
+          { transform: T(x, y, r + 7, 0.96, 1.1, w, h), offset: 0.5, easing: "ease-in-out" },
+          { transform: T(x, y, r - 3, 1.02, 0.97, w, h), offset: 0.78, easing: "ease-in-out" },
+          { transform: T(x, y, r, 1, 1, w, h) },
+        ];
+      } else if (it.sym === "xti-coin") {
+        // tossed: up from below the frame, flipping, and a little bounce
+        const ox = x + (x < W / 2 ? -1 : 1) * W * 0.12;
+        it.kf = [
+          { transform: T(ox, H + h, r, 1, 1, w, h), easing: "cubic-bezier(0.15, 0.7, 0.3, 1)" },
+          { transform: T(x, y - H * 0.08, r, -1, 1, w, h), offset: 0.5, easing: "cubic-bezier(0.5, 0, 0.5, 1)" },
+          { transform: T(x, y + 4 * u, r, 0.4, 1, w, h), offset: 0.78, easing: "ease-in-out" },
+          { transform: T(x, y, r, 1, 1, w, h) },
+        ];
+      } else {
+        // sparkle pop
+        it.kf = [
+          { transform: T(x, y, r - 40, 0, 0, w, h), easing: "cubic-bezier(0.3, 1.4, 0.5, 1)" },
+          { transform: T(x, y, r + 6, 1.4, 1.4, w, h), offset: 0.55, easing: "cubic-bezier(0.45, 0, 0.55, 1)" },
           { transform: T(x, y, r, 1, 1, w, h) },
         ];
       }

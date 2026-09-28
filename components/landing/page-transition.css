@@ -46,8 +46,11 @@ html[data-xt-intro="trim"] {
   --xi-ink: #f6f1ee;
   --xi-chili: #e3122a;
   --xi-ember: #f85810;
-  --xi-hill: #1a1314;
+  --xi-hill: #1a1213;
+  --xi-hill-front: #3a2a2b;
   --xi-stem: #4a3c3b;
+  --xi-fstem: #6e5f5c;
+  --xi-leaf: #f85810;
   --xi-body: #1d1516;
   --xi-off: #0f0a0b;
   --xi-lit: #4a2c27;
@@ -64,7 +67,10 @@ html[data-xt-intro="trim"] {
   --xi-chili: #e3122a;
   --xi-ember: #f85810;
   --xi-hill: #e6d8cc;
+  --xi-hill-front: #1c1314;
   --xi-stem: #b8a597;
+  --xi-fstem: #1c1314;
+  --xi-leaf: #f85810;
   --xi-body: #1c1314;
   --xi-off: #2a1f20;
   --xi-lit: #fff8f3;

@@ -46,6 +46,15 @@ export const LANDING_TRANSITION: Sample["id"] = "E";
  * `?ground=paper` or `?ground=night`.
  */
 export const TRANSITION_GROUND: GroundChoice = "night";
+
+/**
+ * A take can leave by another take's exit. E (the dots, the play mark, the
+ * meadow) leaves by B's curtain slices, which hang and then drop left to
+ * right in a stagger (owner, 2026-09-28: "the ones where the line is falling
+ * down in stagger"). Delete the entry to give E its iris back. Preview any
+ * pairing with `?exit=A` … `?exit=E`.
+ */
+export const EXIT_OVERRIDE: Partial<Record<Sample["id"], Sample["id"]>> = { E: "B" };
 type GroundChoice = "night" | "paper" | "sample";
 
 /*
@@ -86,10 +95,11 @@ const PACE_TRIM = 0.35;
 type Mode = "full" | "trim" | "fade";
 type XtWindow = Window & { __xtIntroOn?: boolean; __xtIntroStats?: unknown };
 
-const META = Object.fromEntries(Object.values(SAMPLES).map((s) => [s.id, { g: s.ground, x: s.xChili ? 1 : 0 }]));
+const exitFor = (id: Sample["id"]) => EXIT_OVERRIDE[id] ?? id;
+const META = Object.fromEntries(Object.values(SAMPLES).map((s) => [s.id, { g: s.ground, x: s.xChili ? 1 : 0, e: exitFor(s.id) }]));
 
 /** Runs as the overlay is parsed, before the first paint: which take, which ground, which mode. */
-const GATE = `(function(){try{var el=document.currentScript&&document.currentScript.previousElementSibling,d=document.documentElement,q=new URLSearchParams(location.search);if(!el||q.has("static"))return;var S=${JSON.stringify(META)},id=(q.get("transition")||"").toUpperCase();if(!S[id])id=${JSON.stringify(LANDING_TRANSITION)};var g=q.get("ground");if(g!=="night"&&g!=="paper")g=${JSON.stringify(TRANSITION_GROUND)};if(g==="sample")g=S[id].g;el.setAttribute("data-sample",id);el.setAttribute("data-ground",g);el.setAttribute("data-x",S[id].x?"chili":"ink");var m=q.get("intro");if(m==="off")return;if(m!=="full"&&m!=="trim"&&m!=="fade"){if(matchMedia("(prefers-reduced-motion: reduce)").matches)m="fade";else{var s=null;try{s=sessionStorage.getItem(${JSON.stringify(KEY)})}catch(e){}m=s?"trim":"full"}}d.setAttribute(${JSON.stringify(ATTR)},m);setTimeout(function(){if(!window.__xtIntroOn)d.removeAttribute(${JSON.stringify(ATTR)})},${FAILSAFE})}catch(e){}})();`;
+const GATE = `(function(){try{var el=document.currentScript&&document.currentScript.previousElementSibling,d=document.documentElement,q=new URLSearchParams(location.search);if(!el||q.has("static"))return;var S=${JSON.stringify(META)},id=(q.get("transition")||"").toUpperCase();if(!S[id])id=${JSON.stringify(LANDING_TRANSITION)};var g=q.get("ground");if(g!=="night"&&g!=="paper")g=${JSON.stringify(TRANSITION_GROUND)};if(g==="sample")g=S[id].g;el.setAttribute("data-sample",id);el.setAttribute("data-ground",g);el.setAttribute("data-x",S[id].x?"chili":"ink");var ex=(q.get("exit")||"").toUpperCase();el.setAttribute("data-exit",S[ex]?ex:S[id].e);var m=q.get("intro");if(m==="off")return;if(m!=="full"&&m!=="trim"&&m!=="fade"){if(matchMedia("(prefers-reduced-motion: reduce)").matches)m="fade";else{var s=null;try{s=sessionStorage.getItem(${JSON.stringify(KEY)})}catch(e){}m=s?"trim":"full"}}d.setAttribute(${JSON.stringify(ATTR)},m);setTimeout(function(){if(!window.__xtIntroOn)d.removeAttribute(${JSON.stringify(ATTR)})},${FAILSAFE})}catch(e){}})();`;
 
 const groundFor = (g: GroundChoice, id: Sample["id"]) => (g === "sample" ? SAMPLES[id].ground : g);
 const defaultGround = groundFor(TRANSITION_GROUND, LANDING_TRANSITION);
@@ -123,6 +133,7 @@ export function PageTransition() {
         data-sample={LANDING_TRANSITION}
         data-ground={defaultGround}
         data-x={SAMPLES[LANDING_TRANSITION].xChili ? "chili" : "ink"}
+        data-exit={exitFor(LANDING_TRANSITION)}
         style={{ "--xi-adv": ADV } as CSSProperties}
         aria-hidden="true"
         suppressHydrationWarning
@@ -181,6 +192,8 @@ class Run {
   root: HTMLElement;
   mode: Mode;
   sample: Sample;
+  /** Whose pieces the frame leaves in (usually the take's own; see EXIT_OVERRIDE). */
+  exit: Sample;
   ld: HTMLElement;
   tilesEl: HTMLElement;
   layers: HTMLElement[];
@@ -208,6 +221,7 @@ class Run {
     this.mode = mode;
     const id = (root.dataset.sample ?? LANDING_TRANSITION) as Sample["id"];
     this.sample = SAMPLES[id] ?? SAMPLES[LANDING_TRANSITION];
+    this.exit = SAMPLES[root.dataset.exit as Sample["id"]] ?? SAMPLES[exitFor(this.sample.id)];
     this.ld = root.querySelector(".xti-ld") as HTMLElement;
     this.tilesEl = root.querySelector(".xti-tiles") as HTMLElement;
     this.layers = Array.from(root.querySelectorAll<HTMLElement>(".xti-lay"));
@@ -363,7 +377,7 @@ class Run {
     });
 
     const X0 = Math.max(morph.formed, S1) + HOLD;
-    const pieces = sample.pieces(G, PACE);
+    const pieces = this.exit.pieces(G, PACE);
     const X1 = X0 + Math.max(...pieces.map((p) => p.delay + p.dur));
     this.plan = { G, M, formed: morph.formed, S1, X0, X1, partsEnd, pieces, items, group: morph.group };
     this.schedule(X0, X1, X0 - 300);
@@ -377,7 +391,7 @@ class Run {
     const G = layout(W, H);
     // The word has been on screen since the first paint; give it a beat if we got here very early.
     const X0 = Math.max(120, 450 - this.T0);
-    const pieces = this.sample.pieces(G, PACE_TRIM);
+    const pieces = this.exit.pieces(G, PACE_TRIM);
     const X1 = X0 + Math.max(...pieces.map((p) => p.delay + p.dur));
     this.plan = { G, M: 0, formed: 0, S1: 0, X0, X1, partsEnd: -1, pieces, items: [] };
     this.swapped = true;
@@ -526,7 +540,8 @@ class Run {
       if (lit) lit.style.opacity = "1";
       for (const a of it.el.getAnimations({ subtree: true })) a.cancel();
     }
-    this.building = { i: 0, per: Math.ceil(plan.pieces.length / 12) };
+    // The trimmed run opens sooner, so it clones faster.
+    this.building = { i: 0, per: Math.ceil(plan.pieces.length / (this.mode === "trim" ? 5 : 12)) };
   }
 
   buildSomeTiles(all = false) {
@@ -584,6 +599,7 @@ class Run {
       const { M, formed, S1, X0, X1 } = this.plan;
       (window as XtWindow).__xtIntroStats = {
         sample: this.sample.id,
+        exit: this.exit.id,
         mode: this.mode,
         T0: this.T0,
         marks: { M, formed, S1, X0, X1 },
@@ -670,9 +686,15 @@ function Sprite() {
           <use href="#xti-ring-live" width="100" height="100" />
         </symbol>
         <symbol id="xti-flower" viewBox="0 0 100 230">
-          <path d="M50 96 C 47 140, 55 180, 50 230" fill="none" style={{ stroke: "var(--xi-stem)" }} strokeWidth="5" strokeLinecap="round" />
-          <path d="M51 176 C 60 156, 80 150, 92 156 C 84 172, 66 180, 51 176 Z" style={fill("var(--xi-stem)")} />
+          <path d="M50 96 C 47 140, 55 180, 50 230" fill="none" style={{ stroke: "var(--xi-fstem)" }} strokeWidth="5" strokeLinecap="round" />
+          <path d="M51 176 C 60 156, 80 150, 92 156 C 84 172, 66 180, 51 176 Z" style={fill("var(--xi-leaf)")} />
+          <path d="M49 150 C 40 134, 22 130, 10 136 C 18 150, 34 156, 49 150 Z" style={fill("var(--xi-leaf)")} />
           <use href="#xti-ring" width="100" height="100" />
+        </symbol>
+        <symbol id="xti-flag" viewBox="0 0 70 130">
+          <rect x="6" y="4" width="5" height="126" rx="2.5" style={fill("var(--xi-fstem)")} />
+          <path d="M11 8 H64 L54 29 L64 50 H11 Z" style={fill("var(--xi-chili)")} />
+          <path d="M28 19.5 L42 27.5 Q44 29 42 30.5 L28 38.5 Q26 39.6 26 37.5 L26 21.5 Q26 18.4 28 19.5 Z" fill="#fff" />
         </symbol>
         <symbol id="xti-heart" viewBox="0 0 100 100">
           <path d={HEART} style={fill("var(--c)")} />
