@@ -11,6 +11,7 @@ import {
   MonitorPlay,
   type Icon,
 } from "@/components/icons";
+import type { PromoArtId } from "@/components/app/promo-art/promo-art-pieces";
 
 /**
  * The rest of WorldStreet — every sibling product this app points at.
@@ -50,21 +51,16 @@ export const ECOSYSTEM: EcosystemApp[] = [
  * in the same deck as the live rooms, so a quiet hour still opens on
  * something with a picture and a point rather than an empty stage.
  *
- * Most cards are filmed: their background IS a clip of people doing
- * something — filming, a crowd, a wall of screens — blurred so it plays as
- * light and movement, never as footage competing with the copy. Nothing
- * else dresses them: no pattern, no edge, no tile behind the mark, and the
- * mark is always the same white W that draws itself.
+ * Every card is drawn: its picture is our own art (`art`, a piece of
+ * components/app/promo-art), set in the card's right half so the copy on
+ * the left stays clear. Side seats show the art's first scene, still; when
+ * the card takes the centre the art plays its story (Go live: the phone,
+ * the heat ring, the room filling) and keeps a gentle life until it
+ * leaves. No video: the clips in `public/promo/` are no longer used here.
  *
- * The Wolf is the one painted card, because the wolf itself is the artwork:
- * a dark glossy ground with the highlight sweeping across it, its own gold
- * mark, and a gold button to match. It is the only card that does not wear
- * the W, and the only one with the shine.
- *
- * Clips live in `public/promo/`, NOT in `public/dev-previews/` — that
- * folder is gitignored seed output and would vanish on a fresh clone. Each
- * stays mounted in every position of the deck, so it keeps playing as a
- * card slides from the centre to the side and back, never restarting.
+ * The Wolf is the one painted card, because the wolf itself is the brand:
+ * a dark glossy ground, its own gold mark, and a gold button to match. It
+ * is the only card that does not wear the W.
  */
 export interface HeroPromo {
   id: string;
@@ -75,9 +71,9 @@ export interface HeroPromo {
   href: string;
   /** Tailwind classes for the call to action. */
   action: string;
-  /** The looping clip blurred behind the card — a filmed card's background. */
-  video?: string;
-  /** A painted background instead, for a card with no clip. */
+  /** The drawn piece in the card's art zone. */
+  art: PromoArtId;
+  /** A painted ground under the art; the dark ground when absent. */
   ground?: string;
   /** The Wolf wears its own mark; every other card wears the white W. */
   mark?: "wolf";
@@ -96,7 +92,7 @@ export const HERO_PROMOS: HeroPromo[] = [
     cta: "Go live",
     href: "/studio",
     action: MONO_ACTION,
-    video: "/promo/live-phones.mp4",
+    art: "golive",
   },
   {
     id: "worldspace",
@@ -106,7 +102,7 @@ export const HERO_PROMOS: HeroPromo[] = [
     cta: "Open WorldSpace",
     href: "https://social.worldstreetgold.com",
     action: MONO_ACTION,
-    video: "/promo/crowd.mp4",
+    art: "worldspace",
   },
   {
     // The painted one. Golds are the wolf's own (`WolfIcon`): #EAB308 for
@@ -119,6 +115,7 @@ export const HERO_PROMOS: HeroPromo[] = [
     cta: "Enter the pack",
     href: "https://social.worldstreetgold.com/votes",
     action: "bg-[#EAB308] text-neutral-950 hover:bg-[#F5CE4E]",
+    art: "wolf",
     ground: "bg-[linear-gradient(150deg,#241a07,#161106_55%,#0b0906)]",
     mark: "wolf",
     shine: true,
@@ -131,6 +128,6 @@ export const HERO_PROMOS: HeroPromo[] = [
     cta: "Open Prediction",
     href: "https://prediction.worldstreetgold.com",
     action: MONO_ACTION,
-    video: "/promo/screens.mp4",
+    art: "prediction",
   },
 ];

@@ -15,6 +15,7 @@ import { BrandMark } from "@/components/ui/brand-mark";
 import { WolfIcon } from "@/components/ui/wolf-icon";
 import { StreamArt } from "@/components/app/stream-art";
 import { LivePreview } from "@/components/app/live-preview";
+import { PromoArt } from "@/components/app/promo-art/promo-art";
 import { RemindButton } from "@/components/app/upcoming-card";
 import { UserAvatar } from "@/components/ui/user-avatar";
 
@@ -189,6 +190,8 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
               aria-hidden={!shown}
             >
               <div
+                // A promo is a drawing on a dark card in both themes (a live room is a picture).
+                data-theme={s.kind === "promo" ? "dark" : undefined}
                 className={cn(
                   "relative isolate size-full overflow-hidden rounded-xl bg-ground",
                   !centre && "group/side",
@@ -252,15 +255,15 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
 /** The picture: a live room plays only in the centre; everything else is a still. */
 function Media({ slide, centre }: { slide: Slide; centre: boolean }) {
   if (slide.kind === "promo") {
+    // Drawn, not filmed: the art keeps to the right half, clear of the words
+    // (bottom left), on the card's own dark ground.
     const { promo } = slide;
     return (
       <>
-        {promo.video ? (
-          <video src={promo.video} autoPlay muted loop playsInline preload="metadata" aria-hidden className="absolute inset-0 -z-20 size-full scale-150 object-cover blur-xl" />
-        ) : (
-          <div className={cn("absolute inset-0 -z-20", promo.ground)} />
-        )}
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+        <div className={cn("absolute inset-0 -z-20", promo.ground ?? "bg-ground")} />
+        <div className="pointer-events-none absolute inset-y-[4%] right-[2%] -z-10 w-[47%]">
+          <PromoArt piece={promo.art} active={centre} style={{ width: "100%", height: "100%" }} />
+        </div>
       </>
     );
   }
@@ -391,8 +394,9 @@ function Caption({ slide, on, reason }: { slide: Slide; on: boolean; reason?: Le
           <span {...line(0)}>{meta}</span>
         </div>
         {/* The whole title, never cut with "…" (owner) — it wraps instead.
-            The type lives on the h2 so the measure is in the title's own size. */}
-        <h2 className={cn(mask, "max-w-[24ch] font-wide text-[clamp(1.05rem,1.55vw,1.55rem)] leading-[1.08] font-bold tracking-[-0.035em] text-balance text-white [text-shadow:0_2px_24px_rgba(0,0,0,0.45)]")}>
+            The type lives on the h2 so the measure is in the title's own size.
+            A promo's measure is shorter: its art owns the card's right half. */}
+        <h2 className={cn(mask, slide.kind === "promo" ? "max-w-[17ch]" : "max-w-[24ch]", "font-wide text-[clamp(1.05rem,1.55vw,1.55rem)] leading-[1.08] font-bold tracking-[-0.035em] text-balance text-white [text-shadow:0_2px_24px_rgba(0,0,0,0.45)]")}>
           <span {...line(1)}>
             {title}
           </span>

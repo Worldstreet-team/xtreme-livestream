@@ -1,0 +1,236 @@
+/*
+ * The house slides' art (./promo-art.tsx): paint for the parts, the idle
+ * beats at rest, and the stage garnish (hearts rising, the count).
+ *
+ * The canvas is the art kit's (components/app/art/primitives.module.css
+ * `.canvas`), so the --art-* inks, the paused state and reduced motion are
+ * the kit's own. The cards it sits on are dark islands (data-theme="dark"),
+ * so the tokens resolve dark in both themes. Paint is tokens only and flat:
+ * the one gradient is the heat ring (--promo-heat, set per drawing to its
+ * own <linearGradient>, the --heat stops).
+ *
+ * Every paint names all four of fill, stroke, width and dashes, so the
+ * driver can blend any paint into any other while a part changes jobs. It
+ * blends by reading `.probe` swatches; a gradient can't blend, so a heat
+ * probe reads as Chili and the ring lands into its gradient at rest.
+ */
+
+.shape {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- paint ------------------------------------------------------------------ */
+
+.card { fill: var(--art-card); stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+.card2 { fill: var(--art-card-2); stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+.screen { fill: var(--art-card-2); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.line { fill: transparent; stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+.soft { fill: transparent; stroke: var(--art-line-soft); stroke-width: 2px; stroke-dasharray: 1 0; }
+.slot { fill: transparent; stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 4 5; }
+.bar { fill: var(--art-bar); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.ink { fill: var(--art-ink); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.inkLine { fill: transparent; stroke: var(--art-ink); stroke-width: 2px; stroke-dasharray: 1 0; }
+/* The neutral accent: white on the dark card. */
+.hi { fill: var(--art-hi); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+/* Round dashes of zero length are dots: someone typing, on `hi`. */
+.onHiDots { fill: transparent; stroke: var(--art-on-hi); stroke-width: 4.5px; stroke-dasharray: 0 9; }
+
+/* Chili: being live, Go live, a gift. */
+.live { fill: var(--chili); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.liveHalo { fill: transparent; stroke: var(--chili); stroke-width: 2px; stroke-dasharray: 1 0; }
+/* Heat: rings only. */
+.heat { fill: transparent; stroke: var(--promo-heat, var(--chili)); stroke-width: 3.5px; stroke-dasharray: 1 0; }
+.ringFace { fill: var(--art-card-2); stroke: var(--promo-heat, var(--chili)); stroke-width: 2.5px; stroke-dasharray: 1 0; }
+.probe.heat, .probe.ringFace { stroke: var(--chili); }
+/* Marks on Chili: its own white. */
+.onLive { fill: transparent; stroke: var(--primary-foreground); stroke-width: 2.25px; stroke-dasharray: 1 0; }
+.onLiveBar { fill: color-mix(in srgb, var(--primary-foreground) 90%, transparent); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.onLiveDot { fill: var(--primary-foreground); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+/* Ember, sparingly: a pick, a crown, a like, a price. */
+.ember { fill: var(--ember); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.emberLine { fill: transparent; stroke: var(--ember); stroke-width: 2px; stroke-dasharray: 1 0; }
+.onEmber { fill: transparent; stroke: var(--on-ember); stroke-width: 2.5px; stroke-dasharray: 1 0; }
+
+/* The heat ring's stops: the --heat token's own. */
+.heatA { stop-color: #ff2b45; }
+.heatB { stop-color: #f85810; }
+.heatC { stop-color: #f8a008; }
+
+/* ---- idle -------------------------------------------------------------------- */
+/* Transform and opacity loops on each part's middle <g>. Every loop's first
+   frame is its resting pose, held (`backwards`) through its delay. */
+
+/* A loop-only part (a ping, a halo) is invisible unless its loop runs. */
+.loopOnly { opacity: 0; }
+
+/* Go live: the button gives and blooms; a ring leaves it. */
+.press { animation: pa-press 2.4s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes pa-press {
+  0%, 100% { transform: none; }
+  9% { transform: scale(0.9); }
+  21% { transform: scale(1.06); }
+  34% { transform: none; }
+}
+.ping { animation: pa-ping 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite backwards; }
+@keyframes pa-ping {
+  0%, 11% { opacity: 0; transform: none; }
+  13% { opacity: 0.9; transform: none; }
+  62%, 100% { opacity: 0; transform: scale(1.9, 2.6); }
+}
+
+/* The heat ring breathes; a halo leaves it at the top of each breath. */
+.swell { animation: pa-swell 3.2s ease-in-out infinite backwards; }
+@keyframes pa-swell {
+  0%, 100% { transform: none; }
+  50% { transform: scale(1.04); }
+}
+.halo { animation: pa-halo 3.2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite backwards; }
+@keyframes pa-halo {
+  0%, 46% { opacity: 0; transform: none; }
+  50% { opacity: 0.6; transform: scale(1.04); }
+  100% { opacity: 0; transform: scale(1.34); }
+}
+
+/* The LIVE dot. */
+.blink { animation: pa-blink 1.4s ease-in-out infinite backwards; }
+@keyframes pa-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+.hover { animation: pa-hover 4.2s ease-in-out infinite backwards; }
+@keyframes pa-hover {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-3.5px); }
+}
+
+.float { animation: pa-float 3.6s ease-in-out infinite backwards; }
+@keyframes pa-float {
+  0%, 100% { transform: none; }
+  50% { transform: translate(1.5px, -4px) rotate(6deg); }
+}
+
+.nod { animation: pa-nod 4.4s ease-in-out infinite backwards; }
+@keyframes pa-nod {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-2px); }
+}
+
+.typing { animation: pa-typing 1.3s ease-in-out infinite backwards; }
+@keyframes pa-typing {
+  0%, 56%, 100% { opacity: 1; transform: none; }
+  24% { transform: translateY(-2.5px); }
+  40% { opacity: 0.55; }
+}
+
+/* A like, a pick: a quick beat now and then. */
+.pop { animation: pa-pop 3s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes pa-pop {
+  0%, 56%, 100% { transform: none; }
+  64% { transform: scale(1.22); }
+  72% { transform: scale(0.94); }
+  80% { transform: none; }
+}
+
+/* The crown lifts, lands and rocks still on #1's head. */
+.crown { animation: pa-crown 4.4s linear infinite backwards; }
+@keyframes pa-crown {
+  0%, 56% { transform: none; animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  66% { transform: translateY(-10px) rotate(-9deg); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4); }
+  75% { transform: rotate(5deg); animation-timing-function: ease-in-out; }
+  82% { transform: rotate(-2.5deg); animation-timing-function: ease-in-out; }
+  88% { transform: rotate(1deg); animation-timing-function: ease-in-out; }
+  92%, 100% { transform: none; }
+}
+
+/* The week's clock: the hand sweeps, the dashed dial turns back. */
+.spin { animation: pa-spin 6s linear infinite backwards; }
+.spinBack { animation: pa-spin 40s linear infinite reverse backwards; }
+@keyframes pa-spin {
+  from { transform: none; }
+  to { transform: rotate(360deg); }
+}
+
+/* The live candle, still being drawn. */
+.breathe { animation: pa-breathe 2.2s ease-in-out infinite backwards; }
+@keyframes pa-breathe {
+  0%, 100% { transform: none; }
+  35% { transform: scaleY(1.14); }
+  70% { transform: scaleY(0.92); }
+}
+
+/* The price tag swinging off the handle. */
+.swing { animation: pa-swing 3.4s ease-in-out infinite backwards; }
+@keyframes pa-swing {
+  0%, 100% { transform: none; }
+  30% { transform: rotate(-9deg); }
+  62% { transform: rotate(5deg); }
+  84% { transform: rotate(-2deg); }
+}
+
+.shimmer { animation: pa-shimmer 2.6s ease-in-out infinite backwards; }
+@keyframes pa-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ---- the stage's garnish -------------------------------------------------------- */
+/* Drawn by React, still; it shows only once the story lands on its stage
+   (`data-stage="on"` on the canvas) and fades as the slide leaves. */
+
+.garnish {
+  opacity: 0;
+  transition: opacity 180ms linear;
+}
+.canvas[data-stage="on"] .garnish {
+  opacity: 1;
+  transition-duration: 420ms;
+  transition-delay: 60ms;
+}
+
+/* Hearts and tokens rising off the stage and fading. Invisible at rest. */
+.drift { opacity: 0; }
+.canvas[data-stage="on"] .drift {
+  animation: pa-drift var(--dur, 3s) cubic-bezier(0.25, 0.6, 0.3, 1) infinite backwards;
+  animation-delay: var(--i, 0s);
+}
+@keyframes pa-drift {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+  14% { opacity: 1; transform: translate(calc(var(--dx, 0px) * 0.2), -8px) scale(1); }
+  70% { opacity: 0.85; }
+  100% { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, -48px)) scale(0.85) rotate(var(--rot, 0deg)); }
+}
+
+.twinkle { transform-box: fill-box; }
+.canvas[data-stage="on"] .twinkle {
+  animation: pa-twinkle 2.8s ease-in-out infinite backwards;
+  animation-delay: var(--i, 0s);
+}
+@keyframes pa-twinkle {
+  0%, 100% { opacity: 1; transform: none; }
+  50% { opacity: 0.25; transform: scale(0.7) rotate(20deg); }
+}
+
+/* The count: numerals set in the app's face, tabular so it doesn't jitter. */
+.count {
+  fill: var(--art-hi);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.countSoft {
+  fill: var(--art-ink);
+  font-size: 9px;
+  font-weight: 600;
+}
+.eye { fill: transparent; stroke: var(--art-ink); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
+.eyeDot { fill: var(--art-ink); }
+.glyph { fill: var(--art-ink); }
+.glyphLive { fill: var(--chili); }
+.glyphEmber { fill: var(--ember); }
+
+@media (prefers-reduced-motion: reduce) {
+  .garnish { transition: none; }
+}

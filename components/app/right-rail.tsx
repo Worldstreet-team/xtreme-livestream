@@ -22,6 +22,7 @@ import { WolfIcon } from "@/components/ui/wolf-icon";
 import { MarketSquareLockup } from "@/components/ui/market-mark";
 import { WorldSpaceLockup } from "@/components/ui/worldspace-mark";
 import { Tip } from "@/components/ui/tip";
+import { PromoArt, type PromoArtId } from "@/components/app/promo-art/promo-art";
 
 /**
  * The right rail — the column the socials app runs beside its feed, tuned
@@ -403,24 +404,57 @@ export function RightRail() {
 }
 
 /**
- * One house slide, drawn on the WorldSpace promo card (its `PromoBanners`):
- * the socials' stone surface, the ambience photograph filling the card with
- * the mark riding its crisp top half, Poppins for the title, a white pill
- * CTA, and the soft flare sweeping across. Same card in both apps.
+ * One house slide, on the WorldSpace promo card's frame (its `PromoBanners`):
+ * the socials' stone surface, Poppins for the title, a white pill CTA. Where
+ * that card had the ambience photograph drifting behind a mark, ours has its
+ * own drawn art (components/app/promo-art): the slide's first scene while it
+ * waits, its story when it becomes the active slide, then a gentle life
+ * until the carousel moves on. The brand's mark rides the art's corner.
  */
-function HouseSlide({ href, mark, eyebrow, title, sub, cta, ctaClassName }: { href: string; mark: ReactNode; eyebrow?: string; title?: string; sub?: string; cta: string; ctaClassName?: string }) {
+function HouseSlide({
+  href,
+  art,
+  active,
+  badge,
+  headline,
+  eyebrow,
+  title,
+  sub,
+  cta,
+  ctaClassName,
+}: {
+  href: string;
+  art: PromoArtId;
+  active: boolean;
+  badge?: ReactNode;
+  headline?: ReactNode;
+  eyebrow?: string;
+  title?: string;
+  sub?: string;
+  cta: string;
+  ctaClassName?: string;
+}) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="shine-soft relative block h-[236px] w-[68%] shrink-0 overflow-hidden rounded-sm bg-[#1C1917] text-left">
-      {/* eslint-disable-next-line @next/next/no-img-element -- static, pre-blurred, ~2KB */}
-      <img src="/images/promo/ambience-dark.webp" alt="" aria-hidden="true" className="promo-amb" />
+    <a href={href} target="_blank" rel="noopener noreferrer" data-theme="dark" className="relative block h-[236px] w-[68%] shrink-0 overflow-hidden rounded-sm bg-[#1C1917] text-left">
       <span className="relative flex h-full flex-col p-3.5 text-[#FAFAF9]">
-        <span className="flex flex-1 items-center justify-center pb-1">{mark}</span>
-        {eyebrow && <span className="block text-[9.5px] font-bold tracking-[0.14em] text-[#FAFAF9]/55 uppercase">{eyebrow}</span>}
+        <HouseArt art={art} active={active} badge={badge} />
+        {headline && <span className="mt-1 block">{headline}</span>}
+        {eyebrow && <span className="mt-1 block text-[9.5px] font-bold tracking-[0.14em] text-[#FAFAF9]/55 uppercase">{eyebrow}</span>}
         {title && <span className="mt-1 block font-poppins text-[15px] font-semibold leading-tight">{title}</span>}
         {sub && <span className="mt-0.5 block text-[11px] text-[#FAFAF9]/55">{sub}</span>}
-        <span className={cn("mt-3 flex h-8 w-full items-center justify-center rounded-full bg-[#FAFAF9] text-[12px] font-semibold text-[#0C0A09]", ctaClassName)}>{cta}</span>
+        <span className={cn("mt-3 flex h-8 w-full shrink-0 items-center justify-center rounded-full bg-[#FAFAF9] text-[12px] font-semibold text-[#0C0A09]", ctaClassName)}>{cta}</span>
       </span>
     </a>
+  );
+}
+
+/** The art's zone: whatever the copy leaves at the top of a house slide, the mark in its corner. */
+function HouseArt({ art, active, badge }: { art: PromoArtId; active: boolean; badge?: ReactNode }) {
+  return (
+    <span className="relative -mx-1 -mt-1 block min-h-0 flex-1">
+      <PromoArt piece={art} active={active} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+      {badge && <span className="absolute top-0 left-0 flex items-center">{badge}</span>}
+    </span>
   );
 }
 
@@ -468,13 +502,21 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
             </Link>
           ))}
 
-          {/* Market Square — the socials' own slide: the lockup is the headline. */}
-          <HouseSlide href="https://tsionark.com" mark={<MarketSquareLockup markClassName="h-[27px] w-auto" wordClassName="font-poppins text-[22px] font-semibold leading-none" />} cta="Visit" />
+          {/* Market Square — the socials' own slide: the lockup is the headline, under its art. */}
+          <HouseSlide
+            href="https://tsionark.com"
+            art="market"
+            active={index === games.length}
+            headline={<MarketSquareLockup markClassName="h-[20px] w-auto" wordClassName="font-poppins text-[17px] font-semibold leading-none" />}
+            cta="Visit"
+          />
 
           {/* Wolf of WorldStreet — the socials' own slide. */}
           <HouseSlide
             href="https://social.worldstreetgold.com/votes"
-            mark={<WolfIcon size={46} />}
+            art="wolf"
+            active={index === games.length + 1}
+            badge={<WolfIcon size={22} />}
             eyebrow="Competition"
             title="Wolf of WorldStreet"
             cta="Enter the pack"
@@ -483,21 +525,22 @@ function Spotlight({ games }: { games: LiveGameItem[] }) {
           {/* WorldSpace — the feed itself, in its own stone-and-cyan theme. */}
           <HouseSlide
             href="https://social.worldstreetgold.com"
-            mark={<WorldSpaceLockup size={40} wordSize={20} />}
-            eyebrow="The feed"
+            art="worldspace"
+            active={index === games.length + 2}
+            headline={<WorldSpaceLockup size={16} wordSize={12} className="gap-1.5" />}
             title="Where the conversation lives"
             sub="Every stream posts to the feed."
             cta="Open WorldSpace"
             ctaClassName="bg-[#22B8D6] text-[#0C0A09]"
           />
 
-          {/* Go live. */}
-          <div className={cn(card, "justify-end bg-chili-lo")}>
-            <Broadcast size={40} weight="fill" className="absolute top-5 right-4 text-white/25" />
-            <span className="text-[9.5px] font-bold tracking-[0.14em] text-white/60 uppercase">Your turn</span>
+          {/* Go live: the call to action, on the same stone card. Its art is the
+              story of going live, so it gets the room a line of small print took. */}
+          <div data-theme="dark" className={cn(card, "bg-[#1C1917]")}>
+            <HouseArt art="golive" active={index === games.length + 3} />
+            <span className="mt-1 text-[9.5px] font-bold tracking-[0.14em] text-white/60 uppercase">Your turn</span>
             <span className="mt-1 text-[15px] font-semibold leading-tight">Go live in under a minute</span>
-            <span className="mt-0.5 text-[11px] text-white/70">Camera or OBS. Your followers get told the moment you start.</span>
-            <PillLink href="/studio" size="sm" variant="primary" className="mt-3 w-full" icon={<Broadcast size={13} weight="fill" />}>
+            <PillLink href="/studio" size="sm" variant="primary" className="mt-3 w-full shrink-0" icon={<Broadcast size={13} weight="fill" />}>
               Go live
             </PillLink>
           </div>
