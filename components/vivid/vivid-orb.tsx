@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/lib/theme";
 
 /**
  * The Vivid orb: the dot sphere from vividai.worldstreetgold.com, ported
@@ -46,10 +47,10 @@ function makeSprite(core: string, edge: string): HTMLCanvasElement {
   return c;
 }
 
-/** The colour wheel, pre-stamped: one sprite per 15° of hue. */
-function hueRing(): HTMLCanvasElement[] {
+/** The colour wheel, pre-stamped: one sprite per 15° of hue (deeper on paper, so it reads). */
+function hueRing(lightness = 62): HTMLCanvasElement[] {
   const out: HTMLCanvasElement[] = [];
-  for (let h = 0; h < 360; h += 15) out.push(makeSprite(`hsla(${h},100%,62%,1)`, `hsla(${h},100%,62%,0)`));
+  for (let h = 0; h < 360; h += 15) out.push(makeSprite(`hsla(${h},100%,${lightness}%,1)`, `hsla(${h},100%,${lightness}%,0)`));
   return out;
 }
 
@@ -80,6 +81,15 @@ export function VividOrb({
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Light or dark where the orb actually sits: a room (the studio, a player)
+  // stays dark in light mode, so read the nearest themed ancestor, not <html>.
+  const appTheme = useTheme();
+  const onPaperRef = useRef(false);
+  useEffect(() => {
+    const el = canvasRef.current;
+    const host = el?.closest<HTMLElement>("[data-theme]");
+    onPaperRef.current = (host?.dataset.theme ?? appTheme) === "light";
+  }, [appTheme]);
   const boxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(minSize);
   const onColorRef = useRef(onColor);
@@ -151,8 +161,12 @@ export function VividOrb({
       ph2[i] = rand() * Math.PI * 2;
     }
 
+    // Light, added together on a dark ground; ink, laid over, on paper
+    // (additive white vanishes on a light page).
     const sprite = makeSprite("rgba(255,255,255,1)", "rgba(255,255,255,0)");
+    const ink = makeSprite("rgba(27,20,22,1)", "rgba(27,20,22,0)");
     const hues = hueRing();
+    const huesOnPaper = hueRing(46);
     const driftAmp = size / 320;
     let colorK = 0;
     let level = 0;
@@ -214,7 +228,12 @@ export function VividOrb({
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
-      ctx.globalCompositeOperation = "lighter";
+      const paper = onPaperRef.current;
+      ctx.globalCompositeOperation = paper ? "source-over" : "lighter";
+      const dot = paper ? ink : sprite;
+      const ring = paper ? huesOnPaper : hues;
+      // Ink dots stack darker than light ones add up: a touch less of each.
+      const inkK = paper ? 0.78 : 1;
 
       for (let i = 0; i < N; i++) {
         const a = i * 3;
@@ -236,14 +255,14 @@ export function VividOrb({
 
         if (colorK > 0.01) {
           // The hue is a wave read from where each dot is, travelling round.
-          ctx.globalAlpha = Math.min(1, av * (1 - colorK * 0.7));
-          ctx.drawImage(sprite, cx + x - r, cy + y - r, r * 2, r * 2);
+          ctx.globalAlpha = Math.min(1, av * inkK * (1 - colorK * 0.7));
+          ctx.drawImage(dot, cx + x - r, cy + y - r, r * 2, r * 2);
           const huePos = (((Math.atan2(z, x) / 6.2832 + t * 0.4) % 1) + 1) % 1;
           ctx.globalAlpha = Math.min(1, av * colorK);
-          ctx.drawImage(hues[(huePos * hues.length) | 0], cx + x - r, cy + y - r, r * 2, r * 2);
+          ctx.drawImage(ring[(huePos * ring.length) | 0], cx + x - r, cy + y - r, r * 2, r * 2);
         } else {
-          ctx.globalAlpha = Math.min(1, av);
-          ctx.drawImage(sprite, cx + x - r, cy + y - r, r * 2, r * 2);
+          ctx.globalAlpha = Math.min(1, av * inkK);
+          ctx.drawImage(dot, cx + x - r, cy + y - r, r * 2, r * 2);
         }
       }
       ctx.globalAlpha = 1;
@@ -275,7 +294,8 @@ export function VividOrb({
       io.disconnect();
       cancelAnimationFrame(raf);
     };
-  }, [size]);
+    // A theme change repaints (and, with reduced motion, redraws the one still frame).
+  }, [size, appTheme]);
 
   return (
     <div ref={boxRef} className={`grid size-full place-items-center ${className ?? ""}`}>
