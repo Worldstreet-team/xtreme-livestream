@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CaretUp, Lock, PaperPlaneRight, Trash } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { durationLabel } from "@/lib/messaging";
 import { cn } from "@/lib/utils";
 import { EASE, done, play, reducedMotion } from "./motion";
@@ -211,14 +212,16 @@ export function RecorderBar({
 }) {
   return (
     <div className="msg-fade flex items-center gap-2">
-      <button
-        type="button"
-        onClick={onCancel}
-        aria-label="Discard voice note"
-        className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-chili-hi hover:bg-control-hover"
-      >
-        <Trash size={19} />
-      </button>
+      <Tip label="Discard voice note">
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Discard voice note"
+          className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-chili-hi hover:bg-control-hover"
+        >
+          <Trash size={19} />
+        </button>
+      </Tip>
       <div className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-[24px] bg-tint/[0.06] pr-4 pl-4">
         <span className="flex shrink-0 items-center gap-2">
           <span aria-hidden className="rec-blink size-2.5 rounded-full bg-chili" />
@@ -229,14 +232,16 @@ export function RecorderBar({
         <Wave levels={levels} />
         <span className="sr-only">Recording a voice note</span>
       </div>
-      <button
-        type="button"
-        onClick={onSend}
-        aria-label="Send voice note"
-        className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
-      >
-        <PaperPlaneRight size={19} weight="fill" />
-      </button>
+      <Tip label="Send voice note">
+        <button
+          type="button"
+          onClick={onSend}
+          aria-label="Send voice note"
+          className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
+        >
+          <PaperPlaneRight size={19} weight="fill" />
+        </button>
+      </Tip>
     </div>
   );
 }

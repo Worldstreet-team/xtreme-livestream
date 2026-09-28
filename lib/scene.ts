@@ -4,11 +4,15 @@ import {
   CHART_INTERVALS,
   LOGO_CORNERS,
   LOWER_THIRD_STYLES,
+  PHONE_SLOTS,
   SCENE_ANGLES,
   SCENE_CARDS,
   SCENE_LAYOUTS,
   MAX_PRICE_SYMBOLS,
   MAX_SCENE_GAINS,
+  angleOfPhoneSlot,
+  phoneSlotOfAngle,
+  type PhoneSlot,
   type SceneAngle,
   type BrandAccent,
   type BrandFont,
@@ -34,7 +38,7 @@ import { readSetId, type SetId } from "@/lib/sets";
  * `__evt: scene` data event.
  */
 
-export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, SceneAngle, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
+export type { BrandAccent, BrandFont, BrandPreset, ChartInterval, FeaturedItem, LogoCorner, PhoneSlot, SceneAngle, SceneChart, LowerThirdStyle, Scene, SceneCard, SceneLayer, SceneLayerKind, SceneLayout };
 
 export const DEFAULT_SCENE: Scene = {
   layout: "auto",
@@ -46,6 +50,7 @@ export const DEFAULT_SCENE: Scene = {
   spotlight: null,
   interpreter: null,
   angle: "main",
+  phoneSlot: "off",
   featured: null,
   version: 0,
 };
@@ -84,11 +89,19 @@ export function readScene(raw: unknown): Scene | null {
     gains: readGains(r.gains),
     spotlight: typeof r.spotlight === "string" && /^[\w.:-]{1,64}$/.test(r.spotlight) ? r.spotlight : null,
     interpreter: typeof r.interpreter === "string" && /^[\w.:-]{1,64}$/.test(r.interpreter) ? r.interpreter : null,
-    // Which camera, while a phone cam is in: main unless the host cut away.
-    angle: SCENE_ANGLES.includes(r.angle as SceneAngle) ? (r.angle as SceneAngle) : "main",
+    // Where the phone sits, while a phone cam is in: its placement, or —
+    // from an API before placements — its angle. The angle follows it.
+    angle: angleOfPhoneSlot(readPhoneSlot(r)),
+    phoneSlot: readPhoneSlot(r),
     featured: readFeatured(r.featured),
     version: typeof r.version === "number" ? r.version : 0,
   };
+}
+
+/** Where the phone sits in a scene off the wire: its placement, else its angle, else out of the picture. */
+function readPhoneSlot(r: Record<string, unknown>): PhoneSlot {
+  if (PHONE_SLOTS.includes(r.phoneSlot as PhoneSlot)) return r.phoneSlot as PhoneSlot;
+  return phoneSlotOfAngle(SCENE_ANGLES.includes(r.angle as SceneAngle) ? (r.angle as SceneAngle) : "main");
 }
 
 /** The guest faders, as far as they make sense: identities to a level 0–1, eight at most. */

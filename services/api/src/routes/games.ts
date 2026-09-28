@@ -22,6 +22,7 @@ import { prepareMarketQuestion } from "../market-oracle.js";
 import { InsufficientPointsError, ensureWelcomeGrant } from "../points.js";
 import { readyCount } from "../quests.js";
 import { thumbnailUrlFor } from "../stream-service.js";
+import { assertMayInteract } from "../preview.js";
 import { DAILY_REDEEM_CAP_POINTS, MIN_REDEEM_POINTS, POINTS_PER_USD, RedeemError, audit, redeemPoints } from "../rewards.js";
 import { isTreasuryConfigured } from "../wallet.js";
 import { Payout, RequestOrder, SponsorRun, type IPayout } from "../models.js";
@@ -168,6 +169,9 @@ export const gameRoutes: FastifyPluginAsync = async (fastify) => {
       const game = await Game.findById(request.params.id);
       if (!game) throw new ApiError(404, "Game not found", "GAME_NOT_FOUND");
       if (game.hostId.equals(dbUser._id)) throw new ApiError(400, "The host can't play their own game", "HOST_ENTRY");
+      // A practice run's game is a rehearsal: watch-only for anyone but its crew.
+      const where = await Stream.findById(game.streamId).select("practice streamerId").lean();
+      if (where) await assertMayInteract(where, dbUser._id);
       if (game.type === "prediction" && !isVote(game) && (request.body.stakePoints < MIN_STAKE || request.body.stakePoints > MAX_STAKE)) {
         throw new ApiError(400, `Stake between ${MIN_STAKE} and ${MAX_STAKE} points`, "BAD_STAKE");
       }

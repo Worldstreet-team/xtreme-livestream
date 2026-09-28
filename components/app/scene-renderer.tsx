@@ -14,6 +14,7 @@ import { MarketChart } from "@/components/app/market-chart";
 import { formatQuote, marketBase, useQuotes } from "@/lib/market";
 import { formatCallPrice, formatCallTime, formatMove, moveSince, useCallsEnabled } from "@/lib/market-calls";
 import { ArrowDown, ArrowUp, Fire } from "@/components/icons";
+import { cornerShows, placePhone } from "@/lib/angles";
 import {
   goalAmount,
   goalShowing,
@@ -38,9 +39,11 @@ import {
   type Brand,
   type FeaturedItem,
   type LogoCorner,
+  type PhoneSlot,
   type Scene,
   type SceneCard,
   type SceneLayer,
+  type SceneLayout,
 } from "@/lib/scene";
 
 /** How long a graphic takes to leave. */
@@ -175,6 +178,33 @@ function useGlide(signature: string) {
 }
 
 /**
+ * Is the picture in this box taller than it's wide? Read off its video as
+ * frames arrive (and again when it turns), so a phone held upright gets an
+ * upright corner rather than a letterbox slice of its face. Landscape until
+ * the first frame says otherwise.
+ */
+function useUprightVideo() {
+  const [box, setBox] = useState<HTMLElement | null>(null);
+  const [upright, setUpright] = useState(false);
+  useEffect(() => {
+    if (!box) return;
+    const read = (e?: Event) => {
+      const video = e?.target instanceof HTMLVideoElement ? e.target : box.querySelector("video");
+      if (video?.videoWidth && video.videoHeight) setUpright(video.videoHeight > video.videoWidth);
+    };
+    read();
+    // Neither event bubbles: listen on the way down.
+    box.addEventListener("loadedmetadata", read, true);
+    box.addEventListener("resize", read, true);
+    return () => {
+      box.removeEventListener("loadedmetadata", read, true);
+      box.removeEventListener("resize", read, true);
+    };
+  }, [box]);
+  return [setBox, upright] as const;
+}
+
+/**
  * `value` while it's set; for `ms` after it's cleared, the last one it had,
  * marked leaving — so what it drew can go rather than vanish. Adjusted while
  * rendering, as SceneGraphics holds a featured comment. `value` must keep its
@@ -210,8 +240,10 @@ export interface SceneCell {
  * The host's main picture is always the first cell, so its video element
  * never remounts as the layout changes. The layout decides which of the
  * others show; a shared screen takes the main picture with the host's
- * camera in the corner; and a card, when the host puts one up, covers the
- * whole frame while the room keeps hearing them. The host's graphics —
+ * camera in the corner; the phone cam goes where the host placed it — over
+ * their picture, beside it as a tile of its own, or in the corner
+ * (lib/angles.ts `placePhone`); and a card, when the host puts one up,
+ * covers the whole frame while the room keeps hearing them. The host's graphics —
  * lower third, banner, ticker, countdown, logo — draw over the lot in their
  * brand accent, as DOM, so they stay sharp at any quality the video drops to.
  */
@@ -222,6 +254,11 @@ export function SceneRenderer({
   mainLabel,
   pip,
   pipClassName,
+  face,
+  phone,
+  phoneSlot,
+  layout: layoutFor,
+  over,
   guests,
   forceAuto = false,
   host,
@@ -243,6 +280,20 @@ export function SceneRenderer({
   pip?: ReactNode;
   /** Where the corner camera sits — surfaces have their own chrome to avoid. */
   pipClassName?: string;
+  /**
+   * The host's camera as a tile of its own while it's also their main
+   * picture: drawn only when the phone takes that picture in Screen + face,
+   * and the camera moves to the corner.
+   */
+  face?: ReactNode;
+  /** The phone cam's tile, while it's sending and this screen takes it. */
+  phone?: ReactNode;
+  /** Where the phone sits on this screen: the scene's placement, unless a viewer pinned an angle. */
+  phoneSlot?: PhoneSlot;
+  /** This screen's layout, when it isn't the scene's: a viewer who pinned the split. */
+  layout?: SceneLayout;
+  /** Drawn over the host's tile, whatever fills it — the Set's gift effects. */
+  over?: ReactNode;
   /** Everyone else on stage, in order: a battle's other side, guests, you. */
   guests: SceneCell[];
   /** A battle keeps its split whatever the scene says. */
@@ -274,22 +325,37 @@ export function SceneRenderer({
    */
   hideRestricted?: boolean;
 }) {
-  const layout = forceAuto ? "auto" : scene.layout;
+  const layout = forceAuto ? "auto" : (layoutFor ?? scene.layout);
+  // Where the phone lands: nowhere without its picture.
+  const place = placePhone(phone ? (phoneSlot ?? scene.phoneSlot ?? "off") : "off", layout);
   // A sign-language interpreter stays in a corner, whatever the layout, and
   // the layout places everyone else.
   const interpreter = scene.interpreter ? guests.find((g) => (g.identity ?? g.key) === scene.interpreter) : undefined;
   const others = interpreter ? guests.filter((g) => g !== interpreter) : guests;
   // The guest in the spotlight comes first, so a Split shows them beside the
   // host. A battle keeps its own order: its sides are never reshuffled.
-  const ordered =
+  const spotlit =
     scene.spotlight && !forceAuto
       ? [...others].sort((a, b) => Number((b.identity ?? b.key) === scene.spotlight) - Number((a.identity ?? a.key) === scene.spotlight))
       : others;
+  // The phone placed beside the host is first of all: the host put it there.
+  // A battle's sides own the frame, so it sits one out.
+  const ordered = place.beside && !forceAuto ? [{ key: "phone-cam", node: phone }, ...spotlit] : spotlit;
   const shown = ordered.slice(0, guestsShown(layout, ordered.length, forceAuto));
   const grid = stageLayout(1 + shown.length, portrait);
   // Chart + face: the chart has the frame and the host's face the corner.
   const chartMode = layout === "chart-face";
-  const showPip = Boolean(pip) && shown.length === 0 && layout !== "solo" && !chartMode;
+  // The corner: the phone when it's placed there; otherwise the host's
+  // camera while their screen — or, in Screen + face, the phone — has the
+  // main picture.
+  const corner = place.corner ? phone : (pip ?? (place.cell && layout === "screen-face" ? face : undefined));
+  const showPip = Boolean(corner) && !chartMode && cornerShows(layout, shown.length);
+  // In Chart + face the host's own cell is the corner: the phone or the
+  // camera there, when one's the face, over the host's picture.
+  const chartFace = chartMode ? (place.corner ? phone : pip) : undefined;
+  const hideMain = chartMode ? Boolean(chartFace) : place.cell;
+  // The corner takes its picture's shape: a phone held upright is an upright corner.
+  const [cornerBox, cornerUpright] = useUprightVideo();
   // A logo up top lands top-left in chart mode (the camera has the right), so the chart's header steps down.
   const logoTop = Boolean(brand.logoUrl && layerOf(scene.layers, "logo")?.corner.startsWith("top"));
   // What moves the tiles: the layout, who's shown, the frame's shape.
@@ -342,24 +408,36 @@ export function SceneRenderer({
           )}
         >
           <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
-            {/* Sharing a screen in chart mode: the face is the camera, so the
-                screen stays attached but out of sight. */}
-            <div className={cn("size-full", chartMode && pip && "invisible")}>{main}</div>
-            {chartMode && pip && <div className="absolute inset-0">{pip}</div>}
-            {mainLabel && shown.length > 0 && (
+            {/* Whatever covers the host's picture — the phone, or in chart
+                mode the face — leaves it attached, just out of sight, so a
+                cut back is instant. */}
+            <div className={cn("size-full", hideMain && "invisible")}>{main}</div>
+            {/* A cut to the phone (or a new face in chart mode) fades in over the picture it covers. */}
+            {chartFace && <div className="absolute inset-0 motion-safe:animate-[fade-in_300ms_ease-out_both]">{chartFace}</div>}
+            {/* The phone with the frame to itself is contained, like the host's own
+                picture — an upright phone in a wide frame keeps its edges. */}
+            {!chartMode && place.cell && (
+              <div className={cn("absolute inset-0 motion-safe:animate-[fade-in_300ms_ease-out_both]", shown.length === 0 && "[&_video]:object-contain")}>{phone}</div>
+            )}
+            {over}
+            {mainLabel && shown.length > 0 && !place.cell && (
               <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
                 <span className="block truncate text-xs font-semibold text-white">{mainLabel}</span>
               </div>
             )}
             {showPip && (
               <div
+                ref={cornerBox}
                 className={cn(
-                  "absolute z-10 aspect-video overflow-hidden rounded-[12px] bg-black motion-safe:animate-[fade-in_300ms_ease-out_both]",
-                  layout === "screen-face" ? "w-[30%]" : "w-[24%]",
+                  "absolute z-10 overflow-hidden rounded-[12px] bg-black motion-safe:animate-[fade-in_300ms_ease-out_both]",
+                  cornerUpright
+                    ? // Upright, about the same area as a wide corner.
+                      cn("aspect-[9/16]", portrait ? (layout === "screen-face" ? "w-[26%]" : "w-[22%]") : layout === "screen-face" ? "w-[15%]" : "w-[12%]")
+                    : cn("aspect-video", layout === "screen-face" ? "w-[30%]" : "w-[24%]"),
                   pipClassName ?? "top-3 right-3"
                 )}
               >
-                {pip}
+                {corner}
               </div>
             )}
           </div>

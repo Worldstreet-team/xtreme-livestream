@@ -13,6 +13,7 @@ import {
   VideoCamera,
   VideoCameraSlash,
 } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber } from "@/lib/categories";
 import { cn } from "@/lib/utils";
@@ -342,20 +343,21 @@ function MiniButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(
-        "press size-7 items-center justify-center rounded-full text-white md:size-8",
-        wide ? "hidden md:flex" : "flex",
-        tone === "plain" && "bg-black/55 hover:bg-black/70",
-        tone === "off" && "bg-chili",
-        tone === "end" && "bg-black/55 text-chili-hi hover:bg-chili hover:text-white"
-      )}
-    >
-      {children}
-    </button>
+    <Tip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={cn(
+          "press size-7 items-center justify-center rounded-full text-white md:size-8",
+          wide ? "hidden md:flex" : "flex",
+          tone === "plain" && "bg-black/55 hover:bg-black/70",
+          tone === "off" && "bg-chili",
+          tone === "end" && "bg-black/55 text-chili-hi hover:bg-chili hover:text-white"
+        )}
+      >
+        {children}
+      </button>
+    </Tip>
   );
 }

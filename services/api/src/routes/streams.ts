@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
 import {
   createStreamBodySchema,
   listStreamsQuerySchema,
@@ -14,6 +15,7 @@ import { ensureUserIngress,
   createToken, sendRoomData, setRoomScene } from "../livekit.js";
 import { Stream, User, type IStream } from "../models.js";
 import { startPractice } from "../practice.js";
+import { previewAccess } from "../preview.js";
 import { relayLiveEvent } from "../socials-relay.js";
 import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
 import { atLeast, requireChannelRole, roleIn } from "../safety/roles.js";
@@ -22,6 +24,7 @@ import {
   notifyRemindersOfLive,
 } from "../notifications.js";
 import {
+  defaultStreamTitle,
   markStreamEnded,
   reconcileLeanStreams,
   reconcileStream,
@@ -284,6 +287,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const practice = body.practice === true;
       const fields = {
         ...body,
+        // Going live needs no name: a blank title is the host's default.
+        title: body.title || defaultStreamTitle(dbUser),
         practice,
         // A fresh program every broadcast — a reused booking must not
         // inherit last time's card.
@@ -338,6 +343,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             "STREAM_NOT_FOUND",
           );
         }
+        // No title on go-live keeps the one it was booked under.
+        if (!body.title && scheduled.title) fields.title = scheduled.title;
         // No new thumbnail on go-live means keep the one it was scheduled with.
         if (!body.thumbnail && scheduled.thumbnail) {
           fields.thumbnail = scheduled.thumbnail;
@@ -551,6 +558,10 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Streams"],
         summary: "Get stream details",
         params: streamIdParamsSchema,
+        querystring: z.object({
+          /** A practice run's preview key (preview.ts): the one way in for anyone but the crew. */
+          previewKey: z.string().max(128).optional(),
+        }),
       },
     },
     async (request) => {
@@ -567,10 +578,12 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       // else — signed out, a stranger, a moderator, a bad token — gets the
       // 404 a stream that doesn't exist would, so the id never confirms a
       // rehearsal is on.
+      // Holding its preview link opens it too — the same 404 otherwise.
       if (stream.practice) {
         const viewer = getOptionalAuthUserId(request) ? await authenticate(request).catch(() => null) : null;
         const streamer = viewer ? await User.findById(stream.streamerId).select("safety").lean() : null;
-        if (!viewer || !streamer || !atLeast(roleIn(streamer, viewer.dbUser._id), "producer")) {
+        const crew = Boolean(viewer && streamer && atLeast(roleIn(streamer, viewer.dbUser._id), "producer"));
+        if (!crew && !(await previewAccess(stream._id, request.query.previewKey))) {
           throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
         }
       }
@@ -616,16 +629,35 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(403, "Not authorized", "FORBIDDEN");
       }
 
+      const patch = { ...request.body };
+      // Clearing the title names the stream after its host again.
+      if (patch.title !== undefined && !patch.title) {
+        patch.title = defaultStreamTitle(dbUser);
+      }
+      const detailsChanged =
+        (patch.title !== undefined && patch.title !== stream.title) ||
+        (patch.category !== undefined && patch.category !== stream.category);
+
       // Bump the version only on an actual image change, so cached copies
       // survive ordinary title/category edits.
       if (
-        request.body.thumbnail !== undefined &&
-        request.body.thumbnail !== stream.thumbnail
+        patch.thumbnail !== undefined &&
+        patch.thumbnail !== stream.thumbnail
       ) {
-        stream.thumbnailVersion = request.body.thumbnail ? Date.now() : 0;
+        stream.thumbnailVersion = patch.thumbnail ? Date.now() : 0;
       }
-      Object.assign(stream, request.body);
+      Object.assign(stream, patch);
       await stream.save();
+
+      // Renamed mid-broadcast: everyone watching sees the new title and
+      // category at once. The API is the room's one voice for this.
+      if (detailsChanged && stream.isLive) {
+        void sendRoomData(stream.livekitRoomName, {
+          __evt: "details",
+          title: stream.title,
+          category: stream.category,
+        });
+      }
 
       return {
         success: true,

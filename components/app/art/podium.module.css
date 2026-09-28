@@ -1,10 +1,11 @@
 /*
  * What the podium art needs on top of the kit (primitives.module.css):
  *
- * 1. Paint for the solid Ember board. The kit's paint is the page's ink,
- *    which doesn't read on Ember; on the board, lines, leaves and confetti
- *    are Ember's own ink (`--on-ember`) instead. The kit's tokens are not
- *    touched.
+ * 1. Paint for the board. The board sits on the theme's own surface (dark
+ *    in dark, paper in light), so its art is the kit's ink (`--art-*`,
+ *    mixed from `--tint`) with the palette as accents: the crown is Chili
+ *    (heat belongs to #1), a few confetti pieces are Chili ribbon and a
+ *    speck or two of Ember, never a fill. The kit's tokens are not touched.
  * 2. Entrances that wait. The kit's entrances play on mount; the rail's
  *    board builds itself when it scrolls into view, so these play when an
  *    ancestor's `data-play` turns "go" (lib/use-play-on-view.ts). Timings
@@ -13,20 +14,21 @@
  * Transform and opacity only; a plain fade under prefers-reduced-motion.
  */
 
-/* ---- paint on Ember ----------------------------------------------------- */
+/* ---- paint -------------------------------------------------------------- */
 
-.emberInk { fill: var(--on-ember); }
-.emberLine { fill: none; stroke: color-mix(in srgb, var(--on-ember) 58%, transparent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.emberLeaf { fill: color-mix(in srgb, var(--on-ember) 58%, transparent); }
-.emberStem { fill: none; stroke: color-mix(in srgb, var(--on-ember) 30%, transparent); stroke-width: 2; stroke-linecap: round; }
-/* A hole punched in the ink back to the board: the crown's jewels. */
-.emberHole { fill: var(--ember); }
+/* The crown: solid Chili, its jewels punched back to whatever it sits on
+   (`--art-ground`, the board's surface unless a parent says otherwise). */
+.crown { fill: var(--chili); }
+.jewel { fill: var(--art-ground, var(--surface)); }
 
-/* Neutral grounds: laurel leaves in the kit's line ink, solid. */
-.leaf { fill: color-mix(in srgb, var(--tint) 34%, transparent); }
-.stem { fill: none; stroke: color-mix(in srgb, var(--tint) 17%, transparent); stroke-width: 2; stroke-linecap: round; }
-/* The crown's jewels on an Ember crown. */
-.onEmberFill { fill: var(--on-ember); }
+/* Laurel leaves in the kit's line ink, solid; the stem a step fainter. */
+.leaf { fill: var(--art-line); }
+.stem { fill: none; stroke: var(--art-line-soft); stroke-width: 2; stroke-linecap: round; }
+
+/* Confetti: ink pieces, with the palette's two colours as small accents. */
+.confetti { fill: var(--art-ink); }
+.confettiLine { fill: none; stroke: var(--art-line); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.confettiEmber { fill: none; stroke: var(--ember); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---- entrances that wait for data-play ---------------------------------- */
 

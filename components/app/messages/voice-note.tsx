@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { durationLabel, waveformBars } from "@/lib/messaging";
 
@@ -140,17 +141,20 @@ export function VoiceNote({
         <span className={cn("text-[11.5px] font-medium tabular-nums", mine ? "text-on-ember/80" : "text-subtle")}>
           {durationLabel(remaining)}
         </span>
-        <button
-          type="button"
-          onClick={cycleSpeed}
-          aria-label={`Playback speed ${speed}×`}
-          className={cn(
-            "msg-press rounded-full px-1.5 text-[10.5px] leading-4 font-bold tabular-nums",
-            mine ? "bg-on-ember/15 text-on-ember" : "bg-tint/10 text-foreground/80",
-          )}
-        >
-          {speed}×
-        </button>
+        {/* In the bubble, whose long-press opens the actions sheet. */}
+        <Tip label={`Play at ${SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]}×`} touch={false}>
+          <button
+            type="button"
+            onClick={cycleSpeed}
+            aria-label={`Playback speed ${speed}×`}
+            className={cn(
+              "msg-press rounded-full px-1.5 text-[10.5px] leading-4 font-bold tabular-nums",
+              mine ? "bg-on-ember/15 text-on-ember" : "bg-tint/10 text-foreground/80",
+            )}
+          >
+            {speed}×
+          </button>
+        </Tip>
       </span>
     </div>
   );

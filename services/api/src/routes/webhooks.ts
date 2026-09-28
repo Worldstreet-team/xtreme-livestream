@@ -12,6 +12,7 @@ import {
 import { closeWatchSession, openWatchSession } from "../watch-sessions.js";
 import { recordViewers } from "../analytics.js";
 import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
+import { evictStalePreview, isPreviewIdentity } from "../preview.js";
 
 /**
  * How long a stage guest — asking, backstage or on stage — who drops out of
@@ -180,6 +181,11 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
         // clear the drop and tell the room.
         if (stream && identity === feedIdentity(stream)) {
           await markFeedBack(stream);
+        }
+        // A practice preview's viewer on a link that's since been stopped
+        // or replaced (a kept token): out again at once.
+        if (stream && identity && isPreviewIdentity(identity)) {
+          void evictStalePreview(stream, identity).catch(() => {});
         }
         if (
           stream &&

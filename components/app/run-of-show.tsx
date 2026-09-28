@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CaretDown, CaretUp, Check, ClapperboardText, Plus, SkipForward, Stop, Trash, X } from "@/components/icons";
 import { serverOffset } from "@/lib/server-clock";
 import { useNow } from "@/lib/use-now";
+import { Tip } from "@/components/ui/tip";
 import { CARDS, LAYOUTS } from "@/lib/scene";
 import {
   cueLabel,
@@ -342,16 +343,17 @@ function OnAirCard({
           </button>
         )}
         {next && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onStop}
-            aria-label="Stop the run of show"
-            title="Stop the run of show"
-            className="press flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:bg-white/[0.11] hover:text-foreground disabled:opacity-50"
-          >
-            <Stop size={13} weight="fill" />
-          </button>
+          <Tip label="Stop the run of show">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onStop}
+              aria-label="Stop the run of show"
+              className="press flex size-10 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:bg-white/[0.11] hover:text-foreground disabled:opacity-50"
+            >
+              <Stop size={13} weight="fill" />
+            </button>
+          </Tip>
         )}
       </div>
     </div>
@@ -486,12 +488,16 @@ function SegmentEditor({
           aria-label={`Segment ${index + 1} name`}
           className={cn(FIELD, "h-9 flex-1 font-semibold")}
         />
-        <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up" className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-30">
-          <CaretUp size={14} weight="bold" />
-        </button>
-        <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label="Move down" className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-30">
-          <CaretDown size={14} weight="bold" />
-        </button>
+        <Tip label="Move this segment up">
+          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up" className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-30">
+            <CaretUp size={14} weight="bold" />
+          </button>
+        </Tip>
+        <Tip label="Move this segment down">
+          <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label="Move down" className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-30">
+            <CaretDown size={14} weight="bold" />
+          </button>
+        </Tip>
       </div>
 
       <div className="mt-2.5 flex items-center gap-2">
@@ -687,33 +693,35 @@ export function SegmentChip({
   const over = clock.left < 0;
   return (
     <div className="pointer-events-auto flex max-w-full items-center gap-1">
-      <button
-        type="button"
-        onClick={onOpen}
-        className={cn("obj press flex h-8 min-w-0 items-center gap-2 rounded-full pr-3 pl-2.5 text-[12px] font-semibold", over && "text-warning")}
-        title="Open the run of show"
-      >
-        <span className={cn("size-1.5 shrink-0 rounded-full", over ? "animate-pulse bg-warning" : "bg-ember")} />
-        {!compact && (
-          <span className="shrink-0 font-mono text-[11px] text-white/55 tabular-nums">
-            {index + 1}/{count}
-          </span>
-        )}
-        <span className="min-w-0 truncate text-white">{segment.title}</span>
-        <span className={cn("shrink-0 font-mono tabular-nums", over ? "text-warning" : "text-white/80")}>{formatClock(clock.left, true)}</span>
-      </button>
-      {next && (
+      <Tip label="Open the run of show" side="bottom">
         <button
           type="button"
-          disabled={busy}
-          onClick={onNext}
-          aria-label={`Next: ${next.title}`}
-          title={`Next: ${next.title}`}
-          className={cn("press flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-bold disabled:opacity-50", over ? "bg-warning text-[#1a1203]" : "obj text-white")}
+          onClick={onOpen}
+          className={cn("obj press flex h-8 min-w-0 items-center gap-2 rounded-full pr-3 pl-2.5 text-[12px] font-semibold", over && "text-warning")}
         >
-          <SkipForward size={13} weight="fill" />
-          {!compact && "Next"}
+          <span className={cn("size-1.5 shrink-0 rounded-full", over ? "animate-pulse bg-warning" : "bg-ember")} />
+          {!compact && (
+            <span className="shrink-0 font-mono text-[11px] text-white/55 tabular-nums">
+              {index + 1}/{count}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-white">{segment.title}</span>
+          <span className={cn("shrink-0 font-mono tabular-nums", over ? "text-warning" : "text-white/80")}>{formatClock(clock.left, true)}</span>
         </button>
+      </Tip>
+      {next && (
+        <Tip label={`Next: ${next.title}`} side="bottom">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onNext}
+            aria-label={`Next: ${next.title}`}
+            className={cn("press flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-bold disabled:opacity-50", over ? "bg-warning text-[#1a1203]" : "obj text-white")}
+          >
+            <SkipForward size={13} weight="fill" />
+            {!compact && "Next"}
+          </button>
+        </Tip>
       )}
     </div>
   );

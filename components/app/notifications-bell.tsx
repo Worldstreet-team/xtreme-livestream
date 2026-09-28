@@ -19,6 +19,7 @@ import { staggerDelay } from "@/lib/motion";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Empty } from "@/components/app/empty";
 import { UnfoldWindow, unfoldRow } from "@/components/app/unfold-window";
+import { Tip } from "@/components/ui/tip";
 
 /**
  * The bell in the top bar, and the window it opens: go-live pings for
@@ -225,10 +226,10 @@ export function NotificationsBell({
 
   return (
     <div className="relative">
+      <Tip label={unread > 0 ? `Notifications · ${unread} new` : "Notifications"} side="bottom" disabled={!collapsed || open}>
       <button
         ref={buttonRef}
         onClick={toggle}
-        title={collapsed ? "Notifications" : undefined}
         aria-label={unread > 0 ? `Notifications, ${unread} new` : "Notifications"}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -250,6 +251,7 @@ export function NotificationsBell({
         </span>
         {!collapsed && "Notifications"}
       </button>
+      </Tip>
 
       <UnfoldWindow
         open={open}

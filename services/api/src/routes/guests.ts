@@ -18,6 +18,7 @@ import { atLeast, moderatorIdentities, requireChannelRole, roleIn } from "../saf
 import { assertNotBanned } from "./moderation.js";
 import { fireRules } from "../rules.js";
 import { recordMoment } from "../analytics.js";
+import { assertMayInteract } from "../preview.js";
 
 /**
  * Stage guests — "bring people into your live".
@@ -183,6 +184,8 @@ export const guestRoutes: FastifyPluginAsync = async (fastify) => {
       if (stream.streamerId.equals(dbUser._id)) {
         throw new ApiError(400, "You are the host", "HOST_CANNOT_REQUEST");
       }
+      // A practice run's stage is its crew's; a preview is watch-only.
+      await assertMayInteract(stream, dbUser._id);
 
       // Banned viewers don't get to ask for the camera either.
       await assertNotBanned(stream._id, dbUser._id);

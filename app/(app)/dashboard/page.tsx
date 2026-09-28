@@ -230,7 +230,7 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
     <>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <NextUpTile next={booked[0] ?? null} more={Math.max(0, booked.length - 1)} live={live} now={now} />
-        <div className="grid grid-cols-2 gap-3 lg:col-span-7">
+        <div data-tour="channel-followers" className="grid grid-cols-2 gap-3 lg:col-span-7">
           <StatTile label="Followers" value={stats.followers} note="They hear the second you go live." />
           <StatTile
             label="Earned"
@@ -256,7 +256,7 @@ function Hub({ data, booked, live, now }: { data: DashboardData; booked: RowItem
       <BroadcastRecaps streams={recentStreams} />
       <Takedowns />
 
-      <section aria-label="Recent broadcasts" className="mt-10 md:mt-14">
+      <section aria-label="Recent broadcasts" data-tour="channel-broadcasts" className="mt-10 md:mt-14">
         {recentStreams.length === 0 ? (
           <Empty
             className={cn(TILE, "py-12 md:py-14")}
@@ -313,7 +313,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function NextUpTile({ next, more, live, now }: { next: RowItem | null; more: number; live: boolean; now: number }) {
   return (
-    <div className="relative isolate flex min-h-[300px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 md:p-7 lg:col-span-5">
+    <div data-tour="channel-next" className="relative isolate flex min-h-[300px] flex-col overflow-hidden rounded-panel bg-ember text-on-ember p-6 md:p-7 lg:col-span-5">
       <div className="flex items-center justify-between gap-3">
         <p className="caps font-mono text-[10.5px] text-on-ember/70">{live ? "On air" : "Next up"}</p>
         {!live && more > 0 && (

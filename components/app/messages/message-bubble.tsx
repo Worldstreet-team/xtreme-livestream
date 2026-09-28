@@ -12,6 +12,7 @@ import {
   WarningCircle,
 } from "@/components/icons";
 import { UserAvatar, formatUsd } from "@/components/xtream";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { clockTime, describeMessage, personName, pollFootnote, senderIdOf } from "@/lib/messaging";
 import { FloatingMenu, FloatingReactions, type MessageAction } from "./message-actions";
@@ -274,29 +275,33 @@ export function MessageBubble({
         open && "opacity-100",
       )}
     >
-      <button
-        type="button"
-        onClick={() => (open === "react" ? onClose() : onOpen("react", placeFor()))}
-        aria-label="React"
-        title="React"
-        aria-expanded={open === "react"}
-        className={cn(toolButton, open === "react" && "bg-tint/[0.08] text-foreground")}
-      >
-        <Smiley size={16} />
-      </button>
-      <button type="button" onClick={() => onReply(quote())} aria-label="Reply" title="Reply" className={toolButton}>
-        <ArrowBendUpLeft size={16} />
-      </button>
-      <button
-        type="button"
-        onClick={() => (open === "menu" ? onClose() : onOpen("menu", placeFor()))}
-        aria-label="More"
-        title="More"
-        aria-expanded={open === "menu"}
-        className={cn(toolButton, open === "menu" && "bg-tint/[0.08] text-foreground")}
-      >
-        <DotsThree size={16} weight="bold" />
-      </button>
+      <Tip label="React">
+        <button
+          type="button"
+          onClick={() => (open === "react" ? onClose() : onOpen("react", placeFor()))}
+          aria-label="React"
+          aria-expanded={open === "react"}
+          className={cn(toolButton, open === "react" && "bg-tint/[0.08] text-foreground")}
+        >
+          <Smiley size={16} />
+        </button>
+      </Tip>
+      <Tip label="Reply">
+        <button type="button" onClick={() => onReply(quote())} aria-label="Reply" className={toolButton}>
+          <ArrowBendUpLeft size={16} />
+        </button>
+      </Tip>
+      <Tip label="More options">
+        <button
+          type="button"
+          onClick={() => (open === "menu" ? onClose() : onOpen("menu", placeFor()))}
+          aria-label="More"
+          aria-expanded={open === "menu"}
+          className={cn(toolButton, open === "menu" && "bg-tint/[0.08] text-foreground")}
+        >
+          <DotsThree size={16} weight="bold" />
+        </button>
+      </Tip>
     </div>
   );
 

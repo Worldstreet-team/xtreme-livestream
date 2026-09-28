@@ -297,6 +297,30 @@ export const MAX_SCENE_GAINS = 8;
  * full-frame (`phone`), or the two side by side (`both`).
  */
 export const SCENE_ANGLES = ["main", "phone", "both"] as const;
+/**
+ * Where the phone camera sits in the layout — a source the host places,
+ * like a guest or their own face cam:
+ * - `off`: not in the picture;
+ * - `main`: it takes the host's own tile (their camera or screen stays
+ *   underneath, attached, so a cut back is instant) — "Solo" is the phone
+ *   full frame, "Screen + face" the phone big with their camera in the corner;
+ * - `beside`: a tile of its own, first beside the host, where the layout
+ *   has room for others (Auto, Split, Trio, Grid);
+ * - `corner`: the small picture in the corner — the face in Screen + face
+ *   and Chart + face, a picture-in-picture over the host otherwise.
+ * It's the one word for where the phone is; `angle` is the older one for
+ * the first three, kept in step for clients that only know it.
+ */
+export const PHONE_SLOTS = ["off", "main", "beside", "corner"] as const;
+export type PhoneSlot = (typeof PHONE_SLOTS)[number];
+/** The older word for a placement: the corner has none, and reads as the main camera. */
+export function angleOfPhoneSlot(slot: PhoneSlot): (typeof SCENE_ANGLES)[number] {
+  return slot === "main" ? "phone" : slot === "beside" ? "both" : "main";
+}
+/** A placement from the older word (a stream from before placements, or a client that only sends an angle). */
+export function phoneSlotOfAngle(angle: (typeof SCENE_ANGLES)[number] | null | undefined): PhoneSlot {
+  return angle === "phone" ? "main" : angle === "both" ? "beside" : "off";
+}
 export const sceneBodySchema = z.object({
   layout: z.enum(SCENE_LAYOUTS).default("auto"),
   card: z.enum(SCENE_CARDS).nullable().default(null),
@@ -336,6 +360,12 @@ export const sceneBodySchema = z.object({
    * nothing has been stored.
    */
   angle: z.enum(SCENE_ANGLES).optional(),
+  /**
+   * Where the phone camera sits (PHONE_SLOTS). Optional on the wire like
+   * the angle: left out, the stored placement stands — unless the client
+   * sent an angle that moves the phone.
+   */
+  phoneSlot: z.enum(PHONE_SLOTS).optional(),
 });
 
 /**
@@ -1129,10 +1159,34 @@ export const healthWindowSchema = z.object({
 export const healthBodySchema = z.object({ window: healthWindowSchema });
 export type HealthWindowBody = z.infer<typeof healthWindowSchema>;
 
-export const createStreamBodySchema = z.object({
-  title: z.string().trim().min(1).max(100),
+/**
+ * A broadcast's title. Optional (owner, 2026-09-28: "some don't even want
+ * a name too … name is like an option"): an empty one is fine, and the API
+ * names the stream after its host when it's left blank.
+ */
+export const streamTitleSchema = z.string().trim().max(100);
+
+/**
+ * A stream's own details, bare — no defaults. The create body adds its
+ * defaults on top; an update must not have any, or every field it leaves
+ * out would be put back to its default (Zod 4 fills defaults inside
+ * `.partial()`), which is how a thumbnail refresh used to reset an OBS
+ * stream's source to "camera" and switch its WorldSpace post off.
+ */
+const streamDetailsShape = {
+  title: streamTitleSchema,
   category: categorySchema,
-  tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
+  tags: z.array(z.string().trim().min(1).max(30)).max(10),
+  thumbnail: imageSourceSchema,
+  source: streamSourceSchema,
+  notifyFollowers: z.boolean(),
+  postToWorldSpace: z.boolean(),
+};
+
+export const createStreamBodySchema = z.object({
+  title: streamDetailsShape.title.default(""),
+  category: categorySchema,
+  tags: streamDetailsShape.tags.default([]),
   thumbnail: imageSourceSchema.default(""),
   source: streamSourceSchema.default("camera"),
   /** Fan out a "went live" notification to followers. */
@@ -1160,8 +1214,12 @@ export const createStreamBodySchema = z.object({
   practice: z.boolean().default(false),
 });
 
-export const updateStreamBodySchema = createStreamBodySchema
-  .omit({ scheduledStreamId: true, scene: true, practice: true })
+/**
+ * Change a stream's details — only the fields sent. An empty title gives
+ * the stream its host's default name again.
+ */
+export const updateStreamBodySchema = z
+  .object(streamDetailsShape)
   .partial()
   .refine((body) => Object.keys(body).length > 0, {
     message: "At least one field is required",

@@ -24,6 +24,7 @@ import {
   refundWalletCharge,
 } from "../wallet.js";
 import { fireRules } from "../rules.js";
+import { assertMayInteract } from "../preview.js";
 
 // Candidate for @xtreme/contracts once the web client adopts gifting too.
 const sendGiftBodySchema = z.object({
@@ -73,6 +74,8 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
       }
 
+      // A practice run takes no money: it's watch-only for anyone but its crew.
+      await assertMayInteract(stream, sender.dbUser._id);
       // A banned user's money is still no — the gift announces them in chat.
       await assertNotBanned(stream._id, sender.dbUser._id);
 

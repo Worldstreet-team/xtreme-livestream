@@ -34,6 +34,7 @@ import { Pill, PillLink } from "@/components/ui/pill";
 import { Badge, LiveBadge } from "@/components/ui/badge";
 import { centsToDollars } from "@/lib/gifts";
 import { IconButton } from "@/components/ui/icon-button";
+import { Tip } from "@/components/ui/tip";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
@@ -62,9 +63,9 @@ import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import type { TopFan } from "@/components/app/chat/chat-lines";
 import { readFan, type FanStanding } from "@/components/app/chat/lines";
-import { DEFAULT_SCENE, gainFor, guestsShown, layerOf, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
+import { DEFAULT_SCENE, gainFor, layerOf, newerScene, readBrand, readScene, sceneFromMetadata, type Scene } from "@/lib/scene";
 import { AnglePicker } from "@/components/app/angle-picker";
-import { isCameraIdentity, resolveAngle, setAnglePick, useAnglePick, type ResolvedAngle } from "@/lib/angles";
+import { isCameraIdentity, placePhone, setAnglePick, tilesBeside, useAnglePick, viewPhone, type PhoneView } from "@/lib/angles";
 import { useRestrictedRegion, useSponsoredQuest } from "@/lib/sponsors";
 import { SponsorPanel } from "@/components/app/sponsor-panel";
 import { cn } from "@/lib/utils";
@@ -91,6 +92,7 @@ import {
   type FloatingHeartsHandle,
 } from "@/components/app/floating-hearts";
 import { readStageLine } from "@/components/app/stage-line";
+import { PracticeBadge, PreviewBanner, PreviewGone, usePreviewMode } from "@/components/app/practice-preview";
 
 /** How sharp a camera comes in, in LiveKit's words: the angle says which tile gets which. */
 const QUALITY = { high: VideoQuality.HIGH, medium: VideoQuality.MEDIUM, low: VideoQuality.LOW } as const;
@@ -249,6 +251,8 @@ export default function StreamPage({
 }) {
   const { id } = use(params);
   const { user, isLoading: authLoading } = useAuth();
+  // A practice run's preview link (?preview=): watch-only, with a banner.
+  const preview = usePreviewMode();
   const router = useRouter();
   const [stream, setStream] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -393,8 +397,14 @@ export default function StreamPage({
   // The phone's track comes and goes: a re-render of its own, never the host's element re-attached.
   const [, setPhoneEpoch] = useState(0);
   const anglePick = useAnglePick(id);
-  const resolved = resolveAngle((stream?.scene ?? DEFAULT_SCENE).angle ?? "main", anglePick, phoneAvailable);
-  const resolvedRef = useRef<ResolvedAngle>(resolved);
+  // Where the phone sits on this screen — the host's placement, or this
+  // viewer's pin over it — and how sharp each feed comes in.
+  const resolved = viewPhone(
+    { layout: (stream?.scene ?? DEFAULT_SCENE).layout, phoneSlot: (stream?.scene ?? DEFAULT_SCENE).phoneSlot ?? "off" },
+    anglePick,
+    phoneAvailable
+  );
+  const resolvedRef = useRef<PhoneView>(resolved);
   resolvedRef.current = resolved;
   const streamerIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
@@ -619,7 +629,7 @@ export default function StreamPage({
         pub.setVideoQuality(pictureMode === "saver" ? VideoQuality.LOW : QUALITY[wanted === "off" ? "low" : wanted]);
       });
     });
-  }, [pictureMode, connected, resolved.show, resolved.main, resolved.phone]);
+  }, [pictureMode, connected, resolved.main, resolved.phone]);
   const [streamEnded, setStreamEnded] = useState(false);
   const [countdown, setCountdown] = useState(3);
 
@@ -665,7 +675,7 @@ export default function StreamPage({
         const res = await apiFetch<{
           success: boolean;
           data: { stream: StreamData };
-        }>(`/api/streams/${id}`);
+        }>(`/api/streams/${id}${preview.query}`);
         setStream(res.data.stream);
         setLikeCount(res.data.stream.likes ?? 0);
         // A poll a beat behind a room event never rolls the goal or meter back.
@@ -675,6 +685,10 @@ export default function StreamPage({
         setHeat((h) => newerHeat(h, polledHeat));
       } catch (err) {
         if (err instanceof ApiError && err.status === 410) setRemoved(true);
+        // A preview link dies with the run (or when the host stops sharing): that's its end.
+        if (preview.on && opts.quiet && err instanceof ApiError && err.status === 404) {
+          setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
+        }
         if (!opts.quiet) {
           setError(err instanceof Error ? err.message : "Failed to load stream");
         }
@@ -682,7 +696,7 @@ export default function StreamPage({
         if (!opts.quiet) setLoading(false);
       }
     },
-    [id],
+    [id, preview.on, preview.query],
   );
 
   useEffect(() => {
@@ -834,7 +848,7 @@ export default function StreamPage({
         success: boolean;
         data: { token: string; livekitUrl: string };
       }>(
-        `/api/streams/${id}/token${isOwnerRef.current ? "?monitor=1" : ""}`
+        `/api/streams/${id}/token${isOwnerRef.current ? "?monitor=1" : preview.query}`
       );
 
       // Dynamic import to avoid SSR issues
@@ -1033,6 +1047,12 @@ export default function StreamPage({
           return;
         }
         if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+          // A preview's viewers leave when the host stops sharing or the run ends.
+          if (preview.on) {
+            setStream((prev) => (prev ? { ...prev, isLive: false } : prev));
+            setStreamEnded(true);
+            return;
+          }
           setPlaybackError("You were removed from this stream.");
           return;
         }
@@ -1109,6 +1129,20 @@ export default function StreamPage({
           if (data.__evt === "stage_line") {
             const who = readStageLine(data).who;
             setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, settings: { ...prev.streamerId.settings, stageRequests: who } } } : prev));
+            return;
+          }
+          // The host renamed the stream (or moved its category) on air.
+          if (data.__evt === "details") {
+            const d = data as { title?: unknown; category?: unknown };
+            setStream((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    ...(typeof d.title === "string" && d.title ? { title: d.title } : {}),
+                    ...(typeof d.category === "string" && d.category ? { category: d.category } : {}),
+                  }
+                : prev
+            );
             return;
           }
           // Taken down while we watch: the room closes next; say why.
@@ -1362,7 +1396,7 @@ export default function StreamPage({
           : "Couldn't connect to this stream. It may have ended."
       );
     }
-  }, [stream?.isLive, id, connected, fetchStream, setBackstage, takeAnchors]);
+  }, [stream?.isLive, id, connected, fetchStream, setBackstage, takeAnchors, preview.on, preview.query]);
 
   // Back online after a failed rejoin: go back in without waiting for a tap.
   useEffect(() => {
@@ -2046,14 +2080,14 @@ export default function StreamPage({
   // Stream-ended countdown & redirect — only when there's nothing to watch
   // next (otherwise the cards ARE the exit).
   useEffect(() => {
-    if (!streamEnded || !watchNextLoaded || watchNext.length > 0) return;
+    if (!streamEnded || preview.on || !watchNextLoaded || watchNext.length > 0) return;
     if (countdown <= 0) {
       router.push("/explore");
       return;
     }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [streamEnded, countdown, router, watchNextLoaded, watchNext.length]);
+  }, [streamEnded, countdown, router, watchNextLoaded, watchNext.length, preview.on]);
 
   /** Apply a follow outcome: the button state, plus the follower tally. */
   const syncFollow = (following: boolean, delta: number) => {
@@ -2188,6 +2222,8 @@ export default function StreamPage({
     );
   }
 
+  if (preview.on && (error || !stream)) return <PreviewGone />;
+
   if (error || !stream) {
     return (
       <Empty
@@ -2208,7 +2244,7 @@ export default function StreamPage({
   const brand = brandWithSet(ownBrand);
   const activeSet = setById(ownBrand.set ?? null);
   // The request line: closed hides Join; the API holds the other rules and says why.
-  const lineOpen = streamer.settings?.stageRequests !== "off";
+  const lineOpen = streamer.settings?.stageRequests !== "off" && !preview.on;
 
   /** The native share sheet where there is one; the clipboard, said out loud, where there isn't. */
   const shareStream = () => {
@@ -2230,12 +2266,12 @@ export default function StreamPage({
    * bursts (Afterglow's allied beat).
    */
   const allyButton = (size: "sm" | "md") =>
-    isOwner ? null : !user ? (
-      <PillLink external href={signInHref(`/stream/${id}`)} size={size} variant="primary" icon={<Heart size={size === "sm" ? 13 : 16} weight="fill" />} className="shadow-none!">
+    isOwner || preview.on ? null : !user ? (
+      <PillLink external href={signInHref(`/stream/${id}`)} data-tour="watch-ally" size={size} variant="primary" icon={<Heart size={size === "sm" ? 13 : 16} weight="fill" />} className="shadow-none!">
         Ally
       </PillLink>
     ) : (
-      <span className="relative inline-flex shrink-0">
+      <span data-tour="watch-ally" className="relative inline-flex shrink-0">
         {allyBurst > 0 && isFollowing && (
           <span
             key={allyBurst}
@@ -2330,7 +2366,9 @@ export default function StreamPage({
 
   // The stream is over: who it was, how it went, and who's live instead. A
   // sheet from the bottom on phones, a dialog on wider screens.
-  const endedOverlay = streamEnded && (
+  const endedOverlay = preview.on ? (
+    <PreviewBanner ended={streamEnded} hostName={hostName} channelHref={`/c/${streamer.username}`} />
+  ) : streamEnded && (
     <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/75 sm:items-start sm:p-6">
       <div
         role="dialog"
@@ -2529,20 +2567,19 @@ export default function StreamPage({
     return [...(opponent ? [opponentCell(opponent)] : []), ...onStage.map(guestCell), ...(me ? [me] : [])];
   };
 
-  /** The phone cam as the first tile when the picture is both cameras. */
-  const withPhone = (cells: SceneCell[]): SceneCell[] =>
-    resolved.show === "both" && phoneCameraRef.current
-      ? [{ key: "phone-cam", node: <StageTile fill track={phoneCameraRef.current} label="Phone cam" /> }, ...cells]
-      : cells;
-  /** The phone full-frame, over the host's own video element — which stays put, so a cut back is instant. */
-  const phoneMain =
-    resolved.show === "phone" && phoneCameraRef.current ? (
-      <div className="absolute inset-0">
-        <StageTile fill track={phoneCameraRef.current} label="Phone cam" />
-      </div>
-    ) : null;
-  /** Both cameras want a split whatever the layout says. */
-  const layoutShown = (layout: Scene["layout"]) => (resolved.show === "both" ? "auto" : layout);
+  /**
+   * The phone cam's tile, while this viewer takes it: SceneRenderer puts it
+   * where the host placed it (or where this viewer pinned it) — over the
+   * host's picture, which stays put so a cut back is instant; beside it; or
+   * in the corner.
+   */
+  const phoneTile = phoneCameraRef.current ? <StageTile fill track={phoneCameraRef.current} label="Phone cam" /> : undefined;
+  /** The phone has the host's own tile: the Set's face effects stand aside. */
+  const phoneHasCell = Boolean(phoneTile) && placePhone(resolved.slot, resolved.layout).cell;
+  /** The host's camera for the corner, when the phone takes their picture in Screen + face. */
+  const hostFace = !hostFeeds.screen && hostFeeds.camera ? <StageTile fill track={hostCameraRef.current ?? undefined} label={hostName} /> : undefined;
+  /** How many tiles share the frame with the host's: the others on stage, and the phone when it's placed beside them. */
+  const tilesShown = (others: number) => tilesBeside(resolved.layout, others, phoneTile ? resolved.slot : "off", Boolean(opponent));
 
   /** Backstage, from my side: the mirror, the meter, the way out. */
   const backstagePanel = (
@@ -2559,8 +2596,8 @@ export default function StreamPage({
   // ---- Mobile: full-screen immersive live view ----
   if (isMobileView) {
     const scene = stream.scene ?? DEFAULT_SCENE;
-    const others = withPhone(stageCells());
-    const sharing = guestsShown(layoutShown(scene.layout), others.length, Boolean(opponent)) > 0;
+    const others = stageCells();
+    const sharing = tilesShown(others.length) > 0;
     // A battle on an upright phone, TikTok's way: the two sides side by side
     // in a band under the header, the scoreboard and "Back" right under
     // them where a thumb reaches, the chat in what's left.
@@ -2578,7 +2615,11 @@ export default function StreamPage({
           <SceneRenderer
             scene={scene}
             portrait={band ? false : portraitScreen}
-            forceAuto={Boolean(opponent) || resolved.show === "both"}
+            forceAuto={Boolean(opponent)}
+            layout={resolved.layout}
+            phone={phoneTile}
+            phoneSlot={resolved.slot}
+            face={hostFace}
             stage={band ? { top: "var(--band-top)", height: "var(--band-h)" } : undefined}
             host={{ name: hostName, avatar: streamer.avatar }}
             mainLabel={hostName}
@@ -2592,21 +2633,21 @@ export default function StreamPage({
                     "size-full",
                     // Portrait phones fill the frame; landscape feeds and a
                     // shared screen letterbox rather than lose their edges.
-                    sharing || (feedPortrait && !hostFeeds.screen) ? "object-cover" : "object-contain",
-                    phoneMain && "invisible"
+                    sharing || (feedPortrait && !hostFeeds.screen) ? "object-cover" : "object-contain"
                   )}
                 />
-                {phoneMain}
-                {/* The Set's gift effects, round the host's face — not over a shared screen or the phone cam. */}
-                <GiftEffects
-                  set={activeSet}
-                  anchors={hostFeeds.screen || phoneMain ? null : anchorFeed}
-                  fit={sharing || (feedPortrait && !hostFeeds.screen) ? "cover" : "contain"}
-                  onReady={(handle) => {
-                    effectsRef.current = handle;
-                  }}
-                />
               </div>
+            }
+            over={
+              // The Set's gift effects, round the host's face — not over a shared screen or the phone cam.
+              <GiftEffects
+                set={activeSet}
+                anchors={hostFeeds.screen || phoneHasCell ? null : anchorFeed}
+                fit={sharing || (feedPortrait && !hostFeeds.screen) ? "cover" : "contain"}
+                onReady={(handle) => {
+                  effectsRef.current = handle;
+                }}
+              />
             }
             pip={
               hostFeeds.screen && hostFeeds.camera ? (
@@ -2692,29 +2733,32 @@ export default function StreamPage({
             // Like and share ride in the scoreboard's row while the band is
             // up — the side rail would climb over the totals on a short phone.
             actionsEnd={
-              band ? (
+              band && !preview.on ? (
                 <>
                   {/* Icon-only: with Back and Their side, the row has to fit a 375px screen. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      heartsRef.current?.push();
-                      if (user && !liked) void toggleLike();
-                    }}
-                    aria-label={`${liked ? "Liked" : "Like"} · ${formatNumber(likeCount)}`}
-                    title={`${formatNumber(likeCount)} likes`}
-                    className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
-                  >
-                    <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={shareStream}
-                    aria-label={copied ? "Link copied" : "Share this stream"}
-                    className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
-                  >
-                    {copied ? <Check size={15} weight="bold" /> : <ShareNetwork size={15} weight="fill" />}
-                  </button>
+                  <Tip label={user && !liked ? "Like this stream" : "Send a heart"} side="bottom">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        heartsRef.current?.push();
+                        if (user && !liked) void toggleLike();
+                      }}
+                      aria-label={`${liked ? "Liked" : "Like"} · ${formatNumber(likeCount)}`}
+                      className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
+                    >
+                      <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
+                    </button>
+                  </Tip>
+                  <Tip label={copied ? "Link copied" : "Share this stream"} side="bottom">
+                    <button
+                      type="button"
+                      onClick={shareStream}
+                      aria-label={copied ? "Link copied" : "Share this stream"}
+                      className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
+                    >
+                      {copied ? <Check size={15} weight="bold" /> : <ShareNetwork size={15} weight="fill" />}
+                    </button>
+                  </Tip>
                 </>
               ) : undefined
             }
@@ -2751,29 +2795,33 @@ export default function StreamPage({
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
               {stream.isLive && (
-                <button
-                  type="button"
-                  onClick={() => setShowPicture(true)}
-                  aria-label="Picture and data"
-                  className={cn("obj press flex size-9 items-center justify-center rounded-full", pictureMode === "auto" ? "text-white" : "text-ember-hi")}
-                >
-                  <PictureIcon mode={pictureMode} size={17} />
-                </button>
+                <Tip label="Picture quality and data saver" side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setShowPicture(true)}
+                    aria-label="Picture and data"
+                    className={cn("obj press flex size-9 items-center justify-center rounded-full", pictureMode === "auto" ? "text-white" : "text-ember-hi")}
+                  >
+                    <PictureIcon mode={pictureMode} size={17} />
+                  </button>
+                </Tip>
               )}
               <Badge variant="glass" size="md" icon={<Eye size={13} />}>
                 {formatNumber(connected ? viewerCount : stream.viewers)}
               </Badge>
-              <button
-                onClick={() => router.push("/explore")}
-                aria-label="Leave stream"
-                className="obj press flex size-9 items-center justify-center rounded-full text-white"
-              >
-                <X size={17} weight="bold" />
-              </button>
+              <Tip label="Leave stream" side="bottom">
+                <button
+                  onClick={() => router.push("/explore")}
+                  aria-label="Leave stream"
+                  className="obj press flex size-9 items-center justify-center rounded-full text-white"
+                >
+                  <X size={17} weight="bold" />
+                </button>
+              </Tip>
             </div>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            {stream.isLive && <LiveBadge size="md" />}
+            {stream.isLive && (preview.on ? <PracticeBadge /> : <LiveBadge size="md" />)}
             {stream.isLive && aiVoice && <AiVoiceBadge />}
             <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
               <Badge variant="glass" size="md" className="max-w-[44vw] truncate">
@@ -2784,27 +2832,30 @@ export default function StreamPage({
                 and the lists a tap away — gifters, and fans (watch time and
                 chat count too). */}
             {(topGifters.length > 0 || topFans.length > 0) && (
-              <button
-                type="button"
-                onClick={() => setShowGifters((v) => !v)}
-                aria-expanded={showGifters}
-                aria-label={topGifters.length > 0 ? "Top gifters and fans" : "Top fans"}
-                className="press ml-auto flex shrink-0 -space-x-2 pb-1"
-              >
-                {(topGifters.length > 0 ? topGifters : topFans).slice(0, 3).map((g, i) => (
-                  <span key={g.userId ?? g.username} className="relative">
-                    <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7 ring-2 ring-black" />
-                    <span
-                      className={cn(
-                        "absolute -bottom-1 left-1/2 flex h-3.5 min-w-3.5 -translate-x-1/2 items-center justify-center rounded-full px-0.5 font-mono text-[8.5px] font-bold ring-2 ring-black",
-                        i === 0 ? (topGifters.length > 0 ? "bg-value text-[#1b1406]" : "bg-ember text-on-ember") : "bg-white text-[#0b0708]"
-                      )}
-                    >
-                      {i + 1}
+              <Tip label={topGifters.length > 0 ? "See top gifters and fans" : "See top fans"} side="bottom" disabled={showGifters}>
+                <button
+                  type="button"
+                  onClick={() => setShowGifters((v) => !v)}
+                  data-tour="watch-top-gifters"
+                  aria-expanded={showGifters}
+                  aria-label={topGifters.length > 0 ? "Top gifters and fans" : "Top fans"}
+                  className="press ml-auto flex shrink-0 -space-x-2 pb-1"
+                >
+                  {(topGifters.length > 0 ? topGifters : topFans).slice(0, 3).map((g, i) => (
+                    <span key={g.userId ?? g.username} className="relative">
+                      <UserAvatar src={g.avatar} name={g.displayName || g.username} size={28} className="size-7 ring-2 ring-black" />
+                      <span
+                        className={cn(
+                          "absolute -bottom-1 left-1/2 flex h-3.5 min-w-3.5 -translate-x-1/2 items-center justify-center rounded-full px-0.5 font-mono text-[8.5px] font-bold ring-2 ring-black",
+                          i === 0 ? (topGifters.length > 0 ? "bg-value text-[#1b1406]" : "bg-ember text-on-ember") : "bg-white text-[#0b0708]"
+                        )}
+                      >
+                        {i + 1}
+                      </span>
                     </span>
-                  </span>
-                ))}
-              </button>
+                  ))}
+                </button>
+              </Tip>
             )}
           </div>
           {showGifters && (topGifters.length > 0 || topFans.length > 0) && (
@@ -2920,8 +2971,8 @@ export default function StreamPage({
               icon={<Ticket size={22} weight="fill" />}
             />
           )}
-          {/* In a battle's band these two ride in the scoreboard instead. */}
-          {!band && (
+          {/* In a battle's band these two ride in the scoreboard instead. A preview has neither. */}
+          {!band && !preview.on && (
             <>
               <RailButton
                 title={liked ? "Liked" : "Like"}
@@ -3021,6 +3072,7 @@ export default function StreamPage({
                   topFans={topFans}
                   myFan={myFan}
                   hostUsername={streamer.username}
+                  watchOnly={preview.on}
               variant="overlay"
             />
           </div>
@@ -3173,16 +3225,17 @@ export default function StreamPage({
                         >
                           Bring on
                         </Pill>
-                        <Pill
-                          size="sm"
-                          variant="glass"
-                          iconOnly
-                          icon={<X size={14} weight="bold" />}
-                          aria-label={`Remove ${g.username} from backstage`}
-                          title="Remove"
-                          onClick={() => hostRemove(g.userId)}
-                          disabled={hostStageBusy !== null}
-                        />
+                        <Tip label="Remove from backstage">
+                          <Pill
+                            size="sm"
+                            variant="glass"
+                            iconOnly
+                            icon={<X size={14} weight="bold" />}
+                            aria-label={`Remove ${g.username} from backstage`}
+                            onClick={() => hostRemove(g.userId)}
+                            disabled={hostStageBusy !== null}
+                          />
+                        </Tip>
                       </div>
                     ))}
                   </div>
@@ -3230,16 +3283,17 @@ export default function StreamPage({
                       >
                         Backstage
                       </Pill>
-                      <Pill
-                        size="sm"
-                        variant="glass"
-                        iconOnly
-                        icon={<X size={14} weight="bold" />}
-                        aria-label={`Decline ${r.username}`}
-                        title="Decline"
-                        onClick={() => hostDeny(r.userId)}
-                        disabled={hostStageBusy !== null}
-                      />
+                      <Tip label="Decline their request">
+                        <Pill
+                          size="sm"
+                          variant="glass"
+                          iconOnly
+                          icon={<X size={14} weight="bold" />}
+                          aria-label={`Decline ${r.username}`}
+                          onClick={() => hostDeny(r.userId)}
+                          disabled={hostStageBusy !== null}
+                        />
+                      </Tip>
                     </div>
                   ))}
                 </div>
@@ -3284,14 +3338,18 @@ export default function StreamPage({
                 layout changes, so the track never re-attaches. */}
             {(() => {
               const scene = stream.scene ?? DEFAULT_SCENE;
-              const others = withPhone(stageCells());
-              const sharing = guestsShown(layoutShown(scene.layout), others.length, Boolean(opponent)) > 0;
+              const others = stageCells();
+              const sharing = tilesShown(others.length) > 0;
               return (
                 <SceneRenderer
                   scene={scene}
                   // The desktop player is always wider than it is tall.
                   portrait={false}
-                  forceAuto={Boolean(opponent) || resolved.show === "both"}
+                  forceAuto={Boolean(opponent)}
+                  layout={resolved.layout}
+                  phone={phoneTile}
+                  phoneSlot={resolved.slot}
+                  face={hostFace}
                   host={{ name: hostName, avatar: streamer.avatar }}
                   mainLabel={hostName}
                   main={
@@ -3300,19 +3358,20 @@ export default function StreamPage({
                         ref={videoElRef}
                         autoPlay
                         playsInline
-                        className={cn("size-full", sharing ? "object-cover" : "object-contain", phoneMain && "invisible")}
-                      />
-                      {phoneMain}
-                      {/* The Set's gift effects, round the host's face. */}
-                      <GiftEffects
-                        set={activeSet}
-                        anchors={hostFeeds.screen || phoneMain ? null : anchorFeed}
-                        fit={sharing ? "cover" : "contain"}
-                        onReady={(handle) => {
-                          effectsRef.current = handle;
-                        }}
+                        className={cn("size-full", sharing ? "object-cover" : "object-contain")}
                       />
                     </div>
+                  }
+                  over={
+                    // The Set's gift effects, round the host's face — not over a shared screen or the phone cam.
+                    <GiftEffects
+                      set={activeSet}
+                      anchors={hostFeeds.screen || phoneHasCell ? null : anchorFeed}
+                      fit={sharing ? "cover" : "contain"}
+                      onReady={(handle) => {
+                        effectsRef.current = handle;
+                      }}
+                    />
                   }
                   pip={
                     hostFeeds.screen && hostFeeds.camera ? (
@@ -3426,7 +3485,7 @@ export default function StreamPage({
                 !controlsVisible && stream.isLive && "opacity-0"
               )}
             >
-              {stream.isLive && <LiveBadge size="md" />}
+              {stream.isLive && (preview.on ? <PracticeBadge /> : <LiveBadge size="md" />)}
               {stream.isLive && aiVoice && <AiVoiceBadge />}
               <Badge variant="glass" size="md" icon={<Eye size={14} />}>
                 {stream.isLive
@@ -3458,14 +3517,15 @@ export default function StreamPage({
                 !controlsVisible && stream.isLive && "pointer-events-none opacity-0"
               )}
             >
-              <button
-                onClick={toggleMute}
-                title={muted ? "Unmute (m)" : "Mute (m)"}
-                aria-label={muted ? "Unmute" : "Mute"}
-                className="press flex size-8 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                {muted ? <SpeakerSlash size={18} /> : <SpeakerHigh size={18} />}
-              </button>
+              <Tip label={muted ? "Unmute" : "Mute"} hint="M">
+                <button
+                  onClick={toggleMute}
+                  aria-label={muted ? "Unmute" : "Mute"}
+                  className="press flex size-8 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  {muted ? <SpeakerSlash size={18} /> : <SpeakerHigh size={18} />}
+                </button>
+              </Tip>
               <input
                 type="range"
                 min={0}
@@ -3487,15 +3547,16 @@ export default function StreamPage({
             >
               {stream.isLive && (
                 <div className="relative">
-                  <button
-                    onClick={() => setShowPicture((v) => !v)}
-                    aria-expanded={showPicture}
-                    className={playerButton(pictureMode !== "auto")}
-                    title="Picture and data"
-                    aria-label="Picture and data"
-                  >
-                    <PictureIcon mode={pictureMode} />
-                  </button>
+                  <Tip label="Picture quality and data saver" disabled={showPicture}>
+                    <button
+                      onClick={() => setShowPicture((v) => !v)}
+                      aria-expanded={showPicture}
+                      className={playerButton(pictureMode !== "auto")}
+                      aria-label="Picture and data"
+                    >
+                      <PictureIcon mode={pictureMode} />
+                    </button>
+                  </Tip>
                   {showPicture && (
                     <div className="absolute right-0 bottom-full z-30 mb-2 w-[320px] animate-in rounded-[16px] bg-black/90 p-1.5 duration-200 fade-in slide-in-from-bottom-1">
                       <p className="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wide text-white/60 uppercase">Picture</p>
@@ -3506,42 +3567,46 @@ export default function StreamPage({
                   )}
                 </div>
               )}
-              <button
-                onClick={() => void togglePiP()}
-                className={playerButton()}
-                title="Picture in picture (p)"
-                aria-label="Picture in picture"
-              >
-                <PictureInPicture size={18} />
-              </button>
-              <button
-                onClick={toggleTheater}
-                aria-pressed={theaterMode}
-                className={cn(playerButton(theaterMode), "hidden lg:flex")}
-                title={theaterMode ? "Exit theater mode (t)" : "Theater mode (t)"}
-                aria-label="Theater mode"
-              >
-                <Sidebar size={18} />
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                aria-pressed={isFullscreen}
-                className={playerButton(isFullscreen)}
-                title={isFullscreen ? "Exit fullscreen (f)" : "Fullscreen (f)"}
-                aria-label="Fullscreen"
-              >
-                <CornersOut size={18} />
-              </button>
-              {isFullscreen && (
+              <Tip label="Pop out the player" hint="P">
                 <button
-                  onClick={() => setFsChat((v) => !v)}
-                  aria-pressed={fsChat}
-                  className={playerButton(fsChat)}
-                  title={fsChat ? "Hide chat (c)" : "Show chat (c)"}
-                  aria-label="Chat"
+                  onClick={() => void togglePiP()}
+                  className={playerButton()}
+                  aria-label="Picture in picture"
                 >
-                  <ChatCircleDots size={18} weight={fsChat ? "fill" : "regular"} />
+                  <PictureInPicture size={18} />
                 </button>
+              </Tip>
+              <Tip label={theaterMode ? "Exit theater mode" : "Theater mode"} hint="T">
+                <button
+                  onClick={toggleTheater}
+                  aria-pressed={theaterMode}
+                  className={cn(playerButton(theaterMode), "hidden lg:flex")}
+                  aria-label="Theater mode"
+                >
+                  <Sidebar size={18} />
+                </button>
+              </Tip>
+              <Tip label={isFullscreen ? "Exit fullscreen" : "Go fullscreen"} hint="F">
+                <button
+                  onClick={toggleFullscreen}
+                  aria-pressed={isFullscreen}
+                  className={playerButton(isFullscreen)}
+                  aria-label="Fullscreen"
+                >
+                  <CornersOut size={18} />
+                </button>
+              </Tip>
+              {isFullscreen && (
+                <Tip label={fsChat ? "Hide chat" : "Show chat"} hint="C">
+                  <button
+                    onClick={() => setFsChat((v) => !v)}
+                    aria-pressed={fsChat}
+                    className={playerButton(fsChat)}
+                    aria-label="Chat"
+                  >
+                    <ChatCircleDots size={18} weight={fsChat ? "fill" : "regular"} />
+                  </button>
+                </Tip>
               )}
             </div>
             </div>
@@ -3558,6 +3623,7 @@ export default function StreamPage({
                   topFans={topFans}
                   myFan={myFan}
                   hostUsername={streamer.username}
+                  watchOnly={preview.on}
                 />
               </aside>
             )}
@@ -3575,6 +3641,7 @@ export default function StreamPage({
                   topFans={topFans}
                   myFan={myFan}
                   hostUsername={streamer.username}
+                  watchOnly={preview.on}
               />
             </div>
           )}
@@ -3642,7 +3709,7 @@ export default function StreamPage({
                   </span>
                 </Link>
                 {allyButton("md")}
-                <MessageButton username={streamer.username} name={hostName} context={streamContext(stream)} />
+                {!preview.on && <MessageButton username={streamer.username} name={hostName} context={streamContext(stream)} />}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {user &&
@@ -3698,24 +3765,28 @@ export default function StreamPage({
                       </Pill>
                     </>
                   ))}
-                <Pill
-                  variant={liked ? "soft" : "glass"}
-                  tone="red"
-                  icon={<Heart size={16} weight={liked ? "fill" : "regular"} />}
-                  onClick={toggleLike}
-                  disabled={!user || likeBusy}
-                  aria-pressed={liked}
-                  title={user ? (liked ? "Unlike" : "Like") : "Sign in to like"}
-                >
-                  {likeCount > 0 ? formatNumber(likeCount) : "Like"}
-                </Pill>
-                <Pill
-                  variant="glass"
-                  icon={copied ? <Check size={16} weight="bold" /> : <ShareNetwork size={16} />}
-                  onClick={shareStream}
-                >
-                  {copied ? "Link copied" : "Share"}
-                </Pill>
+                {!preview.on && (
+                  <>
+                    <Pill
+                      variant={liked ? "soft" : "glass"}
+                      tone="red"
+                      icon={<Heart size={16} weight={liked ? "fill" : "regular"} />}
+                      onClick={toggleLike}
+                      disabled={!user || likeBusy}
+                      aria-pressed={liked}
+                      title={user ? (liked ? "Unlike" : "Like") : "Sign in to like"}
+                    >
+                      {likeCount > 0 ? formatNumber(likeCount) : "Like"}
+                    </Pill>
+                    <Pill
+                      variant="glass"
+                      icon={copied ? <Check size={16} weight="bold" /> : <ShareNetwork size={16} />}
+                      onClick={shareStream}
+                    >
+                      {copied ? "Link copied" : "Share"}
+                    </Pill>
+                  </>
+                )}
                 <Pill
                   variant="glass"
                   icon={<Sidebar size={16} />}
@@ -3727,20 +3798,21 @@ export default function StreamPage({
                   {chatPlacement === "below" ? "Chat beside" : "Chat below"}
                 </Pill>
                 {user && !isOwner && (
-                  <Pill
-                    variant="ghost"
-                    iconOnly
-                    icon={<Flag size={16} />}
-                    aria-label="Report stream"
-                    title="Report stream"
-                    onClick={() => {
-                      setReportReason("");
-                      setReportDetails("");
-                      setReportDone(false);
-                      setReportError(null);
-                      setShowReport(true);
-                    }}
-                  />
+                  <Tip label="Report stream">
+                    <Pill
+                      variant="ghost"
+                      iconOnly
+                      icon={<Flag size={16} />}
+                      aria-label="Report stream"
+                      onClick={() => {
+                        setReportReason("");
+                        setReportDetails("");
+                        setReportDone(false);
+                        setReportError(null);
+                        setShowReport(true);
+                      }}
+                    />
+                  </Tip>
                 )}
               </div>
             </div>
@@ -3818,7 +3890,7 @@ export default function StreamPage({
           {!isFullscreen && (
             <div className="flex h-full flex-col">
               {/* The prediction stacks above chat, never over the video. */}
-              {game && <PlayPanel game={game} onChange={setGame} />}
+              {game && !preview.on && <PlayPanel game={game} onChange={setGame} />}
               <div className="min-h-0 flex-1">
                 <LiveChat
                   streamId={id}
@@ -3829,6 +3901,7 @@ export default function StreamPage({
                   topFans={topFans}
                   myFan={myFan}
                   hostUsername={streamer.username}
+                  watchOnly={preview.on}
                 />
               </div>
             </div>

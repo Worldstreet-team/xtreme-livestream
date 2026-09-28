@@ -3,10 +3,11 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Camera, Check, Copy } from "@/components/icons";
 import { QrCode } from "@/components/app/qr-code";
+import { LayoutThumb } from "@/components/app/scene-controls";
 import { Pill } from "@/components/ui/pill";
-import { ANGLES, cameraIdentityOf, type Angle } from "@/lib/angles";
+import { PHONE_SHOTS, PHONE_SLOT_CHOICES, cameraIdentityOf, phoneOnScreen, phoneShotOf, phoneShotWords } from "@/lib/angles";
 import { apiFetch } from "@/lib/api-client";
-import { formatCountdown } from "@/lib/scene";
+import { formatCountdown, LAYOUTS, type PhoneSlot, type SceneLayout } from "@/lib/scene";
 import { serverNow } from "@/lib/server-clock";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
@@ -26,21 +27,31 @@ interface CameraLink {
  * becomes another angle on the stream — no app, no sign-in, its mic never
  * sent. The code is one-time and lives ten minutes; a phone waiting on it
  * starts sending the moment the host goes live. Once it's in, the host
- * picks what viewers see: their camera, the phone, or both.
+ * places it in the picture like any other source: full frame, beside them,
+ * or in the corner — over their screen as their face, say.
  */
 export function SecondCameraPanel({
   hostId,
-  angle,
-  onAngle,
+  layout,
+  phoneSlot,
+  onPlace,
+  sharing = false,
+  hasCamera = false,
   phoneConnected,
   disabled = false,
   headless = false,
 }: {
   hostId: string;
-  /** `scene.angle` as the studio holds it. */
-  angle: Angle;
-  /** Write the new angle to the scene. */
-  onAngle: (next: Angle) => void;
+  /** The layout on air (`scene.layout`). */
+  layout: SceneLayout;
+  /** Where the phone sits (`scene.phoneSlot`). */
+  phoneSlot: PhoneSlot;
+  /** Write a placement — and, for a shot, its layout — to the scene. */
+  onPlace: (patch: { layout?: SceneLayout; phoneSlot: PhoneSlot }) => void;
+  /** A screen has the host's main picture: the corner is their face. */
+  sharing?: boolean;
+  /** The host has a camera of their own to put in the corner. */
+  hasCamera?: boolean;
   /** A `cam-<hostId>` participant is publishing in the room. */
   phoneConnected: boolean;
   /** Everything off — the console is read-only, say. */
@@ -170,55 +181,82 @@ export function SecondCameraPanel({
         </p>
       )}
 
-      <AngleSwitch className="mt-4" angle={angle} onAngle={onAngle} enabled={canSwitch} />
+      <PhoneShots className="mt-4" layout={layout} slot={phoneSlot} onPlace={onPlace} enabled={canSwitch} sharing={sharing} hasCamera={hasCamera} />
     </section>
   );
 }
 
 /**
- * What the program shows of the two cameras: Main · Phone · Both. Nothing
- * to choose until the phone's in — in the studio's panel, and on its own
- * in the producer's console.
+ * Where the phone goes, as shots: each a layout and a placement together,
+ * drawn small the way the program will place them (the ember tile is the
+ * phone), so one tap puts it exactly there. Nothing to choose until the
+ * phone's in — in the studio's panel, and on its own in the producer's
+ * console. Any other framing (Trio with the phone beside, say) is the
+ * Scenes panel's, and reads here as it is.
  */
-export function AngleSwitch({
-  angle,
-  onAngle,
+export function PhoneShots({
+  layout,
+  slot,
+  onPlace,
   enabled,
+  sharing = false,
+  hasCamera = false,
+  crew = false,
   className,
 }: {
-  angle: Angle;
-  onAngle: (next: Angle) => void;
+  layout: SceneLayout;
+  slot: PhoneSlot;
+  onPlace: (patch: { layout?: SceneLayout; phoneSlot: PhoneSlot }) => void;
   /** A phone is sending, and this surface may change the scene. */
   enabled: boolean;
+  sharing?: boolean;
+  hasCamera?: boolean;
+  /** A producer's console: the words are about the host. */
+  crew?: boolean;
   className?: string;
 }) {
+  const active = phoneShotOf(layout, slot);
+  const shots = PHONE_SHOTS.filter((s) => !s.needsCamera || hasCamera);
+  const line = !enabled
+    ? "Once the phone's sending, choose where it goes."
+    : active
+      ? `${phoneShotWords(active, { sharing, crew }).hint}.`
+      : phoneOnScreen(slot, layout)
+        ? `${LAYOUTS.find((l) => l.id === layout)?.label ?? layout} with the phone ${(PHONE_SLOT_CHOICES.find((c) => c.id === slot)?.label ?? slot).toLowerCase()}, set in Scenes.`
+        : `${LAYOUTS.find((l) => l.id === layout)?.label ?? layout} has no room for the phone ${slot === "beside" ? "beside" : "there"}, so it isn't in the picture — pick a shot to place it.`;
   return (
     <div className={className}>
-      <p className={LABEL}>Viewers see</p>
-      <div role="radiogroup" aria-label="Camera angle" aria-disabled={!enabled} className="mt-2 flex flex-wrap gap-1.5">
-        {ANGLES.map((a) => {
-          const on = angle === a.id;
+      <p id="phone-shots-label" className={LABEL}>
+        Where the phone goes
+      </p>
+      <div role="radiogroup" aria-labelledby="phone-shots-label" aria-disabled={!enabled} className="mt-2 grid grid-cols-3 gap-2">
+        {shots.map((shot) => {
+          const on = active === shot.id;
+          const words = phoneShotWords(shot.id, { sharing, crew });
           return (
             <button
-              key={a.id}
+              key={shot.id}
               type="button"
               role="radio"
               aria-checked={on}
               disabled={!enabled}
-              title={a.hint}
-              onClick={() => !on && onAngle(a.id)}
+              title={words.hint}
+              onClick={() => !on && onPlace(shot.layout ? { layout: shot.layout, phoneSlot: shot.slot } : { phoneSlot: shot.slot })}
               className={cn(
-                "press h-8 rounded-full px-3.5 text-[12px] font-semibold transition-colors disabled:opacity-40",
-                on ? "bg-white text-[#0b0708]" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                "press flex flex-col items-stretch gap-1.5 rounded-[12px] p-2 text-[11.5px] font-semibold transition-colors disabled:opacity-40",
+                on ? "bg-inverse text-on-inverse" : "bg-tint/[0.05] text-foreground/85 hover:bg-tint/[0.08]"
               )}
             >
-              {a.label}
+              {/* "Not shown" is the layout on air without the phone. */}
+              <LayoutThumb layout={shot.layout ?? layout} phone={shot.slot} />
+              {/* Two lines at most, so "Screen + phone" reads whole in a narrow column. */}
+              <span className="line-clamp-2 text-center leading-tight">{words.label}</span>
             </button>
           );
         })}
       </div>
       <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
-        {enabled ? `${ANGLES.find((a) => a.id === angle)?.hint ?? ""}. Viewers can pin an angle of their own.` : "Once the phone's sending, choose what viewers see."}
+        {line} {enabled && "Viewers can pin an angle of their own."}
       </p>
     </div>
   );

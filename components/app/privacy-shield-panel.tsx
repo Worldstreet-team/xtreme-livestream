@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Eye, EyeSlash, Plus, Shield, X } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
 import { SwitchField } from "@/components/ui/selection-controls";
+import { Tip } from "@/components/ui/tip";
 import { MAX_ZONES, MIN_ZONE, clampRect, describeZone, rectFromCorners, type Rect } from "@/lib/privacy-shield-detect";
 import {
   DETECTOR_LABELS,
@@ -149,23 +150,24 @@ export function PrivacyShieldView({
       {heading}
 
       {/* Hide: the one thing that always works, first — with its key on it. */}
-      <Pill
-        variant={panic ? "soft" : "primary"}
-        tone="amber"
-        icon={panic ? <Eye size={16} /> : <EyeSlash size={16} />}
-        trailing={
-          <kbd aria-hidden className={cn("ml-1 rounded-[6px] px-1.5 py-px font-mono text-[11px] font-bold", panic ? "bg-white/10" : "bg-black/[0.08] text-black/55")}>
-            {PANIC_KEY.toUpperCase()}
-          </kbd>
-        }
-        aria-pressed={panic}
-        aria-keyshortcuts={PANIC_KEY.toUpperCase()}
-        title={`While you share, ${PANIC_KEY.toUpperCase()} hides or shows it too — anywhere in Xtream, unless you're typing`}
-        onClick={() => onPanic(!panic)}
-        className="mt-3.5 w-full @[360px]:w-auto"
-      >
-        {panic ? "Show my screen" : "Hide my screen"}
-      </Pill>
+      <Tip label={`${panic ? "Show" : "Hide"} your screen — the key works anywhere in Xtream while you share`} hint={PANIC_KEY.toUpperCase()}>
+        <Pill
+          variant={panic ? "soft" : "primary"}
+          tone="amber"
+          icon={panic ? <Eye size={16} /> : <EyeSlash size={16} />}
+          trailing={
+            <kbd aria-hidden className={cn("ml-1 rounded-[6px] px-1.5 py-px font-mono text-[11px] font-bold", panic ? "bg-white/10" : "bg-black/[0.08] text-black/55")}>
+              {PANIC_KEY.toUpperCase()}
+            </kbd>
+          }
+          aria-pressed={panic}
+          aria-keyshortcuts={PANIC_KEY.toUpperCase()}
+          onClick={() => onPanic(!panic)}
+          className="mt-3.5 w-full @[360px]:w-auto"
+        >
+          {panic ? "Show my screen" : "Hide my screen"}
+        </Pill>
+      </Tip>
       {panic && (
         <p role="status" className="mt-2.5 rounded-[12px] bg-warning/[0.1] px-3.5 py-2.5 text-[12.5px] leading-snug text-warning">
           {sharing ? "Your screen is hidden. Viewers see “Screen hidden” until you show it." : "Hidden: your screen share will start hidden."}

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Lightning, Plus, Trash, X } from "@/components/icons";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { Pill } from "@/components/ui/pill";
+import { Tip } from "@/components/ui/tip";
 import { useAuth } from "@/lib/auth-context";
 import { PADS } from "@/lib/audio-desk";
 import { CARDS, LAYOUTS } from "@/lib/scene";
@@ -379,16 +380,17 @@ function RuleCard({
           {rule.fires ? `fired ${rule.fires} ${rule.fires === 1 ? "time" : "times"}${rule.firedAt ? `, last ${ago(rule.firedAt)}` : ""}` : "hasn't fired yet"}
         </p>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void tryIt()}
-            disabled={trying === "busy"}
-            title="Do it now on your live stream"
-            className="press flex h-8 items-center gap-1 rounded-full bg-tint/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.11] disabled:opacity-50"
-          >
-            <Lightning size={12} weight="fill" className="text-ember-hi" />
-            {trying === "done" ? "Done" : "Try"}
-          </button>
+          <Tip label="Do it now on your live stream">
+            <button
+              type="button"
+              onClick={() => void tryIt()}
+              disabled={trying === "busy"}
+              className="press flex h-8 items-center gap-1 rounded-full bg-tint/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.11] disabled:opacity-50"
+            >
+              <Lightning size={12} weight="fill" className="text-ember-hi" />
+              {trying === "done" ? "Done" : "Try"}
+            </button>
+          </Tip>
           <button type="button" onClick={onEdit} className="press h-8 rounded-full bg-tint/[0.07] px-3 text-[12px] font-semibold text-foreground hover:bg-tint/[0.11]">
             Edit
           </button>

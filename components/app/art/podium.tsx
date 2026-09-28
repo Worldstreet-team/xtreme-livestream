@@ -7,15 +7,17 @@ import pd from "./podium.module.css";
 
 /**
  * The top gifters' art, built on the kit (./primitives.tsx): a crown, a
- * laurel wreath, confetti for the Ember board, a drawn podium for the full
+ * laurel wreath, confetti for the board, a drawn podium for the full
  * leaderboard's head, and two small heading marks.
  *
  * Same language as the kit — 2px round lines over solid token cards, a
  * faint disc and specks, one accent — with two additions from
- * ./podium.module.css: paint for the solid Ember board (Ember's own ink,
- * since the page's ink doesn't read on it), and entrances that wait for an
- * ancestor's `data-play="go"` so the rail's board can build itself when it
- * scrolls into view. Pieces with no `data-play` above them simply show.
+ * ./podium.module.css: the board's paint (the kit's ink on the theme's own
+ * surface, Chili on #1's crown, a speck of Ember in the confetti), and
+ * entrances that wait for an ancestor's `data-play="go"` so the rail's
+ * board can build itself when it scrolls into view. Pieces with no
+ * `data-play` above them simply show. Every colour is a token, so it all
+ * reads on dark and on light.
  */
 
 /* ---- crown -------------------------------------------------------------- */
@@ -24,21 +26,20 @@ const CROWN = "M5 21 3.2 8.6l8 5.4L18 4l6.8 10 8-5.4L31 21z";
 
 /**
  * The crown for #1: three points with a jewel on each and one in the band.
- * Ember on a neutral ground (gifts are one of heat's places); Ember's ink,
- * jewels punched through, on the Ember board. Drops in and settles.
+ * Solid Chili — heat belongs to #1 — with the band and middle jewel punched
+ * back to the ground it sits on (`--art-ground`, the surface by default).
+ * Drops in and settles.
  */
-export function Crown({ onEmber = false, delay: ms = 0, className }: { onEmber?: boolean; delay?: number; className?: string }) {
-  const body = onEmber ? pd.emberInk : paint.ember;
-  const jewel = onEmber ? pd.emberHole : pd.onEmberFill;
+export function Crown({ delay: ms = 0, className }: { delay?: number; className?: string }) {
   return (
     <ArtCanvas viewBox="0 0 36 26" className={className}>
       <g className={pd.drop} style={delay(ms)}>
-        <path className={body} d={CROWN} />
-        <path className={jewel} opacity={0.35} d="M6 17.6h24v2.4H6z" />
-        <circle className={jewel} cx={18} cy={12.6} r={1.9} />
-        <circle className={body} cx={3.2} cy={7.4} r={1.9} />
-        <circle className={body} cx={18} cy={3} r={1.9} />
-        <circle className={body} cx={32.8} cy={7.4} r={1.9} />
+        <path className={pd.crown} d={CROWN} />
+        <path className={pd.jewel} opacity={0.4} d="M6 17.6h24v2.4H6z" />
+        <circle className={pd.jewel} cx={18} cy={12.6} r={1.9} />
+        <circle className={pd.crown} cx={3.2} cy={7.4} r={1.9} />
+        <circle className={pd.crown} cx={18} cy={3} r={1.9} />
+        <circle className={pd.crown} cx={32.8} cy={7.4} r={1.9} />
       </g>
     </ArtCanvas>
   );
@@ -68,18 +69,26 @@ function branch(count: number, leaf: number) {
 }
 
 /**
+ * SVG's own transform semantics for a group placed with a `transform`
+ * attribute. The kit sets every part's origin to its own centre (for its
+ * CSS motion), which would mirror the right branch about itself and spin
+ * each leaf about its middle instead of its base.
+ */
+const PLACED: CSSProperties = { transformBox: "view-box", transformOrigin: "0 0" };
+
+/**
  * A laurel wreath: two branches meeting under whatever sits in the middle
  * (#1's face on the board), or alone as a mark. Leaves grow from the stem
  * one after another. Size it with a width class.
  */
-export function Laurel({ onEmber = false, leaves = 6, delay: ms = 0, className, style }: { onEmber?: boolean; leaves?: number; delay?: number; className?: string; style?: CSSProperties }) {
+export function Laurel({ leaves = 6, delay: ms = 0, className, style }: { leaves?: number; delay?: number; className?: string; style?: CSSProperties }) {
   const { leaves: pts, stem, almond } = branch(leaves, leaves > 5 ? 11 : 13);
   const side = (mirror: boolean) => (
-    <g transform={mirror ? "translate(100 0) scale(-1 1)" : undefined}>
-      <path className={cn(onEmber ? pd.emberStem : pd.stem, pd.fadeIn)} style={delay(ms)} d={stem} />
+    <g transform={mirror ? "translate(100 0) scale(-1 1)" : undefined} style={PLACED}>
+      <path className={cn(pd.stem, pd.fadeIn)} style={delay(ms)} d={stem} />
       {pts.map((p) => (
-        <g key={p.k} transform={`translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${p.rot.toFixed(1)})`}>
-          <path className={cn(onEmber ? pd.emberLeaf : pd.leaf, pd.grow)} style={delay(ms + p.k * 55)} d={almond} />
+        <g key={p.k} transform={`translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) rotate(${p.rot.toFixed(1)})`} style={PLACED}>
+          <path className={cn(pd.leaf, pd.grow)} style={delay(ms + p.k * 55)} d={almond} />
         </g>
       ))}
     </g>
@@ -96,19 +105,19 @@ export function Laurel({ onEmber = false, leaves = 6, delay: ms = 0, className, 
 
 /* ---- confetti ----------------------------------------------------------- */
 
-type Piece = { x: number; y: number; rot: number; kind: "ribbon" | "dot" | "curl" | "square" | "live"; o?: number };
+type Piece = { x: number; y: number; rot: number; kind: "ribbon" | "dot" | "curl" | "square" | "live" | "ember"; o?: number };
 
 // Rest positions on a 300 × 110 field; they burst from its middle-top.
 const PIECES: Piece[] = [
   { x: 34, y: 22, rot: -24, kind: "ribbon" },
-  { x: 62, y: 60, rot: 18, kind: "dot" },
+  { x: 62, y: 60, rot: 18, kind: "ember" },
   { x: 86, y: 14, rot: 40, kind: "curl" },
   { x: 108, y: 44, rot: -12, kind: "square", o: 0.7 },
   { x: 122, y: 8, rot: 10, kind: "live" },
   { x: 180, y: 10, rot: -30, kind: "ribbon" },
   { x: 196, y: 46, rot: 22, kind: "dot" },
   { x: 214, y: 18, rot: -8, kind: "curl" },
-  { x: 244, y: 56, rot: 36, kind: "square", o: 0.7 },
+  { x: 244, y: 56, rot: 36, kind: "ember" },
   { x: 268, y: 24, rot: 14, kind: "live" },
   { x: 20, y: 72, rot: 30, kind: "dot", o: 0.6 },
   { x: 282, y: 84, rot: -20, kind: "ribbon", o: 0.6 },
@@ -118,21 +127,24 @@ const ORIGIN = { x: 150, y: 44 };
 function Shape({ kind }: { kind: Piece["kind"] }) {
   switch (kind) {
     case "ribbon":
-      return <rect className={pd.emberInk} x={-5} y={-1.4} width={10} height={2.8} rx={1.4} />;
+      return <rect className={pd.confetti} x={-5} y={-1.4} width={10} height={2.8} rx={1.4} />;
     case "dot":
-      return <circle className={pd.emberInk} r={1.8} />;
+      return <circle className={pd.confetti} r={1.8} />;
     case "curl":
-      return <path className={pd.emberLine} style={{ strokeWidth: 1.6 }} d="M-7 0c1.8-3 3.5 3 5.2 0s3.5 3 5.2 0 3.5 3 3.6 0" />;
+      return <path className={pd.confettiLine} d="M-7 0c1.8-3 3.5 3 5.2 0s3.5 3 5.2 0 3.5 3 3.6 0" />;
     case "square":
-      return <rect className={pd.emberLine} style={{ strokeWidth: 1.6 }} x={-3} y={-3} width={6} height={6} rx={1.2} />;
+      return <rect className={pd.confettiLine} x={-3} y={-3} width={6} height={6} rx={1.2} />;
     case "live":
       // A gift's ribbon is Chili, as in the kit's Gift.
       return <rect className={paint.live} x={-4} y={-1.5} width={8} height={3} rx={1.5} />;
+    case "ember":
+      // Ember only ever as a small outline — a detail, never a fill.
+      return <rect className={pd.confettiEmber} x={-2.6} y={-2.6} width={5.2} height={5.2} rx={1.2} />;
   }
 }
 
 /**
- * Confetti and gift ribbon for the Ember board: it bursts from #1 and lands
+ * Confetti and gift ribbon for the board: it bursts from #1 and lands
  * around, then rests as quiet specks — a celebration that doesn't keep
  * asking for attention. Fixed pieces, so every render matches.
  */
@@ -195,10 +207,10 @@ export function PodiumScene({ className }: { className?: string }) {
         <Bar x={83} y={66} w={14} h={4.5} paint="ember" />
         <Figure cx={90} cy={40} r={12} />
       </Enter>
-      {/* The crown drops on. */}
+      {/* The crown drops on: Chili, as on the board. */}
       <Enter kind="pop" delay={620}>
-        <path className={paint.ember} d="M80.5 25.5 79.2 16.4l5.8 3.9 5-7.6 5 7.6 5.8-3.9-1.3 9.1z" />
-        <circle className={pd.onEmberFill} cx={90} cy={21.4} r={1.4} />
+        <path className={pd.crown} d="M80.5 25.5 79.2 16.4l5.8 3.9 5-7.6 5 7.6 5.8-3.9-1.3 9.1z" />
+        <circle className={pd.jewel} cx={90} cy={21.4} r={1.4} />
       </Enter>
       {/* What was given. */}
       <Enter kind="pop" delay={760}>

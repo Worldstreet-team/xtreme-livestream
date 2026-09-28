@@ -36,6 +36,7 @@ import { bumpGoal } from "../goals.js";
 import { fanStatus, fanStatuses } from "../fans.js";
 import { fireRules } from "../rules.js";
 import { noteTickers } from "../tickers.js";
+import { PREVIEW_TOKEN_TTL, assertMayInteract, previewAccess, previewIdentity } from "../preview.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -97,6 +98,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
            * actual broadcast (their phone app or studio tab) off the air.
            */
           monitor: z.enum(["1"]).optional(),
+          /** A practice run's preview key (preview.ts): watch-only, for anyone holding the link. */
+          previewKey: z.string().max(128).optional(),
         }),
       },
       config: {
@@ -126,19 +129,41 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
       // and their producers, nobody else — not a moderator, not a preview,
       // not a guest. Checked before the liveness reconcile, so a stranger's
       // probe never so much as asks LiveKit about the room.
+      // …or anyone holding its preview link, watch-only (preview.ts).
+      let previewing: { generation: string } | null = null;
       if (stream.practice && !isOwner) {
         const streamer = viewer ? await User.findById(stream.streamerId).select("safety").lean() : null;
         if (!viewer || !streamer || !atLeast(roleIn(streamer, viewer.dbUser._id), "producer")) {
-          throw new ApiError(
-            403,
-            "This is a practice run — only the host and their producers can join",
-            "PRACTICE_PRIVATE",
-          );
+          previewing = await previewAccess(stream._id, request.query.previewKey);
+          if (!previewing) {
+            throw new ApiError(
+              403,
+              "This is a practice run — only the host and their producers can join",
+              "PRACTICE_PRIVATE",
+            );
+          }
         }
       }
 
       if (!(await reconcileStream(stream))) {
         throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
+      }
+
+      // A preview: subscribe-only and hidden — no publishing, no data, no
+      // place in the participant list, no join line, and an identity that
+      // is nobody's, so nothing (watch time, points, fans) accrues to it.
+      if (previewing) {
+        const token = await createToken(stream.livekitRoomName, previewIdentity(previewing.generation), "Preview", {
+          canPublish: false,
+          canSubscribe: true,
+          canPublishData: false,
+          hidden: true,
+          ttl: PREVIEW_TOKEN_TTL,
+        });
+        return {
+          success: true,
+          data: { token, livekitUrl: config.LIVEKIT_URL, roomName: stream.livekitRoomName, preview: true },
+        };
       }
 
       const monitoring = isOwner && request.query.monitor === "1";
@@ -324,11 +349,13 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const stream = await Stream.findById(request.params.id).select("likes");
+      const stream = await Stream.findById(request.params.id).select("likes practice streamerId");
 
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
+      // A practice run is watch-only for anyone but its crew.
+      await assertMayInteract(stream, dbUser._id);
 
       const result = await StreamLike.updateOne(
         { streamId: stream._id, userId: dbUser._id },
@@ -374,11 +401,12 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
-      const stream = await Stream.findById(request.params.id).select("likes");
+      const stream = await Stream.findById(request.params.id).select("likes practice streamerId");
 
       if (!stream) {
         throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       }
+      await assertMayInteract(stream, dbUser._id);
 
       const deleted = await StreamLike.findOneAndDelete({
         streamId: stream._id,
@@ -570,6 +598,8 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
           "STREAM_OFFLINE",
         );
       }
+      // A practice run's chat is its crew's; a preview is watch-only.
+      await assertMayInteract(stream, dbUser._id);
 
       const body = request.body;
       if (body.type === "tip") {

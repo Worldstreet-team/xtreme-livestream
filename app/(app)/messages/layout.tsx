@@ -36,6 +36,7 @@ export default function MessagesLayout({ children }: { children: React.ReactNode
       <div className="lg:grid lg:h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
         <aside
           ref={asideRef}
+          data-tour="messages-inbox"
           aria-label="Conversations"
           className={cn(
             "min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:shadow-[inset_-1px_0_0_var(--hairline-color)]",

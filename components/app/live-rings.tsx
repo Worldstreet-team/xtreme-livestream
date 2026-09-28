@@ -253,7 +253,7 @@ export function LiveRingsBar() {
             (the sr-only labels too): unpositioned, those escape to the
             sticky chrome and stretch the page sideways. */}
         <div className="relative min-h-0 min-w-0 overflow-hidden">
-          <section aria-label="Live now" className="shadow-[inset_0_-1px_0_var(--hairline-color)]">
+          <section aria-label="Live now" data-tour="live-rings" className="shadow-[inset_0_-1px_0_var(--hairline-color)]">
             <ul className="relative flex gap-1.5 overflow-x-auto overscroll-x-contain px-3 pt-2.5 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {user && (
                 <li className="shrink-0">

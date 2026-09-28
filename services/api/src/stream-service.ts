@@ -3,11 +3,24 @@ import { isBroadcasterConnected, sendRoomData } from "./livekit.js";
 import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
 import { stopPractice } from "./practice.js";
+import { stopPreview } from "./preview.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
 import { closeStreamRuns } from "./sponsors.js";
 import { closeAllWatchSessions } from "./watch-sessions.js";
 
 export const STREAM_GRACE_MS = 90_000;
+
+/**
+ * What a stream is called when its host didn't name it — a title is
+ * optional (owner, 2026-09-28: "some don't even want a name"). One rule:
+ * "Live with <display name>". It reads right on a live card and still reads
+ * right on the past-broadcasts shelf after it ends, and it needs no guess
+ * at the host's time zone the way "<Name>'s Friday live" would.
+ */
+export function defaultStreamTitle(host: { displayName?: string | null; username?: string | null }) {
+  const name = (host.displayName || host.username || "").trim();
+  return name ? `Live with ${name}`.slice(0, 100) : "Live on Xtream";
+}
 
 /**
  * Local dev with seeded streams: nothing is actually publishing into LiveKit,
@@ -167,6 +180,8 @@ export async function markStreamEnded(stream: IStream) {
   await stream.save();
   if (practice) {
     stopPractice(stream._id);
+    // Its preview link dies with it, and whoever watched on it leaves.
+    await stopPreview(stream).catch((error) => console.error("practice preview stop failed:", error));
   } else {
     await User.updateOne({ _id: stream.streamerId }, { isLive: false });
     // The ingress is the account's, not the stream's — it lives on, so the

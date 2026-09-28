@@ -182,7 +182,7 @@ describe("PUT /streams/:id/scene", () => {
     const response = await put({ layout: "screen-face" });
 
     expect(response.statusCode).toBe(200);
-    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, interpreter: null, angle: "main", featured: null, version: 1 };
+    const scene = { layout: "screen-face", card: null, cardNote: "", chart: null, layers: [], gains: {}, spotlight: null, interpreter: null, angle: "main", phoneSlot: "off", featured: null, version: 1 };
     expect(response.json().data.scene).toEqual(scene);
     expect(streamDoc.scene).toMatchObject({ layout: "screen-face", version: 1 });
     expect(state.metadata).toEqual([{ room: "room-1", scene }]);

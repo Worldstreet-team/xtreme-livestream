@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FlipHorizontal, Minus, Pause, Play, Playlist, Plus, Restart, X } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 
 /**
@@ -228,40 +229,51 @@ export function Teleprompter({
           {playing ? "Pause" : "Roll"}
         </button>
         <div className="flex items-center" role="group" aria-label="Speed">
-          <button type="button" className={iconButton} disabled={prefs.speed === 0} onClick={() => save({ ...prefs, speed: prefs.speed - 1 })} aria-label="Slower">
-            <Minus size={15} weight="bold" />
-          </button>
+          <Tip label="Scroll slower">
+            <button type="button" className={iconButton} disabled={prefs.speed === 0} onClick={() => save({ ...prefs, speed: prefs.speed - 1 })} aria-label="Slower">
+              <Minus size={15} weight="bold" />
+            </button>
+          </Tip>
           <span className="w-12 text-center text-[12px] font-semibold text-white/85 tabular-nums" aria-live="polite">
             {SPEEDS[prefs.speed].label}
           </span>
-          <button type="button" className={iconButton} disabled={prefs.speed === SPEEDS.length - 1} onClick={() => save({ ...prefs, speed: prefs.speed + 1 })} aria-label="Faster">
-            <Plus size={15} weight="bold" />
-          </button>
+          <Tip label="Scroll faster">
+            <button type="button" className={iconButton} disabled={prefs.speed === SPEEDS.length - 1} onClick={() => save({ ...prefs, speed: prefs.speed + 1 })} aria-label="Faster">
+              <Plus size={15} weight="bold" />
+            </button>
+          </Tip>
         </div>
         <span aria-hidden className="mx-0.5 h-5 w-px bg-white/10" />
         <div className="flex items-center" role="group" aria-label="Text size">
-          <button type="button" className={iconButton} disabled={prefs.size === 0} onClick={() => save({ ...prefs, size: prefs.size - 1 })} aria-label="Smaller text">
-            <span className="text-[12px] font-bold">A</span>
-          </button>
-          <button type="button" className={iconButton} disabled={prefs.size === SIZES.length - 1} onClick={() => save({ ...prefs, size: prefs.size + 1 })} aria-label="Larger text">
-            <span className="text-[17px] font-bold">A</span>
-          </button>
+          <Tip label="Smaller text">
+            <button type="button" className={iconButton} disabled={prefs.size === 0} onClick={() => save({ ...prefs, size: prefs.size - 1 })} aria-label="Smaller text">
+              <span className="text-[12px] font-bold">A</span>
+            </button>
+          </Tip>
+          <Tip label="Larger text">
+            <button type="button" className={iconButton} disabled={prefs.size === SIZES.length - 1} onClick={() => save({ ...prefs, size: prefs.size + 1 })} aria-label="Larger text">
+              <span className="text-[17px] font-bold">A</span>
+            </button>
+          </Tip>
         </div>
         {!compact && (
           <>
-            <button
-              type="button"
-              className={cn(iconButton, prefs.mirror && "bg-white text-[#0b0708] hover:bg-white hover:text-[#0b0708]")}
-              aria-pressed={prefs.mirror}
-              onClick={() => save({ ...prefs, mirror: !prefs.mirror })}
-              aria-label="Mirror the text, for prompter glass"
-              title="Mirror, for prompter glass"
-            >
-              <FlipHorizontal size={17} />
-            </button>
-            <button type="button" className={iconButton} onClick={() => moveTo(0)} aria-label="Back to the top" title="Back to the top">
-              <Restart size={16} />
-            </button>
+            <Tip label={prefs.mirror ? "Stop mirroring the text" : "Mirror the text, for prompter glass"}>
+              <button
+                type="button"
+                className={cn(iconButton, prefs.mirror && "bg-white text-[#0b0708] hover:bg-white hover:text-[#0b0708]")}
+                aria-pressed={prefs.mirror}
+                onClick={() => save({ ...prefs, mirror: !prefs.mirror })}
+                aria-label="Mirror the text, for prompter glass"
+              >
+                <FlipHorizontal size={17} />
+              </button>
+            </Tip>
+            <Tip label="Back to the top">
+              <button type="button" className={iconButton} onClick={() => moveTo(0)} aria-label="Back to the top">
+                <Restart size={16} />
+              </button>
+            </Tip>
           </>
         )}
         <button type="button" className={cn(iconButton, "ml-auto")} onClick={onClose} aria-label="Close the teleprompter">

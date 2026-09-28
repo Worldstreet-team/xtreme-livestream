@@ -4,6 +4,7 @@ import { useCallback, useEffect, type ReactNode } from "react"
 import type { VividAgentState } from "@/lib/vivid/types"
 import { VividOrb } from "./vivid-orb"
 import { useSiraVivid } from "./sira-provider"
+import { Tip } from "@/components/ui/tip"
 
 /**
  * Vivid's presence on the page, in two forms.
@@ -118,15 +119,16 @@ export function VividLauncher({ variant, className = "" }: { variant: "pill" | "
 
   if (variant === "orb") {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={label}
-        title={label}
-        className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full ${className}`}
-      >
-        <VividOrb live={isLive} getAudioLevels={getAudioLevels} className="pointer-events-none" />
-      </button>
+      <Tip label={label} side="bottom">
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={label}
+          className={`press relative flex size-9 shrink-0 items-center justify-center rounded-full ${className}`}
+        >
+          <VividOrb live={isLive} getAudioLevels={getAudioLevels} className="pointer-events-none" />
+        </button>
+      </Tip>
     )
   }
 
@@ -158,19 +160,20 @@ function CapsuleButton({
   children: ReactNode
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`relative flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-150 ${
-        danger
-          ? "bg-destructive/15 text-destructive hover:bg-destructive hover:text-white"
-          : "bg-white/[0.06] text-muted-foreground hover:bg-white/[0.1] hover:text-white"
-      }`}
-    >
-      {children}
-    </button>
+    <Tip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className={`relative flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-150 ${
+          danger
+            ? "bg-destructive/15 text-destructive hover:bg-destructive hover:text-white"
+            : "bg-white/[0.06] text-muted-foreground hover:bg-white/[0.1] hover:text-white"
+        }`}
+      >
+        {children}
+      </button>
+    </Tip>
   )
 }
 

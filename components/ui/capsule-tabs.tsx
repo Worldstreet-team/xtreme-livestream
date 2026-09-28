@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Icon } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/ui/tip";
 
 export interface CapsuleTab<T extends string> {
   id: T;
@@ -10,6 +11,8 @@ export interface CapsuleTab<T extends string> {
   icon?: Icon;
   /** A count worth interrupting for (stage requests) — a Chili badge on the icon. */
   badge?: number | null;
+  /** A walkthrough target name (`data-tour`), for tours that point at this tab. */
+  tour?: string;
 }
 
 /**
@@ -83,13 +86,13 @@ export function CapsuleTabs<T extends string>({
         const on = t.id === value;
         const TabIcon = t.icon;
         return (
+          <Tip key={t.id} label={t.label} disabled={!expanding || on}>
           <button
-            key={t.id}
             type="button"
             role="tab"
+            data-tour={t.tour}
             aria-selected={on}
             aria-label={expanding ? t.label : undefined}
-            title={expanding && !on ? t.label : undefined}
             onClick={() => onChange(t.id)}
             className={cn(
               "press relative z-10 flex h-9 min-w-0 items-center justify-center rounded-full text-[13.5px] font-semibold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ember",
@@ -121,6 +124,7 @@ export function CapsuleTabs<T extends string>({
               </span>
             ) : null}
           </button>
+          </Tip>
         );
       })}
     </div>

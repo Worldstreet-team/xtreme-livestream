@@ -5,6 +5,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, ImageSquare, Trash, Warning, X } from "@/components/icons";
 import { QrCode } from "@/components/app/qr-code";
 import { MakeACall } from "@/components/app/make-a-call";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { apiUrl } from "@/lib/api-client";
 import { compressImage } from "@/lib/image-utils";
@@ -81,6 +82,7 @@ export function SceneGraphicsPanel({
   sponsors = null,
   brandKit = true,
   streamId = null,
+  markets = true,
   onLayers,
   onBrand,
 }: {
@@ -100,6 +102,11 @@ export function SceneGraphicsPanel({
   brandKit?: boolean;
   /** The live stream, which a market call is made on (call receipts). Unset, there's no Make a call. */
   streamId?: string | null;
+  /**
+   * The market graphics (Prices, Make a call). Off, they stay out of the
+   * list unless one is already up — crypto is an option, not the premise.
+   */
+  markets?: boolean;
   /** Put a new set of graphics on air. */
   onLayers: (layers: SceneLayer[]) => void;
   /** Save part of the brand kit; rejects with a message worth showing. */
@@ -350,6 +357,7 @@ export function SceneGraphicsPanel({
             )}
           </GraphicCard>
 
+          {(markets || prices) && (
           <GraphicCard
             title="Prices"
             on={Boolean(prices)}
@@ -420,8 +428,9 @@ export function SceneGraphicsPanel({
               Live prices on every viewer&apos;s screen, from Coinbase, always marked &ldquo;Not financial advice&rdquo;. No links, no buy buttons.
             </p>
           </GraphicCard>
+          )}
 
-          {streamId && (
+          {streamId && (markets || callUp) && (
             <MakeACall
               // A new broadcast starts afresh: "Show again" is only ever this stream's call.
               key={streamId}
@@ -695,21 +704,22 @@ function CornerPicker({ value, onChange }: { value: LogoCorner; onChange: (c: Lo
   return (
     <div role="radiogroup" aria-label="Logo corner" className="grid h-[46px] w-[80px] shrink-0 grid-cols-2 grid-rows-2 rounded-[8px] bg-black/50 p-1">
       {corners.map((c) => (
-        <button
-          key={c}
-          type="button"
-          role="radio"
-          aria-checked={value === c}
-          aria-label={LOGO_CORNER_LABELS[c]}
-          onClick={() => onChange(c)}
-          className={cn(
-            "press flex p-0.5",
-            c.startsWith("top") ? "items-start" : "items-end",
-            c.endsWith("left") ? "justify-start" : "justify-end"
-          )}
-        >
-          <span className={cn("h-2.5 w-4 rounded-[3px] transition-colors", value === c ? "bg-ember" : "bg-tint/20 hover:bg-tint/35")} />
-        </button>
+        <Tip key={c} label={`Put the logo ${LOGO_CORNER_LABELS[c].toLowerCase()}`}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === c}
+            aria-label={LOGO_CORNER_LABELS[c]}
+            onClick={() => onChange(c)}
+            className={cn(
+              "press flex p-0.5",
+              c.startsWith("top") ? "items-start" : "items-end",
+              c.endsWith("left") ? "justify-start" : "justify-end"
+            )}
+          >
+            <span className={cn("h-2.5 w-4 rounded-[3px] transition-colors", value === c ? "bg-ember" : "bg-tint/20 hover:bg-tint/35")} />
+          </button>
+        </Tip>
       ))}
     </div>
   );
@@ -738,14 +748,16 @@ function PresetRow<P extends BrandPreset>({
           <button type="button" onClick={() => onPick(p)} className="min-w-0 truncate pl-2.5 text-[11.5px] font-medium text-foreground/85" title={label(p)}>
             {label(p).length > 28 ? `${label(p).slice(0, 27)}…` : label(p)}
           </button>
-          <button
-            type="button"
-            onClick={() => onDrop(p)}
-            aria-label={`Forget “${label(p)}”`}
-            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground"
-          >
-            <X size={11} />
-          </button>
+          <Tip label="Forget this one">
+            <button
+              type="button"
+              onClick={() => onDrop(p)}
+              aria-label={`Forget “${label(p)}”`}
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground"
+            >
+              <X size={11} />
+            </button>
+          </Tip>
         </span>
       ))}
       <button
@@ -824,20 +836,20 @@ export function BrandKit({
         <span className="text-[13px] font-medium text-foreground/85">Accent</span>
         <div role="radiogroup" aria-label="Accent" className="flex gap-2">
           {(Object.keys(ACCENTS) as BrandAccent[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              aria-checked={brand.accent === key}
-              aria-label={ACCENTS[key].label}
-              title={ACCENTS[key].label}
-              onClick={() => brand.accent !== key && void save({ accent: key })}
-              className={cn(
-                "press size-7 rounded-full shadow-[inset_0_0_0_1px_var(--hairline-color)] outline-offset-2 transition-[outline-color]",
-                brand.accent === key ? "outline-2 outline-foreground" : "outline-2 outline-transparent hover:outline-tint/25"
-              )}
-              style={{ background: ACCENTS[key].fill }}
-            />
+            <Tip key={key} label={ACCENTS[key].label}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={brand.accent === key}
+                aria-label={ACCENTS[key].label}
+                onClick={() => brand.accent !== key && void save({ accent: key })}
+                className={cn(
+                  "press size-7 rounded-full shadow-[inset_0_0_0_1px_var(--hairline-color)] outline-offset-2 transition-[outline-color]",
+                  brand.accent === key ? "outline-2 outline-foreground" : "outline-2 outline-transparent hover:outline-tint/25"
+                )}
+                style={{ background: ACCENTS[key].fill }}
+              />
+            </Tip>
           ))}
         </div>
       </div>

@@ -68,6 +68,8 @@ export { SwitchField, CheckboxField, RadioCards } from "@/components/ui/selectio
 /* ---- surfaces --------------------------------------------------------- */
 export { DragSheet } from "@/components/app/drag-sheet";
 export { Dialog, DialogTrigger, DialogClose, DialogContent } from "@/components/ui/dialog";
+export { Tip } from "@/components/ui/tip";
+export type { TipProps, TipSide } from "@/components/ui/tip";
 export { Tooltip } from "@/components/ui/tooltip";
 export { Stack, Cluster, Surface, SectionHeader } from "@/components/ui/layout";
 export { BrandMark, BrandLockup } from "@/components/ui/brand-mark";

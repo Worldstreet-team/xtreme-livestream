@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowClockwise, Check, CheckCircle, MonitorPlay, PencilSimple, Plus, Ticket, X } from "@/components/icons";
 import { SwitchField } from "@/components/ui/selection-controls";
+import { Tip } from "@/components/ui/tip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { centsToDollars } from "@/lib/gifts";
 import {
@@ -347,23 +348,27 @@ function MenuEditor({ queue }: { queue: Queue }) {
                   {item.prompt && <span className="block truncate text-[11.5px] text-muted-foreground">Asks “{item.prompt}”</span>}
                 </span>
                 <span className="shrink-0 font-money text-[14px] text-value tabular-nums">{centsToDollars(item.priceUsdMinor)}</span>
-                <button
-                  type="button"
-                  onClick={() => setDraft({ id: item.id, title: item.title, price: String(item.priceUsdMinor / 100), prompt: item.prompt })}
-                  aria-label={`Edit ${item.title}`}
-                  className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
-                >
-                  <PencilSimple size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void save(items.filter((i) => i.id !== item.id))}
-                  disabled={busy}
-                  aria-label={`Take ${item.title} off the menu`}
-                  className="press -ml-1 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-40"
-                >
-                  <X size={13} weight="bold" />
-                </button>
+                <Tip label="Edit it">
+                  <button
+                    type="button"
+                    onClick={() => setDraft({ id: item.id, title: item.title, price: String(item.priceUsdMinor / 100), prompt: item.prompt })}
+                    aria-label={`Edit ${item.title}`}
+                    className="press flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+                  >
+                    <PencilSimple size={14} />
+                  </button>
+                </Tip>
+                <Tip label="Take it off the menu">
+                  <button
+                    type="button"
+                    onClick={() => void save(items.filter((i) => i.id !== item.id))}
+                    disabled={busy}
+                    aria-label={`Take ${item.title} off the menu`}
+                    className="press -ml-1 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-40"
+                  >
+                    <X size={13} weight="bold" />
+                  </button>
+                </Tip>
               </li>
             )
           )}

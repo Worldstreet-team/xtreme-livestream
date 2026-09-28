@@ -11,6 +11,7 @@ import { Themes } from "@/components/design-system/themes";
 import { Actions, Status, People, Discovery } from "@/components/design-system/component-demos";
 import { Giving, Competing, Talking, Forms, Surfaces, Rules } from "@/components/design-system/product-standards";
 import { EmptyStates } from "@/components/design-system/empty-states";
+import { Tooltips } from "@/components/design-system/tooltips";
 import { STAGE } from "@/components/design-system/sample-data";
 import { BrandMark, ChatBubble, Chip, GiftAlert, GiftToken, LowerThird, Pill, UserAvatar } from "@/components/xtream";
 
@@ -47,6 +48,7 @@ export default function DesignSystemPage() {
         <Talking />
         <Forms />
         <Surfaces />
+        <Tooltips />
         <EmptyStates />
         <Rules />
       </main>

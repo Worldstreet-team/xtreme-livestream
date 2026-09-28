@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ThreadContext } from "@worldstreet/messaging-sdk";
 import { ChatCircleDots } from "@/components/icons";
 import { Pill, PillLink } from "@/components/xtream";
+import { Tip } from "@/components/ui/tip";
 import { useAuth } from "@/lib/auth-context";
 import { signInHref } from "@/lib/auth-urls";
 import { messaging, openFailure, openThreadWith, threadHref } from "@/lib/messaging";
@@ -53,18 +54,19 @@ export function MessageButton({
 
   if (!user) {
     return (
-      <PillLink
-        external
-        href={signInHref(pathname)}
-        size={size}
-        variant="glass"
-        icon={glyph}
-        iconOnly={!labeled}
-        aria-label={`Sign in to message ${who}`}
-        title={`Sign in to message ${who}`}
-      >
-        Message
-      </PillLink>
+      <Tip label={`Sign in to message ${who}`} disabled={labeled}>
+        <PillLink
+          external
+          href={signInHref(pathname)}
+          size={size}
+          variant="glass"
+          icon={glyph}
+          iconOnly={!labeled}
+          aria-label={`Sign in to message ${who}`}
+        >
+          Message
+        </PillLink>
+      </Tip>
     );
   }
 
@@ -84,28 +86,29 @@ export function MessageButton({
 
   return (
     <span className="relative inline-flex">
-      <Pill
-        size={size}
-        variant="glass"
-        icon={
-          busy ? (
-            <span
-              aria-hidden
-              className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-            />
-          ) : (
-            glyph
-          )
-        }
-        iconOnly={!labeled}
-        onClick={open}
-        disabled={busy}
-        aria-label={`Message ${who}`}
-        title={`Message ${who}`}
-        className="shadow-none!"
-      >
-        Message
-      </Pill>
+      <Tip label={`Message ${who}`} disabled={labeled}>
+        <Pill
+          size={size}
+          variant="glass"
+          icon={
+            busy ? (
+              <span
+                aria-hidden
+                className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
+            ) : (
+              glyph
+            )
+          }
+          iconOnly={!labeled}
+          onClick={open}
+          disabled={busy}
+          aria-label={`Message ${who}`}
+          className="shadow-none!"
+        >
+          Message
+        </Pill>
+      </Tip>
       {error && (
         <span
           role="status"

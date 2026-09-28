@@ -551,7 +551,8 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       // Allied while they're live: an allies goal counts it, once per person.
       // Nothing here — the lookup included — may fail the follow.
       await (async () => {
-        const live = await Stream.findOne({ streamerId: target._id, isLive: true }).select("_id streamerId livekitRoomName").lean();
+        // Not a practice run's: a rehearsal's goal and rules are its own.
+        const live = await Stream.findOne({ streamerId: target._id, isLive: true, practice: { $ne: true } }).select("_id streamerId livekitRoomName").lean();
         if (!live) return;
         await bumpGoal(live._id, "allies", 1, { userId: dbUser._id });
         // …and the host's show rules for a new ally.

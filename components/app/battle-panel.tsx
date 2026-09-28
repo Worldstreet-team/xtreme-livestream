@@ -12,6 +12,7 @@ import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Pill } from "@/components/ui/pill";
+import { Tip } from "@/components/ui/tip";
 import { LiveBadge } from "@/components/ui/badge";
 import { CapsuleTabs } from "@/components/ui/capsule-tabs";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
@@ -465,9 +466,11 @@ export function BattlePanel({
                       {b.mode === "2v2" ? "2v2 " : ""}vs <span className="text-foreground">{b.host.userId === user?.id ? b.challenger.displayName : b.host.displayName}</span> · {b.scheduledAt ? new Date(b.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}
                       {giftFilterLine(b.giftFilter) ? ` · ${giftFilterLine(b.giftFilter)!.replace(/^Only/, "only")}` : ""}
                     </span>
-                    <button type="button" onClick={() => act(`/api/battles/${b.id}/cancel`)} disabled={busy} className="text-muted-foreground hover:text-foreground" aria-label="Cancel booking">
-                      <X size={12} />
-                    </button>
+                    <Tip label="Cancel this booking">
+                      <button type="button" onClick={() => act(`/api/battles/${b.id}/cancel`)} disabled={busy} className="text-muted-foreground hover:text-foreground" aria-label="Cancel booking">
+                        <X size={12} />
+                      </button>
+                    </Tip>
                   </div>
                 ))}
               </div>

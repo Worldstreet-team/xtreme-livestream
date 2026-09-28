@@ -16,6 +16,8 @@ export interface PillTab<T extends string> {
   label: ReactNode;
   icon?: ComponentType<{ size?: number; weight?: "regular" | "fill" | "bold" | "duotone" }>;
   count?: number | null;
+  /** A walkthrough target name (`data-tour`), for tours that point at this tab. */
+  tour?: string;
 }
 
 export function PillTabs<T extends string>({
@@ -51,6 +53,7 @@ export function PillTabs<T extends string>({
             key={t.id}
             type="button"
             role="tab"
+            data-tour={t.tour}
             aria-selected={active}
             onClick={() => onChange(t.id)}
             className={cn(

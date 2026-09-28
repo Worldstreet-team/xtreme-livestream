@@ -330,6 +330,21 @@ export const CATEGORY_GROUPS: CategoryGroup[] = [
   },
 ];
 
+/**
+ * The groups that are about markets and crypto. Xtream is a social live
+ * app where crypto is an option, not the premise (owner, 2026-09-28): the
+ * studio lists these last, and its market tools (charts, prices, calls)
+ * come up front only for a stream in one of them — or once asked for.
+ */
+export const MARKET_GROUP_LABELS: ReadonlySet<string> = new Set(["Markets & Trading", "Crypto & Web3"]);
+
+/** Is this a markets or crypto stream? Retired labels ("Bitcoin Trading") are judged by their words. */
+export function isMarketCategory(category: string): boolean {
+  const group = CATEGORY_GROUPS.find((g) => g.topics.includes(category));
+  if (group) return MARKET_GROUP_LABELS.has(group.label);
+  return /crypto|bitcoin|web3|defi|nft|forex|stocks?\b|trading|markets?\b/i.test(category);
+}
+
 /** Every topic, flat — the studio's picker and search corpora. */
 export const CATEGORIES: Category[] = CATEGORY_GROUPS.flatMap(
   (g) => g.topics,

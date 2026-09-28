@@ -45,14 +45,15 @@ import {
   Shield,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { BrandMark } from "@/components/ui/brand-mark";
-import { SelectField } from "@/components/ui/select-field";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
 import { VividLauncher } from "@/components/vivid/vivid-voice-control";
-import { VanishingPlaceholder } from "@/components/ui/vanishing-placeholder";
-import { categoryArt } from "@/lib/category-art";
+import { Appear, CategoryChip, DetailsPill, StreamDetailsSheet, TitleField } from "@/components/app/studio/quick-setup";
+import { CountdownOverlay, useGoLiveCountdown } from "@/components/app/studio/go-live-countdown";
+import { readLastDetails, readMarketTools, saveLastDetails, saveMarketTools } from "@/lib/go-live-prefs";
 import { StreamArt } from "@/components/app/stream-art";
 import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
 import { offerThumbnailCandidate } from "@/lib/thumbnail-candidates";
@@ -64,7 +65,7 @@ import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/compon
 import { MiniLive } from "@/components/app/studio/mini-live";
 import { publishLiveSession, type LiveActions } from "@/lib/live-session";
 import { sideOf, type BattleView } from "@/lib/battles";
-import { CATEGORY_GROUPS, type Category } from "@/lib/categories";
+import { isMarketCategory, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
 import { SceneGraphicsPanel, type BrandPatch } from "@/components/app/scene-graphics-panel";
 import { FeaturedPanel } from "@/components/app/featured-panel";
@@ -76,6 +77,7 @@ import { AudioDesk, PADS, readDeskSettings, saveDeskSettings, type DeskSettings,
 import { useRequestQueue } from "@/lib/requests";
 import { cueSponsorsOf, useSponsorships } from "@/lib/sponsors";
 import { ConsoleLink } from "@/components/app/console-link";
+import { PracticeShare } from "@/components/app/practice-share";
 import { LiveAudience } from "@/components/app/stream-recap";
 import { InterpreterToggle, StageLineControl, StandingLine, readStageLine, readStanding, type StageLineRule, type StageStanding } from "@/components/app/stage-line";
 import { SecondCameraPanel } from "@/components/app/second-camera-panel";
@@ -91,7 +93,7 @@ import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
 import { applyLook, BACKGROUNDS, deviceTest, isLooksSupported, LOOKS, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
 import { micCaptureOptions, micPublishOptions, noiseFilterSupported, presetLabel, saveVoiceSettings, useVoiceSettings, voiceNeedsDesk, type VoiceSettings } from "@/lib/voice";
-import { isCameraIdentity } from "@/lib/angles";
+import { isCameraIdentity, phoneOnScreen, placePhone } from "@/lib/angles";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
 import { shotOf, useAutoDirector, type DirectorBlock } from "@/lib/director";
 import { RunOfShow, SegmentChip } from "@/components/app/run-of-show";
@@ -99,6 +101,8 @@ import { Teleprompter } from "@/components/app/teleprompter";
 import { DirectorSwitch } from "@/components/app/director-switch";
 import { LayoutAndCards } from "@/components/app/scene-controls";
 import { useSiraVivid } from "@/components/vivid/sira-provider";
+import { tourAction } from "@/lib/tour/state";
+import { usePracticeRequest } from "@/lib/tour/use-practice-request";
 import { setPushToTalk, setTalkHeld, usePushToTalk } from "@/lib/vivid/ptt";
 import { HealthChip, HealthSection } from "@/components/app/stream-health";
 import { useEncoderHealth, useStreamHealth } from "@/lib/use-stream-health";
@@ -158,8 +162,8 @@ const WORLDSPACE_KEY = "xtreme-studio-worldspace";
 const MAX_STAGE_GUESTS = 3;
 /** The API's own limit on who can wait backstage at once (guests.ts). */
 const MAX_BACKSTAGE = 4;
-/** Cycled in the empty title, WorldSpace-style — same voice as Schedule. */
-const TITLE_PROMPTS = ["Friday night set", "Ranked to Immortal", "Charts & coffee", "Market open, live", "Weekend League grind", "Ask me anything"];
+/** What a camera that won't start needs from you: a yes, a camera, or the one another app is holding. */
+type CamIssue = "waiting" | "denied" | "missing" | "busy";
 const SETUP_LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
 
 interface StageUser {
@@ -211,8 +215,24 @@ function captureResolution(o: Orientation, saveData = false) {
  */
 export function Studio({ minimized = false }: { minimized?: boolean }) {
   const { user } = useAuth();
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<Category>("Just Chatting");
+  // Both optional, both remembered: last time's title and category come
+  // back prefilled, so going again is one tap. Never crypto by default.
+  const [title, setTitle] = useState(() => readLastDetails()?.title ?? "");
+  const [category, setCategory] = useState<Category>(() => readLastDetails()?.category || "Just Chatting");
+  /** The title as the stream carries it — the API's default name when it went out blank. */
+  const [airTitle, setAirTitle] = useState<string | null>(null);
+  /** What viewers read: the stream's own title once it's out, the typed one before. */
+  const onAirTitle = airTitle || title.trim();
+  /** The live details sheet (the pill on the picture opens it). */
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  /** Every other setup option, folded behind More — a sheet on phones, a panel in the console. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  /** Charts, prices and market calls up front for any category — the host asked for them. */
+  const [marketTools, setMarketTools] = useState(readMarketTools);
+  /** Why the camera preview isn't up, when it isn't. */
+  const [camIssue, setCamIssue] = useState<CamIssue | null>(null);
+  /** The browser has been told no to the microphone. */
+  const [micBlocked, setMicBlocked] = useState(false);
   const [tags, setTags] = useState("");
   /** The chip composer's in-progress tag; Enter or a comma commits it. */
   const [tagInput, setTagInput] = useState("");
@@ -302,6 +322,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [openOnCard, setOpenOnCard] = useState(false);
   /** A practice run: a private room with simulated chat and gifts — nothing announced, listed or paid. */
   const [practice, setPractice] = useState(false);
+  // The walkthrough's "Practice run" (/studio?practice=1): switch it on — never mid-broadcast.
+  usePracticeRequest(() => {
+    if (!isLive) setPractice(true);
+  });
   // Send 540p with voice-tuned sound, for creators on a weak uplink.
   const [saveData, setSaveData] = useState(false);
   /** The screen being shared alongside the camera — the preview's main picture while it is. */
@@ -450,7 +474,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const backstageIds = useMemo(() => new Set(backstageGuests.map((g) => g.userId)), [backstageGuests]);
   const stageTiles = useMemo(() => guestTiles.filter((t) => !backstageIds.has(t.identity)), [guestTiles, backstageIds]);
   // The phone cam (cam-<my id>), while it's sending: an angle for the
-  // program, never a guest. What viewers see of it is scene.angle.
+  // program, never a guest. Where it sits is scene.phoneSlot.
   const phoneTrackRef = useRef<AttachableVideoTrack | null>(null);
   const [phoneConnected, setPhoneConnected] = useState(false);
   // The published camera, as state: the face tracker follows it (the ref alone wouldn't tell it).
@@ -568,28 +592,31 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     return () => clearInterval(t);
   }, [vividSpeaking, liveRoom, isLive]);
   const talkHold = (props: { phone?: boolean }) => (
-    <button
-      type="button"
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        setTalkHeld(true);
-      }}
-      onPointerUp={() => setTalkHeld(false)}
-      onPointerCancel={() => setTalkHeld(false)}
-      onLostPointerCapture={() => setTalkHeld(false)}
-      onContextMenu={(e) => e.preventDefault()}
-      aria-pressed={ptt.held}
-      aria-label="Hold to talk to Vivid"
-      title="Hold to talk to Vivid — or hold V"
-      className={cn(
-        "press flex touch-none items-center justify-center gap-2 rounded-full font-semibold transition-colors select-none",
-        props.phone ? "size-11" : "h-11 px-4 text-[13px]",
-        ptt.held ? "bg-white text-[#0b0708]" : props.phone ? "obj text-white" : "text-white hover:bg-white/[0.12]"
-      )}
-    >
-      <span className={cn("size-2 shrink-0 rounded-full", ptt.held ? "animate-pulse bg-ember" : "bg-white/45")} />
-      {!props.phone && (ptt.held ? "Vivid's listening" : "Hold for Vivid")}
-    </button>
+    // Held to talk, so a long-press is the talk, never a tip.
+    <Tip label="Hold to talk to Vivid" hint="Hold V" touch={false} side={props.phone ? "left" : "top"}>
+      <button
+        type="button"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setTalkHeld(true);
+        }}
+        onPointerUp={() => setTalkHeld(false)}
+        onPointerCancel={() => setTalkHeld(false)}
+        onLostPointerCapture={() => setTalkHeld(false)}
+        onContextMenu={(e) => e.preventDefault()}
+        aria-pressed={ptt.held}
+        aria-label="Hold to talk to Vivid"
+        data-tour="studio-vivid"
+        className={cn(
+          "press flex touch-none items-center justify-center gap-2 rounded-full font-semibold transition-colors select-none",
+          props.phone ? "size-11" : "h-11 px-4 text-[13px]",
+          ptt.held ? "bg-white text-[#0b0708]" : props.phone ? "obj text-white" : "text-white hover:bg-white/[0.12]"
+        )}
+      >
+        <span className={cn("size-2 shrink-0 rounded-full", ptt.held ? "animate-pulse bg-ember" : "bg-white/45")} />
+        {!props.phone && (ptt.held ? "Vivid's listening" : "Hold for Vivid")}
+      </button>
+    </Tip>
   );
 
   // The gift handler lives in the room's event callback; it reaches the director through this.
@@ -635,10 +662,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   >([]);
   const chimeCtxRef = useRef<AudioContext | null>(null);
 
-  // Go Live / End Stream confirmation dialog
-  const [confirmDialog, setConfirmDialog] = useState<"golive" | "end" | null>(
-    null
-  );
+  // End Stream confirmation dialog. (Going live asks nothing: it counts 3·2·1 instead.)
+  const [confirmDialog, setConfirmDialog] = useState<"end" | null>(null);
 
   // Custom thumbnail (base64 data URI) chosen by the host
   const [customThumbnail, setCustomThumbnail] = useState<string | null>(null);
@@ -675,22 +700,67 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
 
       if (source === "camera") {
+        setCamIssue((was) => was ?? "waiting");
         const { createLocalVideoTrack } = await import("livekit-client");
         const track = await createLocalVideoTrack({
           resolution: captureResolution(orientation, saveData),
           facingMode: facing,
         });
         setPreviewTrack(track);
+        setCamIssue(null);
         if (videoElRef.current) {
           track.attach(videoElRef.current);
         }
       }
       // Screen share can't be previewed without a prompt, skip it
-    } catch {
-      // User denied camera access — that's fine
+    } catch (err) {
+      // No camera: say why, plainly, so the fix is obvious (the stage and
+      // the Go live button both offer it).
       setPreviewTrack(null);
+      const name = err instanceof Error ? err.name : "";
+      setCamIssue(
+        name === "NotFoundError" || name === "OverconstrainedError" || name === "DevicesNotFoundError"
+          ? "missing"
+          : name === "NotReadableError" || name === "TrackStartError" || name === "AbortError"
+            ? "busy"
+            : "denied"
+      );
     }
   }, [source, orientation, facing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The microphone is asked for with the camera, on the way in — not after
+  // the 3·2·1, when a browser prompt would land mid-countdown. A mic that's
+  // been refused holds Go live back, with the way to fix it.
+  const checkMic = useCallback(async (ask: boolean) => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices) return;
+    let state: PermissionState | null = null;
+    try {
+      const status = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+      state = status?.state ?? null;
+      // Allowed later from the address bar: Go live lets go at once.
+      if (status) status.onchange = () => setMicBlocked(status.state === "denied");
+    } catch {
+      // No Permissions API for the mic (older Safari): go-live asks, as before.
+    }
+    if (state === "granted") {
+      setMicBlocked(false);
+      return;
+    }
+    if (state === "denied" && !ask) {
+      setMicBlocked(true);
+      return;
+    }
+    if (state === null && !ask) return;
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+      setMicBlocked(false);
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      // A missing mic is go-live's to report; a refused one is fixable here.
+      setMicBlocked(name === "NotAllowedError" || name === "SecurityError");
+    }
+  }, []);
 
   // Start preview on mount and whenever the source, shape or camera
   // changes (only if not live) — a new shape is a new capture.
@@ -705,6 +775,17 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
     };
   }, [source, orientation, facing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once the camera's up, the mic's question comes straight after it — once a visit.
+  const micAskedRef = useRef(false);
+  useEffect(() => {
+    if (!previewTrack || isLive || micAskedRef.current) return;
+    const t = setTimeout(() => {
+      micAskedRef.current = true;
+      void checkMic(true);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [previewTrack, isLive, checkMic]);
 
   /** The camera the look rides right now: the preview before going live, the published track after. Never a shared screen or an encoder's feed. */
   const lookTrack = () => (source !== "camera" || localScreen ? null : isLive ? videoTrackRef.current : previewTrack);
@@ -771,7 +852,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     effectsRef.current?.play(effect);
   };
   // The camera is the main picture: not a shared screen, and not cut to the phone cam.
-  const cameraIsMain = source === "camera" && !localScreen && !(phoneConnected && scene.angle === "phone");
+  const cameraIsMain = source === "camera" && !localScreen && !(phoneConnected && placePhone(scene.phoneSlot ?? "off", scene.layout).cell);
   const faceCam = cameraIsMain ? (isLive ? liveCam : previewTrack) : null;
   // Viewers need the face at full rate only while an effect is on screen:
   // a trickle between gifts (so the next effect starts near the face), and
@@ -807,7 +888,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // What each folded section is set to, in a few words.
   const setsSummary = activeSet?.name ?? "No set";
   const shieldSummary = [shield.enabled ? "Checks on" : "Checks off", shield.zones.length ? `${shield.zones.length} covered ${shield.zones.length === 1 ? "area" : "areas"}` : null].filter(Boolean).join(" · ");
-  const secondCameraSummary = phoneConnected ? (scene.angle === "phone" ? "Phone on air" : "Phone connected") : "Add a phone as a second angle";
+  const secondCameraSummary = phoneConnected ? (phoneOnScreen(scene.phoneSlot ?? "off", scene.layout) ? "Phone on air" : "Phone connected") : "Add a phone as a second angle";
 
   // Remember the shape; know the screen.
   useEffect(() => {
@@ -1654,7 +1735,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     source?: SourceType;
     ingress?: { url: string; streamKey: string };
   }): Promise<boolean> => {
-    if (!resume && !title.trim()) return false;
+    // No title needed: a blank one goes out and the API names the stream.
     const src: SourceType = resume ? (resume.source ?? "obs") : source;
     setIsConnecting(true);
     setError(null);
@@ -1695,7 +1776,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         const res = await apiFetch<{
           success: boolean;
           data: {
-            stream: { id: string; livekitRoomName: string };
+            stream: { id: string; livekitRoomName: string; title?: string };
             livekitToken: string;
             livekitUrl: string;
             ingress?: { url: string; streamKey: string };
@@ -1703,7 +1784,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         }>("/api/streams", {
           method: "POST",
           body: JSON.stringify({
-            title,
+            title: title.trim(),
             category,
             tags: tagList,
             thumbnail,
@@ -1719,7 +1800,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         ({ livekitToken, livekitUrl } = res.data);
         createdStreamId = res.data.stream.id;
         setStreamId(createdStreamId);
+        setAirTitle(res.data.stream.title ?? null);
         if (res.data.ingress) setIngressInfo(res.data.ingress);
+        // Next time starts from here, in this browser.
+        saveLastDetails({ title, category });
       }
 
       // Step 2: Stop preview track
@@ -1743,6 +1827,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       setConn("live");
       setIsLive(true);
       setPanel("chat");
+      // The first time on air (a practice run counts), the walkthrough shows the live console.
+      if (!resume) tourAction("first-live");
       return true;
     } catch (err) {
       // Cleanup: if a stream was created here but connection/publish failed,
@@ -1811,6 +1897,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     stopRejoin();
     // The next stream is real unless they say otherwise again.
     setPractice(false);
+    setAirTitle(null);
+    setDetailsOpen(false);
     // The mic track went with the room, and the desk with it.
     deskRef.current = null;
     deskOnRef.current = false;
@@ -1904,9 +1992,13 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // Vivid's studioControl tool presses these controls on the user's behalf.
   // The handlers above are recreated every render, so the bridge reads the
   // latest ones through a ref; the registration itself happens once.
-  const vividRef = useRef({ goLive, endStream, toggleMic, toggleCam, toggleScreenShare, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog });
+  // Go live's 3·2·1: the tap starts it, the next tap calls it off, and it
+  // goes live when it runs out (camera only — see pressGoLive).
+  const countdown = useGoLiveCountdown(() => void goLive());
+  const cancelCountdown = countdown.cancel;
+  const vividRef = useRef({ goLive, endStream, toggleMic, toggleCam, toggleScreenShare, cancelCountdown, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog });
   useEffect(() => {
-    vividRef.current = { goLive, endStream, toggleMic, toggleCam, toggleScreenShare, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog };
+    vividRef.current = { goLive, endStream, toggleMic, toggleCam, toggleScreenShare, cancelCountdown, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog };
   });
   useEffect(() => {
     const unregisterBridge = registerStudioBridge(async (action: StudioAction) => {
@@ -1940,10 +2032,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         case "go_live": {
           if (v.isLive) return { error: "Already live." };
           if (v.isConnecting) return { error: "Already starting." };
-          if (!v.title.trim()) return { error: "The stream needs a title first — ask the user for one; they type it into the title field." };
+          // A title is optional: with none, the stream is named after them.
           setConfirmDialog(null);
-          await v.goLive();
-          return { success: true, title: v.title, category: v.category };
+          v.cancelCountdown();
+          const started = await v.goLive();
+          return started ? { success: true, title: v.title.trim() || null, category: v.category } : { error: "The stream didn't start — the studio says why." };
         }
         case "end_stream": {
           if (!v.isLive) return { error: "Not live." };
@@ -1959,14 +2052,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         isLive: v.isLive,
         starting: v.isConnecting,
         source: v.source,
-        title: v.title || null,
+        // Optional: blank, the stream goes out named after them.
+        title: v.title.trim() || null,
         category: v.category,
         micOn: v.micEnabled,
         cameraOn: v.camEnabled,
         screenSharing: v.screenShareActive,
         ...(v.isLive ? { viewers: v.viewerCount, liveFor: v.elapsed, streamId: v.streamId } : {}),
         ...vividShowRef.current,
-        openDialog: v.confirmDialog === "golive" ? "go live confirmation" : v.confirmDialog === "end" ? "end stream confirmation" : null,
+        openDialog: v.confirmDialog === "end" ? "end stream confirmation" : null,
       };
     });
     return () => {
@@ -2104,6 +2198,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }>(`/api/streams/${orphan.id}/resume`, { method: "POST" });
       const src = (r.data.stream.source ?? orphan.source) as SourceType;
       setTitle(r.data.stream.title);
+      setAirTitle(r.data.stream.title);
       setCategory(r.data.stream.category);
       setSource(src);
       if (typeof r.data.graceMs === "number") setGraceMs(r.data.graceMs);
@@ -2242,7 +2337,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   };
 
   useEffect(() => {
-    liveRef.current = { streamId, source, title, micEnabled, camEnabled };
+    liveRef.current = { streamId, source, title: onAirTitle, micEnabled, camEnabled };
     onRoomGoneRef.current = onRoomGone;
     attemptRejoinRef.current = attemptRejoin;
   });
@@ -2285,7 +2380,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         ? {
             state: conn,
             streamId: streamId!,
-            title,
+            title: onAirTitle,
             startedAt: (startTimeRef.current ?? new Date()).getTime(),
             viewers: viewerCount,
             micOn: micEnabled,
@@ -2295,7 +2390,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         : null,
       live ? liveActions : null
     );
-  }, [isLive, streamId, conn, title, viewerCount, micEnabled, camEnabled, source, liveActions]);
+  }, [isLive, streamId, conn, onAirTitle, viewerCount, micEnabled, camEnabled, source, liveActions]);
   useEffect(
     () => () => {
       if (publishedRef.current) publishLiveSession(null, null);
@@ -2451,10 +2546,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const shareStream = async () => {
     if (!streamId) return;
     const url = `${window.location.origin}/stream/${streamId}`;
-    const text = `I'm live on Xtream — ${title}`;
+    const text = onAirTitle ? `I'm live on Xtream — ${onAirTitle}` : "I'm live on Xtream";
     if (navigator.share) {
       try {
-        await navigator.share({ title, text, url });
+        await navigator.share({ title: onAirTitle || "Live on Xtream", text, url });
         return;
       } catch {
         // Fall through to clipboard
@@ -2517,13 +2612,77 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
   };
 
-  // What still stands between you and the button.
-  const ready = {
-    source: source === "obs" || source === "screen" || !!previewTrack,
-    title: title.trim().length >= 3,
-    category: !!category,
+  // The one thing that can hold Go live back: nothing to broadcast. A title,
+  // a category, a thumbnail — none of it is needed (owner, 2026-09-28: "I
+  // just clicked Live and I went live").
+  const blocker: { why: string; fix?: string; onFix?: () => void } | null =
+    source === "camera" && !previewTrack
+      ? camIssue === "denied"
+        ? { why: "Your camera is blocked. Allow it for this site in the address bar, then:", fix: "Turn on camera", onFix: () => void startPreview() }
+        : camIssue === "missing"
+          ? { why: "No camera found. Plug one in, or go live with your screen from More.", fix: "Try again", onFix: () => void startPreview() }
+          : camIssue === "busy"
+            ? { why: "Another app is using your camera. Close it, then:", fix: "Turn on camera", onFix: () => void startPreview() }
+            : { why: "Waiting for your camera — allow it when the browser asks." }
+      : source !== "obs" && micBlocked
+        ? { why: "Your mic is blocked. Allow it for this site in the address bar, then:", fix: "Turn on mic", onFix: () => void checkMic(true) }
+        : null;
+
+  /**
+   * Go live, from its button. A camera gets the 3·2·1 over its preview (the
+   * next tap calls it off); a screen goes at once — its share picker is the
+   * pause, and it needs the tap's own moment to open — and so does an
+   * encoder, which is the broadcaster anyway.
+   */
+  const pressGoLive = () => {
+    if (countdown.running) {
+      countdown.cancel();
+      return;
+    }
+    if (isConnecting || blocker) return;
+    setMoreOpen(false);
+    if (source !== "camera") {
+      void goLive();
+      return;
+    }
+    // The audio desk's context has to start from a tap, and this is the
+    // last one before the air.
+    if (!deskCtxRef.current && voiceNeedsDesk(voiceRef.current, { noiseFilter: noiseFilterOk })) {
+      try {
+        const ctx = new AudioContext({ latencyHint: "interactive" });
+        void ctx.resume();
+        deskCtxRef.current = ctx;
+      } catch {
+        // No desk, then: the mic goes out as it is.
+      }
+    }
+    countdown.start();
   };
-  const readyCount = Object.values(ready).filter(Boolean).length;
+
+  /** A title or category changed on air: saved to the stream (the API tells the room), and remembered here. */
+  const saveDetails = async (next: { title: string; category: string }) => {
+    if (!streamId) return;
+    const r = await apiFetch<{ success: boolean; data: { stream: { title: string; category: string } } }>(`/api/streams/${streamId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: next.title, category: next.category }),
+    });
+    setTitle(next.title);
+    setCategory(next.category);
+    setAirTitle(r.data.stream.title);
+    saveLastDetails(next);
+  };
+
+  // Market tools come up front for a markets or crypto stream, or once the
+  // host asks for them — and stay while any of them is on the picture.
+  const marketsUp =
+    marketTools ||
+    isMarketCategory(category) ||
+    scene.layout === "chart-face" ||
+    scene.layers.some((l) => l.kind === "prices" || l.kind === "call");
+  const toggleMarketTools = (on: boolean) => {
+    setMarketTools(on);
+    saveMarketTools(on);
+  };
 
   /* ------------------------------------------------------------------ */
   /* Render                                                              */
@@ -2587,20 +2746,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       : []),
     ...stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
   ];
-  // The phone cam in the program, as the scene has it: first among the
-  // others for Both, full-frame for Phone — over your own picture, which
-  // stays put underneath so a cut back is instant.
-  const angle = phoneConnected && phoneTrackRef.current ? (scene.angle ?? "main") : "main";
-  const programOthers: SceneCell[] =
-    angle === "both" && phoneTrackRef.current
-      ? [{ key: "phone-cam", node: <StageTile fill track={phoneTrackRef.current} label="Phone cam" /> }, ...stageOthers]
-      : stageOthers;
-  const phoneMain =
-    angle === "phone" && phoneTrackRef.current ? (
-      <div className="absolute inset-0">
-        <StageTile fill track={phoneTrackRef.current} label="Phone cam" />
-      </div>
-    ) : null;
+  // The phone cam, a source the scene places (scene.phoneSlot): the
+  // renderer puts it over your picture, beside it, or in the corner.
+  const phoneTile = phoneConnected && phoneTrackRef.current ? <StageTile fill track={phoneTrackRef.current} label="Phone cam" /> : undefined;
   const idle = !isLive && (source !== "camera" || !previewTrack);
   const encoderWaiting = isLive && source === "obs" && !obsFeedActive;
 
@@ -2648,19 +2796,25 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-xs text-muted-foreground">Server</span>
             <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyRows.url}</code>
-            <button onClick={() => copyIngressField("url", keyRows.url)} title="Copy server URL" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
-              {copiedField === "url" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-            </button>
+            <Tip label="Copy the server URL">
+              <button onClick={() => copyIngressField("url", keyRows.url)} aria-label="Copy the server URL" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                {copiedField === "url" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </Tip>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-xs text-muted-foreground">{ingestProtocol === "whip" ? "Token" : "Key"}</span>
             <code className="min-w-0 flex-1 truncate rounded-[8px] bg-white/[0.05] px-2.5 py-2 font-mono text-xs text-foreground/90">{keyVisible ? keyRows.streamKey : "••••••••••••••••••••••••"}</code>
-            <button onClick={() => setKeyVisible((v) => !v)} title={keyVisible ? "Hide key" : "Reveal key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
-              {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
-            </button>
-            <button onClick={() => copyIngressField("key", keyRows.streamKey)} title="Copy stream key" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
-              {copiedField === "key" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-            </button>
+            <Tip label={keyVisible ? "Hide the key" : "Show the key"}>
+              <button onClick={() => setKeyVisible((v) => !v)} aria-label={keyVisible ? "Hide the key" : "Show the key"} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                {keyVisible ? <EyeSlash size={14} /> : <Eye size={14} />}
+              </button>
+            </Tip>
+            <Tip label="Copy the stream key">
+              <button onClick={() => copyIngressField("key", keyRows.streamKey)} aria-label="Copy the stream key" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:text-foreground">
+                {copiedField === "key" ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </Tip>
           </div>
         </div>
       ) : (
@@ -2677,31 +2831,56 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     </div>
   );
 
-  /* ---- Pre-live: the fields, and the action that can be pinned apart ---- */
-  /** How close you are to the button — three bars, filled in ember as they land. */
-  const readiness = (
-    <div>
-      <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className={SETUP_LABEL}>Studio</p>
-          <h2 className="mt-1 font-wide text-[20px] leading-tight font-bold tracking-[-0.025em]">{readyCount === 3 ? "Ready when you are." : "Almost there."}</h2>
-        </div>
-        <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{readyCount}/3 ready</span>
+  /* ---- Pre-live: one tap from the air; everything else waits behind More ---- */
+  /** The console's opening line: who's about to be on. No checklist, no progress — nothing's required. */
+  const setupHeader = (
+    <div className="flex items-center gap-3">
+      <UserAvatar src={user?.avatar ?? ""} name={user?.displayName || user?.username || "You"} size={40} className="size-10 shrink-0" />
+      <div className="min-w-0">
+        <p className="truncate font-wide text-[18px] leading-tight font-bold tracking-[-0.02em]">{user?.displayName || user?.username || "Your stream"}</p>
+        <p className="truncate text-[12.5px] text-muted-foreground">{practice ? "Practice run · private" : user?.username ? `@${user.username}` : "Going live"}</p>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden>
-        {(["source", "title", "category"] as const).map((k) => (
-          <span key={k} className={cn("h-1 rounded-full transition-colors duration-500", ready[k] ? "bg-ember" : "bg-white/[0.08]")} />
-        ))}
-      </div>
-      <p className="mt-2 text-[12.5px] text-muted-foreground">
-        {!ready.source
-          ? "Waiting on your camera — allow it when the browser asks."
-          : !ready.title
-            ? "Give it a title — three letters or more."
-            : "Everything's set. Say the word."}
-      </p>
     </div>
   );
+
+  /** What's behind More, in a few words. */
+  const moreSummary = practice ? "Practice run is on" : source !== "camera" ? `${source === "screen" ? "Screen" : "OBS"} · sound, schedule…` : "Source, sound & look, schedule…";
+  /** The source and its shape, for the Source section's folded line. */
+  const sourceSummary = source === "camera" ? `Camera · ${orientation === "portrait" ? "Portrait" : "Landscape"}` : source === "screen" ? "Screen" : "OBS or any encoder";
+  /** The More button: a row in the console, a pill on the picture. Holds every other setup option. */
+  const moreButton = (variant: "row" | "pill") =>
+    variant === "row" ? (
+      <button
+        type="button"
+        data-tour="studio-more"
+        onClick={() => setMoreOpen(true)}
+        aria-expanded={moreOpen}
+        className="press flex w-full items-center gap-3 rounded-[12px] bg-tint/[0.04] px-3.5 py-3 text-left transition-colors hover:bg-tint/[0.07]"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/[0.07]">
+          <DotsThree size={18} weight="bold" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold">More</span>
+          <span className="block truncate text-[12.5px] text-muted-foreground">{moreSummary}</span>
+        </span>
+        <CaretRight size={15} className="shrink-0 text-muted-foreground" />
+      </button>
+    ) : (
+      <button
+        type="button"
+        data-tour="studio-more"
+        onClick={() => setMoreOpen(true)}
+        aria-expanded={moreOpen}
+        aria-label="More setup options"
+        className="obj press relative flex h-9 shrink-0 items-center gap-1.5 rounded-full pr-3.5 pl-3 text-[13px] font-semibold text-white"
+      >
+        <DotsThree size={17} weight="bold" />
+        More
+        {/* The last stream's frames are waiting in there. */}
+        {endedStreamId && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-ember" />}
+      </button>
+    );
 
   // One column in the side panel; two once the console is wide enough (tablets).
   // Sponsors a rundown cue can put up: your own, and the campaigns you're running.
@@ -2764,8 +2943,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     />
   );
 
-  const setupFields = (
-    <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
+  /** What's going on before anything's set: a stream still live without this studio, a booking being started. */
+  const setupNotices = (orphan || booking) && (
+    <div className="flex flex-col gap-2.5">
       {orphan && (() => {
         // Three ways a stream can be live without this studio on it.
         const obs = orphan.source === "obs";
@@ -2802,10 +2982,6 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         );
       })()}
 
-      {endedStreamId && (
-        <ThumbnailPicker streamId={endedStreamId} note="From the stream you just ended, picked for sharpness and light. Tap one to use it." onClose={() => setEndedStreamId(null)} className="@[620px]:col-span-2" />
-      )}
-
       {booking && (
         <div className="flex items-start gap-3 rounded-[12px] bg-ember/[0.1] px-4 py-3.5 @[620px]:col-span-2">
           <CalendarPlus size={18} className="mt-0.5 shrink-0 text-ember-hi" />
@@ -2827,47 +3003,124 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           </button>
         </div>
       )}
+    </div>
+  );
 
-      {/* The title, set the way it'll read — with WorldSpace's vanishing prompts while it's empty. */}
-      <div className="@[620px]:col-span-2">
-        <div className="flex items-baseline justify-between">
-          <label htmlFor="studio-title" className={SETUP_LABEL}>
-            What&apos;s the stream?
-          </label>
-          <span className="font-mono text-[11px] text-muted-foreground/60 tabular-nums">{title.length}/100</span>
+  /** The stream just ended: its best frames, to pick the thumbnail from. The console shows it; phones keep it in More. */
+  const endedPicker = endedStreamId ? (
+    <ThumbnailPicker streamId={endedStreamId} note="From the stream you just ended, picked for sharpness and light. Tap one to use it." onClose={() => setEndedStreamId(null)} className="@[620px]:col-span-2" />
+  ) : null;
+
+  /** The two things the go-live screen offers, both optional: a title and a category. */
+  const quickFields = (variant: "picture" | "panel") => (
+    <div className="flex min-w-0 flex-col gap-2.5">
+      <TitleField id="studio-title" variant={variant} value={title} onChange={setTitle} />
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <CategoryChip id="studio-category" variant={variant} value={category} onChange={setCategory} />
         </div>
-        <div className="relative mt-2.5">
-          {!title && <VanishingPlaceholder texts={TITLE_PROMPTS} className="font-wide text-[20px] font-bold tracking-[-0.02em] text-foreground/25" />}
-          <input
-            id="studio-title"
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={100}
-            autoComplete="off"
-            className="relative block w-full border-0 bg-transparent p-0 font-wide text-[20px] leading-[1.4] font-bold tracking-[-0.02em] text-foreground outline-none"
-          />
-        </div>
-        <div className="mt-2 h-px bg-white/[0.08]" />
+        {variant === "picture" && moreButton("pill")}
+      </div>
+    </div>
+  );
+
+  /**
+   * More: every other setup option, folded so the go-live screen stays a
+   * camera and a button (owner: "add a More for more things and just wrap
+   * more features there so users can just go live"). The same sections as
+   * before, moved here, not rewritten.
+   */
+  const moreSections = (
+    <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
+      {/* Phones: the last stream's frames wait here (the console shows them up front). */}
+      {phone && endedPicker}
+
+      {/* A practice run: the same studio, a private room, simulated chat and gifts. */}
+      <div data-tour="studio-practice" className="rounded-[12px] bg-tint/[0.04] px-3.5 py-3 @[620px]:col-span-2">
+        <SwitchField
+          label="Practice run"
+          description={
+            practice
+              ? "Private. Nobody's told, nothing's listed, and chat and gifts are simulated. Your producers can still join."
+              : "Rehearse in a private room with simulated chat and gifts before the real thing."
+          }
+          checked={practice}
+          onCheckedChange={setPractice}
+        />
       </div>
 
-      <div>
-        <label htmlFor="studio-category" className={SETUP_LABEL}>
-          Where it lives
-        </label>
-        <div className="mt-2.5">
-          <SelectField
-            id="studio-category"
-            full
-            value={category}
-            onChange={(v) => setCategory(v as Category)}
-            searchPlaceholder="Search 170 categories"
-            art={(v) => categoryArt(v, { w: 72, h: 96 })}
-            groups={CATEGORY_GROUPS.map((g) => ({ label: g.label, options: g.topics.map((cat) => ({ value: cat, label: cat })) }))}
-          />
+      {/* What goes out: the camera, a screen or an encoder — and, for a camera, its shape. */}
+      <CollapsibleSection
+        id="setup-source"
+        title="Source & shape"
+        icon={VideoCamera}
+        summary={sourceSummary}
+        defaultOpen={source === "obs"}
+        className="@[620px]:col-span-2"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex rounded-full bg-control p-0.5" role="group" aria-label="Source">
+            {(
+              [
+                { id: "camera" as SourceType, label: "Camera", icon: VideoCamera },
+                { id: "screen" as SourceType, label: "Screen", icon: Monitor },
+                { id: "obs" as SourceType, label: "OBS", icon: Broadcast },
+              ]
+            ).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  // A count running for the old source goes nowhere.
+                  countdown.cancel();
+                  setSource(s.id);
+                }}
+                aria-pressed={source === s.id}
+                className={cn(
+                  "press flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full text-[13px] font-semibold transition-colors",
+                  source === s.id ? "bg-inverse text-on-inverse" : "text-foreground/60 hover:text-foreground"
+                )}
+              >
+                <s.icon size={16} />
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {/* The shape of the stream — only a camera has one to choose. */}
+          {source === "camera" && (
+            <div className="flex items-center justify-between gap-3">
+              <span className={SETUP_LABEL}>Shape</span>
+              <div className="flex rounded-full bg-control p-0.5">
+                {(["portrait", "landscape"] as const).map((o) => (
+                  <button
+                    key={o}
+                    type="button"
+                    onClick={() => setOrientation(o)}
+                    aria-pressed={orientation === o}
+                    className={cn(
+                      "press flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
+                      orientation === o ? "bg-inverse text-on-inverse" : "text-foreground/60 hover:text-foreground"
+                    )}
+                  >
+                    <span className={cn("block rounded-[2px] border-[1.5px] border-current", o === "portrait" ? "h-3.5 w-2.5" : "h-2.5 w-3.5")} />
+                    {o === "portrait" ? "Portrait" : "Landscape"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {source === "obs" && encoderBlock}
         </div>
-      </div>
+      </CollapsibleSection>
 
+      <CollapsibleSection
+        id="setup-details"
+        title="Tags & thumbnail"
+        icon={Tag}
+        summary={[tagList.length ? `${tagList.length} ${tagList.length === 1 ? "tag" : "tags"}` : "No tags", customThumbnail ? "Your thumbnail" : "Thumbnail taken at go-live"].join(" · ")}
+        className="@[620px]:col-span-2"
+      >
+      <div className="grid grid-cols-1 gap-6 @[620px]:grid-cols-2 @[620px]:gap-x-8">
       <div>
         <div className="flex items-baseline justify-between">
           <label htmlFor="studio-tags" className={SETUP_LABEL}>
@@ -2951,34 +3204,20 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </div>
         {thumbError && <p className="mt-2 text-[12.5px] text-chili-hi">{thumbError}</p>}
       </div>
+      </div>
+      </CollapsibleSection>
 
+      {/* How it opens, how much it sends, and where else it's posted. */}
+      <CollapsibleSection
+        id="setup-going-live"
+        title="Going live"
+        icon={Broadcast}
+        summary={[openOnCard ? "Opens on “Starting soon”" : "Straight to camera", source !== "obs" && saveData ? "Save data" : null, postToWorldSpace ? "Posts to WorldSpace" : "Stays on Xtream"].filter(Boolean).join(" · ")}
+        className="@[620px]:col-span-2"
+      >
       <div className="flex flex-col gap-6">
-      {/* The shape of the stream — only a camera has one to choose. */}
-      {source === "camera" && (
-        <div className="flex items-center justify-between gap-3">
-          <span className={SETUP_LABEL}>Shape</span>
-          <div className="flex rounded-full bg-control p-0.5">
-            {(["portrait", "landscape"] as const).map((o) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => setOrientation(o)}
-                aria-pressed={orientation === o}
-                className={cn(
-                  "press flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
-                  orientation === o ? "bg-white text-[#0b0708]" : "text-foreground/60 hover:text-foreground"
-                )}
-              >
-                <span className={cn("block rounded-[2px] border-[1.5px] border-current", o === "portrait" ? "h-3.5 w-2.5" : "h-2.5 w-3.5")} />
-                {o === "portrait" ? "Portrait" : "Landscape"}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Open on a card: the first frame anyone sees is "Starting soon". */}
-      <div className="border-t border-white/[0.06] pt-3">
+      <div>
         <SwitchField
           label="Open on “Starting soon”"
           description={openOnCard ? "Viewers see the card first. Take it down from Scenes when you're ready." : "Viewers see your picture the moment you go live."}
@@ -2987,23 +3226,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         />
       </div>
 
-      {/* A practice run: the same studio, a private room, simulated chat and gifts. */}
-      <div className="border-t border-white/[0.06] pt-3">
-        <SwitchField
-          label="Practice run"
-          description={
-            practice
-              ? "Private. Nobody's told, nothing's listed, and chat and gifts are simulated. Your producers can still join."
-              : "Rehearse in a private room with simulated chat and gifts before the real thing."
-          }
-          checked={practice}
-          onCheckedChange={setPractice}
-        />
-      </div>
-
       {/* A weak uplink: send less, steadily. */}
       {source !== "obs" && (
-        <div className="border-t border-white/[0.06] pt-3">
+        <div className="border-t border-hairline pt-3">
           <SwitchField
             label="Save data — 540p"
             description={
@@ -3018,7 +3243,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       )}
 
       {/* Where it goes — the same switch as Settings and Schedule. */}
-      <div className="border-t border-white/[0.06] pt-3">
+      <div className="border-t border-hairline pt-3">
         <SwitchField
           label="Post to WorldSpace"
           description={postToWorldSpace ? "Shows up in the WorldSpace feed — needs an account there on this same login." : "Stays on Xtream. Your followers here are still told."}
@@ -3027,6 +3252,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         />
       </div>
       </div>
+      </CollapsibleSection>
 
       {/* Sound & look: what shapes your voice and your picture, set before anyone hears or sees them. */}
       {source !== "obs" && (
@@ -3100,7 +3326,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       {/* A second camera pairs before going live too: the phone holds the code and sends the moment you do. */}
       {source !== "obs" && user && (
         <CollapsibleSection id="setup-second-camera" title="Second camera" icon={Camera} summary={secondCameraSummary} className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2">
-          <SecondCameraPanel hostId={user.id} angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} phoneConnected={phoneConnected} headless />
+          <SecondCameraPanel
+            hostId={user.id}
+            layout={scene.layout}
+            phoneSlot={scene.phoneSlot ?? "off"}
+            onPlace={(patch) => void applyScene(patch)}
+            sharing={Boolean(localScreen) || source === "screen"}
+            hasCamera={source === "camera"}
+            phoneConnected={phoneConnected}
+            headless
+          />
         </CollapsibleSection>
       )}
 
@@ -3130,32 +3365,122 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         )}
       </div>
 
-      {source === "obs" && <div className="@[620px]:col-span-2">{encoderBlock}</div>}
+      {/* Later, not now: a booking with a reminder for your followers. */}
+      <Link
+        href="/schedule"
+        className="press flex items-center gap-3 rounded-[14px] bg-tint/[0.04] p-3.5 transition-colors hover:bg-tint/[0.06] @[620px]:col-span-2"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tint/[0.07]">
+          <CalendarPlus size={18} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold">Schedule for later</span>
+          <span className="block truncate text-[12.5px] text-muted-foreground">Book a time — followers can set a reminder</span>
+        </span>
+        <CaretRight size={16} className="shrink-0 text-muted-foreground" />
+      </Link>
+
+      {/* Charts, prices and market calls: on for markets and crypto streams, an option for everyone else. */}
+      <div className="rounded-[12px] bg-tint/[0.04] px-3.5 py-3 @[620px]:col-span-2">
+        <SwitchField
+          label="Market tools"
+          description={
+            isMarketCategory(category)
+              ? "On for this category: live charts, a price strip and market calls in Scenes."
+              : "Live charts, a price strip and market calls in Scenes — for when your stream talks markets."
+          }
+          checked={marketTools || isMarketCategory(category)}
+          disabled={isMarketCategory(category)}
+          onCheckedChange={toggleMarketTools}
+        />
+      </div>
     </div>
   );
 
-  const goLiveAction = (
-    <div className="p-4 pt-3">
-      <Button
-        variant="live"
-        onClick={() => setConfirmDialog("golive")}
-        disabled={!ready.title || isConnecting}
-        className="h-13 w-full gap-2 text-[16px]"
-      >
-        {isConnecting ? (<><div className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Connecting…</>) : practice ? (<><Lightning size={18} weight="fill" />Start practice</>) : (<><Lightning size={18} weight="fill" />Go live</>)}
-      </Button>
-      <p className="mt-2.5 text-center text-[12px] text-muted-foreground/60">
-        {!ready.title ? "Give the stream a title to go live." : practice ? "Nobody's told. End it whenever you like." : booking ? "Everyone with a reminder hears it the second you start." : "Your followers hear about it the second you start."}
-      </p>
-    </div>
-  );
+  /**
+   * Go live: the one big button. A camera counts 3·2·1 over its preview and
+   * a second tap calls it off; nothing holds it back but a camera or mic
+   * the browser won't hand over — and then it says why, with the fix.
+   */
+  const goLiveAction = (variant: "console" | "picture") => {
+    const counting = countdown.running;
+    return (
+      <div className={variant === "console" ? "p-4 pt-3" : undefined}>
+        {practice && !counting && (
+          <div className="mb-2.5 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setPractice(false)}
+              className="press flex h-7 items-center gap-1.5 rounded-full bg-ember px-3 text-[12px] font-bold text-on-ember"
+              aria-label="Practice run is on — turn it off"
+            >
+              Practice run
+              <X size={11} weight="bold" />
+            </button>
+          </div>
+        )}
+        <Button
+          variant="live"
+          size="lg"
+          onClick={pressGoLive}
+          disabled={!counting && (Boolean(blocker) || isConnecting)}
+          aria-label={counting ? `Going live in ${countdown.count} — tap to cancel` : undefined}
+          // The size's own height stands unless overridden outright (tailwind-merge keeps both).
+          className={cn("w-full gap-2", variant === "picture" ? "h-14! text-[17px]" : "text-[16px]", counting && "bg-chili/85")}
+        >
+          {isConnecting ? (
+            <>
+              <div className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              Going live…
+            </>
+          ) : counting ? (
+            <>
+              <span className="font-mono tabular-nums">{countdown.count}</span>
+              <span aria-hidden className="text-white/60">·</span>
+              Tap to cancel
+            </>
+          ) : practice ? (
+            <>
+              <Lightning size={18} weight="fill" />
+              Start practice
+            </>
+          ) : (
+            <>
+              <Lightning size={18} weight="fill" />
+              Go live
+            </>
+          )}
+        </Button>
+        <p className={cn("mt-2.5 text-center text-[12px]", variant === "picture" ? "text-white/70" : "text-muted-foreground/70")} role={blocker ? "status" : undefined}>
+          {blocker && !isConnecting ? (
+            <>
+              {blocker.why}{" "}
+              {blocker.fix && (
+                <button type="button" onClick={blocker.onFix} className="font-semibold text-ember-hi underline-offset-2 hover:underline">
+                  {blocker.fix}
+                </button>
+              )}
+            </>
+          ) : counting ? (
+            "Get ready — you're on in a moment."
+          ) : practice ? (
+            "Nobody's told. End it whenever you like."
+          ) : booking ? (
+            "Everyone with a reminder hears it the second you start."
+          ) : (
+            "Your followers hear about it the second you start."
+          )}
+        </p>
+      </div>
+    );
+  };
 
   /* ---- Live: the room's header — two numbers you can open, then the capsule ---- */
   const roomTabs: CapsuleTab<Panel>[] = [
     { id: "chat", label: "Chat", icon: ChatText },
-    { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length },
+    { id: "stage", label: "Stage", icon: HandWaving, badge: stageRequests.length, tour: "studio-stage" },
     { id: "requests", label: "Requests", icon: Ticket, badge: requestQueue.pending.length },
-    { id: "scenes", label: "Scenes", icon: LayoutIcon },
+    { id: "scenes", label: "Scenes", icon: LayoutIcon, tour: "studio-scenes" },
     { id: "battle", label: "Battle", icon: Sword },
     { id: "games", label: "Games", icon: Sparkle },
     { id: "more", label: "More", icon: DotsThree },
@@ -3231,7 +3556,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   {stageBusyId === r.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Approve
                 </button>
-                <button onClick={() => denyGuest(r.userId)} disabled={stageBusyId !== null} title="Decline" className="flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"><X size={14} /></button>
+                <Tip label="Decline their request">
+                  <button onClick={() => denyGuest(r.userId)} disabled={stageBusyId !== null} aria-label={`Decline ${r.username}`} className="flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"><X size={14} /></button>
+                </Tip>
               </div>
             ))}
           </div>
@@ -3253,7 +3580,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   {stageBusyId === g.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Put on
                 </button>
-                <button onClick={() => removeGuest(g.userId)} disabled={stageBusyId !== null} title="Send them back to the room" className="flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"><X size={14} /></button>
+                <Tip label="Send them back to the room">
+                  <button onClick={() => removeGuest(g.userId)} disabled={stageBusyId !== null} aria-label={`Send ${g.username} back to the room`} className="flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"><X size={14} /></button>
+                </Tip>
               </div>
             ))}
           </div>
@@ -3284,8 +3613,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         <CollapsibleSection id="live-second-camera" title="Second camera" icon={Camera} summary={secondCameraSummary}>
           <SecondCameraPanel
             hostId={user.id}
-            angle={scene.angle ?? "main"}
-            onAngle={(a) => void applyScene({ angle: a })}
+            layout={scene.layout}
+            phoneSlot={scene.phoneSlot ?? "off"}
+            onPlace={(patch) => void applyScene(patch)}
+            sharing={Boolean(localScreen) || source === "screen"}
+            hasCamera={source === "camera"}
             phoneConnected={phoneConnected}
             headless
           />
@@ -3327,7 +3659,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * API (room metadata + an `__evt: scene`); a refusal puts it back.
    */
   const applyScene = async (
-    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight" | "interpreter" | "angle">>,
+    patch: Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "gains" | "spotlight" | "interpreter" | "phoneSlot">>,
     /** The auto-director's own cuts don't pause it; anyone else's framing does. */
     by: "host" | "director" = "host",
   ): Promise<string | null> => {
@@ -3352,7 +3684,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
           interpreter: next.interpreter ?? null,
-          angle: next.angle ?? "main",
+          // Where the phone sits; the API keeps the older angle in step.
+          phoneSlot: next.phoneSlot ?? "off",
         }),
       });
       setScene((cur) => (r.data.scene.version >= cur.version ? r.data.scene : cur));
@@ -3704,6 +4037,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         names={stageTiles}
       />
 
+      {/* Chat's $tickers and the market's moments lead only on a markets stream, or once asked for. */}
+      {marketsUp && (
+        <>
       <TickerChips
         tickers={tickers}
         strip={priceStrip}
@@ -3727,8 +4063,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         }}
         onDismiss={marketSuggestions.dismiss}
       />
+        </>
+      )}
 
       <LayoutAndCards
+        markets={marketsUp}
+        phone={phoneConnected}
         scene={scene}
         battle={Boolean(battle)}
         guests={stageTiles.filter((t) => t.identity !== interpreterId)}
@@ -3779,7 +4119,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         // A market call is made on the live stream — never a practice run's, which the channel's record would keep.
         streamId={isLive && !practice ? streamId : null}
         hostName={user?.displayName || user?.username || ""}
-        streamTitle={title}
+        streamTitle={onAirTitle}
         people={liveGuests.map((g) => ({
           name: guestTiles.find((t) => t.identity === g.userId)?.name || g.username,
           username: g.username,
@@ -3787,6 +4127,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         carded={Boolean(scene.card)}
         battle={Boolean(opponentStreamId)}
         sponsors={sponsorships.data ? { own: sponsorships.data.sponsors, campaigns: sponsorships.data.campaigns } : null}
+        markets={marketsUp}
         onLayers={(layers) => void applyScene({ layers })}
         onBrand={saveBrand}
       />
@@ -3794,6 +4135,21 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       <CollapsibleSection id="live-sets" title="Sets" icon={Sparkle} summary={setsSummary}>
         {setsPanel}
       </CollapsibleSection>
+
+      {/* Charts, prices and market calls: always here, up front only when they fit the stream. */}
+      <div className="rounded-[12px] bg-tint/[0.04] px-3.5 py-3">
+        <SwitchField
+          label="Market tools"
+          description={
+            isMarketCategory(category)
+              ? "On for this category: chart + face, the price strip and market calls."
+              : "Chart + face, a price strip and market calls — for when your stream talks markets."
+          }
+          checked={marketTools || isMarketCategory(category)}
+          disabled={isMarketCategory(category)}
+          onCheckedChange={toggleMarketTools}
+        />
+      </div>
     </div>
   );
 
@@ -3857,9 +4213,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const morePanel = (
     <div className="flex flex-col gap-2.5 px-4 pt-4 pb-4">
       {practice ? (
-        <p className="rounded-[12px] bg-ember/[0.1] px-3.5 py-3 text-[12.5px] leading-snug text-foreground/85">
-          A practice run has no link — nobody but your producers can join, and nothing here is announced or paid.
-        </p>
+        // A watch-only preview link for the rehearsal (practice-share.tsx).
+        <PracticeShare streamId={isLive ? streamId : null} />
       ) : (
         <button onClick={shareStream} className="press flex h-11 items-center justify-center gap-2 rounded-full bg-white/[0.07] text-[14px] font-semibold text-foreground transition-colors hover:bg-white/[0.11]">
           {shareCopied ? <Check size={16} weight="bold" className="text-ember-hi" /> : <ShareNetwork size={16} />}
@@ -3939,6 +4294,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             // What a market question offers first: the price strip, chat's tickers, the chart.
             markets={[...new Set([...priceStrip, ...tickers.map((t) => t.symbol), ...(scene.chart ? [scene.chart.symbol] : [])])]}
             marketPreset={marketPreset}
+            marketsOn={marketsUp}
           />
         )}
       </div>
@@ -3949,37 +4305,40 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   /** A round control on the picture — the phone's camera column. */
   const roundButton = (props: { onClick?: () => void; label: string; active?: boolean; danger?: boolean; badge?: number; children: React.ReactNode }) => (
-    <button
-      type="button"
-      onClick={props.onClick}
-      aria-label={props.label}
-      title={props.label}
-      className={cn(
-        "press relative flex size-11 items-center justify-center rounded-full text-white",
-        props.danger ? "bg-chili/30 text-chili-hi ring-1 ring-chili/40 hover:bg-chili/40" : props.active ? "obj-on" : "obj hover:text-white"
-      )}
-    >
-      {props.children}
-      {props.badge ? (
-        <span className="absolute -top-0.5 -right-0.5 rounded-full bg-chili px-1.5 text-[10px] font-bold text-white tabular-nums">{props.badge}</span>
-      ) : null}
-    </button>
+    // The column rides the right edge, so its tips open to the left.
+    <Tip label={props.label} side="left">
+      <button
+        type="button"
+        onClick={props.onClick}
+        aria-label={props.label}
+        className={cn(
+          "press relative flex size-11 items-center justify-center rounded-full text-white",
+          props.danger ? "bg-chili/30 text-chili-hi ring-1 ring-chili/40 hover:bg-chili/40" : props.active ? "obj-on" : "obj hover:text-white"
+        )}
+      >
+        {props.children}
+        {props.badge ? (
+          <span className="absolute -top-0.5 -right-0.5 rounded-full bg-chili px-1.5 text-[10px] font-bold text-white tabular-nums">{props.badge}</span>
+        ) : null}
+      </button>
+    </Tip>
   );
 
   /** A key in the live dock: white when it's on, chili when something you'd expect on is off. */
   const dockButton = (props: { onClick?: () => void; label: string; on?: boolean; off?: boolean; children: React.ReactNode }) => (
-    <button
-      type="button"
-      onClick={props.onClick}
-      aria-label={props.label}
-      title={props.label}
-      className={cn(
-        "press flex size-11 items-center justify-center rounded-full transition-colors",
-        props.off ? "bg-chili text-white" : props.on ? "bg-white text-[#0b0708]" : "text-white hover:bg-white/[0.12]",
-      )}
-    >
-      {props.children}
-    </button>
+    <Tip label={props.label}>
+      <button
+        type="button"
+        onClick={props.onClick}
+        aria-label={props.label}
+        className={cn(
+          "press flex size-11 items-center justify-center rounded-full transition-colors",
+          props.off ? "bg-chili text-white" : props.on ? "bg-white text-[#0b0708]" : "text-white hover:bg-white/[0.12]",
+        )}
+      >
+        {props.children}
+      </button>
+    </Tip>
   );
 
   /**
@@ -4038,7 +4397,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             <SceneRenderer
               scene={scene}
               portrait={orientation === "portrait"}
-              forceAuto={Boolean(opponentStreamId) || angle === "both"}
+              forceAuto={Boolean(opponentStreamId)}
               host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
               mainLabel="You"
               main={
@@ -4051,11 +4410,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                     className={cn(
                       "size-full",
                       localScreen || source === "screen" ? "object-contain" : "object-cover",
-                      source === "camera" && facing === "user" && !localScreen && "-scale-x-100",
-                      phoneMain && "invisible"
+                      source === "camera" && facing === "user" && !localScreen && "-scale-x-100"
                     )}
                   />
-                  {phoneMain}
                   {/* Privacy zones, drawn over the shared screen they cover. */}
                   {editingZones && shieldTrack && (
                     <PrivacyZonesEditor
@@ -4068,21 +4425,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                       onDone={() => setEditingZones(false)}
                     />
                   )}
-                  {/* The Set's gift effects round your face, as viewers see them — mirrored with a mirrored preview. */}
-                  <GiftEffects
-                    set={activeSet}
-                    anchors={cameraIsMain ? faceFeed : null}
-                    fit={localScreen || source === "screen" ? "contain" : "cover"}
-                    mirrored={source === "camera" && facing === "user" && !localScreen}
-                    delayMs={80}
-                    onReady={(handle) => {
-                      effectsRef.current = handle;
-                    }}
-                  />
                 </div>
               }
+              over={
+                // The Set's gift effects round your face, as viewers see them — mirrored with a mirrored preview.
+                <GiftEffects
+                  set={activeSet}
+                  anchors={cameraIsMain ? faceFeed : null}
+                  fit={localScreen || source === "screen" ? "contain" : "cover"}
+                  mirrored={source === "camera" && facing === "user" && !localScreen}
+                  delayMs={80}
+                  onReady={(handle) => {
+                    effectsRef.current = handle;
+                  }}
+                />
+              }
               pip={localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
-              guests={programOthers}
+              // Your camera, for the corner when the phone takes your picture in Screen + face.
+              face={source === "camera" && !localScreen && videoTrackRef.current ? <StageTile fill self track={videoTrackRef.current} label="You" /> : undefined}
+              phone={phoneTile}
+              guests={stageOthers}
               brand={shownBrand}
               goal={goal}
               heat={heat}
@@ -4103,27 +4465,53 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           <div className="absolute inset-0 overflow-hidden">
             <div className="absolute inset-0 bg-surface" />
             <BrandMark size={360} className="absolute -right-16 -bottom-20 opacity-[0.06]" />
-            <div className={cn("absolute inset-0 flex items-center justify-center px-8 text-center", mode === "phone" && "pb-40")}>
+            <div className={cn("absolute inset-0 flex items-center justify-center px-8 text-center", mode === "phone" && "pb-60")}>
               <div className="max-w-md">
                 <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-white/[0.08]">
-                  {source === "camera" ? <VideoCamera size={28} weight="fill" /> : source === "screen" ? <Monitor size={28} weight="fill" /> : <Broadcast size={28} weight="fill" />}
+                  {source === "camera" ? (camIssue && camIssue !== "waiting" ? <VideoCameraSlash size={28} weight="fill" /> : <VideoCamera size={28} weight="fill" />) : source === "screen" ? <Monitor size={28} weight="fill" /> : <Broadcast size={28} weight="fill" />}
                 </span>
                 <p className="mt-5 font-wide text-[clamp(1.5rem,2.8vw,2.25rem)] leading-[1.05] font-bold tracking-[-0.035em] text-balance">
-                  {source === "camera" ? "Setting up your camera" : source === "screen" ? "Your screen is the stage" : "Stream from OBS or any encoder"}
+                  {source === "camera"
+                    ? camIssue === "denied"
+                      ? "Your camera is blocked"
+                      : camIssue === "missing"
+                        ? "No camera found"
+                        : camIssue === "busy"
+                          ? "Your camera is busy"
+                          : "Setting up your camera"
+                    : source === "screen"
+                      ? "Your screen is the stage"
+                      : "Stream from OBS or any encoder"}
                 </p>
                 <p className="mx-auto mt-3 max-w-[40ch] text-[14px] leading-relaxed text-white/60">
                   {source === "camera"
-                    ? "Allow camera and microphone access when the browser asks. Your preview appears here."
+                    ? camIssue === "denied"
+                      ? "The browser said no to the camera. Allow it for this site — the camera icon in the address bar — then turn it on here."
+                      : camIssue === "missing"
+                        ? "Plug a camera in and try again — or go live with your screen, from More."
+                        : camIssue === "busy"
+                          ? "Another app is using it. Close that app, then turn it on here."
+                          : "Allow camera and microphone access when the browser asks. Your preview appears here."
                     : source === "screen"
                       ? "The share picker opens the moment you go live, so nothing is captured before you say so."
-                      : "Your server URL and stream key are in the setup below. Set them once in OBS or vMix — they never change."}
+                      : "Your server URL and stream key are in More, under Source. Set them once in OBS or vMix — they never change."}
                 </p>
-                {source === "camera" && (
-                  <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[12px] font-medium text-white/80">
-                    <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
-                    Waiting for permission
-                  </span>
-                )}
+                {source === "camera" &&
+                  (camIssue && camIssue !== "waiting" ? (
+                    <button
+                      type="button"
+                      onClick={() => void startPreview()}
+                      className="press mt-5 inline-flex h-11 items-center gap-2 rounded-full bg-inverse px-5 text-[14px] font-semibold text-on-inverse"
+                    >
+                      <VideoCamera size={16} weight="fill" />
+                      {camIssue === "missing" ? "Try again" : "Turn on camera"}
+                    </button>
+                  ) : (
+                    <span className="mt-4 inline-flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-[12px] font-medium text-white/80">
+                      <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+                      Waiting for permission
+                    </span>
+                  ))}
               </div>
             </div>
           </div>
@@ -4170,9 +4558,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           </div>
         )}
 
+        {/* 3·2·1 over the preview, between the tap and the air. */}
+        <CountdownOverlay count={countdown.count} />
+
         {/* Scrims: the copy and controls sit on black, never on the picture. */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
-        {isLive && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent", mode === "phone" ? "h-64" : "h-36")} />}
+        {(isLive || mode === "phone") && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent", mode === "phone" ? (isLive ? "h-64" : "h-80") : "h-36")} />}
 
         {/* Tip alerts — the on-air moment */}
         {tipAlerts.length > 0 && (
@@ -4185,11 +4576,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                 ? mode === "phone"
                   ? "bottom-[calc(46dvh+0.75rem)] left-3 flex-col-reverse"
                   : "bottom-24 left-4 flex-col-reverse"
-                : onAirSegment && isLive
-                  ? mode === "phone"
-                    ? "top-[calc(max(env(safe-area-inset-top),12px)+6rem)] left-3 flex-col"
-                    : "top-28 left-4 flex-col"
-                  : "top-[4.5rem] left-4 flex-col md:top-16"
+                : mode === "phone" && isLive
+                  ? // Under the details pill, and the segment chip when one's on air.
+                    onAirSegment
+                    ? "top-[calc(max(env(safe-area-inset-top),12px)+9.25rem)] left-3 flex-col"
+                    : "top-[calc(max(env(safe-area-inset-top),12px)+6rem)] left-3 flex-col"
+                  : onAirSegment && isLive
+                    ? "top-28 left-4 flex-col"
+                    : "top-[4.5rem] left-4 flex-col md:top-16"
             )}
           >
             {tipAlerts.map((t) => (
@@ -4211,26 +4605,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           {!isLive ? (
             <>
               <Link href="/explore" aria-label="Back" className="obj press flex size-11 items-center justify-center rounded-full text-white md:hidden"><CaretLeft size={20} weight="bold" /></Link>
-              <div className="obj mx-auto flex rounded-full p-1">
-                {(
-                  [
-                    { id: "camera" as SourceType, label: "Camera", icon: VideoCamera },
-                    { id: "screen" as SourceType, label: "Screen", icon: Monitor },
-                    { id: "obs" as SourceType, label: "OBS", icon: Broadcast },
-                  ]
-                ).map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setSource(s.id)}
-                    aria-pressed={source === s.id}
-                    className={cn("press flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold", source === s.id ? "obj-on" : "text-white/70 hover:text-white")}
-                  >
-                    <s.icon size={16} />
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+              {/* The source (camera, screen, OBS) lives in More now: the screen is the camera and one button. */}
+              <span className="flex-1" />
               {source === "camera" ? (
                 roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })
               ) : (
@@ -4253,10 +4629,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   </span>
                 )}
                 <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>
-                <button type="button" onClick={() => openPanel("viewers")} className="flex h-full items-center gap-1.5 pr-3 font-mono text-[12px] font-semibold tabular-nums transition-colors hover:text-white/80">
-                  <Eye size={14} weight="bold" />
-                  {viewerCount}
-                </button>
+                <Tip label="See who's watching" side="bottom">
+                  <button type="button" onClick={() => openPanel("viewers")} aria-label={`${viewerCount} watching`} className="flex h-full items-center gap-1.5 pr-3 font-mono text-[12px] font-semibold tabular-nums transition-colors hover:text-white/80">
+                    <Eye size={14} weight="bold" />
+                    {viewerCount}
+                  </button>
+                </Tip>
               </span>
               {conn === "live" && health.verdict && <HealthChip verdict={health.verdict} onOpen={() => openPanel("stats")} />}
               {conn !== "live" && (
@@ -4282,9 +4660,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               ) : (
                 // The top bar steps aside while live, so the title and Vivid ride the stage instead.
                 <div className="ml-auto flex min-w-0 items-center gap-2">
-                  <span className="obj hidden h-8 max-w-[36ch] min-w-0 items-center rounded-full px-3.5 text-[12.5px] font-semibold text-white/85 lg:flex">
-                    <span className="truncate">{title}</span>
-                  </span>
+                  {/* The title, or an invitation to add one — a tap opens the details. */}
+                  <DetailsPill title={title} category={category} onOpen={() => setDetailsOpen(true)} className="max-w-[36ch]" />
                   <VividLauncher variant="orb" />
                 </div>
               )}
@@ -4304,13 +4681,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
         {/* Run of show on the stage (host-only, never in the program): the
             segment on air with its clock and Next, and the prompter. */}
-        {isLive && onAirSegment && show.position && (
+        {/* On a phone the stream's details pill leads this column; the segment chip sits under it. */}
+        {isLive && (mode === "phone" || (onAirSegment && show.position)) && (
           <div
             className={cn(
               "absolute z-20",
-              mode === "phone" ? "top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 max-w-[calc(100%-5rem)]" : "top-16 left-4 max-w-[calc(100%-2rem)]"
+              mode === "phone" ? "top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 flex max-w-[calc(100%-5rem)] flex-col items-start gap-2" : "top-16 left-4 max-w-[calc(100%-2rem)]"
             )}
           >
+            {mode === "phone" && <DetailsPill title={title} category={category} onOpen={() => setDetailsOpen(true)} />}
+            {onAirSegment && show.position && (
             <SegmentChip
               segment={onAirSegment}
               index={onAirIndex}
@@ -4322,6 +4702,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               onOpen={() => setPanel("show")}
               onNext={() => void goSegment(nextSegment).catch((err) => setError(err instanceof Error ? err.message : "Couldn't move the show on"))}
             />
+            )}
           </div>
         )}
         {prompterOn && (
@@ -4329,7 +4710,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             className={cn(
               "pointer-events-none absolute z-20 flex justify-center",
               mode === "phone"
-                ? cn("top-[calc(max(env(safe-area-inset-top),12px)+6.25rem)] right-[4.25rem] left-3", isLive ? "h-[36dvh]" : "h-[26dvh]")
+                ? cn(
+                    "right-[4.25rem] left-3",
+                    // Under the details pill (and the segment chip, when one's on air).
+                    isLive && onAirSegment ? "top-[calc(max(env(safe-area-inset-top),12px)+9.25rem)]" : "top-[calc(max(env(safe-area-inset-top),12px)+6.25rem)]",
+                    isLive ? "h-[36dvh]" : "h-[26dvh]"
+                  )
                 : "inset-x-4 top-28 h-[min(46cqh,420px)]"
             )}
           >
@@ -4348,15 +4734,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         {isLive && mode !== "phone" && (
           <div className={cn("absolute inset-x-0 bottom-5 z-20 flex justify-center px-4 transition-[opacity,transform] duration-300", dockHidden && "pointer-events-none translate-y-2 opacity-0")}>
             <div className="obj flex items-center gap-1 rounded-full p-1.5">
-              {source !== "obs" && dockButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", off: !micEnabled, children: micEnabled ? <Microphone size={21} /> : <MicrophoneSlash size={21} /> })}
-              {source !== "obs" && dockButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", on: panel === "audio", children: <Faders size={20} /> })}
-              {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: toggleMic, label: micEnabled ? "Mute your mic" : "Unmute your mic", off: !micEnabled, children: micEnabled ? <Microphone size={21} /> : <MicrophoneSlash size={21} /> })}
+              {source !== "obs" && dockButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: panel === "audio" ? "Close the audio desk" : "Open the audio desk", on: panel === "audio", children: <Faders size={20} /> })}
+              {source !== "obs" && dockButton({ onClick: toggleCam, label: camEnabled ? "Turn your camera off" : "Turn your camera on", off: !camEnabled, children: camEnabled ? <VideoCamera size={21} /> : <VideoCameraSlash size={21} /> })}
               {source === "camera" && dockButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={21} /> })}
               {source === "camera" && dockButton({ onClick: toggleScreenShare, label: screenShareActive ? "Stop sharing your screen" : "Share your screen", on: screenShareActive, children: <MonitorArrowUp size={21} /> })}
               {source !== "obs" && <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />}
               {vividOnAir && talkHold({})}
-              {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", on: panel === "show", children: <Playlist size={20} /> })}
-              {dockButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", on: prompterOn, children: <ClapperboardText size={20} /> })}
+              {dockButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: panel === "show" ? "Close the run of show" : "Open the run of show", on: panel === "show", children: <Playlist size={20} /> })}
+              {dockButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Show the teleprompter", on: prompterOn, children: <ClapperboardText size={20} /> })}
               <span aria-hidden className="mx-1 h-6 w-px bg-white/15" />
               {dockButton({ onClick: shareStream, label: shareCopied ? "Link copied" : "Share the stream", on: shareCopied, children: shareCopied ? <Check size={19} weight="bold" /> : <ShareNetwork size={20} /> })}
               <button
@@ -4374,17 +4760,31 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         {/* ---- Phone live: the camera's own controls ride the picture ---- */}
         {isLive && mode === "phone" && source !== "obs" && (
           <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] right-3 z-20 flex flex-col items-center gap-2.5">
-            {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute" : "Unmute", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
-            {roundButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: "Sound", active: panel === "audio", children: <Faders size={22} /> })}
-            {roundButton({ onClick: toggleCam, label: camEnabled ? "Camera off" : "Camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
+            {roundButton({ onClick: toggleMic, label: micEnabled ? "Mute your mic" : "Unmute your mic", danger: !micEnabled, children: micEnabled ? <Microphone size={22} /> : <MicrophoneSlash size={22} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "audio" ? "chat" : "audio"), label: panel === "audio" ? "Close the audio desk" : "Open the audio desk", active: panel === "audio", children: <Faders size={22} /> })}
+            {roundButton({ onClick: toggleCam, label: camEnabled ? "Turn your camera off" : "Turn your camera on", danger: !camEnabled, children: camEnabled ? <VideoCamera size={22} /> : <VideoCameraSlash size={22} /> })}
             {/* Phones can't share a screen; a camera flips. */}
             {source === "camera" && roundButton({ onClick: flipCamera, label: "Flip camera", children: <CameraRotate size={22} /> })}
-            {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: "Run of show", active: panel === "show", children: <Playlist size={21} /> })}
-            {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
+            {roundButton({ onClick: () => setPanel(panel === "show" ? "chat" : "show"), label: panel === "show" ? "Close the run of show" : "Open the run of show", active: panel === "show", children: <Playlist size={21} /> })}
+            {roundButton({ onClick: () => setPrompterOn((on) => !on), label: prompterOn ? "Hide the teleprompter" : "Show the teleprompter", active: prompterOn, children: <ClapperboardText size={21} /> })}
             {vividOnAir && talkHold({ phone: true })}
           </div>
         )}
 
+        {/* ---- Phone, pre-live: the camera and one big button. A title and
+            a category if you like; everything else is behind More. ---- */}
+        {mode === "phone" && !isLive && (
+          <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)]">
+            {setupNotices && <div className="rounded-[14px] bg-surface text-foreground">{setupNotices}</div>}
+            {!countdown.running && quickFields("picture")}
+            {goLiveAction("picture")}
+          </div>
+        )}
+
+        {/* On air elsewhere than a phone: the details card opens under its pill. */}
+        {isLive && detailsOpen && mode !== "phone" && (
+          <StreamDetailsSheet phone={false} title={title} category={category} onSave={saveDetails} onClose={() => setDetailsOpen(false)} />
+        )}
       </div>
 
       {/* ---- Tablet & desktop: the console — setup before, the room during ---- */}
@@ -4400,12 +4800,35 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         >
           {!isLive ? (
             <>
-              <div className="@container min-h-0 flex-1 overflow-y-auto p-5 pb-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
-                <div className="mb-6">{readiness}</div>
-                {setupFields}
-              </div>
-              {/* Pinned: the button never scrolls away from the fields it depends on. */}
-              <div className="shrink-0 shadow-[inset_0_1px_0_rgba(255,236,230,0.06)]">{goLiveAction}</div>
+              {moreOpen ? (
+                // More, as a panel in the console: every other option, and back.
+                <Appear key="more" className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setMoreOpen(false)}
+                      aria-label="Back to going live"
+                      className="press flex size-9 items-center justify-center rounded-full text-foreground hover:bg-tint/[0.06]"
+                    >
+                      <CaretLeft size={18} weight="bold" />
+                    </button>
+                    <h2 className="font-wide text-[17px] font-bold tracking-[-0.02em]">More</h2>
+                  </div>
+                  <div className="@container min-h-0 flex-1 overflow-y-auto p-5 pt-3 pb-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">{moreSections}</div>
+                </Appear>
+              ) : (
+                <div className="@container min-h-0 flex-1 overflow-y-auto p-5 pb-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                  {setupHeader}
+                  <div className="mt-5 flex flex-col gap-3">
+                    {setupNotices}
+                    {endedPicker}
+                    {quickFields("panel")}
+                    {moreButton("row")}
+                  </div>
+                </div>
+              )}
+              {/* Pinned: the button never scrolls away. */}
+              <div className="shrink-0 shadow-[inset_0_1px_0_var(--hairline-color)]">{goLiveAction("console")}</div>
             </>
           ) : (
             <>
@@ -4454,52 +4877,59 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </DragSheet>
       )}
 
-      {/* ---- Phones: the setup sheet, pre-live ---- */}
-      {mode === "phone" && !isLive && (
-        <DragSheet
-          label="Stream setup"
-          collapsible
-          detents={[0.56, 0.86]}
-          defaultDetent={0}
-          header={<div className="px-4 pt-1 pb-3">{readiness}</div>}
-          footer={goLiveAction}
-        >
-          <div className="px-4 pb-2">{setupFields}</div>
-        </DragSheet>
+      {/* ---- Phones: More, pre-live — every other setup option, in a sheet ---- */}
+      {mode === "phone" && !isLive && moreOpen && (
+        <>
+          <button type="button" aria-label="Close More" onClick={() => setMoreOpen(false)} className="animate-fade-in absolute inset-0 z-[35] bg-black/50" />
+          <DragSheet
+            label="More"
+            detents={[0.62, 0.9]}
+            defaultDetent={0}
+            onDismiss={() => setMoreOpen(false)}
+            className="animate-sheet-up z-40"
+            header={
+              <div className="flex items-center justify-between px-4 pb-3">
+                <h2 className="font-wide text-[18px] font-bold tracking-[-0.02em]">More</h2>
+                <button type="button" onClick={() => setMoreOpen(false)} className="press h-9 rounded-full bg-tint/[0.08] px-4 text-[13px] font-semibold text-foreground">
+                  Done
+                </button>
+              </div>
+            }
+          >
+            <div className="px-4 pb-[max(env(safe-area-inset-bottom),20px)]">{moreSections}</div>
+          </DragSheet>
+        </>
       )}
 
-      {/* Go live / end confirmation */}
-      {confirmDialog && (
+      {/* ---- Phones, on air: the details sheet, over the room's drawer ---- */}
+      {isLive && detailsOpen && mode === "phone" && (
+        <StreamDetailsSheet phone title={title} category={category} onSave={saveDetails} onClose={() => setDetailsOpen(false)} />
+      )}
+
+      {/* Ending asks first. Going live doesn't: its 3·2·1 is the moment to change your mind. */}
+      {confirmDialog === "end" && (
         <div className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center">
           <div className="animate-sheet-up w-full rounded-t-[20px] bg-popover p-6 pb-[max(env(safe-area-inset-bottom),24px)] text-center shadow-[inset_0_1px_0_rgba(255,236,230,0.06)] md:animate-pop-in md:mx-4 md:max-w-sm md:rounded-[20px] md:pb-6">
-            {/* Go live is solid Chili; ending is a quieter chili. */}
-            <div className={cn("mx-auto mb-4 flex size-12 items-center justify-center rounded-full", confirmDialog === "golive" ? "bg-chili" : "bg-chili/15")}>
-              {confirmDialog === "golive" ? <Lightning size={22} weight="fill" className="text-white" /> : <Warning size={22} className="text-chili-hi" />}
+            {/* Ending is a quieter chili. */}
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-chili/15">
+              <Warning size={22} className="text-chili-hi" />
             </div>
-            <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{confirmDialog === "golive" ? (practice ? "Start a practice run?" : "Ready to go live?") : practice ? "End the practice run?" : "End the stream?"}</h2>
+            <h2 className="font-wide text-[20px] font-bold tracking-[-0.02em]">{practice ? "End the practice run?" : "End the stream?"}</h2>
             <p className="mt-2 text-[14px] leading-relaxed text-muted-foreground">
-              {confirmDialog === "golive"
-                ? practice
-                  ? `"${title}" opens in a private room only you and your producers can join. Chat and gifts are simulated; nothing is announced or paid.`
-                  : source === "obs"
-                    ? `This creates "${title}" and hands you the RTMP details for your encoder.`
-                    : `You're about to broadcast "${title}" to everyone on Xtream.`
-                : practice
-                  ? "The rehearsal ends and can't be resumed. Nothing was recorded or announced."
-                  : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
+              {practice
+                ? "The rehearsal ends and can't be resumed. Nothing was recorded or announced."
+                : `Your stream will end for all ${viewerCount} viewer${viewerCount !== 1 ? "s" : ""} and can't be resumed.`}
             </p>
             <div className="mt-6 flex gap-2">
-              <button onClick={() => setConfirmDialog(null)} className="press h-11 flex-1 rounded-full bg-control text-sm font-semibold text-foreground transition-colors hover:bg-control-hover">{confirmDialog === "golive" ? "Not yet" : "Keep going"}</button>
+              <button onClick={() => setConfirmDialog(null)} className="press h-11 flex-1 rounded-full bg-control text-sm font-semibold text-foreground transition-colors hover:bg-control-hover">Keep going</button>
               <button
                 onClick={() => {
-                  const action = confirmDialog;
                   setConfirmDialog(null);
-                  if (action === "golive") goLive();
-                  else endStream();
+                  void endStream();
                 }}
-                className={cn("press h-11 flex-1 rounded-full text-sm font-semibold transition-[filter,background-color]", confirmDialog === "golive" ? "bg-chili text-white hover:brightness-110" : "bg-white text-[#0b0708] hover:bg-white/90")}
+                className="press h-11 flex-1 rounded-full bg-white text-sm font-semibold text-[#0b0708] transition-[filter,background-color] hover:bg-white/90"
               >
-                {confirmDialog === "golive" ? (practice ? "Start practice" : "Go live") : practice ? "End practice" : "End stream"}
+                {practice ? "End practice" : "End stream"}
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, Bell, BellSlash, CaretLeft, CaretRight, DotsThree, SignOut, Trash, type Icon } from "@/components/icons";
 import { IconButton } from "@/components/xtream";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 
 /**
@@ -84,17 +85,19 @@ export function ThreadMenu({
 
   return (
     <div ref={wrapRef} className="relative shrink-0">
-      <IconButton
-        ref={triggerRef}
-        icon={DotsThree}
-        label="Conversation options"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((v) => !v);
-          setPage("main");
-        }}
-      />
+      <Tip label="More options" side="bottom">
+        <IconButton
+          ref={triggerRef}
+          icon={DotsThree}
+          label="Conversation options"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((v) => !v);
+            setPage("main");
+          }}
+        />
+      </Tip>
       {open && (
         <div
           ref={panelRef}

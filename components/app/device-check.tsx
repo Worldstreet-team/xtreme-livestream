@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Microphone, MicrophoneSlash, VideoCamera, VideoCameraSlash } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
+import { Tip } from "@/components/ui/tip";
 import type { AttachableVideoTrack } from "@/components/app/stage-tile";
 import { cn } from "@/lib/utils";
 
@@ -170,30 +171,32 @@ export function DeviceCheck({
       {(onToggleMic || onToggleCam) && (
         <div className="flex flex-wrap gap-2">
           {onToggleMic && (
-            <Pill
-              size="sm"
-              variant="soft"
-              tone={micOn ? "green" : "red"}
-              icon={micOn ? <Microphone size={14} /> : <MicrophoneSlash size={14} />}
-              onClick={onToggleMic}
-              aria-pressed={micOn}
-              title={micOn ? "Mute your mic" : "Unmute your mic"}
-            >
-              {micOn ? "Mic on" : "Mic off"}
-            </Pill>
+            <Tip label={micOn ? "Mute your mic" : "Unmute your mic"}>
+              <Pill
+                size="sm"
+                variant="soft"
+                tone={micOn ? "green" : "red"}
+                icon={micOn ? <Microphone size={14} /> : <MicrophoneSlash size={14} />}
+                onClick={onToggleMic}
+                aria-pressed={micOn}
+              >
+                {micOn ? "Mic on" : "Mic off"}
+              </Pill>
+            </Tip>
           )}
           {onToggleCam && (
-            <Pill
-              size="sm"
-              variant="soft"
-              tone={camOn ? "green" : "red"}
-              icon={camOn ? <VideoCamera size={14} /> : <VideoCameraSlash size={14} />}
-              onClick={onToggleCam}
-              aria-pressed={camOn}
-              title={camOn ? "Turn your camera off" : "Turn your camera on"}
-            >
-              {camOn ? "Camera on" : "Camera off"}
-            </Pill>
+            <Tip label={camOn ? "Turn your camera off" : "Turn your camera on"}>
+              <Pill
+                size="sm"
+                variant="soft"
+                tone={camOn ? "green" : "red"}
+                icon={camOn ? <VideoCamera size={14} /> : <VideoCameraSlash size={14} />}
+                onClick={onToggleCam}
+                aria-pressed={camOn}
+              >
+                {camOn ? "Camera on" : "Camera off"}
+              </Pill>
+            </Tip>
           )}
         </div>
       )}

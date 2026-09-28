@@ -6,6 +6,7 @@ import { Coins, Fire } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { formatPoints } from "@/lib/games";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/ui/tip";
 
 /**
  * Your points and your watch streak, in the top bar. Reads once (which also
@@ -53,10 +54,13 @@ export function PointsChip() {
   }, []);
 
   if (balance === null) return null;
+  const quests = `${ready} ${ready === 1 ? "quest" : "quests"} ready to claim`;
   return (
+    <Tip side="bottom" label={ready > 0 ? `${quests} on Rewards` : `Your points · ${streak}-day watch streak`}>
     <Link
       href="/rewards"
-      title={ready > 0 ? `${ready} ${ready === 1 ? "quest" : "quests"} ready to claim on the Rewards page` : "Your points and watch streak — redeem points on the Rewards page"}
+      data-tour="points"
+      aria-label={`Rewards: ${formatPoints(balance)} points, ${streak}-day watch streak${ready > 0 ? `, ${quests}` : ""}`}
       className={cn(
         "press relative flex h-10 items-center gap-2.5 rounded-full bg-control px-3.5 text-[13.5px] font-semibold text-foreground tabular-nums transition-[transform,background-color] hover:bg-control-hover",
         pop && "scale-110"
@@ -67,7 +71,7 @@ export function PointsChip() {
         {formatPoints(balance)}
       </span>
       <span className="h-4 w-px bg-tint/[0.12]" aria-hidden />
-      <span className="flex items-center gap-1 text-[13px]" title={`${streak}-day watch streak`}>
+      <span className="flex items-center gap-1 text-[13px]">
         <Fire size={15} weight="fill" className={streak > 0 ? "text-chili-hi" : "text-muted-foreground/50"} />
         {streak}d
       </span>
@@ -79,5 +83,6 @@ export function PointsChip() {
         </span>
       )}
     </Link>
+    </Tip>
   );
 }

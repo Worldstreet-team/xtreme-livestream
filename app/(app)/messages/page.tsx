@@ -151,7 +151,7 @@ export default function MessagesOverview() {
           </div>
 
           {/* Calls: what's on, or what's possible. */}
-          <div style={{ "--i": 7 } as React.CSSProperties} className={cn(tile, "col-span-6 flex flex-col justify-between md:col-span-3")}>
+          <div data-tour="messages-calls" style={{ "--i": 7 } as React.CSSProperties} className={cn(tile, "col-span-6 flex flex-col justify-between md:col-span-3")}>
             <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">Calls</p>
             {calling ? (
               <>

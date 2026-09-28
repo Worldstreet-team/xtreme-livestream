@@ -1,5 +1,5 @@
 import type mongoose from "mongoose";
-import type { FeaturedItem } from "@xtreme/contracts";
+import { angleOfPhoneSlot, phoneSlotOfAngle, type FeaturedItem, type PhoneSlot, type SceneAngle } from "@xtreme/contracts";
 import { sendRoomData, setRoomScene } from "./livekit.js";
 import { Stream, type IChatMessage, type IStream, type IUser } from "./models.js";
 
@@ -53,6 +53,11 @@ export function featuredFrom(
   };
 }
 
+/** Where the phone sits in a stored scene: its placement, or, from before placements, its angle. */
+export function phoneSlotOf(scene: { angle?: SceneAngle | undefined; phoneSlot?: PhoneSlot | undefined } | undefined | null): PhoneSlot {
+  return scene?.phoneSlot ?? phoneSlotOfAngle(scene?.angle);
+}
+
 /** The scene as clients read it, from what's stored. */
 export function sceneView(scene: Partial<IStream["scene"]> | undefined | null) {
   return {
@@ -65,7 +70,10 @@ export function sceneView(scene: Partial<IStream["scene"]> | undefined | null) {
     spotlight: scene?.spotlight ?? null,
     interpreter: scene?.interpreter ?? null,
     // Streams from before the phone cam carry no angle: they show the main camera.
-    angle: scene?.angle ?? "main",
+    // Where the phone sits is one word (phoneSlot); a stream from before
+    // placements reads it from its angle, and the angle always follows it.
+    angle: angleOfPhoneSlot(phoneSlotOf(scene)),
+    phoneSlot: phoneSlotOf(scene),
     featured: scene?.featured ?? null,
     version: scene?.version ?? 0,
   };

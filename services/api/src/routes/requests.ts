@@ -19,6 +19,7 @@ import { checkMessage, NEW_ACCOUNT_MS } from "../safety/filter.js";
 import { roleIn } from "../safety/roles.js";
 import { reconcileStream } from "../stream-service.js";
 import { assertNotBanned } from "./moderation.js";
+import { assertMayInteract } from "../preview.js";
 
 /**
  * Paid requests (Phase 2): each creator writes and prices their own menu
@@ -168,6 +169,8 @@ export const requestRoutes: FastifyPluginAsync = async (fastify) => {
       if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
       if (!(await reconcileStream(stream))) throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
       if (stream.streamerId.equals(viewer.dbUser._id)) throw new ApiError(400, "That's your own menu", "SELF_REQUEST");
+      // A practice run takes no money: watch-only for anyone but its crew.
+      await assertMayInteract(stream, viewer.dbUser._id);
       if (!stream.requestsOpen) throw new ApiError(409, "The host isn't taking requests right now", "REQUESTS_CLOSED");
       await assertNotBanned(stream._id, viewer.dbUser._id);
 

@@ -1,9 +1,9 @@
 import type mongoose from "mongoose";
-import type { SceneLayer, Scene as SceneWire } from "@xtreme/contracts";
+import { angleOfPhoneSlot, phoneSlotOfAngle, type PhoneSlot, type SceneAngle, type SceneLayer, type Scene as SceneWire } from "@xtreme/contracts";
 import { cardMoment, recordMoment } from "./analytics.js";
 import { resolveCallLayers } from "./calls.js";
 import { ApiError } from "./errors.js";
-import { sceneView } from "./featured.js";
+import { phoneSlotOf, sceneView } from "./featured.js";
 import { sendRoomData, setRoomScene } from "./livekit.js";
 import { Stream } from "./models.js";
 import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "./sponsors.js";
@@ -21,6 +21,22 @@ type Id = mongoose.Types.ObjectId | string;
 /** What a client sends: the scene without the fields only the API sets. */
 export type SceneBody = Omit<SceneWire, "version" | "featured">;
 
+/**
+ * Where the phone goes after a write. Its own word wins. A client that only
+ * knows angles moves it only by sending a different angle than the one
+ * stored — so a whole scene echoed back with the same angle leaves a
+ * placement it can't express (the corner) alone. Nothing sent: it stays.
+ */
+export function nextPhoneSlot(
+  body: { phoneSlot?: PhoneSlot | undefined; angle?: SceneAngle | undefined },
+  stored: { phoneSlot?: PhoneSlot | undefined; angle?: SceneAngle | undefined } | undefined | null,
+): PhoneSlot {
+  if (body.phoneSlot) return body.phoneSlot;
+  const now = phoneSlotOf(stored);
+  if (body.angle && body.angle !== angleOfPhoneSlot(now)) return phoneSlotOfAngle(body.angle);
+  return now;
+}
+
 export async function putScene(streamId: Id, body: SceneBody, now = new Date()) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const stream = await Stream.findById(streamId).select("streamerId isLive category scene livekitRoomName").lean();
@@ -33,6 +49,7 @@ export async function putScene(streamId: Id, body: SceneBody, now = new Date()) 
     const sponsorBefore = sponsorLayerOf(stream.scene?.layers);
     const cardBefore = stream.scene?.card ?? null;
     const expected = stream.scene?.version ?? 0;
+    const phoneSlot = nextPhoneSlot(body, stream.scene);
     const updated = await Stream.findOneAndUpdate(
       {
         _id: stream._id,
@@ -51,8 +68,10 @@ export async function putScene(streamId: Id, body: SceneBody, now = new Date()) 
           "scene.spotlight": body.spotlight,
           "scene.interpreter": body.interpreter,
           // Optional on the wire: a client that doesn't know about the phone
-          // cam sends no angle, and must not knock the phone off the program.
-          "scene.angle": body.angle ?? stream.scene?.angle ?? "main",
+          // cam sends neither, and must not knock the phone off the program.
+          // The placement is the truth; the angle is its older name.
+          "scene.phoneSlot": phoneSlot,
+          "scene.angle": angleOfPhoneSlot(phoneSlot),
         },
         $inc: { "scene.version": 1 },
       },

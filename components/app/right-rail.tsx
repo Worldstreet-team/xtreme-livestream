@@ -21,6 +21,7 @@ import { GiftMark, HighlightMark } from "@/components/app/art";
 import { WolfIcon } from "@/components/ui/wolf-icon";
 import { MarketSquareLockup } from "@/components/ui/market-mark";
 import { WorldSpaceLockup } from "@/components/ui/worldspace-mark";
+import { Tip } from "@/components/ui/tip";
 
 /**
  * The right rail — the column the socials app runs beside its feed, tuned
@@ -260,13 +261,16 @@ export function RightRail() {
           />
           <div className="-mx-1 flex gap-3 overflow-x-auto px-1 py-1 scrollbar-none">
             {liveBattles.map((b) => (
-              <Link key={`battle-${b.id}`} href={`/stream/${b.host.streamId}`} className="flex shrink-0 flex-col items-center gap-1.5" title={`${b.host.displayName} vs ${b.challenger.displayName}`}>
-                <MergedRing a={{ avatar: b.host.avatar, name: b.host.displayName }} b={{ avatar: b.challenger.avatar, name: b.challenger.displayName }} />
-                <span className="w-24 truncate text-center text-[11px] text-muted-foreground">{b.host.displayName.split(" ")[0]} vs {b.challenger.displayName.split(" ")[0]}</span>
-              </Link>
+              <Tip key={`battle-${b.id}`} label={`Battle: ${b.host.displayName} vs ${b.challenger.displayName}`} side="bottom">
+                <Link href={`/stream/${b.host.streamId}`} className="flex shrink-0 flex-col items-center gap-1.5">
+                  <MergedRing a={{ avatar: b.host.avatar, name: b.host.displayName }} b={{ avatar: b.challenger.avatar, name: b.challenger.displayName }} />
+                  <span className="w-24 truncate text-center text-[11px] text-muted-foreground">{b.host.displayName.split(" ")[0]} vs {b.challenger.displayName.split(" ")[0]}</span>
+                </Link>
+              </Tip>
             ))}
             {games.map(({ game, stream }) => (
-              <Link key={`game-${game.id}`} href={`/stream/${stream.id}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5" title={questionOf(game)}>
+              <Tip key={`game-${game.id}`} label={questionOf(game)} side="bottom">
+              <Link href={`/stream/${stream.id}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5">
                 <Ring
                   avatar={stream.streamer.avatar}
                   name={stream.streamer.displayName}
@@ -280,6 +284,7 @@ export function RightRail() {
                 />
                 <span className="w-full truncate text-center text-[11px] font-medium text-foreground/80">{stream.streamer.username}</span>
               </Link>
+              </Tip>
             ))}
             {stories.map((s) => (
               <Link key={s.key} href={s.href} className="flex w-16 shrink-0 flex-col items-center gap-1.5">

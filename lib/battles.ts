@@ -113,3 +113,37 @@ export function giftFilterLine(filter: readonly string[] | null | undefined) {
   if (gifts.length <= 3) return `Only ${gifts.map((g) => g.name).join(", ")} count`;
   return `Only ${gifts.length} gifts count`;
 }
+
+/** The side ahead on these scores, or null when level. */
+export function leaderOf(host: number, challenger: number): "host" | "challenger" | null {
+  if (host === challenger) return null;
+  return host > challenger ? "host" : "challenger";
+}
+
+/**
+ * Time to a booked battle as a clock: "12:05" under an hour, "2:31:44"
+ * under a day, "3d 4h" past that. Never negative.
+ */
+export function formatCountdown(ms: number) {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(sec / 86_400);
+  const h = Math.floor((sec % 86_400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+  return `${m}:${pad(s)}`;
+}
+
+/** One gift that moved a battle's score, from GET /api/battles/:id/activity. */
+export interface BattleGift {
+  id: string;
+  side: "host" | "challenger";
+  /** What it added to the side's score (×2 already applied), USD cents. */
+  usdMinor: number;
+  giftName: string;
+  emoji: string;
+  sender: { userId: string; displayName: string };
+  at: string;
+}

@@ -9,6 +9,7 @@ import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/pill";
+import { Tip } from "@/components/ui/tip";
 import { PillTabs } from "@/components/ui/tabs";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { MarketQuestionForm } from "@/components/app/market-question-form";
@@ -28,10 +29,13 @@ export function GamesPanel({
   inline = false,
   markets = [],
   marketPreset = null,
+  marketsOn = true,
 }: {
   streamId: string;
   /** Inside a sheet or tab: full width, form open from the start, no toggle. */
   inline?: boolean;
+  /** Offer the Market template — the studio turns it off unless the stream is about markets. */
+  marketsOn?: boolean;
   /** Markets a market question offers first: the price strip's, chat's tickers, the chart's. */
   markets?: string[];
   /** A market question to fill in (a market move's "Ask chat") — opens the Market template with it; a new object each time. */
@@ -191,7 +195,8 @@ export function GamesPanel({
               { id: "prediction" as const, label: "Prediction", icon: Sparkle },
               { id: "raffle" as const, label: "Raffle", icon: Ticket },
               { id: "quiz" as const, label: "Quiz", icon: Question },
-              { id: "market" as const, label: "Market", icon: ChartLineUp },
+              // A market question only where markets are the talk (or one is being handed in).
+              ...(marketsOn || marketPreset || type === "market" ? [{ id: "market" as const, label: "Market", icon: ChartLineUp }] : []),
             ]}
             value={type}
             onChange={setType}
@@ -218,15 +223,17 @@ export function GamesPanel({
                   {outcomes.map((o, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       {type === "quiz" ? (
-                        <button
-                          type="button"
-                          onClick={() => setCorrect(i)}
-                          aria-pressed={correct === i}
-                          title="Mark as the right answer"
-                          className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase", correct === i ? "bg-emerald-400 text-neutral-950" : "bg-white/[0.1] text-foreground")}
-                        >
-                          {correct === i ? <Check size={11} weight="bold" /> : String.fromCharCode(97 + i)}
-                        </button>
+                        <Tip label="Mark as the right answer">
+                          <button
+                            type="button"
+                            onClick={() => setCorrect(i)}
+                            aria-pressed={correct === i}
+                            aria-label={`Answer ${String.fromCharCode(65 + i)} is right`}
+                            className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold uppercase", correct === i ? "bg-emerald-400 text-neutral-950" : "bg-white/[0.1] text-foreground")}
+                          >
+                            {correct === i ? <Check size={11} weight="bold" /> : String.fromCharCode(97 + i)}
+                          </button>
+                        </Tip>
                       ) : (
                         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/[0.1] text-[10px] font-bold uppercase">{String.fromCharCode(97 + i)}</span>
                       )}

@@ -15,6 +15,7 @@ import { CATEGORY_GROUPS } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { NotificationsBell } from "@/components/app/notifications-bell";
+import { Tip } from "@/components/ui/tip";
 
 /**
  * The bar across the top of every page.
@@ -152,6 +153,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         <button
           type="button"
           onClick={onMenu}
+          data-tour="account-menu"
           aria-label={user ? (unreadThreads ? `Open your menu, ${unreadThreads} unread conversations` : "Open your menu") : "Open menu"}
           className="press group relative -ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-foreground md:hidden"
         >
@@ -285,19 +287,24 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           </div>
         )}
         {user ? (
-          <Link href={`/c/${user.username}`} data-vivid-own-channel title={user.displayName} className="hidden shrink-0 md:block">
-            <UserAvatar src={user.avatar} name={user.displayName || user.username} size={36} className="size-9 ring-1 ring-tint/[0.1]" />
-          </Link>
+          <Tip label="Your channel" side="bottom">
+            <Link href={`/c/${user.username}`} data-vivid-own-channel aria-label={`Your channel, ${user.displayName || user.username}`} className="hidden shrink-0 md:block">
+              <UserAvatar src={user.avatar} name={user.displayName || user.username} size={36} className="size-9 ring-1 ring-tint/[0.1]" />
+            </Link>
+          </Tip>
         ) : isLoading ? (
           <div className="hidden size-[34px] animate-pulse rounded-full bg-tint/10 md:block" />
         ) : (
-          <a
-            href={SIGN_IN_URL}
-            className="press hidden h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-control px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-control-hover md:flex md:size-10 md:px-0 xl:w-auto xl:px-4"
-          >
-            <SignIn size={15} />
-            <span className="hidden xl:inline">Sign in</span>
-          </a>
+          <Tip label="Sign in" side="bottom">
+            <a
+              href={SIGN_IN_URL}
+              aria-label="Sign in"
+              className="press hidden h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-control px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-control-hover md:flex md:size-10 md:px-0 xl:w-auto xl:px-4"
+            >
+              <SignIn size={15} />
+              <span className="hidden xl:inline">Sign in</span>
+            </a>
+          </Tip>
         )}
       </div>
     </header>

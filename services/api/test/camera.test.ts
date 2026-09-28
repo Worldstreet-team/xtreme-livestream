@@ -68,6 +68,7 @@ vi.mock("../src/watch-sessions.js", () => ({
 const models = await import("../src/models.js");
 const db = models as unknown as Record<string, import("./fake-mongo.js").FakeModel>;
 const { resetCameraLinks, CAMERA_LINK_TTL_MS, CAMERA_RETRY_MS } = await import("../src/routes/camera.js");
+const { nextPhoneSlot } = await import("../src/scene-put.js");
 
 describe("a second phone as a camera", () => {
   let app: FastifyInstance;
@@ -257,5 +258,66 @@ describe("a second phone as a camera", () => {
     expect(sceneBodySchema.parse({ angle: "both" }).angle).toBe("both");
     expect("angle" in sceneBodySchema.parse({})).toBe(false);
     expect(sceneBodySchema.safeParse({ angle: "wide" }).success).toBe(false);
+  });
+
+  it("places the phone in any layout, and keeps the angle in step for clients that only know angles", async () => {
+    const stream = goLive();
+    const put = (payload: Record<string, unknown>) => app.inject({ method: "PUT", url: `/api/streams/${stream._id}/scene`, payload });
+
+    // A stream from before placements reads its phone from its angle.
+    const before = await put({ layout: "auto" });
+    expect(before.json().data.scene).toMatchObject({ phoneSlot: "off", angle: "main" });
+
+    // Screen + face with the phone as the face: a placement the angle has no word for.
+    const face = await put({ layout: "screen-face", phoneSlot: "corner" });
+    expect(face.statusCode).toBe(200);
+    expect(face.json().data.scene).toMatchObject({ layout: "screen-face", phoneSlot: "corner", angle: "main" });
+    expect(stream.scene).toMatchObject({ layout: "screen-face", phoneSlot: "corner", angle: "main" });
+
+    // An older client echoes the whole scene with the angle it read: the phone stays the face.
+    const echoed = await put({ layout: "screen-face", angle: "main" });
+    expect(echoed.json().data.scene).toMatchObject({ phoneSlot: "corner", angle: "main" });
+
+    // …and one that cuts to the phone moves it.
+    const cut = await put({ layout: "screen-face", angle: "phone" });
+    expect(cut.json().data.scene).toMatchObject({ phoneSlot: "main", angle: "phone" });
+
+    // Split, the camera and the phone side by side: its angle reads "both".
+    const side = await put({ layout: "split", phoneSlot: "beside" });
+    expect(side.json().data.scene).toMatchObject({ layout: "split", phoneSlot: "beside", angle: "both" });
+
+    // The placement wins over an angle sent alongside it.
+    const both = await put({ layout: "solo", phoneSlot: "main", angle: "main" });
+    expect(both.json().data.scene).toMatchObject({ phoneSlot: "main", angle: "phone" });
+
+    // Nothing sent about the phone: it stays where it is.
+    const quiet = await put({ layout: "auto" });
+    expect(quiet.json().data.scene).toMatchObject({ layout: "auto", phoneSlot: "main", angle: "phone" });
+
+    expect((await put({ phoneSlot: "ceiling" })).statusCode).toBe(400);
+  });
+
+  it("reads a stored angle as its placement, for streams from before placements", async () => {
+    const stream = goLive();
+    (stream.scene as Record<string, unknown>).angle = "both";
+    const put = (payload: Record<string, unknown>) => app.inject({ method: "PUT", url: `/api/streams/${stream._id}/scene`, payload });
+    const res = await put({ layout: "auto" });
+    expect(res.json().data.scene).toMatchObject({ phoneSlot: "beside", angle: "both" });
+  });
+
+  it("takes the placement on the wire as optional, and only the four there are", () => {
+    expect(sceneBodySchema.parse({ phoneSlot: "corner" }).phoneSlot).toBe("corner");
+    expect("phoneSlot" in sceneBodySchema.parse({})).toBe(false);
+    expect(sceneBodySchema.safeParse({ phoneSlot: "ceiling" }).success).toBe(false);
+  });
+
+  it("decides where the phone goes from what was sent and what's stored", () => {
+    expect(nextPhoneSlot({ phoneSlot: "corner" }, { angle: "phone" })).toBe("corner");
+    expect(nextPhoneSlot({}, { phoneSlot: "corner", angle: "main" })).toBe("corner");
+    expect(nextPhoneSlot({ angle: "main" }, { phoneSlot: "corner", angle: "main" })).toBe("corner");
+    expect(nextPhoneSlot({ angle: "both" }, { phoneSlot: "corner", angle: "main" })).toBe("beside");
+    expect(nextPhoneSlot({ angle: "main" }, { phoneSlot: "beside", angle: "both" })).toBe("off");
+    expect(nextPhoneSlot({}, { angle: "phone" })).toBe("main");
+    expect(nextPhoneSlot({}, null)).toBe("off");
   });
 });

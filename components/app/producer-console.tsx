@@ -16,6 +16,7 @@ import {
 } from "@/components/icons";
 import { CapsuleTabs, type CapsuleTab } from "@/components/ui/capsule-tabs";
 import { LiveBadge } from "@/components/ui/badge";
+import { Tip } from "@/components/ui/tip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Empty } from "@/components/app/empty";
 import { LiveChat } from "@/components/app/live-chat";
@@ -30,7 +31,8 @@ import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/compon
 import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
 import { newerGoal, newerHeat, readGoal, readHeat } from "@/lib/goals";
-import { AngleSwitch } from "@/components/app/second-camera-panel";
+import { PhoneShots } from "@/components/app/second-camera-panel";
+import { placePhone, tilesBeside } from "@/lib/angles";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
@@ -38,7 +40,7 @@ import { brandWithSet, setById } from "@/lib/sets";
 import { RoomEvent } from "livekit-client";
 import { useConsole, useConsoleRoom, type ConsoleData, type ConsoleStream } from "@/lib/producer";
 import { applyCues, formatClock, readPosition, readSegments, type RundownPosition, type RundownSegment } from "@/lib/rundown";
-import { CARDS, DEFAULT_SCENE, guestsShown, layerOf, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, withLayer, type Scene } from "@/lib/scene";
+import { CARDS, DEFAULT_SCENE, layerOf, newerScene, readBrand, readFeatureQueue, readScene, sceneFromMetadata, withLayer, type Scene } from "@/lib/scene";
 import { serverNow, serverOffset } from "@/lib/server-clock";
 import { MAX_PRICE_SYMBOLS } from "@xtreme/contracts";
 import { readTickers, type Trending } from "@/lib/market";
@@ -58,7 +60,7 @@ const MAX_BACKSTAGE = 4;
 
 type Tab = "scenes" | "show" | "stage" | "chat";
 type StageUser = { userId: string; username: string; avatar: string; standing?: StageStanding | null };
-type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight" | "interpreter" | "angle">>;
+type ScenePatch = Partial<Pick<Scene, "layout" | "card" | "cardNote" | "layers" | "chart" | "spotlight" | "interpreter" | "phoneSlot">>;
 
 /**
  * Producer mode (Phase 3): the console at /produce/<channel>. The host on a
@@ -367,7 +369,8 @@ function LiveConsole({
           gains: next.gains ?? {},
           spotlight: next.spotlight ?? null,
           interpreter: next.interpreter ?? null,
-          angle: next.angle ?? "main",
+          // Where the phone sits; the API keeps the older angle in step.
+          phoneSlot: next.phoneSlot ?? "off",
         }),
       });
       const saved = readScene(r.data.scene);
@@ -519,39 +522,43 @@ function LiveConsole({
       ...stageGuests.map(guestCell),
     ];
   })();
-  // The host's phone cam in the program, as the scene has it: first among
-  // the others for Both, full-frame for Phone.
-  const angle = live.phoneCamera ? (scene.angle ?? "main") : "main";
-  const programOthers =
-    angle === "both" && live.phoneCamera ? [{ key: "phone-cam", node: <StageTile fill track={live.phoneCamera} label="Phone cam" /> }, ...others] : others;
-  const sharing = guestsShown(angle === "both" ? "auto" : scene.layout, programOthers.length, Boolean(battleOn)) > 0;
-  const mainTrack = angle === "phone" && live.phoneCamera ? live.phoneCamera : (live.hostScreen ?? live.hostCamera);
+  // The host's phone cam, where the scene places it (the renderer puts it
+  // there): over the host's picture, beside it, or in the corner.
+  const phoneSlot = live.phoneCamera ? (scene.phoneSlot ?? "off") : "off";
+  const phoneHasCell = placePhone(phoneSlot, scene.layout).cell;
+  const sharing = tilesBeside(scene.layout, others.length, phoneSlot, Boolean(battleOn)) > 0;
+  const mainTrack = live.hostScreen ?? live.hostCamera;
 
   const program = (
     <div className="relative aspect-video w-full overflow-hidden rounded-[16px] bg-black desk:rounded-[18px]">
       <SceneRenderer
         scene={scene}
         portrait={false}
-        forceAuto={Boolean(battleOn) || angle === "both"}
+        forceAuto={Boolean(battleOn)}
         host={{ name: hostName, avatar: host.avatar }}
-        mainLabel={angle === "phone" ? "Phone cam" : hostName}
+        mainLabel={hostName}
         main={
           <div className="relative size-full">
             <TrackVideo track={mainTrack} fit={sharing ? "cover" : "contain"} />
-            {/* The Set's gift effects, round the host's face — not over a screen or the phone cam. */}
-            <GiftEffects
-              set={setById(brand.set ?? null)}
-              anchors={angle === "phone" || live.hostScreen ? null : anchorFeed}
-              fit={sharing ? "cover" : "contain"}
-              onReady={(handle) => {
-                effectsRef.current = handle;
-              }}
-            />
           </div>
         }
+        over={
+          // The Set's gift effects, round the host's face — not over a screen or the phone cam.
+          <GiftEffects
+            set={setById(brand.set ?? null)}
+            anchors={phoneHasCell || live.hostScreen ? null : anchorFeed}
+            fit={sharing ? "cover" : "contain"}
+            onReady={(handle) => {
+              effectsRef.current = handle;
+            }}
+          />
+        }
         pip={live.hostScreen && live.hostCamera ? <StageTile fill track={live.hostCamera} label={hostName} /> : undefined}
+        face={!live.hostScreen && live.hostCamera ? <StageTile fill track={live.hostCamera} label={hostName} /> : undefined}
+        phone={live.phoneCamera ? <StageTile fill track={live.phoneCamera} label="Phone cam" /> : undefined}
+        phoneSlot={phoneSlot}
         pipClassName="top-3 right-3"
-        guests={programOthers}
+        guests={others}
         brand={brandWithSet(brand)}
         goal={goal}
         heat={heat}
@@ -603,6 +610,7 @@ function LiveConsole({
       />
       <LayoutAndCards
         crew
+        phone={Boolean(live.phoneCamera)}
         scene={scene}
         battle={Boolean(battleOn)}
         guests={guestNames.filter((g) => g.identity !== scene.interpreter)}
@@ -685,16 +693,17 @@ function LiveConsole({
                   {stageBusy === r.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Bring on
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void stageAction(r.userId, "deny")}
-                  disabled={stageBusy !== null}
-                  aria-label={`Decline ${r.username}`}
-                  title="Decline"
-                  className="press flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                >
-                  <X size={14} />
-                </button>
+                <Tip label="Decline their request">
+                  <button
+                    type="button"
+                    onClick={() => void stageAction(r.userId, "deny")}
+                    disabled={stageBusy !== null}
+                    aria-label={`Decline ${r.username}`}
+                    className="press flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                  >
+                    <X size={14} />
+                  </button>
+                </Tip>
               </div>
             ))}
           </div>
@@ -721,16 +730,17 @@ function LiveConsole({
                   {stageBusy === g.userId ? <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" /> : <Check size={13} weight="bold" />}
                   Put on
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void stageAction(g.userId, "remove")}
-                  disabled={stageBusy !== null}
-                  aria-label={`Send ${g.username} back to the room`}
-                  title="Send them back to the room"
-                  className="press flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                >
-                  <X size={14} />
-                </button>
+                <Tip label="Send them back to the room">
+                  <button
+                    type="button"
+                    onClick={() => void stageAction(g.userId, "remove")}
+                    disabled={stageBusy !== null}
+                    aria-label={`Send ${g.username} back to the room`}
+                    className="press flex size-8 items-center justify-center rounded-full bg-white/[0.07] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                  >
+                    <X size={14} />
+                  </button>
+                </Tip>
               </div>
             ))}
           </div>
@@ -764,9 +774,18 @@ function LiveConsole({
           </div>
         )}
 
-        {/* The host's phone cam is in: what the program shows of it is the console's to change too. */}
+        {/* The host's phone cam is in: where it sits in the program is the console's to change too. */}
         {live.phoneCamera && (
-          <AngleSwitch className="mt-5 border-t border-white/[0.06] pt-4" angle={scene.angle ?? "main"} onAngle={(a) => void applyScene({ angle: a })} enabled />
+          <PhoneShots
+            crew
+            className="mt-5 border-t border-white/[0.06] pt-4"
+            layout={scene.layout}
+            slot={scene.phoneSlot ?? "off"}
+            onPlace={(patch) => void applyScene(patch)}
+            enabled
+            sharing={Boolean(live.hostScreen)}
+            hasCamera={Boolean(live.hostCamera)}
+          />
         )}
       </section>
       <p className="text-[12px] leading-relaxed text-muted-foreground/70">
@@ -913,19 +932,20 @@ function ConsoleHeader({
         </LiveBadge>
       ) : null}
       {onListen && (
-        <button
-          type="button"
-          onClick={onListen}
-          aria-pressed={listen}
-          title={listen ? "Stop listening" : "Listen to the room"}
-          className={cn(
-            "press flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
-            listen ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]"
-          )}
-        >
-          {listen ? <SpeakerHigh size={15} weight="fill" /> : <SpeakerSlash size={15} />}
-          <span className="max-sm:sr-only">{listen ? "Listening" : "Listen"}</span>
-        </button>
+        <Tip label={listen ? "Stop listening" : "Listen to the room"} side="bottom">
+          <button
+            type="button"
+            onClick={onListen}
+            aria-pressed={listen}
+            className={cn(
+              "press flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
+              listen ? "bg-white text-[#0b0708]" : "bg-white/[0.07] text-foreground hover:bg-white/[0.11]"
+            )}
+          >
+            {listen ? <SpeakerHigh size={15} weight="fill" /> : <SpeakerSlash size={15} />}
+            <span className="max-sm:sr-only">{listen ? "Listening" : "Listen"}</span>
+          </button>
+        </Tip>
       )}
     </header>
   );
@@ -1011,20 +1031,20 @@ function QuickBar({
         {CARDS.map((c) => {
           const on = scene.card === c.id;
           return (
-            <button
-              key={c.id}
-              type="button"
-              aria-pressed={on}
-              aria-label={`${c.title} card`}
-              onClick={() => onCard(on ? null : c.id)}
-              title={on ? "On screen — tap to take it down" : c.body}
-              className={cn(
-                "press h-10 truncate rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
-                on ? "bg-ember text-on-ember" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
-              )}
-            >
-              {CARD_SHORT[c.id]}
-            </button>
+            <Tip key={c.id} label={on ? "Take the card down" : `Put “${c.title}” on screen`}>
+              <button
+                type="button"
+                aria-pressed={on}
+                aria-label={`${c.title} card`}
+                onClick={() => onCard(on ? null : c.id)}
+                className={cn(
+                  "press h-10 truncate rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
+                  on ? "bg-ember text-on-ember" : "bg-white/[0.06] text-foreground/85 hover:bg-white/[0.1]"
+                )}
+              >
+                {CARD_SHORT[c.id]}
+              </button>
+            </Tip>
           );
         })}
       </div>

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DropdownMenu as Menu } from "radix-ui";
 import { Broadcast, CalendarPlus } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { useAuth } from "@/lib/auth-context";
 import { signInHref } from "@/lib/auth-urls";
 import { useLiveSession } from "@/lib/live-session";
@@ -103,7 +104,7 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
 
   if (!user) {
     return (
-      <a href={signInHref("/studio")} aria-label="Sign in to go live" className={cn(place, face, "size-14")}>
+      <a href={signInHref("/studio")} data-tour="go-live" aria-label="Sign in to go live" className={cn(place, face, "size-14")}>
         <Broadcast size={24} weight="fill" aria-hidden />
       </a>
     );
@@ -111,7 +112,7 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
 
   if (live) {
     return (
-      <Link href="/studio" aria-label="On air — open the studio" className={cn(place, face, "h-12 gap-2 px-4 text-[14px] font-semibold")}>
+      <Link href="/studio" data-tour="go-live" aria-label="On air — open the studio" className={cn(place, face, "h-12 gap-2 px-4 text-[14px] font-semibold")}>
         <AirDot />
         On air
       </Link>
@@ -122,6 +123,7 @@ export function GoLiveFab({ held = false }: { held?: boolean }) {
     <>
       <button
         ref={fabRef}
+        data-tour="go-live"
         type="button"
         onClick={() => setOpen(true)}
         aria-label={fresh ? "Go live, new" : "Go live"}
@@ -292,31 +294,38 @@ export function GoLiveRailButton({ collapsed = false, className }: { collapsed?:
 
   if (!user) {
     return (
-      <a href={signInHref("/studio")} title={collapsed ? "Go live" : undefined} aria-label="Sign in to go live" className={face}>
-        <Broadcast size={17} weight="fill" aria-hidden />
-        {!collapsed && "Go live"}
-      </a>
+      <Tip label="Sign in to go live" side="right" disabled={!collapsed}>
+        <a href={signInHref("/studio")} aria-label="Sign in to go live" className={face}>
+          <Broadcast size={17} weight="fill" aria-hidden />
+          {!collapsed && "Go live"}
+        </a>
+      </Tip>
     );
   }
 
   if (live) {
     return (
-      <Link href="/studio" title={collapsed ? "On air" : undefined} aria-label="On air — open the studio" className={face}>
-        <AirDot className="size-2 [&>span]:size-2" />
-        {!collapsed && "On air"}
-      </Link>
+      <Tip label="You're on air — open the studio" side="right" disabled={!collapsed}>
+        <Link href="/studio" aria-label="On air — open the studio" className={face}>
+          <AirDot className="size-2 [&>span]:size-2" />
+          {!collapsed && "On air"}
+        </Link>
+      </Tip>
     );
   }
 
   return (
     <Menu.Root>
-      <Menu.Trigger asChild>
-        <button type="button" title={collapsed ? "Go live" : undefined} aria-label={fresh ? "Go live, new" : "Go live"} className={face}>
-          <Broadcast size={17} weight="fill" aria-hidden />
-          {!collapsed && "Go live"}
-          {fresh && <NewBadge className={collapsed ? "absolute -top-1.5 -right-2" : "ml-0.5"} />}
-        </button>
-      </Menu.Trigger>
+      {/* The tip wraps the trigger, so the menu's own handlers and the tip's both reach the button. */}
+      <Tip label="Go live" side="right" disabled={!collapsed}>
+        <Menu.Trigger asChild>
+          <button type="button" aria-label={fresh ? "Go live, new" : "Go live"} className={face}>
+            <Broadcast size={17} weight="fill" aria-hidden />
+            {!collapsed && "Go live"}
+            {fresh && <NewBadge className={collapsed ? "absolute -top-1.5 -right-2" : "ml-0.5"} />}
+          </button>
+        </Menu.Trigger>
+      </Tip>
       <Menu.Portal>
         <Menu.Content
           side="right"

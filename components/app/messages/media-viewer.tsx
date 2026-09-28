@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CaretLeft, CaretRight, DownloadIcon, X } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { stampLabel } from "@/lib/messaging";
 import { EASE, done, play, reducedMotion } from "./motion";
@@ -226,16 +227,18 @@ export function MediaViewer({
             {index + 1} of {items.length}
           </span>
         )}
-        <a
-          href={item.url}
-          download
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Save"
-          className="msg-press obj flex size-10 items-center justify-center rounded-full text-white"
-        >
-          <DownloadIcon size={18} />
-        </a>
+        <Tip label="Download" side="bottom">
+          <a
+            href={item.url}
+            download
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Save"
+            className="msg-press obj flex size-10 items-center justify-center rounded-full text-white"
+          >
+            <DownloadIcon size={18} />
+          </a>
+        </Tip>
         <button
           ref={closeRef}
           type="button"
@@ -262,26 +265,30 @@ export function MediaViewer({
           />
         )}
         {index > 0 && (
-          <button
-            data-chrome
-            type="button"
-            onClick={() => go(-1)}
-            aria-label="Previous"
-            className="msg-press obj absolute left-3 hidden size-11 items-center justify-center rounded-full text-white md:flex"
-          >
-            <CaretLeft size={20} />
-          </button>
+          <Tip label="Previous" hint="←" side="right">
+            <button
+              data-chrome
+              type="button"
+              onClick={() => go(-1)}
+              aria-label="Previous"
+              className="msg-press obj absolute left-3 hidden size-11 items-center justify-center rounded-full text-white md:flex"
+            >
+              <CaretLeft size={20} />
+            </button>
+          </Tip>
         )}
         {index < items.length - 1 && (
-          <button
-            data-chrome
-            type="button"
-            onClick={() => go(1)}
-            aria-label="Next"
-            className="msg-press obj absolute right-3 hidden size-11 items-center justify-center rounded-full text-white md:flex"
-          >
-            <CaretRight size={20} />
-          </button>
+          <Tip label="Next" hint="→" side="left">
+            <button
+              data-chrome
+              type="button"
+              onClick={() => go(1)}
+              aria-label="Next"
+              className="msg-press obj absolute right-3 hidden size-11 items-center justify-center rounded-full text-white md:flex"
+            >
+              <CaretRight size={20} />
+            </button>
+          </Tip>
         )}
       </div>
 

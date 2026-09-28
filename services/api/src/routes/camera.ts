@@ -14,9 +14,10 @@ import { reconcileStream } from "../stream-service.js";
  * A second phone as a camera (Phase 3, angles): the creator scans a code
  * shown in the studio, and the phone — no app, no sign-in — joins the live
  * room as `cam-<hostId>`, the same account, publishing its camera and
- * nothing else: no mic, and it subscribes to nothing. The host decides what
- * the program shows (`scene.angle`: main, phone or both); viewers can pin
- * an angle for themselves on their own screen.
+ * nothing else: no mic, and it subscribes to nothing. The host places it in
+ * the program like any other source (`scene.phoneSlot`: off, over their
+ * picture, beside it, or in the corner — with `scene.angle` kept in step);
+ * viewers can pin an angle for themselves on their own screen.
  *
  * The code is the whole handshake. It's one-time (the phone that joined on
  * it consumed it; a second phone needs a fresh one), lives ten minutes,

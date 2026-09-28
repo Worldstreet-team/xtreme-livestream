@@ -179,6 +179,8 @@ export async function createToken(
      * publish more by asking.
      */
     canPublishSources?: PublishSource[];
+    /** How long the token admits a join (a practice preview's is short). Six hours otherwise. */
+    ttl?: string;
   } = {},
 ) {
   const {
@@ -188,6 +190,7 @@ export async function createToken(
     roomCreate = false,
     hidden = false,
     canPublishSources,
+    ttl = "6h",
   } = options;
 
   const token = new AccessToken(
@@ -196,7 +199,7 @@ export async function createToken(
     {
       identity: participantIdentity,
       name: participantName,
-      ttl: "6h",
+      ttl,
     },
   );
 

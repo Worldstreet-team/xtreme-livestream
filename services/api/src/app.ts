@@ -1,4 +1,4 @@
-import Fastify, { type FastifyError } from "fastify";
+import Fastify, { type FastifyError, type FastifyRequest } from "fastify";
 import {
   clerkPlugin,
   type ClerkFastifyOptions,
@@ -18,6 +18,7 @@ import { config } from "./config.js";
 import { isDatabaseReady } from "./database.js";
 import { ApiError } from "./errors.js";
 import { apiRoutes } from "./routes/index.js";
+import { redactPreviewKey } from "./preview.js";
 
 // Known first-party web origins that call this API. These are always allowed
 // so CORS doesn't silently break if CORS_ORIGINS is unset or incomplete in a
@@ -79,6 +80,17 @@ export async function buildApp() {
           "res.headers.set-cookie",
         ],
         censor: "[REDACTED]",
+      },
+      // Fastify's own request line, with a practice preview's key taken
+      // out of the URL: the key opens the room, so it's never written down.
+      serializers: {
+        req: (request: FastifyRequest) => ({
+          method: request.method,
+          url: redactPreviewKey(request.url),
+          host: request.host,
+          remoteAddress: request.ip,
+          ...(request.socket?.remotePort ? { remotePort: request.socket.remotePort } : {}),
+        }),
       },
     },
   });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Clock, Crown, HandWaving, Heart, ShieldStar, UsersThree } from "@/components/icons";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { Tip } from "@/components/ui/tip";
 import { GiftArt } from "@/components/app/gift-art";
 import { centsToDollars, giftByEmoji } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
@@ -59,11 +60,15 @@ export function Badges({
         </span>
       )}
       {mod && (
-        <ShieldStar size={13} weight="fill" aria-label="Moderator" className="mr-1 inline align-[-2px] text-[#86EFAC]" />
+        <Tip label="Moderator">
+          <ShieldStar size={13} weight="fill" aria-label="Moderator" className="mr-1 inline align-[-2px] text-[#86EFAC]" />
+        </Tip>
       )}
       {rank !== undefined && (
+        <Tip label={`Top gifter #${rank} this stream`}>
         <span
-          title={`Top gifter #${rank}`}
+          role="img"
+          aria-label={`Top gifter #${rank}`}
           className={cn(
             "mr-1 inline-flex h-4 items-center rounded-[4px] px-1 align-[1px] font-mono text-[9.5px] font-bold tabular-nums",
             rank === 1 ? "bg-value text-[#1b1406]" : "bg-white/[0.14] text-white/90"
@@ -71,10 +76,13 @@ export function Badges({
         >
           No.{rank}
         </span>
+        </Tip>
       )}
       {!host && fan && fan.level > 0 && (
+        <Tip label={`Fan level ${fan.level} · ${fan.hours} ${fan.hours === 1 ? "hour" : "hours"} watched`}>
         <span
-          title={`Fan level ${fan.level} · ${fan.hours} ${fan.hours === 1 ? "hour" : "hours"} watched`}
+          role="img"
+          aria-label={`Fan level ${fan.level}`}
           className={cn(
             "mr-1 inline-flex h-4 items-center gap-0.5 rounded-[4px] px-1 align-[1px] font-mono text-[9.5px] font-bold tabular-nums",
             fan.level >= 9 ? "bg-ember text-on-ember" : fan.level >= 5 ? "bg-ember/25 text-ember-hi" : "bg-white/[0.14] text-white/90"
@@ -83,15 +91,19 @@ export function Badges({
           <Heart size={8} weight="fill" aria-hidden />
           {fan.level}
         </span>
+        </Tip>
       )}
       {!host && fan && fan.badge > 0 && (
+        <Tip label={`${fan.hours} hours watched on this channel`}>
         <span
-          title={`${fan.hours} hours watched on this channel`}
+          role="img"
+          aria-label={`${fan.badge}-hour watcher`}
           className="mr-1 inline-flex h-4 items-center gap-0.5 rounded-[4px] bg-white/[0.14] px-1 align-[1px] font-mono text-[9.5px] font-bold text-white/90 tabular-nums"
         >
           <Clock size={9} weight="bold" aria-hidden />
           {fan.badge}h
         </span>
+        </Tip>
       )}
       {(platform === "socials" || platform === "worldspace") && (
         <span className="mr-1 inline-flex h-4 items-center rounded-[4px] bg-sky-500/15 px-1 align-[1px] text-[9px] font-bold tracking-wide text-sky-300 uppercase">
@@ -427,7 +439,7 @@ export function TopGiftersBar({
   );
   return (
     // Fades at the right edge when there are more than fit: the eye reads "scroll for more".
-    <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 pb-3 scrollbar-none [mask-image:linear-gradient(to_right,black_88%,transparent)]">
+    <div data-tour="watch-top-gifters" className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 pb-3 scrollbar-none [mask-image:linear-gradient(to_right,black_88%,transparent)]">
       <div role="tablist" aria-label="Top of the room" className="flex shrink-0 items-center rounded-full bg-white/[0.05] p-0.5">
         {tab("gifts", "Gifts", <Crown size={12} weight="fill" className={view === "gifts" ? "" : "text-value"} />, gifters.length)}
         {tab("fans", "Fans", <Heart size={11} weight="fill" className={view === "fans" ? "" : "text-ember-hi"} />, fans.length)}

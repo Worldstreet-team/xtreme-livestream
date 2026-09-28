@@ -27,6 +27,7 @@ import {
   ArrowUpRight,
 } from "@/components/icons";
 import { ECOSYSTEM } from "@/lib/ecosystem";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -46,6 +47,7 @@ import { HeldStreamPill, LiveSessionCard, useHeldStream } from "@/components/app
 import { GoLiveFab, GoLiveRailButton } from "@/components/app/go-live-fab";
 import { LiveRingsBar } from "@/components/app/live-rings";
 import { StudioEdgeSwipe } from "@/components/app/studio-edge-swipe";
+import { TourHost } from "@/components/app/tour/tour-host";
 import {
   GlassPopover,
   insideGlassPopover,
@@ -188,6 +190,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <StudioEdgeSwipe disabled={mobileOpen} />
         </>
       )}
+      {/* The walkthrough: one tour at a time, on first visits and first times. */}
+      <TourHost />
     </div>
   );
 }
@@ -305,10 +309,11 @@ export function Sidebar({
     const count = messages ? unreadThreads : 0;
     const glyph = <item.icon size={22} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden />;
     return (
+      <Tip key={item.href} label={count > 0 ? `${item.label} · ${count} unread` : item.label} side="right" disabled={!narrow}>
       <Link
-        key={item.href}
         href={item.href}
-        title={narrow ? item.label : undefined}
+        data-tour={`nav-${item.href.slice(1)}`}
+        aria-label={narrow ? (count > 0 ? `${item.label}, ${count} unread` : item.label) : undefined}
         aria-current={active ? "page" : undefined}
         style={{ animationDelay: `${offset + index * 30}ms` }}
         className={cn(
@@ -351,6 +356,7 @@ export function Sidebar({
           <span aria-hidden className="absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-ember" />
         )}
       </Link>
+      </Tip>
     );
   };
 
@@ -367,7 +373,8 @@ export function Sidebar({
         {/* Brand, with the collapse control beside it — up top, where the
             rail's own controls belong (owner, 2026-09-23). */}
         <div className={cn("animate-rise flex h-16 shrink-0 items-center shadow-[inset_0_-1px_0_var(--hairline-color)]", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
-          <Link href="/" className="group flex items-center gap-2.5" title="Xtream">
+          <Tip label="Xtream home" side="right" disabled={!narrow}>
+          <Link href="/" className="group flex items-center gap-2.5" aria-label={narrow ? "Xtream home" : undefined}>
             <span className="flex size-[38px] items-center justify-center">
               <BrandMark size={30} />
             </span>
@@ -375,18 +382,20 @@ export function Sidebar({
               <span className="text-[22px] font-bold tracking-tight text-foreground">Xtream</span>
             )}
           </Link>
+          </Tip>
           {onToggle && (
+            <Tip label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"} side="right">
             <button
               type="button"
               onClick={onToggle}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-pressed={collapsed}
-              title={collapsed ? "Expand" : "Collapse"}
               className="press flex size-9 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-tint/[0.05] hover:text-foreground"
             >
               {/* Rail on the left, like ours — Solar draws it on the right. */}
               <SidebarSimple size={20} mirrored />
             </button>
+            </Tip>
           )}
         </div>
 
@@ -398,7 +407,7 @@ export function Sidebar({
             {mainItems.map((item, i) => renderItem(item, i, 60))}
 
             <Eyebrow collapsed={narrow}>Create</Eyebrow>
-            <div className={cn("animate-rise", narrow ? "py-1" : "px-0.5 pt-0.5 pb-1.5")} style={{ animationDelay: "170ms" }}>
+            <div data-tour="go-live" className={cn("animate-rise", narrow ? "py-1" : "px-0.5 pt-0.5 pb-1.5")} style={{ animationDelay: "170ms" }}>
               <GoLiveRailButton collapsed={narrow} />
             </div>
             {createItems.map((item, i) => renderItem(item, i, 180))}
@@ -417,6 +426,7 @@ export function Sidebar({
 
           {/* The rest of WorldStreet, behind one row — a panel of apps opens
               beside the rail rather than a wall of tiles inside it. */}
+          <Tip label="WorldStreet apps" side="right" disabled={!narrow || Boolean(appsAnchor)}>
           <button
             ref={appsRef}
             type="button"
@@ -427,7 +437,7 @@ export function Sidebar({
             }}
             aria-haspopup="dialog"
             aria-expanded={Boolean(appsAnchor)}
-            title={narrow ? "WorldStreet apps" : undefined}
+            aria-label={narrow ? "WorldStreet apps" : undefined}
             className={cn(
               "group mt-3 flex items-center gap-3 rounded-control py-2 transition-colors",
               narrow ? "justify-center px-0 py-2.5" : "px-3.5",
@@ -442,6 +452,7 @@ export function Sidebar({
               </>
             )}
           </button>
+          </Tip>
           {appsAnchor && (
             <GlassPopover anchor={appsAnchor} width={320} className="p-2">
               <p className="px-2.5 pt-1.5 pb-2 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase">More from WorldStreet</p>
@@ -476,11 +487,12 @@ export function Sidebar({
         <div className={cn("shrink-0", narrow ? "border-t border-tint/[0.06] px-2 pt-1" : "px-3 pt-1")}>
           {/* The Wolf of WorldStreet race, at the foot of the rail (owner,
               2026-09-24) — the one place foil is allowed: the pelt. */}
+          <Tip label="Wolf of WorldStreet: the most-backed creator wears the pelt" side="right" disabled={!narrow}>
           <a
             href="https://social.worldstreetgold.com/votes"
             target="_blank"
             rel="noopener noreferrer"
-            title={narrow ? "Wolf of WorldStreet — the most-backed creator wears the pelt" : undefined}
+            aria-label={narrow ? "Wolf of WorldStreet" : undefined}
             className={cn(
               "group/wolf flex items-center gap-3 rounded-panel transition-colors",
               narrow ? "justify-center py-2" : "bg-tint/[0.035] p-2.5 hover:bg-tint/[0.06]",
@@ -499,6 +511,7 @@ export function Sidebar({
               </>
             )}
           </a>
+          </Tip>
         </div>
         <div className={cn("shrink-0", narrow ? "p-2" : "p-3")} ref={userRef}>
           {user ? (
@@ -521,14 +534,16 @@ export function Sidebar({
                 </GlassPopover>
               )}
               <div className={cn(!narrow && "rounded-panel bg-tint/[0.035] p-1.5")}>
+              <Tip label="Your account" side="right" disabled={!narrow || menuOpen}>
               <button
+                data-tour="account-menu"
                 onClick={(e) => {
                   setMenuAnchor(e.currentTarget.getBoundingClientRect());
                   setMenuOpen((v) => !v);
                 }}
                 aria-haspopup="dialog"
                 aria-expanded={menuOpen}
-                title={narrow ? user.displayName : undefined}
+                aria-label={narrow ? `Your account, ${user.displayName || user.username}` : undefined}
                 className={cn("group flex w-full items-center gap-3 rounded-control p-2 text-left transition-colors hover:bg-tint/[0.04]", narrow && "justify-center")}
               >
                 <span className="relative shrink-0">
@@ -550,6 +565,7 @@ export function Sidebar({
                   </>
                 )}
               </button>
+              </Tip>
               {!narrow && <BalancePills size="sm" className="px-1 pt-0.5 pb-1" />}
               </div>
             </>
@@ -565,9 +581,9 @@ export function Sidebar({
                   Follow creators, send gifts and earn points on every stream.
                 </p>
               )}
+              <Tip label="Sign in" side="right" disabled={!narrow}>
               <a
                 href={SIGN_IN_URL}
-                title={narrow ? "Sign in" : undefined}
                 aria-label={narrow ? "Sign in" : undefined}
                 className={cn(
                   "press flex items-center justify-center gap-2 rounded-full transition-[filter,background-color]",
@@ -579,6 +595,7 @@ export function Sidebar({
                 <SignIn size={16} weight="bold" />
                 {!narrow && "Sign in"}
               </a>
+              </Tip>
             </div>
           )}
         </div>
@@ -640,9 +657,16 @@ function ChannelRow({ entry, collapsed, onNavigate }: { entry: RailEntry; collap
   );
   if (collapsed) {
     return (
-      <Link href={entry.href} onClick={onNavigate} title={`@${entry.handle} — ${entry.subtitle} · ${formatNumber(entry.viewers)} watching`} className="flex justify-center rounded-control py-2 transition-colors hover:bg-tint/[0.04]">
-        {face(28)}
-      </Link>
+      <Tip label={`@${entry.handle} · ${formatNumber(entry.viewers)} watching`} side="right">
+        <Link
+          href={entry.href}
+          onClick={onNavigate}
+          aria-label={`@${entry.handle}, live: ${entry.subtitle}, ${formatNumber(entry.viewers)} watching`}
+          className="flex justify-center rounded-control py-2 transition-colors hover:bg-tint/[0.04]"
+        >
+          {face(28)}
+        </Link>
+      </Tip>
     );
   }
   return (
@@ -810,7 +834,7 @@ function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pat
   if (followedLive.length + alsoWatch.length + suggested.length === 0) return null;
 
   return (
-    <div className="animate-rise mt-1" style={{ animationDelay: "380ms" }}>
+    <div data-tour="live-now" className="animate-rise mt-1" style={{ animationDelay: "380ms" }}>
       <RailSection title="Followed channels" live entries={followedLive} collapsed={collapsed} onNavigate={onNavigate} />
       <RailSection title="Viewers also watch" entries={alsoWatch} collapsed={collapsed} onNavigate={onNavigate} />
       {!collapsed && (

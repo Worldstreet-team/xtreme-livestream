@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { Microphone, MicrophoneSlash } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
 import { SwitchField } from "@/components/ui/selection-controls";
+import { Tip } from "@/components/ui/tip";
 import { PRESETS, type VoiceSettings } from "@/lib/voice";
 import { cn } from "@/lib/utils";
 
@@ -208,26 +209,27 @@ function ComparePill({ compare }: { compare: SoundSetupProps["compare"] }) {
 
   return (
     <div className="flex shrink-0 flex-col items-end gap-1">
-      <Pill
-        size="sm"
-        variant={holding ? "ember" : "glass"}
-        disabled={!compare}
-        aria-pressed={holding}
-        aria-label={holding ? "Comparing: this is your mic as it is" : "Compare — hold to hear your mic without the desk"}
-        title="Hold to hear your mic without the desk"
-        onPointerDown={onPointerDown}
-        onPointerUp={end}
-        onPointerCancel={end}
-        onPointerLeave={end}
-        onKeyDown={onKeyDown}
-        onKeyUp={onKeyUp}
-        onBlur={end}
-        onContextMenu={(e) => e.preventDefault()}
-        className="touch-none select-none"
-        style={{ WebkitTouchCallout: "none" }}
-      >
-        {holding ? "As it is" : "Compare"}
-      </Pill>
+      <Tip label="Hold to hear your mic without the desk" touch={false}>
+        <Pill
+          size="sm"
+          variant={holding ? "ember" : "glass"}
+          disabled={!compare}
+          aria-pressed={holding}
+          aria-label={holding ? "Comparing: this is your mic as it is" : "Compare — hold to hear your mic without the desk"}
+          onPointerDown={onPointerDown}
+          onPointerUp={end}
+          onPointerCancel={end}
+          onPointerLeave={end}
+          onKeyDown={onKeyDown}
+          onKeyUp={onKeyUp}
+          onBlur={end}
+          onContextMenu={(e) => e.preventDefault()}
+          className="touch-none select-none"
+          style={{ WebkitTouchCallout: "none" }}
+        >
+          {holding ? "As it is" : "Compare"}
+        </Pill>
+      </Tip>
       <span className="hidden text-[10.5px] text-muted-foreground @[560px]:block" aria-hidden>
         Hold
       </span>

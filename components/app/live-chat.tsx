@@ -34,6 +34,7 @@ import type { FeaturedItem } from "@/lib/scene";
 import type { ChannelRole, ModsCanFeature } from "@xtreme/contracts";
 import { HeldQueue, type HeldLine } from "@/components/app/chat/held-queue";
 import { ReportMenu } from "@/components/app/chat/report-menu";
+import { Tip, type TipSide } from "@/components/ui/tip";
 import {
   ArrivalTicker,
   Badges,
@@ -107,6 +108,8 @@ interface LiveChatProps {
   onScene?: (scene: unknown) => void;
   /** Host: the lines moderators suggested for the screen, as they change. */
   onFeatureQueue?: (queue: unknown) => void;
+  /** A practice preview (components/app/practice-preview.tsx): read the room, say nothing — no composer, gifts, reactions or requests. */
+  watchOnly?: boolean;
 }
 
 /** The room's rules as this viewer meets them (GET /streams/:id/role, then room events). */
@@ -164,6 +167,7 @@ export function LiveChat({
   featureSeconds = 20,
   onScene,
   onFeatureQueue,
+  watchOnly = false,
 }: LiveChatProps) {
   const skin: ChatSkin = variant === "overlay" ? "overlay" : "panel";
   const overlay = skin === "overlay";
@@ -977,13 +981,15 @@ export function LiveChat({
     return (
       <>
         {suspect && (
+          <Tip label={suspect}>
           <span
-            title={suspect}
+            role="img"
             aria-label={`Suspicious: ${suspect}`}
             className="mr-1 inline-flex h-4 items-center rounded-[4px] bg-warning/90 px-1 align-[1px] text-[9.5px] font-bold tracking-wide text-[#1a1203] uppercase"
           >
             Suspicious
           </span>
+          </Tip>
         )}
         <Badges
           host={Boolean(hostUsername) && msg.username === hostUsername}
@@ -997,11 +1003,11 @@ export function LiveChat({
   };
 
   const toolButton = (label: string, onClick: () => void, icon: ReactNode, tone: "plain" | "danger" | "on" = "plain") => (
+    <Tip label={label}>
     <button
       type="button"
       onClick={onClick}
       disabled={modBusy}
-      title={label}
       aria-label={label}
       className={cn(
         "flex size-7 items-center justify-center rounded-[8px] transition-colors disabled:opacity-50",
@@ -1014,6 +1020,7 @@ export function LiveChat({
     >
       {icon}
     </button>
+    </Tip>
   );
 
   // What's on screen now — its line wears "On stream", and its tool takes it down.
@@ -1023,13 +1030,13 @@ export function LiveChat({
   // The screen button: the host's, and a moderator's as the host allows —
   // straight up, or as a suggestion the host decides on.
   const canFeature = role === "host" || role === "producer" || rules.modsCanFeature === "on";
-  const featureTool = (msg: ChatMsg) =>
+  const featureTool = (msg: ChatMsg, what: "comment" | "gift" = "comment") =>
     canFeature
       ? onStreamId === msg.id
-        ? toolButton("Take off stream", () => modUnfeature(msg.id), <MonitorPlay size={13} weight="fill" />, "on")
-        : toolButton("Show on stream", () => modFeature(msg.id), <MonitorPlay size={13} />)
+        ? toolButton("Take it off the screen", () => modUnfeature(msg.id), <MonitorPlay size={13} weight="fill" />, "on")
+        : toolButton(`Put this ${what} on screen`, () => modFeature(msg.id), <MonitorPlay size={13} />)
       : canModerate && rules.modsCanFeature === "suggest"
-        ? toolButton("Suggest for the screen", () => modFeature(msg.id), <MonitorPlay size={13} />)
+        ? toolButton("Suggest it for the screen", () => modFeature(msg.id), <MonitorPlay size={13} />)
         : null;
 
   const isMine = (msg: ChatMsg) =>
@@ -1059,7 +1066,7 @@ export function LiveChat({
       return toolbar(
         msg.id,
         <>
-          {toolButton("Report", () => {
+          {toolButton("Report this message", () => {
             setReportFor(msg.id);
             setModMenuFor(msg.id);
           }, <Flag size={13} />)}
@@ -1082,12 +1089,12 @@ export function LiveChat({
       msg.id,
       <>
         {featureTool(msg)}
-        {toolButton("Pin message", () => modPinMessage(msg.id), <PushPin size={13} />)}
-        {toolButton("Delete message", () => modDeleteMessage(msg.id), <Trash size={13} />)}
+        {toolButton("Pin in chat", () => modPinMessage(msg.id), <PushPin size={13} />)}
+        {toolButton("Delete this message", () => modDeleteMessage(msg.id), <Trash size={13} />)}
         {msg.userId && !msg.isMod && (
           <>
-            {toolButton("Timeout 10 minutes", () => modBanUser(msg.userId!, 10), <Timer size={13} />)}
-            {toolButton("Ban from stream", () => modBanUser(msg.userId!), <Prohibit size={13} />, "danger")}
+            {toolButton("Time out for 10 minutes", () => modBanUser(msg.userId!, 10), <Timer size={13} />)}
+            {toolButton("Ban from this stream", () => modBanUser(msg.userId!), <Prohibit size={13} />, "danger")}
           </>
         )}
       </>
@@ -1096,7 +1103,7 @@ export function LiveChat({
 
   // A dollar gift can go on screen too; drops and points can't.
   const giftFeaturable = (msg: ChatMsg) => canModerate && giftUnit(msg) === "usd" && !isDrop(msg) && featureTool(msg) !== null;
-  const giftToolsFor = (msg: ChatMsg) => (giftFeaturable(msg) ? toolbar(msg.id, featureTool(msg)) : null);
+  const giftToolsFor = (msg: ChatMsg) => (giftFeaturable(msg) ? toolbar(msg.id, featureTool(msg, "gift")) : null);
 
   // Slow mode — or Shield, which brings it — holds back viewers, never moderators.
   const slowFor = (slowMode || rules.shield) && !canModerate;
@@ -1114,12 +1121,14 @@ export function LiveChat({
             ? "Say something…"
             : "Send a message";
 
-  const iconButton = (label: string, on: boolean, onClick: () => void, icon: ReactNode) => (
+  const iconButton = (label: string, on: boolean, onClick: () => void, icon: ReactNode, side: TipSide = "top") => (
+    <Tip label={label} side={side}>
     <button
       type="button"
       onClick={onClick}
+      // The watch page's walkthrough points at the gift button.
+      data-tour={label === "Send a gift" ? "watch-gift" : undefined}
       aria-label={label}
-      title={label}
       aria-pressed={on}
       className={cn(
         "press flex size-9 shrink-0 items-center justify-center rounded-full transition-colors",
@@ -1130,6 +1139,7 @@ export function LiveChat({
     >
       {icon}
     </button>
+    </Tip>
   );
 
   return (
@@ -1162,13 +1172,13 @@ export function LiveChat({
             </div>
             {canModerate && (
               <div className="flex items-center gap-0.5">
-                {iconButton(slowMode ? "Turn slow mode off" : "Turn slow mode on", slowMode, () => toggleSlowMode(!slowMode), <Clock size={16} />)}
-                {iconButton("Moderation", showModTools, () => setShowModTools(!showModTools), (
+                {iconButton(slowMode ? "Turn slow mode off" : "Turn slow mode on", slowMode, () => toggleSlowMode(!slowMode), <Clock size={16} />, "bottom")}
+                {iconButton("Moderation tools", showModTools, () => setShowModTools(!showModTools), (
                   <span className="relative">
                     <ShieldStar size={16} weight={rules.shield ? "fill" : "regular"} className={rules.shield ? "text-ember-hi" : undefined} />
                     {held.length > 0 && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-ember" />}
                   </span>
-                ))}
+                ), "bottom")}
               </div>
             )}
           </header>
@@ -1275,15 +1285,16 @@ export function LiveChat({
                 {pinned.content}
               </p>
               {canModerate && (
+                <Tip label="Unpin" side="bottom">
                 <button
                   type="button"
                   onClick={modUnpin}
-                  title="Unpin"
                   aria-label="Unpin"
                   className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <X size={13} />
                 </button>
+                </Tip>
               )}
             </div>
           )}
@@ -1292,7 +1303,7 @@ export function LiveChat({
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <ChatCircleDots size={26} className="text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">
-                {isLive ? "It's quiet in here — say hello." : "Chat is offline"}
+                {isLive ? (watchOnly ? "It's quiet in here." : "It's quiet in here — say hello.") : "Chat is offline"}
               </p>
             </div>
           )}
@@ -1347,7 +1358,7 @@ export function LiveChat({
       <ArrivalTicker arrival={arrival} skin={skin} />
 
       {/* The host is taking requests: one tap to their menu. */}
-      {requestsForMe && isLive && !showGiftPanel && (
+      {requestsForMe && isLive && !showGiftPanel && !watchOnly && (
         <button
           type="button"
           onClick={() => openGifts("requests")}
@@ -1432,7 +1443,11 @@ export function LiveChat({
         )}
       >
         {chatError && isLive && user && <p className="mb-2 px-1 text-[12px] text-chili-hi">{chatError}</p>}
-        {isLive && user && myBan ? (
+        {watchOnly ? (
+          overlay ? null : (
+            <p className="py-2 text-center text-[12px] text-muted-foreground/70">Watching a preview — chat is off</p>
+          )
+        ) : isLive && user && myBan ? (
           <div className="flex h-10 items-center justify-center gap-2 rounded-full bg-chili/[0.12] text-[12.5px] font-semibold text-chili-hi">
             <Prohibit size={14} />
             {myBan.until
@@ -1453,7 +1468,7 @@ export function LiveChat({
         ) : isLive ? (
           <div className={cn("flex items-center gap-1", overlay ? "h-11 rounded-full bg-black/50 px-1" : "")}>
             {iconButton(
-              "Reactions",
+              "Send a reaction",
               showReactions,
               () => {
                 setShowReactions(!showReactions);
@@ -1492,6 +1507,7 @@ export function LiveChat({
                   overlay ? "px-1.5 text-white placeholder:text-white/50" : "text-foreground placeholder:text-muted-foreground"
                 )}
               />
+              <Tip label="Send" hint="Enter" disabled={!canSend}>
               <button
                 type="button"
                 onClick={sendMessage}
@@ -1510,6 +1526,7 @@ export function LiveChat({
                   <ArrowUp size={17} weight="bold" />
                 )}
               </button>
+              </Tip>
             </div>
           </div>
         ) : overlay ? null : (

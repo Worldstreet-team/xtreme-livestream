@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { Empty, Notice, Pill, UserAvatar } from "@/components/xtream";
 import { CapsuleTabs } from "@/components/ui/capsule-tabs";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import {
   describeMessage,
@@ -188,15 +189,16 @@ export function InboxPane() {
               {summary}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setComposing(true)}
-            aria-label="New message"
-            title="New message"
-            className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
-          >
-            <PencilSimple size={19} weight="bold" />
-          </button>
+          <Tip label="Start a new conversation" side="bottom">
+            <button
+              type="button"
+              onClick={() => setComposing(true)}
+              aria-label="New message"
+              className="msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90"
+            >
+              <PencilSimple size={19} weight="bold" />
+            </button>
+          </Tip>
         </div>
 
         {rows && rows.length > 0 && (

@@ -8,7 +8,7 @@ import { DURATION, MOTION_VARS, staggerDelay } from "@/lib/motion";
 import { usePlayOnView } from "@/lib/use-play-on-view";
 import { useCountUp } from "@/lib/use-count-up";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { Money, formatUsd } from "@/components/xtream/money";
+import { Money } from "@/components/xtream/money";
 import { UnfoldWindow, unfoldRow } from "@/components/app/unfold-window";
 import { Confetti, Crown, Laurel, PodiumScene } from "@/components/app/art";
 import u from "./unfold.module.css";
@@ -23,12 +23,16 @@ interface Gifter {
   count: number;
 }
 
-/** Rank chips on the ember ground: #1 ink, #2 and #3 a veil of it. */
-const RANK_CHIP = ["bg-on-ember text-ember", "bg-on-ember/[0.16] text-on-ember", "bg-on-ember/[0.16] text-on-ember"];
-/** The board's own ground — solid Ember (owner, 2026-09-24: "i just need the solid ember"); ink sits on it. */
-const GROUND = "bg-ember";
-/** Each step's height: a real podium, #1 tallest. */
-const STEP_H = [54, 40, 30];
+/**
+ * The board's own ground: the theme's surface — dark in dark, paper in
+ * light — with a hairline (owner, 2026-09-28: "let it not use ember
+ * anymore: either dark or white depending on the theme, and use our colors
+ * as accents"). The palette only accents it: heat on #1's ring, a Chili
+ * crown, an Ember edge on #1's step, gold on the amounts.
+ */
+const GROUND = "bg-surface";
+/** Each step's height: a real podium, #1 tallest, its rank on its face. */
+const STEP_H = [58, 44, 34];
 
 /**
  * The order the podium builds in: #3, then #2, then #1 lifts last; the
@@ -42,8 +46,8 @@ const T = {
 };
 const stepDelay = (rank: 0 | 1 | 2) => (rank === 0 ? T.first : T.step[rank]);
 
-/** An amount that counts up from nothing once its step has risen. */
-function CountUp({ cents, run, delay, compact = true }: { cents: number; run: boolean; delay: number; compact?: boolean }) {
+/** An amount — money, so gold — that counts up from nothing once its step has risen. */
+function CountUp({ cents, run, delay, className }: { cents: number; run: boolean; delay: number; className?: string }) {
   const [started, setStarted] = useState(false);
   useEffect(() => {
     if (!run) return;
@@ -51,7 +55,7 @@ function CountUp({ cents, run, delay, compact = true }: { cents: number; run: bo
     return () => clearTimeout(t);
   }, [run, delay]);
   const shown = useCountUp(started ? cents : 0, DURATION.count, 0);
-  return <>{formatUsd(shown, compact)}</>;
+  return <Money cents={shown} size="sm" compact className={cn("tabular-nums", className)} />;
 }
 
 function Podium({ g, rank, play }: { g: Gifter; rank: 0 | 1 | 2; play: boolean }) {
@@ -67,11 +71,10 @@ function Podium({ g, rank, play }: { g: Gifter; rank: 0 | 1 | 2; play: boolean }
         data-first={first || undefined}
         style={{ "--delay": `${delay}ms` } as CSSProperties}
       >
-        {first && <Crown onEmber delay={T.crown} className="mb-0.5 w-[30px]" />}
+        {first && <Crown delay={T.crown} className="mb-0.5 w-[30px]" />}
         <span className="relative">
           {first && (
             <Laurel
-              onEmber
               delay={T.crown - 80}
               className="pointer-events-none absolute top-1/2 left-1/2 w-[118px] -translate-x-1/2 -translate-y-1/2"
             />
@@ -84,30 +87,28 @@ function Podium({ g, rank, play }: { g: Gifter; rank: 0 | 1 | 2; play: boolean }
             ringGapClassName={GROUND}
             className="transition-transform duration-300 group-hover/pod:scale-[1.04]"
           />
-          <span
-            className={cn(
-              "absolute -bottom-1.5 left-1/2 flex size-5 -translate-x-1/2 items-center justify-center rounded-full font-mono text-[10.5px] font-bold ring-2 ring-ember",
-              RANK_CHIP[rank],
-            )}
-          >
-            {rank + 1}
-          </span>
         </span>
-        <span className={cn("mt-3 w-full truncate px-0.5 font-bold", first ? "text-[13.5px] text-on-ember" : "text-[12.5px] text-on-ember/90")}>
+        <span className={cn("mt-2.5 w-full truncate px-0.5 font-bold text-foreground", first ? "text-[13.5px]" : "text-[12.5px]")}>
           {g.username}
         </span>
-        <span className="w-full truncate px-0.5 text-[11.5px] text-on-ember/65">{g.displayName}</span>
-        {/* The step itself, with what they gave on it. */}
+        <span className="w-full truncate px-0.5 text-[11.5px] text-muted-foreground">{g.displayName}</span>
+        <CountUp
+          cents={g.totalUsdMinor}
+          run={play}
+          delay={delay + DURATION.rise * 0.4}
+          className={cn("mt-1.5", first ? "text-[15px]" : "text-[13px]")}
+        />
+        {/* The step itself: a quiet tint with the rank on its face; #1's wears an Ember edge. */}
         <span
           className={cn(
-            "mt-2 flex w-full justify-center rounded-t-[10px] border-2 border-b-0 pt-1.5",
-            first ? "border-on-ember/30 bg-on-ember/[0.14]" : "border-on-ember/20 bg-on-ember/[0.08]",
+            "mt-2 flex w-full justify-center rounded-t-[10px] pt-2 font-wide leading-none font-bold tabular-nums",
+            first
+              ? "bg-tint/[0.08] text-[22px] text-foreground shadow-[inset_0_2px_0_var(--ember),inset_1px_0_0_var(--hairline-color),inset_-1px_0_0_var(--hairline-color)]"
+              : "bg-tint/[0.045] text-[17px] text-muted-foreground shadow-[inset_0_1px_0_var(--hairline-color),inset_1px_0_0_var(--hairline-color),inset_-1px_0_0_var(--hairline-color)]",
           )}
           style={{ height: STEP_H[rank] }}
         >
-          <span className={cn("font-money leading-none tabular-nums text-on-ember", first ? "text-[15px]" : "text-[13px] text-on-ember/85")}>
-            <CountUp cents={g.totalUsdMinor} run={play} delay={delay + DURATION.rise * 0.4} />
-          </span>
+          {rank + 1}
         </span>
       </span>
     </Link>
@@ -115,9 +116,10 @@ function Podium({ g, rank, play }: { g: Gifter; rank: 0 | 1 | 2; play: boolean }
 }
 
 /**
- * Top gifters this week, as a podium on a solid Ember board: #1 in the
- * middle on the tallest step, in a heat ring, a laurel and a crown; #2 and
- * #3 either side; 4 and 5 as rows. It builds itself when it comes on
+ * Top gifters this week, as a podium on the theme's own surface (dark or
+ * paper): #1 in the middle on the tallest step, in a heat ring, a laurel
+ * and a Chili crown; #2 and #3 either side; 4 and 5 as rows. Amounts are
+ * money, so gold; the steps are quiet tints with the rank on their face. It builds itself when it comes on
  * screen — steps rising #3, #2, then #1 lifting last, the crown dropping
  * on, confetti, amounts counting up.
  *
@@ -179,7 +181,11 @@ export function TopGiftersBoard({ heading, className }: { heading?: (seeAll: Rea
           if ((e.target as Element).closest("a,button")) return;
           toggle();
         }}
-        className={cn(u.podium, "relative isolate cursor-pointer overflow-hidden rounded-panel", GROUND)}
+        className={cn(
+          u.podium,
+          "relative isolate cursor-pointer overflow-hidden rounded-panel shadow-[inset_0_0_0_1px_var(--hairline-color)]",
+          GROUND,
+        )}
       >
         {/* Confetti bursts from #1 as the crown lands, then rests as specks. */}
         <Confetti delay={T.crown} className="pointer-events-none absolute inset-x-0 top-0 -z-10 w-full" />
@@ -189,21 +195,19 @@ export function TopGiftersBoard({ heading, className }: { heading?: (seeAll: Rea
           <Podium g={one} rank={0} play={go} />
           {three ? <Podium g={three} rank={2} play={go} /> : <span className="flex-1" />}
         </div>
-        <div className="h-0.5 bg-on-ember/20" />
+        <div className="mx-3 h-px bg-tint/[0.12]" />
         {top.length > 3 && (
           <ol start={4} className="flex flex-col gap-px px-3 pt-2 pb-2.5">
             {top.slice(3).map((g, i) => (
               <li key={g.userId} className={u.podiumRow} style={{ "--delay": `${T.rows + i * DURATION.stagger * 2}ms` } as CSSProperties}>
-                <Link href={`/c/${g.username}`} className="flex items-center gap-3 rounded-control px-1.5 py-1.5 transition-colors hover:bg-on-ember/[0.07]">
-                  <span className="w-3 shrink-0 text-center font-mono text-[11.5px] font-bold text-on-ember/50">{i + 4}</span>
+                <Link href={`/c/${g.username}`} className="flex items-center gap-3 rounded-control px-1.5 py-1.5 transition-colors hover:bg-tint/[0.05]">
+                  <span className="w-3 shrink-0 text-center font-mono text-[11.5px] font-bold text-muted-foreground">{i + 4}</span>
                   <UserAvatar src={g.avatar} name={g.displayName} size={28} className="size-7 shrink-0" />
                   <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span className="truncate text-[13px] font-bold text-on-ember">{g.username}</span>
-                    <span className="truncate text-[11.5px] text-on-ember/65">{g.displayName}</span>
+                    <span className="truncate text-[13px] font-bold text-foreground">{g.username}</span>
+                    <span className="truncate text-[11.5px] text-muted-foreground">{g.displayName}</span>
                   </span>
-                  <span className="shrink-0 font-money text-[13px] text-on-ember/85 tabular-nums">
-                    <CountUp cents={g.totalUsdMinor} run={go} delay={T.rows} />
-                  </span>
+                  <CountUp cents={g.totalUsdMinor} run={go} delay={T.rows} className="shrink-0 text-[13px]" />
                 </Link>
               </li>
             ))}
@@ -267,7 +271,7 @@ function GiftersWindow({
       title="Top gifters"
       aside={<span className="shrink-0 text-[12px] text-muted-foreground">This week</span>}
     >
-      <div data-play={open ? "go" : "idle"} style={MOTION_VARS}>
+      <div data-play={open ? "go" : "idle"} style={MOTION_VARS} className="[--art-ground:var(--popover)]">
         <div className="flex items-center gap-4 px-4 pt-3 pb-3">
           <PodiumScene className="w-[132px] shrink-0" />
           <div className={cn("min-w-0", head.className)} style={head.style}>
@@ -314,12 +318,17 @@ function GiftersWindow({
                     <span
                       className={cn(
                         "flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold tabular-nums",
-                        i === 0 ? "bg-ember text-on-ember" : i < 3 ? "bg-tone-ember text-ember-hi" : "text-muted-foreground",
+                        i === 0 ? "bg-inverse text-on-inverse" : i < 3 ? "bg-tint/[0.08] text-foreground" : "text-muted-foreground",
                       )}
                     >
                       {i + 1}
                     </span>
-                    <UserAvatar src={g.avatar} name={g.displayName} size={40} className="size-10 shrink-0" />
+                    {/* #1 wears heat here too, as on the board; everyone else is a bare face. */}
+                    {i === 0 ? (
+                      <UserAvatar src={g.avatar} name={g.displayName} size={32} ring="live" ringGapClassName="bg-popover" />
+                    ) : (
+                      <UserAvatar src={g.avatar} name={g.displayName} size={40} className="size-10 shrink-0" />
+                    )}
                     <span className="flex min-w-0 flex-1 flex-col leading-tight">
                       <span className="truncate text-[14px] font-bold text-foreground">{g.username}</span>
                       <span className="truncate text-[12px] text-muted-foreground">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SHOUT_MAX_LENGTH, SHOUT_MIN_MINOR, SHOUT_TIERS } from "@xtreme/contracts";
 import { Check, Clock, X, PaperPlaneRight, Sword, Wallet } from "@/components/icons";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { GiftArt } from "@/components/app/gift-art";
 import { GiftToken } from "@/components/xtream/gift-token";
 import { usePhone } from "@/components/app/shelf";
+import { tourAction } from "@/lib/tour/state";
 
 export type GiftTab = "gifts" | "shout" | "requests";
 
@@ -82,6 +83,10 @@ export function GiftKeyboard({
   const [closing, setClosing] = useState(false);
   // A battle running here with a gift filter: the gifts that move its score.
   const counting = useBattleGifts();
+  // The first time it opens, the walkthrough explains gifts (it plays once).
+  useEffect(() => {
+    if (open) tourAction("gift-keyboard");
+  }, [open]);
 
   // Reopening starts clean — adjusted during render against the last `open`
   // seen, so there's no effect-driven second pass. The slide-down before
@@ -466,6 +471,7 @@ export function GiftKeyboard({
       )}
       role="dialog"
       aria-label="Send a gift"
+      data-tour="gift-keyboard"
     >
       {header}
       {body}

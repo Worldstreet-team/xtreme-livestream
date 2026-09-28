@@ -324,7 +324,7 @@ export const studioControl = define({
   description:
     "Press a control in the Studio for the user: mute_mic, unmute_mic, camera_on, camera_off, start_screen_share, stop_screen_share, go_live, end_stream. " +
     "Only works while the user is on the studio page — if they aren't, take them there first with navigateToPage(studio). " +
-    "go_live starts broadcasting with the title and category already filled in on the page, and end_stream ends a live broadcast for everyone watching — " +
+    "go_live starts broadcasting with whatever title and category are on the page (a title is optional — untitled streams are named after the user), and end_stream ends a live broadcast for everyone watching — " +
     "both are irreversible: say what will happen, wait for a clear spoken yes, then call with confirmed=true. The other actions need no confirmation.",
   parameters: buildParameters({
     action: enumParam("The control to press.", STUDIO_ACTIONS, true),

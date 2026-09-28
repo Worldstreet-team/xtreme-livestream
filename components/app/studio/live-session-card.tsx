@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowClockwise, Broadcast, Eye, Microphone, MicrophoneSlash, Warning } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatNumber } from "@/lib/categories";
@@ -87,14 +88,15 @@ export function LiveSessionCard({ collapsed }: { collapsed: boolean }) {
   const copy = heldCopy(held);
   if (collapsed) {
     return (
-      <Link
-        href="/studio?resume=1"
-        title={`${copy.heading} — ${copy.action}`}
-        className="animate-rise press relative mx-auto mb-2 flex size-11 items-center justify-center rounded-full bg-chili/[0.16] text-chili-hi"
-      >
-        <Warning size={20} weight="fill" />
-        <span className="sr-only">{copy.heading}</span>
-      </Link>
+      <Tip label={`${copy.heading} — ${copy.action.toLowerCase()}`} side="right">
+        <Link
+          href="/studio?resume=1"
+          className="animate-rise press relative mx-auto mb-2 flex size-11 items-center justify-center rounded-full bg-chili/[0.16] text-chili-hi"
+        >
+          <Warning size={20} weight="fill" />
+          <span className="sr-only">{copy.heading}</span>
+        </Link>
+      </Tip>
     );
   }
   return (
@@ -155,18 +157,19 @@ function LiveCard({ session, now }: { session: LiveSession; now: number }) {
             Open studio
           </Link>
         )}
-        <button
-          type="button"
-          onClick={() => liveActions()?.toggleMic()}
-          aria-label={session.micOn ? "Mute your mic" : "Unmute your mic"}
-          title={session.micOn ? "Mute your mic" : "Unmute your mic"}
-          className={cn(
-            "press flex size-9 shrink-0 items-center justify-center rounded-full",
-            session.micOn ? "bg-control text-foreground hover:bg-control-hover" : "bg-chili text-white"
-          )}
-        >
-          {session.micOn ? <Microphone size={16} weight="fill" /> : <MicrophoneSlash size={16} weight="fill" />}
-        </button>
+        <Tip label={session.micOn ? "Mute your mic" : "Unmute your mic"}>
+          <button
+            type="button"
+            onClick={() => liveActions()?.toggleMic()}
+            aria-label={session.micOn ? "Mute your mic" : "Unmute your mic"}
+            className={cn(
+              "press flex size-9 shrink-0 items-center justify-center rounded-full",
+              session.micOn ? "bg-control text-foreground hover:bg-control-hover" : "bg-chili text-white"
+            )}
+          >
+            {session.micOn ? <Microphone size={16} weight="fill" /> : <MicrophoneSlash size={16} weight="fill" />}
+          </button>
+        </Tip>
       </div>
     </div>
   );
@@ -177,13 +180,15 @@ function LiveIcon({ session, now }: { session: LiveSession; now: number }) {
   const healing = session.state !== "live";
   const label = healing ? "Reconnecting — open the studio" : `You're live · ${formatOnAir(session.startedAt, now)} — open the studio`;
   return (
-    <Link href="/studio" title={label} className="animate-rise press relative mx-auto mb-3 flex flex-col items-center gap-1">
-      <span className={cn("flex size-11 items-center justify-center rounded-full", healing ? "bg-chili/[0.16] text-chili-hi" : "bg-chili text-white")}>
-        {healing ? <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={20} weight="fill" />}
-      </span>
-      <span className="font-mono text-[10px] font-bold text-foreground/80 tabular-nums">{healing ? "…" : formatOnAir(session.startedAt, now)}</span>
-      <span className="sr-only">{label}</span>
-    </Link>
+    <Tip label={healing ? "Reconnecting — open the studio" : "You're live — open the studio"} side="right">
+      <Link href="/studio" className="animate-rise press relative mx-auto mb-3 flex flex-col items-center gap-1">
+        <span className={cn("flex size-11 items-center justify-center rounded-full", healing ? "bg-chili/[0.16] text-chili-hi" : "bg-chili text-white")}>
+          {healing ? <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Broadcast size={20} weight="fill" />}
+        </span>
+        <span className="font-mono text-[10px] font-bold text-foreground/80 tabular-nums">{healing ? "…" : formatOnAir(session.startedAt, now)}</span>
+        <span className="sr-only">{label}</span>
+      </Link>
+    </Tip>
   );
 }
 

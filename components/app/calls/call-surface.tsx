@@ -16,6 +16,7 @@ import {
   X,
 } from "@/components/icons";
 import { UserAvatar } from "@/components/xtream";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { CALL_END_COPY, callManager, formatCallClock, type CallPeer } from "@/lib/call-manager";
 import { useCall } from "./call-provider";
@@ -123,6 +124,7 @@ type Tone = "neutral" | "engaged" | "end" | "accept" | "obj";
  *  the one thing that's on is white, the same flat language as the stage. */
 function RoundButton({
   label,
+  tip,
   onClick,
   tone = "neutral",
   size = "lg",
@@ -131,6 +133,8 @@ function RoundButton({
   children,
 }: {
   label: string;
+  /** The tooltip, when the label alone is too terse ("Flip"). Defaults to the label. */
+  tip?: string;
   onClick: () => void;
   tone?: Tone;
   size?: "sm" | "md" | "lg";
@@ -138,25 +142,27 @@ function RoundButton({
   disabled?: boolean;
   children: React.ReactNode;
 }) {
+  // No tooltip while the label is printed under the button.
   const button = (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "msg-press flex shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50",
-        size === "lg" ? "size-16" : size === "md" ? "size-12" : "size-10",
-        tone === "neutral" && "bg-white/[0.09] text-white hover:bg-white/[0.15]",
-        tone === "obj" && "obj text-white hover:bg-black/70",
-        tone === "engaged" && "bg-white text-[#0b0708]",
-        tone === "end" && "bg-chili text-white hover:brightness-110",
-        tone === "accept" && "bg-white text-[#0b0708] hover:bg-white/90",
-      )}
-    >
-      {children}
-    </button>
+    <Tip label={tip ?? label} disabled={showLabel}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={cn(
+          "msg-press flex shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50",
+          size === "lg" ? "size-16" : size === "md" ? "size-12" : "size-10",
+          tone === "neutral" && "bg-white/[0.09] text-white hover:bg-white/[0.15]",
+          tone === "obj" && "obj text-white hover:bg-black/70",
+          tone === "engaged" && "bg-white text-[#0b0708]",
+          tone === "end" && "bg-chili text-white hover:brightness-110",
+          tone === "accept" && "bg-white text-[#0b0708] hover:bg-white/90",
+        )}
+      >
+        {children}
+      </button>
+    </Tip>
   );
   if (!showLabel) return button;
   return (
@@ -482,15 +488,17 @@ export function CallSurface() {
                 <div className="absolute right-3 bottom-[7.5rem] z-10 h-[150px] w-[112px] overflow-hidden rounded-xl bg-surface md:right-5 md:bottom-28 md:h-[210px] md:w-[158px]">
                   <VideoTile track={localVideo} mirrored={facing === "user"} />
                   {hasMultipleCameras && (
-                    <button
-                      type="button"
-                      onClick={call.flipCamera}
-                      disabled={switchingCam}
-                      aria-label="Switch camera"
-                      className="msg-press obj absolute top-1.5 right-1.5 flex size-8 items-center justify-center rounded-full text-white disabled:opacity-50"
-                    >
-                      <CameraRotate size={15} />
-                    </button>
+                    <Tip label="Flip camera">
+                      <button
+                        type="button"
+                        onClick={call.flipCamera}
+                        disabled={switchingCam}
+                        aria-label="Switch camera"
+                        className="msg-press obj absolute top-1.5 right-1.5 flex size-8 items-center justify-center rounded-full text-white disabled:opacity-50"
+                      >
+                        <CameraRotate size={15} />
+                      </button>
+                    </Tip>
                   )}
                   {!micOn && (
                     <span className="obj absolute bottom-1.5 left-1.5 flex size-7 items-center justify-center rounded-full text-white">
@@ -651,11 +659,11 @@ function Controls({
         {camOn ? <VideoCamera size={24} /> : <VideoCameraSlash size={24} />}
       </RoundButton>
       {canFlip && (
-        <RoundButton label="Flip" tone={neutral} showLabel={!overVideo} onClick={onFlip} disabled={switchingCam}>
+        <RoundButton label="Flip" tip="Flip camera" tone={neutral} showLabel={!overVideo} onClick={onFlip} disabled={switchingCam}>
           <CameraRotate size={24} />
         </RoundButton>
       )}
-      <RoundButton label="End" tone="end" showLabel={!overVideo} onClick={onEnd}>
+      <RoundButton label="End" tip="End call" tone="end" showLabel={!overVideo} onClick={onEnd}>
         <HangUp size={26} />
       </RoundButton>
     </>
@@ -826,35 +834,38 @@ function CallDock({
       aria-label={`Call with ${peer.name}`}
     >
       <div className="overflow-hidden rounded-panel bg-surface-raised shadow-[0_24px_60px_-18px_rgba(0,0,0,0.95)]">
-        <button
-          type="button"
-          onClick={() => {
-            if (dragged.current) {
-              dragged.current = false;
-              return;
-            }
-            onExpand();
-          }}
-          aria-label="Expand call"
-          className="group relative block h-[132px] w-full overflow-hidden bg-black"
-        >
-          {remoteVideo ? (
-            <VideoTile track={remoteVideo} />
-          ) : (
-            <span className="flex size-full items-center justify-center">
-              <CallFace peer={peer} size={56} phase={ringPhase} isGroup={isGroup} />
+        {/* The dock drags by touch: a held finger is moving it, not asking. */}
+        <Tip label="Expand call" touch={false}>
+          <button
+            type="button"
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false;
+                return;
+              }
+              onExpand();
+            }}
+            aria-label="Expand call"
+            className="group relative block h-[132px] w-full overflow-hidden bg-black"
+          >
+            {remoteVideo ? (
+              <VideoTile track={remoteVideo} />
+            ) : (
+              <span className="flex size-full items-center justify-center">
+                <CallFace peer={peer} size={56} phase={ringPhase} isGroup={isGroup} />
+              </span>
+            )}
+            <span className="obj absolute top-2 right-2 flex size-8 items-center justify-center rounded-full text-white transition-colors group-hover:bg-black/75">
+              <CornersOut size={15} />
             </span>
-          )}
-          <span className="obj absolute top-2 right-2 flex size-8 items-center justify-center rounded-full text-white transition-colors group-hover:bg-black/75">
-            <CornersOut size={15} />
-          </span>
-          {(poorConnection || !micOn) && (
-            <span className="obj absolute bottom-2 left-2 inline-flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-white">
-              {poorConnection ? <WarningCircle size={12} /> : <MicrophoneSlash size={12} />}
-              {poorConnection ? "Weak connection" : "Muted"}
-            </span>
-          )}
-        </button>
+            {(poorConnection || !micOn) && (
+              <span className="obj absolute bottom-2 left-2 inline-flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-white">
+                {poorConnection ? <WarningCircle size={12} /> : <MicrophoneSlash size={12} />}
+                {poorConnection ? "Weak connection" : "Muted"}
+              </span>
+            )}
+          </button>
+        </Tip>
         <div className="flex items-center gap-2 px-3 py-2.5">
           <div className="min-w-0 flex-1 leading-tight">
             <p className="truncate text-[13px] font-semibold text-foreground">{peer.name}</p>

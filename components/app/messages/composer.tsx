@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowBendUpLeft, Check, Microphone, PaperPlaneRight, PencilSimple, Plus, WarningCircle, X } from "@/components/icons";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import {
   CANCEL_PX,
@@ -359,14 +360,16 @@ export function Composer({
             );
           })}
           {attachments.length < MAX_ATTACHMENTS && (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              aria-label="Add more"
-              className="msg-press flex size-[72px] shrink-0 items-center justify-center rounded-[14px] bg-tint/[0.04] text-muted-foreground hover:bg-tint/[0.07] hover:text-foreground"
-            >
-              <Plus size={20} />
-            </button>
+            <Tip label="Add more photos or clips">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label="Add more"
+                className="msg-press flex size-[72px] shrink-0 items-center justify-center rounded-[14px] bg-tint/[0.04] text-muted-foreground hover:bg-tint/[0.07] hover:text-foreground"
+              >
+                <Plus size={20} />
+              </button>
+            </Tip>
           )}
         </div>
       )}
@@ -405,18 +408,20 @@ export function Composer({
           className="relative flex items-end gap-2"
         >
           {!editing && (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={disabled || attachments.length >= MAX_ATTACHMENTS}
-              aria-label="Add photos or clips"
-              className={cn(
-                "msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-foreground hover:bg-control-hover disabled:opacity-40",
-                rec !== "idle" && "pointer-events-none opacity-0",
-              )}
-            >
-              <Plus size={20} />
-            </button>
+            <Tip label="Add photos or clips">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={disabled || attachments.length >= MAX_ATTACHMENTS}
+                aria-label="Add photos or clips"
+                className={cn(
+                  "msg-press flex size-11 shrink-0 items-center justify-center rounded-full bg-control text-foreground hover:bg-control-hover disabled:opacity-40",
+                  rec !== "idle" && "pointer-events-none opacity-0",
+                )}
+              >
+                <Plus size={20} />
+              </button>
+            </Tip>
           )}
 
           <textarea
@@ -442,21 +447,23 @@ export function Composer({
           />
 
           {hasContent || editing ? (
-            <button
-              key="send"
-              type="submit"
-              disabled={!canSend}
-              aria-label={editing ? "Save edit" : "Send"}
-              className="msg-press msg-pop flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90 disabled:opacity-40"
-            >
-              {sending ? (
-                <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-on-inverse/25 border-t-on-inverse" />
-              ) : editing ? (
-                <Check size={19} weight="bold" />
-              ) : (
-                <PaperPlaneRight size={19} weight="fill" />
-              )}
-            </button>
+            <Tip key="send" label={editing ? "Save edit" : "Send"} hint="Enter">
+              <button
+                key="send"
+                type="submit"
+                disabled={!canSend}
+                aria-label={editing ? "Save edit" : "Send"}
+                className="msg-press msg-pop flex size-11 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:bg-inverse/90 disabled:opacity-40"
+              >
+                {sending ? (
+                  <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-on-inverse/25 border-t-on-inverse" />
+                ) : editing ? (
+                  <Check size={19} weight="bold" />
+                ) : (
+                  <PaperPlaneRight size={19} weight="fill" />
+                )}
+              </button>
+            </Tip>
           ) : (
             // Held, it follows the thumb a little as it slides toward the bin.
             <span
@@ -467,23 +474,25 @@ export function Composer({
                 transition: rec === "hold" ? "none" : "transform 0.3s var(--ease-spring)",
               }}
             >
-              <button
-                type="button"
-                disabled={disabled}
-                data-held={rec === "hold" ? "" : undefined}
-                onPointerDown={beginHold}
-                onPointerMove={moveHold}
-                onPointerUp={endHold}
-                onPointerCancel={loseHold}
-                onContextMenu={(e) => e.preventDefault()}
-                // Enter or Space: record hands-free.
-                onClick={(e) => e.detail === 0 && rec === "idle" && void startHandsFree()}
-                aria-label="Record a voice note"
-                title="Hold to talk, or tap to record"
-                className="msg-press msg-orb msg-pop flex size-11 touch-none items-center justify-center rounded-full bg-control text-foreground select-none hover:bg-control-hover disabled:opacity-40"
-              >
-                <Microphone size={20} />
-              </button>
+              {/* Held to talk, so a long-press never asks what it is. */}
+              <Tip label="Hold to talk, or tap to record" touch={false}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  data-held={rec === "hold" ? "" : undefined}
+                  onPointerDown={beginHold}
+                  onPointerMove={moveHold}
+                  onPointerUp={endHold}
+                  onPointerCancel={loseHold}
+                  onContextMenu={(e) => e.preventDefault()}
+                  // Enter or Space: record hands-free.
+                  onClick={(e) => e.detail === 0 && rec === "idle" && void startHandsFree()}
+                  aria-label="Record a voice note"
+                  className="msg-press msg-orb msg-pop flex size-11 touch-none items-center justify-center rounded-full bg-control text-foreground select-none hover:bg-control-hover disabled:opacity-40"
+                >
+                  <Microphone size={20} />
+                </button>
+              </Tip>
             </span>
           )}
 

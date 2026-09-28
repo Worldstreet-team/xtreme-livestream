@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Broadcast, Info, Phone, VideoCamera } from "@/components/icons";
 import { UserAvatar } from "@/components/xtream";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { contextHref } from "@/lib/messaging";
 import { formatCallClock } from "@/lib/call-manager";
@@ -96,14 +97,16 @@ export function ThreadHeader({
         )}
 
         {inCall ? (
-          <button
-            type="button"
-            onClick={onReturnToCall}
-            className="msg-press flex h-9 shrink-0 items-center gap-2 rounded-full bg-chili px-3.5 text-[13px] font-semibold text-white"
-          >
-            <span aria-hidden className="rec-blink size-1.5 rounded-full bg-white" />
-            {inCall.startedAt ? <CallClock startedAt={inCall.startedAt} /> : "Calling"}
-          </button>
+          <Tip label="Back to the call" side="bottom">
+            <button
+              type="button"
+              onClick={onReturnToCall}
+              className="msg-press flex h-9 shrink-0 items-center gap-2 rounded-full bg-chili px-3.5 text-[13px] font-semibold text-white"
+            >
+              <span aria-hidden className="rec-blink size-1.5 rounded-full bg-white" />
+              {inCall.startedAt ? <CallClock startedAt={inCall.startedAt} /> : "Calling"}
+            </button>
+          </Tip>
         ) : groupCall ? (
           <button
             type="button"
@@ -115,25 +118,30 @@ export function ThreadHeader({
           </button>
         ) : (
           <>
-            <button type="button" onClick={onVoiceCall} disabled={!canCall} aria-label="Voice call" title="Voice call" className={iconButton}>
-              <Phone size={20} />
-            </button>
-            <button type="button" onClick={onVideoCall} disabled={!canCall} aria-label="Video call" title="Video call" className={iconButton}>
-              <VideoCamera size={21} />
-            </button>
+            <Tip label="Start a voice call" side="bottom">
+              <button type="button" onClick={onVoiceCall} disabled={!canCall} aria-label="Voice call" className={iconButton}>
+                <Phone size={20} />
+              </button>
+            </Tip>
+            <Tip label="Start a video call" side="bottom">
+              <button type="button" onClick={onVideoCall} disabled={!canCall} aria-label="Video call" className={iconButton}>
+                <VideoCamera size={21} />
+              </button>
+            </Tip>
           </>
         )}
 
-        <button
-          type="button"
-          onClick={onToggleDetails}
-          aria-label="Conversation details"
-          aria-pressed={detailsOpen}
-          title="Details"
-          className={cn(iconButton, "hidden md:flex", detailsOpen && "bg-tint/[0.08] text-foreground")}
-        >
-          <Info size={20} weight={detailsOpen ? "fill" : undefined} />
-        </button>
+        <Tip label={detailsOpen ? "Hide details" : "Show details"} side="bottom">
+          <button
+            type="button"
+            onClick={onToggleDetails}
+            aria-label="Conversation details"
+            aria-pressed={detailsOpen}
+            className={cn(iconButton, "hidden md:flex", detailsOpen && "bg-tint/[0.08] text-foreground")}
+          >
+            <Info size={20} weight={detailsOpen ? "fill" : undefined} />
+          </button>
+        </Tip>
         {menu}
       </div>
     </header>

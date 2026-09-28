@@ -1,0 +1,292 @@
+/*
+ * The walkthrough's motion. Timings and curves arrive as custom properties
+ * from lib/motion.ts (TOUR_VARS in tour-overlay.tsx), so the numbers live
+ * in one place. Only transform, opacity and clip-path ever move.
+ *
+ *   the dim     a clip-path polygon with a rounded hole; it closes in on the
+ *               first target (iris) and glides between the rest
+ *   the card    rides a transform from target to target, a beat behind the
+ *               light, on the same curve; its arrow slides along its edge
+ *   the words   outgoing lines lift up and out through a mask, incoming ones
+ *               rise in behind them, title first, then the line
+ *
+ * Reduced motion: the light and the card cut, the words cross-fade.
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  /* Always a dark dim, in both themes: the page steps back, the target doesn't. */
+  --tour-scrim: rgb(6 3 3 / 0.66);
+  --tour-ring: rgb(255 255 255 / 0.78);
+}
+:global([data-theme="light"]) .root {
+  --tour-scrim: rgb(22 12 10 / 0.46);
+  --tour-ring: rgb(255 255 255 / 0.92);
+}
+
+/* ---- The light -------------------------------------------------------- */
+
+.scrim,
+.ring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  will-change: clip-path;
+}
+.scrim {
+  background: var(--tour-scrim);
+}
+.ring {
+  background: var(--tour-ring);
+}
+.root[data-phase="enter"] .scrim,
+.root[data-phase="enter"] .ring {
+  transition: clip-path var(--tour-iris) var(--tour-ease-iris);
+}
+.root[data-phase="exit"] .scrim,
+.root[data-phase="exit"] .ring {
+  transition: clip-path var(--tour-exit) var(--tour-ease-text-out);
+}
+.root[data-phase="glide"] .scrim,
+.root[data-phase="glide"] .ring {
+  transition: clip-path var(--tour-glide) var(--tour-ease-glide);
+}
+/* The ring shows only while the light has something to hold; it fades rather than blinks. */
+.ring {
+  opacity: 0;
+}
+.root[data-phase] .ring {
+  transition-property: clip-path, opacity;
+  transition-duration: var(--tour-glide), 220ms;
+}
+.root[data-phase="enter"] .ring {
+  transition-duration: var(--tour-iris), 220ms;
+}
+.root[data-phase="exit"] .ring {
+  transition-duration: var(--tour-exit), 160ms;
+}
+.root[data-phase="track"] .ring {
+  transition-duration: 0s, 220ms;
+}
+.root[data-lit] .ring {
+  opacity: 1;
+}
+
+/* ---- The card --------------------------------------------------------- */
+
+.positioner {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.root[data-phase="glide"] .positioner[data-settled] {
+  transition: transform var(--tour-glide) var(--tour-ease-glide) var(--tour-trail);
+}
+
+.card {
+  position: relative;
+  animation: card-in var(--tour-rise) var(--tour-ease-rise) calc(var(--tour-iris) * 0.28) both;
+}
+.root[data-phase="exit"] .card {
+  animation: card-out var(--tour-exit) var(--tour-ease-text-out) both;
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes card-out {
+  to {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.98);
+  }
+}
+
+/* The phone's sheet floats at the foot and lifts over a target it would cover. */
+.sheet {
+  position: fixed;
+  left: var(--tour-inset);
+  right: var(--tour-inset);
+  bottom: calc(var(--tour-inset) + env(safe-area-inset-bottom));
+  will-change: transform;
+}
+.root[data-phase="glide"] .sheet[data-settled] {
+  transition: transform var(--tour-glide) var(--tour-ease-glide) var(--tour-trail);
+}
+.sheet .card {
+  animation-name: sheet-in;
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 56px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The pointer: a notch in the card's own colour, sliding along its edge. */
+.arrow {
+  position: absolute;
+  width: 20px;
+  height: 10px;
+  opacity: 0;
+  transition:
+    transform var(--tour-glide) var(--tour-ease-glide) var(--tour-trail),
+    opacity 160ms linear;
+}
+.arrow[data-on] {
+  opacity: 1;
+  transition:
+    transform var(--tour-glide) var(--tour-ease-glide) var(--tour-trail),
+    opacity 200ms linear calc(var(--tour-trail) + var(--tour-glide) * 0.55);
+}
+.arrow[data-side="top"] {
+  left: 0;
+  top: -9px;
+}
+.arrow[data-side="bottom"] {
+  left: 0;
+  bottom: -9px;
+}
+.arrow[data-side="left"] {
+  top: 0;
+  left: -14px;
+}
+.arrow[data-side="right"] {
+  top: 0;
+  right: -14px;
+}
+.positioner:not([data-settled]) .arrow,
+.sheet:not([data-settled]) .arrow {
+  transition: none;
+}
+
+/* ---- The words -------------------------------------------------------- */
+
+/* Every step's words sit in one cell: the invisible ones size it to the
+   tallest step, so the card holds its height from first step to last. */
+.stack {
+  display: grid;
+}
+.stack > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.sizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Each line rises through its own mask. The padding keeps descenders. */
+.mask {
+  overflow: hidden;
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+}
+.in .rise {
+  animation: rise-in var(--tour-text) var(--tour-ease-text) both;
+  animation-delay: calc(var(--lead) + var(--i) * var(--tour-text-gap));
+}
+.out .rise {
+  animation: rise-out var(--tour-text-out) var(--tour-ease-text-out) both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--dir) * 104%), 0);
+  }
+  35% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes rise-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--dir) * -72%), 0);
+  }
+}
+
+/* ---- Progress --------------------------------------------------------- */
+
+.dots {
+  position: relative;
+  display: flex;
+  gap: 7px;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+.pip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  transition: transform var(--tour-glide) var(--tour-ease-glide);
+}
+
+/* ---- Less motion ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .root[data-phase] .scrim,
+  .root[data-phase] .ring,
+  .root[data-phase] .positioner,
+  .root[data-phase] .sheet,
+  .arrow,
+  .arrow[data-on],
+  .pip {
+    transition: none !important;
+  }
+  .card,
+  .sheet .card,
+  .scrim {
+    animation: fade-in var(--tour-fade) linear both;
+  }
+  .root[data-phase="exit"] .card {
+    animation: fade-out var(--tour-fade) linear both;
+  }
+  .root[data-phase="exit"] .scrim {
+    transition: opacity var(--tour-fade) linear !important;
+    opacity: 0;
+  }
+  .in .rise {
+    animation: fade-in var(--tour-fade) linear both;
+    animation-delay: 60ms;
+  }
+  .out .rise {
+    animation: fade-out var(--tour-fade) linear both;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}

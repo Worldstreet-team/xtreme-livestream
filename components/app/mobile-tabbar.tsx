@@ -52,6 +52,7 @@ export function MobileTabBar() {
           <Link
             key={t.href}
             href={t.href}
+            data-tour={`nav-${t.href.slice(1)}`}
             aria-current={active ? "page" : undefined}
             className={cn(
               "press relative flex h-[58px] flex-col items-center justify-center gap-1 text-[11px] font-semibold tracking-[0.01em]",

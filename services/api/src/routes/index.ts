@@ -20,6 +20,7 @@ import { marketDirectorRoutes } from "./market-director.js";
 import { marketRoutes } from "./market.js";
 import { moderationRoutes } from "./moderation.js";
 import { notificationRoutes } from "./notifications.js";
+import { previewRoutes } from "./preview.js";
 import { requestRoutes } from "./requests.js";
 import { rundownRoutes } from "./rundown.js";
 import { rewardRoutes } from "./rewards.js";
@@ -35,6 +36,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(userRoutes);
   await fastify.register(streamRoutes);
   await fastify.register(streamActionRoutes);
+  await fastify.register(previewRoutes);
   await fastify.register(thumbnailRoutes);
   await fastify.register(discoveryRoutes);
   await fastify.register(dashboardRoutes);

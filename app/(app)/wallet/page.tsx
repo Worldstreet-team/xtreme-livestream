@@ -199,7 +199,7 @@ export default function WalletPage() {
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <div className="flex flex-col gap-2.5 lg:sticky lg:top-20">
         {/* ── The balance card: the money, and the two things you do with it. */}
-        <section className="relative overflow-hidden rounded-sm">
+        <section data-tour="wallet-balance" className="relative overflow-hidden rounded-sm">
           <div className="absolute inset-0 bg-surface-raised" />
           <BrandMark size={260} className="absolute -right-8 -bottom-14 opacity-[0.06]" />
           <div className="relative p-5 md:p-6">
@@ -244,7 +244,7 @@ export default function WalletPage() {
         </section>
 
         {/* ── The three figures that describe the account. */}
-        <section className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-2">
+        <section data-tour="wallet-points" className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-2">
           <Figure
             label="Earned from gifts"
             value={earnings ? money(earnings.balanceUsdMinor) : "—"}
@@ -269,7 +269,7 @@ export default function WalletPage() {
         </div>
 
         {/* ── History, one list at a time. */}
-        <section className="min-w-0 rounded-sm bg-tint/[0.02] p-3 md:p-4">
+        <section data-tour="wallet-history" className="min-w-0 rounded-sm bg-tint/[0.02] p-3 md:p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-[17px] font-semibold tracking-tight text-foreground">History</h2>
             <PillTabs size="sm" label="Wallet history" value={tab} onChange={setTab} items={tabs} />

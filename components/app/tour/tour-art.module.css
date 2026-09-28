@@ -1,0 +1,319 @@
+/*
+ * The walkthrough's art (./tour-art.tsx): paint for its twelve parts and
+ * the idle beat each scene has at rest.
+ *
+ * The canvas is the art kit's (components/app/art/primitives.module.css
+ * `.canvas`), so the --art-* inks, the paused state and reduced motion are
+ * the kit's own. Paint uses theme tokens only; flat, no gradients, glows or
+ * blur. Every paint names all four of fill, stroke, width and dashes (no
+ * `none`), so the driver can blend any paint into any other while a part
+ * changes jobs; at rest the class is the paint.
+ *
+ * Idle beats are transform and opacity loops on each part's middle <g>,
+ * never the path driver. Every loop's first frame is its resting pose, and
+ * they hold it (`backwards`) through their delay, so starting one never
+ * jumps.
+ */
+
+.shape {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- paint ------------------------------------------------------------------ */
+
+.card { fill: var(--art-card); stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+.card2 { fill: var(--art-card-2); stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+/* A phone's screen: a step back, no edge. */
+.screen { fill: var(--art-card-2); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.line { fill: transparent; stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 1 0; }
+.soft { fill: transparent; stroke: var(--art-line-soft); stroke-width: 2px; stroke-dasharray: 1 0; }
+/* The practice ring. */
+.dashed { fill: transparent; stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 5 6; }
+/* An empty seat. */
+.slot { fill: transparent; stroke: var(--art-line); stroke-width: 2px; stroke-dasharray: 5 6; }
+/* Phone to laptop. */
+.link { fill: transparent; stroke: var(--art-line-soft); stroke-width: 2px; stroke-dasharray: 4 4; }
+/* Round dashes of zero length are dots. */
+.dotRing { fill: transparent; stroke: var(--art-line-soft); stroke-width: 3px; stroke-dasharray: 0 9; }
+.dots { fill: transparent; stroke: var(--art-bar); stroke-width: 9px; stroke-dasharray: 0 22; }
+.dots3 { fill: transparent; stroke: var(--art-ink); stroke-width: 4.5px; stroke-dasharray: 0 9; }
+.bar { fill: var(--art-bar); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.ink { fill: var(--art-ink); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.inkLine { fill: transparent; stroke: var(--art-ink); stroke-width: 2px; stroke-dasharray: 1 0; }
+/* The neutral accent: white in dark, near-black in light. */
+.hi { fill: var(--art-hi); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.onHi { fill: transparent; stroke: var(--art-on-hi); stroke-width: 2.5px; stroke-dasharray: 1 0; }
+.onHiDot { fill: color-mix(in srgb, var(--art-on-hi) 48%, transparent); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+
+/* Chili: being live, Go live, a gift's ribbon. */
+.live { fill: var(--chili); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.liveHalo { fill: transparent; stroke: var(--chili); stroke-width: 2px; stroke-dasharray: 1 0; }
+.heat { fill: transparent; stroke: var(--chili); stroke-width: 3px; stroke-dasharray: 1 0; }
+.ribbon { fill: transparent; stroke: var(--chili); stroke-width: 2.5px; stroke-dasharray: 1 0; }
+/* Marks on Chili: its own white. */
+.onLive { fill: transparent; stroke: var(--primary-foreground); stroke-width: 3px; stroke-dasharray: 1 0; }
+.onLiveBar { fill: color-mix(in srgb, var(--primary-foreground) 88%, transparent); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+/* Ember, sparingly: a streak, a crown, a booked day, Vivid's key. */
+.ember { fill: var(--ember); stroke: transparent; stroke-width: 2px; stroke-dasharray: 1 0; }
+.emberLine { fill: transparent; stroke: var(--ember); stroke-width: 2.25px; stroke-dasharray: 1 0; }
+/* Gold is money's colour, so it's for money only. */
+.coin { fill: var(--tone-amber); stroke: var(--value); stroke-width: 2px; stroke-dasharray: 1 0; }
+.coinLine { fill: transparent; stroke: var(--value); stroke-width: 1.75px; stroke-dasharray: 1 0; }
+
+/* ---- idle ------------------------------------------------------------------- */
+
+/* Go live: the thumb presses, the button gives and blooms, a ring leaves it. */
+.press { animation: ta-press 2.4s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-press {
+  0%, 100% { transform: none; }
+  7% { transform: scale(0.92); }
+  19% { transform: scale(1.05); }
+  32% { transform: none; }
+}
+.tap { animation: ta-tap 2.4s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-tap {
+  0%, 100% { transform: none; }
+  3% { transform: translate(1px, 1.5px); }
+  7% { transform: translate(-2.5px, -3.5px); }
+  24% { transform: none; }
+}
+.ping { animation: ta-ping 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite backwards; }
+@keyframes ta-ping {
+  0%, 7% { opacity: 0; transform: none; }
+  9% { opacity: 0.9; transform: none; }
+  62%, 100% { opacity: 0; transform: scale(1.8); }
+}
+
+/* The countdown: 3, 2, 1, one a second, the button beating with each. */
+.tick1 { animation: ta-tick1 3s linear infinite backwards; }
+.tick2 { animation: ta-tick2 3s linear infinite backwards; }
+.tick3 { animation: ta-tick3 3s linear infinite backwards; }
+@keyframes ta-tick1 {
+  0% { opacity: 1; transform: none; }
+  27% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.4); }
+  32% { opacity: 0; transform: scale(0.6); }
+  94% { opacity: 0; transform: scale(1.5); animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes ta-tick2 {
+  0%, 27.3% { opacity: 0; transform: scale(1.5); animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1); }
+  33.3% { opacity: 1; transform: none; }
+  60.6% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.4); }
+  65.6% { opacity: 0; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+@keyframes ta-tick3 {
+  0%, 60.6% { opacity: 0; transform: scale(1.5); animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1); }
+  66.6% { opacity: 1; transform: none; }
+  93.9% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.4); }
+  99% { opacity: 0; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+.beat { animation: ta-beat 1s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-beat {
+  0%, 100% { transform: none; }
+  8% { transform: scale(1.045); }
+  30% { transform: none; }
+}
+.pingTick { animation: ta-ping-tick 1s cubic-bezier(0.2, 0.8, 0.2, 1) infinite backwards; }
+@keyframes ta-ping-tick {
+  0% { opacity: 0; transform: none; }
+  4% { opacity: 0.8; transform: none; }
+  72%, 100% { opacity: 0; transform: scale(1.45); }
+}
+
+/* The LIVE tag. */
+.blink { animation: ta-blink 1.6s ease-in-out infinite backwards; }
+@keyframes ta-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* The gift's lid lifts to peek, and drops back with a little bounce. */
+.lid { animation: ta-lid 4.2s linear infinite backwards; }
+@keyframes ta-lid {
+  0%, 50% { transform: none; animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1); }
+  62% { transform: translateY(-9px) rotate(-8deg); }
+  70% { transform: translateY(-7px) rotate(-6deg); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.5); }
+  78% { transform: none; animation-timing-function: cubic-bezier(0.2, 0.8, 0.4, 1); }
+  83% { transform: translateY(-1.5px) rotate(-1deg); animation-timing-function: ease-in; }
+  88%, 100% { transform: none; }
+}
+
+/* The top coin fades off the stack and drops back on. */
+.drop { animation: ta-drop 3.4s linear infinite backwards; }
+@keyframes ta-drop {
+  0%, 56% { opacity: 1; transform: none; }
+  64% { opacity: 0; transform: none; }
+  65% { opacity: 0; transform: translateY(-36px); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4); }
+  70% { opacity: 1; }
+  79% { transform: none; animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1); }
+  84% { transform: translateY(-3.5px); animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.5); }
+  89%, 100% { opacity: 1; transform: none; }
+}
+
+/* The big coin turns over now and then. */
+.flip { animation: ta-flip 5.2s ease-in-out infinite backwards; }
+@keyframes ta-flip {
+  0%, 70%, 100% { transform: none; }
+  77% { transform: scaleX(0.08); }
+  84% { transform: none; }
+}
+
+/* Voice levels. */
+.breathe { animation: ta-breathe 1.5s ease-in-out infinite backwards; }
+@keyframes ta-breathe {
+  0%, 100% { transform: none; }
+  30% { transform: scaleY(0.45); }
+  65% { transform: scaleY(1.18); }
+}
+
+/* The crown lifts, lands and rocks still on its base. */
+.crown { animation: ta-crown 4.8s linear infinite backwards; }
+@keyframes ta-crown {
+  0%, 60% { transform: none; animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  69% { transform: translateY(-12px) rotate(-10deg); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4); }
+  77% { transform: rotate(5deg); animation-timing-function: ease-in-out; }
+  83% { transform: rotate(-2.5deg); animation-timing-function: ease-in-out; }
+  88% { transform: rotate(1deg); animation-timing-function: ease-in-out; }
+  92%, 100% { transform: none; }
+}
+
+/* The practice ring turns slowly; its dotted halo the other way. */
+.spin { animation: ta-spin 36s linear infinite backwards; }
+.spinBack { animation: ta-spin 60s linear infinite reverse backwards; }
+@keyframes ta-spin {
+  from { transform: none; }
+  to { transform: rotate(360deg); }
+}
+
+/* The play mark's heat ring breathes; a halo leaves it at the top of each breath. */
+.swell { animation: ta-swell 3.6s ease-in-out infinite backwards; }
+@keyframes ta-swell {
+  0%, 100% { transform: none; }
+  50% { transform: scale(1.035); }
+}
+.halo { animation: ta-halo 3.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite backwards; }
+@keyframes ta-halo {
+  0%, 46% { opacity: 0; transform: none; }
+  50% { opacity: 0.55; transform: scale(1.035); }
+  100% { opacity: 0; transform: scale(1.32); }
+}
+
+.twinkle { animation: ta-twinkle 3.2s ease-in-out infinite backwards; }
+@keyframes ta-twinkle {
+  0%, 100% { opacity: 1; transform: none; }
+  50% { opacity: 0.3; transform: scale(0.8); }
+}
+
+.typing { animation: ta-typing 1.4s ease-in-out infinite backwards; }
+@keyframes ta-typing {
+  0%, 56%, 100% { opacity: 1; transform: none; }
+  24% { opacity: 1; transform: translateY(-3.5px); }
+  40% { opacity: 0.55; }
+}
+
+/* The handset rings: a quick burst of wiggles, then quiet; the waves flash with it. */
+.wiggle { animation: ta-wiggle 3s ease-in-out infinite backwards; }
+@keyframes ta-wiggle {
+  0%, 34%, 100% { transform: none; }
+  4% { transform: rotate(9deg); }
+  8% { transform: rotate(-8deg); }
+  12% { transform: rotate(7deg); }
+  16% { transform: rotate(-5deg); }
+  20% { transform: rotate(3deg); }
+  25% { transform: rotate(-1deg); }
+}
+.waves { animation: ta-waves 3s ease-out infinite backwards; }
+@keyframes ta-waves {
+  0%, 36%, 100% { opacity: 1; }
+  7% { opacity: 0.2; }
+  14% { opacity: 1; }
+  21% { opacity: 0.2; }
+  28% { opacity: 1; }
+}
+
+/* The More tray's tiles ripple, one after another. */
+.ripple { animation: ta-ripple 4s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-ripple {
+  0%, 24%, 100% { transform: none; }
+  8% { transform: translateY(-4px) scale(1.06); }
+  16% { transform: none; }
+}
+
+/* Stacked cards shift and settle. */
+.fanBack { animation: ta-fan-back 6s ease-in-out infinite backwards; }
+.fanMid { animation: ta-fan-mid 6s ease-in-out infinite backwards; }
+@keyframes ta-fan-back {
+  0%, 100% { transform: none; }
+  50% { transform: translate(-4px, -3px) rotate(-3deg); }
+}
+@keyframes ta-fan-mid {
+  0%, 100% { transform: none; }
+  50% { transform: translate(-2px, -1.5px) rotate(-1.5deg); }
+}
+
+.nod { animation: ta-nod 4.4s ease-in-out infinite backwards; }
+@keyframes ta-nod {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-2px); }
+}
+
+/* Hold V. */
+.keyPress { animation: ta-key 2.6s ease-in-out infinite backwards; }
+@keyframes ta-key {
+  0%, 100% { transform: none; }
+  10%, 60% { transform: translateY(2px); }
+  70% { transform: none; }
+}
+
+.hover { animation: ta-hover 5s ease-in-out infinite backwards; }
+@keyframes ta-hover {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-3px); }
+}
+
+.shimmer { animation: ta-shimmer 2.8s ease-in-out infinite backwards; }
+@keyframes ta-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.flicker { animation: ta-flicker 1.8s ease-in-out infinite backwards; }
+@keyframes ta-flicker {
+  0%, 100% { transform: none; }
+  25% { transform: scale(0.94, 1.08); }
+  50% { transform: scale(1.04, 0.95); }
+  75% { transform: scale(0.98, 1.04); }
+}
+
+/* The booked day. */
+.pop { animation: ta-pop 3.2s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-pop {
+  0%, 58%, 100% { transform: none; }
+  66% { transform: scale(1.2); }
+  74% { transform: scale(0.95); }
+  80% { transform: none; }
+}
+
+/* A coin goes into the wallet, and the next drops into the slot. */
+.coinIn { animation: ta-coin-in 3.6s linear infinite backwards; }
+@keyframes ta-coin-in {
+  0%, 38% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.3); }
+  52% { opacity: 1; transform: translateY(26px); }
+  53% { opacity: 0; transform: translateY(26px); }
+  54% { opacity: 0; transform: translateY(-30px); animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  66% { opacity: 1; }
+  80% { transform: translateY(-3px); animation-timing-function: ease-in-out; }
+  90%, 100% { opacity: 1; transform: none; }
+}
+
+/* Phone to laptop: a dot runs along the link. */
+.travel { animation: ta-travel 2.2s cubic-bezier(0.45, 0, 0.2, 1) infinite backwards; }
+@keyframes ta-travel {
+  0% { opacity: 0; transform: none; }
+  14% { opacity: 1; }
+  70% { opacity: 1; transform: translateX(-22px); }
+  84%, 100% { opacity: 0; transform: translateX(-22px); }
+}

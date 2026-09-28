@@ -222,7 +222,7 @@ export default function RewardsPage() {
         <StreakTile streak={data.streak} />
       </div>
 
-      <section aria-labelledby="quests-title" className="mt-10 md:mt-14">
+      <section aria-labelledby="quests-title" data-tour="rewards-quests" className="mt-10 md:mt-14">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 id="quests-title" className="scroll-mt-24 font-wide text-[24px] font-bold tracking-[-0.03em]">Quests</h2>
@@ -384,7 +384,7 @@ function LevelTile({ level }: { level: Level }) {
 function StreakTile({ streak }: { streak: Rewards["streak"] }) {
   const letters = streak.week.map((d) => new Date(d.day + "T12:00:00Z").toLocaleDateString(undefined, { weekday: "narrow", timeZone: "UTC" }));
   return (
-    <div className={cn(TILE, "flex flex-col p-6 md:col-span-3 lg:col-span-3")}>
+    <div data-tour="rewards-streak" className={cn(TILE, "flex flex-col p-6 md:col-span-3 lg:col-span-3")}>
       <div className="flex items-center justify-between">
         <p className={EYEBROW}>Streak</p>
         <Fire size={18} weight="fill" className={streak.days > 0 ? "text-chili-hi" : "text-muted-foreground/40"} />
@@ -538,7 +538,7 @@ function RedeemTile({ balance, rules, waiting, onDone }: { balance: number; rule
   };
 
   return (
-    <section aria-labelledby="redeem-title" className={cn(TILE, "flex flex-col p-6 lg:col-span-7 md:p-7")}>
+    <section aria-labelledby="redeem-title" data-tour="rewards-redeem" className={cn(TILE, "flex flex-col p-6 lg:col-span-7 md:p-7")}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className={EYEBROW}>Cash out</p>

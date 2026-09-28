@@ -350,6 +350,12 @@ export interface IStream extends Document {
     interpreter?: string | null;
     /** Which camera the program shows while a phone camera (`cam-<hostId>`) is in: the studio's, the phone, or both. */
     angle?: "main" | "phone" | "both";
+    /**
+     * Where the phone camera sits in the layout (PHONE_SLOTS): the one word
+     * for it since placements; `angle` is kept in step. Absent on streams
+     * from before, which read it from their angle.
+     */
+    phoneSlot?: "off" | "main" | "beside" | "corner";
     version: number;
   };
   viewers: number;
@@ -395,6 +401,14 @@ export interface IStream extends Document {
   takenDownAt: Date | null;
   /** A practice run: private, unlisted, unannounced, with simulated chat and gifts (practice.ts). */
   practice: boolean;
+  /**
+   * A practice run's watch-only preview link (preview.ts): the SHA-256 of
+   * its secret key, never the key itself, and when it was made. Both are
+   * kept out of every read unless asked for (+previewKeyHash), and cleared
+   * when the run ends or the host stops sharing.
+   */
+  previewKeyHash?: string | null;
+  previewSharedAt?: Date | null;
   /**
    * The goal bar (Phase 2, goals and status) — the host's goal and how far
    * it's got. Written only by goals.ts, each time with one atomic update.
@@ -512,6 +526,8 @@ const streamSchema = new Schema<IStream>(
       spotlight: { type: String, default: null },
       interpreter: { type: String, default: null },
       angle: { type: String, enum: ["main", "phone", "both"], default: "main" },
+      // No default: a stream from before placements reads its phone from its angle.
+      phoneSlot: { type: String, enum: ["off", "main", "beside", "corner"] },
       version: { type: Number, default: 0, min: 0 },
     },
     viewers: { type: Number, default: 0, min: 0 },
@@ -565,6 +581,9 @@ const streamSchema = new Schema<IStream>(
     },
     takenDownAt: { type: Date, default: null },
     practice: { type: Boolean, default: false },
+    // The preview link's key, hashed, and when it was made: never in a list or a page.
+    previewKeyHash: { type: String, default: null, select: false },
+    previewSharedAt: { type: Date, default: null, select: false },
     goal: { type: Schema.Types.Mixed, default: null },
     heat: { type: Schema.Types.Mixed, default: null },
     requestsOpen: { type: Boolean, default: false },

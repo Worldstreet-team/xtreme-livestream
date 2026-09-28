@@ -188,8 +188,8 @@ function Browse() {
             label="Browse"
             items={[
               { id: "categories" as const, label: "Categories", icon: SquaresFour },
-              { id: "live" as const, label: "Live channels", icon: Broadcast },
-              { id: "upcoming" as const, label: "Events", icon: Clock },
+              { id: "live" as const, label: "Live channels", icon: Broadcast, tour: "browse-live" },
+              { id: "upcoming" as const, label: "Events", icon: Clock, tour: "browse-events" },
             ]}
             value={tab}
             onChange={(id) => setParams({ tab: id === "categories" ? null : id })}
@@ -361,7 +361,7 @@ function CategoriesTab({
         ))}
       </div>
 
-      <div ref={ref} className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-7">
+      <div ref={ref} data-tour="browse-categories" className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-7">
         {visible.map((c) => (
           <CategoryCard key={c.category} category={c} />
         ))}
