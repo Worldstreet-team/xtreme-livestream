@@ -318,7 +318,7 @@ export default function ExplorePage() {
   // which has to stay on screen so they can get back out of it.
   const chipRow =
     liveCategories.length === 0 && selectedCategory === "All" ? null : (
-    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:mx-0 md:px-0">
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:-mx-6 md:px-6">
       {/* Just the names (owner, 2026-09-24): no live counts, no edge. */}
       {(["All" as const, ...chips]).map((cat) => {
         const isActive = selectedCategory === cat;

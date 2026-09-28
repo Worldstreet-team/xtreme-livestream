@@ -161,7 +161,8 @@ export function HomeStage({ leads, rows }: { leads: HomeLead[]; rows: HomeRow[] 
       className="group/hero relative outline-none"
     >
       {/* Height follows the centre card at 16:9: 60% of the width on desktop, 78% on tablets. */}
-      <div className="relative w-full overflow-hidden" style={{ aspectRatio: wide ? "80 / 27" : "800 / 351" }}>
+      {/* Desktop: the frame reaches the page panel's edges, so the side cards are cut by the rails. */}
+      <div className="relative w-full overflow-hidden md:-mx-6 md:w-auto" style={{ aspectRatio: wide ? "80 / 27" : "800 / 351" }}>
         {slides.map((s, i) => {
           let off = ((i - idx) % n + n) % n;
           if (off > half) off -= n;

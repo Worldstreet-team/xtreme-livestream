@@ -51,7 +51,10 @@ function useColumns(size: ShelfSize) {
     const el = ref.current;
     if (!el) return;
     const measure = () => {
-      const w = el.clientWidth;
+      // The row runs out to the page panel's edges on desktop and pads back
+      // in, so the padding isn't room for cards.
+      const cs = getComputedStyle(el);
+      const w = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
       const n = Math.max(1, Math.floor((w + GAP) / (MIN_CARD[size] + GAP)));
       setColumns((c) => (c === n ? c : n));
     };
@@ -199,8 +202,11 @@ export function Shelf({
         ref={ref}
         id={`shelf-row-${id}`}
         onScroll={readEdges}
-        className={cn("flex snap-x snap-mandatory overflow-x-auto pb-1 scrollbar-none", bleed && "px-4 md:px-8")}
-        style={{ gap, scrollPaddingLeft: bleed ? 16 : 0 }}
+        // Desktop: the row reaches past the page's padding to the panel's
+        // edges, so cards slide out under the rails, not at the padding
+        // (owner, 2026-09-28); the first card still sits on the gutter.
+        className={cn("flex snap-x snap-mandatory overflow-x-auto pb-1 scrollbar-none", bleed ? "px-4 md:px-8" : "md:-mx-6 md:scroll-px-6 md:px-6")}
+        style={{ gap, scrollPaddingLeft: bleed ? 16 : undefined }}
       >
         {deep
           ? pages.map((page, p) => (

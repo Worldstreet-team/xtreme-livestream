@@ -249,7 +249,7 @@ export function RightRail() {
   const hasStories = liveBattles.length + games.length + stories.length > 0;
 
   return (
-    <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[340px] shrink-0 flex-col gap-8 overflow-y-auto bg-surface px-5 py-6 scrollbar-none 2xl:flex">
+    <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-[340px] shrink-0 flex-col gap-8 overflow-y-auto bg-surface px-5 py-6 scrollbar-none 2xl:flex">
       {/* 1 · Stories */}
       {hasStories && (
         <section className="animate-rise" style={{ animationDelay: "60ms" }}>

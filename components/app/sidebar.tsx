@@ -165,11 +165,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             parent exactly its own height, so the bar scrolled away. */}
         <div data-app-chrome className={cn("sticky top-0 z-30", phoneChromeless && "hidden md:block")}>
           <TopBar onMenu={() => setMobileOpen(true)} />
+          {/* Desktop: the rails and the bar are one card-coloured frame with no
+              borders, and the page sits inside it with curved corners where it
+              meets them (owner, 2026-09-28). The corners ride with the bar, so
+              the page's content is cut by the curve as it scrolls under. */}
+          <FrameCorner side="left" />
+          {!NO_RAIL.some((p) => pathname.startsWith(p)) && <FrameCorner side="right" />}
           {/* Phones, on Home, Browse and Messages: who's live, under the bar. */}
           <LiveRingsBar />
         </div>
         <div className="flex min-h-0 flex-1 items-start">
-          <div className="min-w-0 flex-1">
+          {/* The page panel: rows that reach its edges are cut here, by the rails. */}
+          <div className="min-w-0 flex-1 md:overflow-x-clip">
             {/* The studio lives here, beside every page: it's the page on
                 /studio, and once you're live it stays mounted — minimized —
                 wherever you go, so browsing never takes you off the air. */}
@@ -193,6 +200,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* The walkthrough: one tour at a time, on first visits and first times. */}
       <TourHost />
     </div>
+  );
+}
+
+/**
+ * One of the page's two top corners on desktop: a card-coloured square with
+ * a quarter circle cut out, sitting just under the bar against a rail. The
+ * right one only exists where the right rail does (2xl, browsing pages).
+ */
+function FrameCorner({ side }: { side: "left" | "right" }) {
+  const r = 18;
+  return (
+    <span
+      aria-hidden
+      className={cn("pointer-events-none absolute top-full hidden", side === "left" ? "left-0 md:block" : "right-[340px] 2xl:block")}
+      style={{
+        width: r,
+        height: r,
+        background: `radial-gradient(circle at ${side === "left" ? "100%" : "0"} 100%, transparent ${r - 0.5}px, var(--surface) ${r}px)`,
+      }}
+    />
   );
 }
 
@@ -372,7 +399,7 @@ export function Sidebar({
       >
         {/* Brand, with the collapse control beside it — up top, where the
             rail's own controls belong (owner, 2026-09-23). */}
-        <div className={cn("animate-rise flex h-16 shrink-0 items-center shadow-[inset_0_-1px_0_var(--hairline-color)]", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
+        <div className={cn("animate-rise flex h-16 shrink-0 items-center", narrow ? "flex-col justify-center gap-0.5 pt-1" : "justify-between pr-3 pl-5")}>
           <Tip label="Xtream home" side="right" disabled={!narrow}>
           <Link href="/" className="group flex items-center gap-2.5" aria-label={narrow ? "Xtream home" : undefined}>
             <span className="flex size-[38px] items-center justify-center">

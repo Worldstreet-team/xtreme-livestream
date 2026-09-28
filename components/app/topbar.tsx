@@ -145,7 +145,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const showList = open && q.trim().length >= 2 && (hits.length > 0 || categories.length > 0);
 
   return (
-    <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_var(--hairline-color)] backdrop-blur-xl backdrop-saturate-150 md:grid md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
+    <header className="relative flex h-14 shrink-0 items-center justify-between gap-2 bg-background/85 px-3.5 shadow-[inset_0_-1px_0_var(--hairline-color)] backdrop-blur-xl backdrop-saturate-150 md:grid md:bg-surface md:shadow-none md:backdrop-blur-none md:backdrop-saturate-100 md:h-16 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(200px,520px)_minmax(max-content,1fr)] lg:gap-5">
       {/* Left: you (or the menu) and the brand on phones; the page text from lg. */}
       <div className="flex min-w-0 shrink-0 items-center gap-2.5 md:justify-self-start">
         {/* The landing's two-line menu mark, not your photo (owner, 2026-09-28);
