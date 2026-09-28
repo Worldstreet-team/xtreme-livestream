@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { SquaresFour, ListBullets } from "@/components/icons";
+import { SquaresFour, ListBullets, Broadcast } from "@/components/icons";
+import { categoryArt } from "@/lib/category-art";
+import { useTheme } from "@/lib/theme";
 import { Empty } from "@/components/app/empty";
 import { SelectField } from "@/components/ui/select-field";
 import { StreamCard } from "@/components/app/stream-card";
@@ -302,6 +304,7 @@ export default function ExplorePage() {
     };
   }, []);
 
+  const coverTheme = useTheme();
   const chipNames =
     liveCategories.length > 0 ? liveCategories.map((c) => c.category) : POPULAR_CATEGORIES;
   const chips =
@@ -319,7 +322,8 @@ export default function ExplorePage() {
   const chipRow =
     liveCategories.length === 0 && selectedCategory === "All" ? null : (
     <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:-mx-6 md:px-6">
-      {/* Just the names (owner, 2026-09-24): no live counts, no edge. */}
+      {/* Cover chips (owner, 2026-09-28): each wears its category's own
+          cover in a small circle, then just the name. */}
       {(["All" as const, ...chips]).map((cat) => {
         const isActive = selectedCategory === cat;
         return (
@@ -328,10 +332,24 @@ export default function ExplorePage() {
             onClick={() => setSelectedCategory(cat)}
             aria-pressed={isActive}
             className={cn(
-              "press flex h-9 shrink-0 items-center rounded-[10px] px-4 text-[13.5px] font-semibold transition-colors",
+              "press flex h-9 shrink-0 items-center gap-2 rounded-full py-1 pr-3.5 pl-1 text-[13.5px] font-semibold transition-colors",
               isActive ? "bg-inverse text-on-inverse" : "bg-control text-foreground/86 hover:bg-control-hover"
             )}
           >
+            {cat === "All" ? (
+              <span aria-hidden className="flex size-7 shrink-0 items-center justify-center rounded-full bg-chili text-white">
+                <Broadcast size={13} weight="fill" />
+              </span>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- our own drawn cover, served as SVG
+              <img
+                src={categoryArt(cat, { w: 96, h: 96 }, coverTheme)}
+                alt=""
+                width={28}
+                height={28}
+                className="size-7 shrink-0 rounded-full object-cover"
+              />
+            )}
             {cat === "All" ? "For you" : cat}
           </button>
         );
