@@ -40,7 +40,7 @@ function Via() {
 function Column({ title, body, label, className, children }: { title: string; body: string; label: string; className?: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
-      <Illustration label={label} className={cn("flex h-[30rem] flex-col overflow-hidden rounded-overlay bg-[#111112] p-5 text-foreground", className)}>
+      <Illustration label={label} reveal={false} className={cn("flex h-[30rem] flex-col overflow-hidden rounded-overlay bg-[#111112] p-5 text-foreground", className)}>
         {children}
       </Illustration>
       <div className="flex flex-col gap-2 px-1">

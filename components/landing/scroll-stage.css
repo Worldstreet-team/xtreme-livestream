@@ -260,26 +260,29 @@
     filter: none;
     transform: none;
   }
-  /* `data-stage="rise"`: the cards simply come up, in turn — no tilt, no
-     overshoot (owner, 2026-09-27, the WorldSpace cards). */
+  /* `data-stage="rise"`: the cards simply fade up a little, close together:
+     no tilt, no blur, no overshoot (owner, 2026-09-28: the WorldSpace cards'
+     motion was annoying). */
   html.lm2 [data-stage="rise"] {
     perspective: none;
   }
   html.lm2 [data-stage="rise"] > * {
-    transform: translate3d(0, 36px, 0);
+    filter: none;
+    transform: translate3d(0, 12px, 0);
     transition:
-      opacity 0.7s var(--m-ease),
-      transform 0.9s var(--m-ease);
-    transition-delay: calc(var(--k, 0) * 90ms);
+      opacity 0.6s var(--m-ease),
+      transform 0.7s var(--m-ease);
+    transition-delay: calc(var(--k, 0) * 60ms);
   }
   html.lm2 [data-stage="rise"][data-in] > * {
     transform: none;
   }
 
-  /* ================= every direction: windows come on from their side ================= */
-  /* The app screens. On a phone they rise from below, tilted back; on a
-     desktop they come in from the side they run off, turned a little, and
-     face you as they land. `--p` is eased (cubic out) by the engine. */
+  /* ================= every direction: windows rise into place ================= */
+  /* The app screens rise from below, tilted back, and settle flat, on
+     phones and desktops alike (owner, 2026-09-28: up, not sideways). They
+     keep `data-from` in the markup in case a side entry comes back. `--p`
+     is eased (cubic out) by the engine. */
   html.lm2 [data-reveal="window"] {
     --wx: 0px;
     --wy: 150px;
@@ -292,22 +295,6 @@
     transition:
       transform 0.12s linear,
       opacity 0.12s linear;
-  }
-  @media (min-width: 1024px) {
-    html.lm2 [data-reveal="window"][data-from="right"] {
-      --wx: 32vw;
-      --wy: 0px;
-      --wry: -14deg;
-      --wrx: 0deg;
-      transform-origin: 100% 50%;
-    }
-    html.lm2 [data-reveal="window"][data-from="left"] {
-      --wx: -32vw;
-      --wy: 0px;
-      --wry: 14deg;
-      --wrx: 0deg;
-      transform-origin: 0% 50%;
-    }
   }
 
   /* ================= E · stage: titles a letter at a time, text through a soft wipe ================= */

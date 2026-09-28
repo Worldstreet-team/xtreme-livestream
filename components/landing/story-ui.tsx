@@ -205,9 +205,10 @@ export function FeatureNotes({ items, onPaper = false }: { items: Array<[string,
  * one-line description instead of a wall of sample numbers. It opens with
  * a clip-path wipe as it scrolls in.
  */
-export function Illustration({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
+export function Illustration({ label, className, reveal = true, children }: { label: string; className?: string; reveal?: boolean; children: ReactNode }) {
+  // `reveal={false}`: no scroll motion of its own (a group around it already has one).
   return (
-    <figure role="img" aria-label={label} data-reveal="media" className={className}>
+    <figure role="img" aria-label={label} data-reveal={reveal ? "media" : undefined} className={className}>
       <div aria-hidden className="contents">
         {children}
       </div>

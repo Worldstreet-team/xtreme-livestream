@@ -9,10 +9,21 @@ import styles from "./everyone.module.css";
 const WORDS = ["Everyone’s", "going", "live", "on"];
 const MARK = "Xtream";
 
+/** The wordmark's depth on arrival: 14 stacked shadows in chili-lo that collapse flat. */
+const DEPTH = 14;
+const EXTRUDED = Array.from({ length: DEPTH }, (_, i) => `${(-0.0045 * (i + 1)).toFixed(4)}em ${(0.013 * (i + 1)).toFixed(4)}em 0 #b30e1f`).join(", ");
+const FLAT = Array.from({ length: DEPTH }, () => "0 0 0 transparent").join(", ");
+const STANDARD = "cubic-bezier(0.2, 0, 0, 1)";
+const OUT = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+
 /**
- * "Everyone's going live on Xtream" over a wall of live rooms, with the call
- * to action beneath it. It shows at rest: its scroll-in reveal is off for now
- * (owner, 2026-09-27), until the page's scroll motion is redone.
+ * "Everyone's going live on Xtream", played like a film the first time it
+ * comes into view (sketch 03 in the Motion Design Ideas notebook, on the
+ * WorldSpace timing): the line builds a word at a time and re-centres, then
+ * the wordmark swings in extruded and flattens. As it lands, the wall of
+ * live rooms behind it blooms from grey into colour, heat rings go out from
+ * the name, and the call to action rises beneath it. (Restored as it was,
+ * owner 2026-09-28.)
  *
  * The call to action steers the film: hovering Go live leans the wall in and
  * keeps the rings going, and hovering Watch runs the rooms past faster. The
@@ -23,71 +34,73 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
   const root = useRef<HTMLElement>(null);
   // In development the Motion Board can preview the other layout with ?everyone=center|left.
   const [align, setAlign] = useState(alignProp);
+  const line = useRef<HTMLSpanElement>(null);
+  const mark = useRef<HTMLSpanElement>(null);
   const video = useRef<HTMLVideoElement>(null);
-  const [lit, setLit] = useState(false);
   const [armed, setArmed] = useState(false);
   const [played, setPlayed] = useState(false);
+  const [lit, setLit] = useState(false);
   const [hover, setHover] = useState<"go" | "watch" | null>(null);
 
-  // The film (sketch 03, restored and made cheaper, owner 2026-09-28): once
-  // the section is properly on screen — over half of it, not merely near —
-  // the words build one after another, "Xtream" swings in letter by letter
-  // with depth, then the wall blooms and the calls to action rise. Every
-  // move is transform and opacity on the compositor (Web Animations), so it
-  // costs no layout; it plays once. Without script or with reduced motion
-  // the section is simply at rest, lit.
+  // Arm, wait for the section to be half in view, then play the film once.
   useEffect(() => {
-    const asked = process.env.NODE_ENV === "development" ? new URLSearchParams(location.search).get("everyone") : null;
     const el = root.current;
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches || new URLSearchParams(location.search).has("static");
-    const frame = requestAnimationFrame(() => {
+    // Reduced motion: stay un-armed, which is the film's last frame at rest.
+    if (!el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const anims: Animation[] = [];
+    const timers: number[] = [];
+    const arming = requestAnimationFrame(() => {
+      const asked = process.env.NODE_ENV === "development" ? new URLSearchParams(location.search).get("everyone") : null;
       if (asked === "left" || asked === "center") setAlign(asked);
-      if (still || !el) {
-        setPlayed(true);
-        setLit(true);
-        return;
-      }
       setArmed(true);
     });
-    if (still || !el) return () => cancelAnimationFrame(frame);
-
-    let timer = 0;
+    const play = () => {
+      const lineEl = line.current!, markEl = mark.current!;
+      const words = [...lineEl.children] as HTMLElement[];
+      const letters = [...markEl.children] as HTMLElement[];
+      // Centred, keep the words that are showing centred as the line grows;
+      // on the gutter they simply append.
+      const centred = el.dataset.align === "center";
+      const x0 = words[0].offsetLeft;
+      const full = words[words.length - 1].offsetLeft + words[words.length - 1].offsetWidth - x0;
+      const shift = (k: number) => (centred ? (full - (words[k].offsetLeft + words[k].offsetWidth - x0)) / 2 : 0);
+      lineEl.style.transform = `translateX(${shift(0)}px)`;
+      words.forEach((w, k) => {
+        anims.push(w.animate([{ opacity: 0, transform: "translateY(0.3em)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 280, delay: k * 340, easing: OUT, fill: "both" }));
+        if (k > 0) {
+          anims.push(lineEl.animate([{ transform: `translateX(${shift(k - 1)}px)` }, { transform: `translateX(${shift(k)}px)` }], { duration: 320, delay: k * 340, easing: STANDARD, fill: "forwards" }));
+        }
+      });
+      // The wordmark swings in on a wave, extruded, and settles flat.
+      letters.forEach((l, i) => {
+        const t = i / (letters.length - 1);
+        const from = `translateY(${(Math.sin(i * 0.9) * 0.18).toFixed(3)}em) rotateX(55deg) rotateY(${-35 + t * 55}deg) rotateZ(${(Math.sin(i * 1.3) * 6).toFixed(2)}deg) scale(1.25)`;
+        anims.push(l.animate([{ transform: from, opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: "none", opacity: 1 }], { duration: 700, delay: 1450 + i * 35, easing: OUT, fill: "both" }));
+        anims.push(l.animate([{ textShadow: EXTRUDED }, { textShadow: EXTRUDED, offset: 0.2 }, { textShadow: FLAT }], { duration: 820, delay: 1450 + i * 35, easing: STANDARD, fill: "both" }));
+      });
+      timers.push(window.setTimeout(() => setLit(true), 2250));
+      timers.push(
+        window.setTimeout(() => {
+          setPlayed(true);
+          lineEl.style.transform = "";
+          anims.forEach((a) => a.cancel());
+        }, 2700),
+      );
+    };
     const io = new IntersectionObserver(
       ([e]) => {
         if (!e?.isIntersecting) return;
         io.disconnect();
-        const ease = "cubic-bezier(0.16, 1, 0.3, 1)";
-        el.querySelectorAll<HTMLElement>("[data-film='word']").forEach((w, i) =>
-          w.animate(
-            [
-              { opacity: 0, transform: "translate3d(0, 0.45em, 0)" },
-              { opacity: 1, transform: "none" },
-            ],
-            { duration: 700, delay: i * 120, easing: ease, fill: "backwards" },
-          ),
-        );
-        const start = 520;
-        el.querySelectorAll<HTMLElement>("[data-film='letter']").forEach((l, i) =>
-          l.animate(
-            [
-              { opacity: 0, transform: "translate3d(0, 0.28em, 0) rotateX(-78deg)" },
-              { opacity: 1, offset: 0.35 },
-              { opacity: 1, transform: "none" },
-            ],
-            { duration: 950, delay: start + i * 45, easing: ease, fill: "backwards" },
-          ),
-        );
-        setPlayed(true);
-        // The name has landed: the wall blooms and the calls to action rise.
-        timer = window.setTimeout(() => setLit(true), start + 5 * 45 + 620);
+        play();
       },
-      { threshold: 0.55 },
+      { threshold: 0.45 },
     );
     io.observe(el);
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(arming);
       io.disconnect();
-      clearTimeout(timer);
+      timers.forEach(clearTimeout);
+      anims.forEach((a) => a.cancel());
     };
   }, []);
 
@@ -148,9 +161,9 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
       <div className={styles.inner}>
         <h2 id="everyone-title" className={styles.title}>
           <span className="sr-only">Everyone&apos;s going live on Xtream</span>
-          <span aria-hidden className={styles.line}>
+          <span ref={line} aria-hidden className={styles.line}>
             {WORDS.map((w) => (
-              <span key={w} data-film="word" className={styles.word}>
+              <span key={w} className={styles.word}>
                 {w}
               </span>
             ))}
@@ -168,9 +181,9 @@ export function ChapterEveryone({ align: alignProp = "left" }: { align?: "left" 
                 <circle key={i} cx="50" cy="50" r={14 + i * 7} style={{ "--i": i } as CSSProperties} vectorEffect="non-scaling-stroke" />
               ))}
             </svg>
-            <span aria-hidden className={styles.mark}>
+            <span ref={mark} aria-hidden className={styles.mark}>
               {[...MARK].map((c, i) => (
-                <span key={i} data-film="letter" className={styles.letter}>
+                <span key={i} className={styles.letter}>
                   {c}
                 </span>
               ))}

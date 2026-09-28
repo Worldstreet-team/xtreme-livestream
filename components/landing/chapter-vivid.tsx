@@ -5,7 +5,6 @@ import { ArrowRight, CaretLeft, CaretRight } from "@/components/icons";
 import { useSiraVivid } from "@/components/vivid/sira-provider";
 import { cn } from "@/lib/utils";
 import { VividOrb } from "./vivid-orb";
-import { BoxPattern } from "./box-pattern";
 import { LoopClip } from "./loop-clip";
 import { startDots } from "./vivid-dots";
 import { ChapterTitle, Eyebrow, GUTTER, INK_MUTED, SECTION_Y, delay } from "./story-ui";
@@ -215,7 +214,6 @@ export function ChapterVivid() {
 
   return (
     <section id="vivid" aria-labelledby="vivid-title" className={cn("relative isolate scroll-mt-16 overflow-hidden bg-ground", SECTION_Y)}>
-      <BoxPattern theme="spectrum" corner="br" />
       <div className={cn("mx-auto flex max-w-[90rem] flex-col gap-16", GUTTER)}>
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,37.5rem)_1fr] lg:gap-20">
           <div data-reveal="window" data-from="left" className="aspect-square w-full rounded-[2.5rem] bg-white/[0.04] p-6 sm:p-8">
