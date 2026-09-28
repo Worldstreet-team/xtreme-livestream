@@ -292,7 +292,7 @@ export default function ChannelPage({
             offAirMasthead ? "order-1 md:order-2" : "order-2"
           )}
         >
-          <div className="flex min-w-0 flex-col items-center gap-4 md:flex-row md:items-center md:gap-6">
+          <div className="flex w-full min-w-0 flex-col items-center gap-4 md:w-auto md:flex-row md:items-center md:gap-6">
             {watchHref ? (
               <Link href={watchHref} aria-label={`Watch ${name} live`} className="relative shrink-0">
                 <UserAvatar src={channel.avatar} name={name} size={96} className="size-[88px] md:size-24" ring="live" />
@@ -303,11 +303,17 @@ export default function ChannelPage({
             ) : (
               <UserAvatar src={channel.avatar} name={name} size={96} className="size-[88px] md:size-24" />
             )}
-            <div className="min-w-0">
-              <h1 className="flex min-w-0 items-center justify-center gap-2 font-wide text-[clamp(1.75rem,3.4vw,2.6rem)] leading-[1.05] font-bold tracking-[-0.04em] md:justify-start">
-                <span className="truncate">{name}</span>
+            <div className="w-full min-w-0 md:w-auto">
+              {/* Long names wrap onto two balanced lines (never off the edge), a size down on phones. */}
+              <h1
+                className={cn(
+                  "line-clamp-2 font-wide leading-[1.08] font-bold tracking-[-0.04em] text-balance break-words",
+                  name.length > 16 ? "text-[clamp(1.4rem,6.4vw,2.3rem)]" : "text-[clamp(1.75rem,3.4vw,2.6rem)]"
+                )}
+              >
+                {name}
                 {channel.verified && (
-                  <SealCheck size={22} weight="fill" className="shrink-0 text-sky-400" aria-label="Verified streamer" />
+                  <SealCheck size={22} weight="fill" className="ml-2 inline-block shrink-0 -translate-y-0.5 align-middle text-sky-400" aria-label="Verified streamer" />
                 )}
               </h1>
               <p className="mt-1.5 text-[14px] text-muted-foreground">@{channel.username}</p>
