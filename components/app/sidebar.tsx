@@ -368,7 +368,7 @@ export function Sidebar({
       <aside
         data-app-chrome
         style={{ width: narrow ? RAIL_COLLAPSED : RAIL_OPEN }}
-        className="fixed inset-y-0 left-0 z-50 hidden flex-col bg-surface shadow-[inset_-1px_0_0_var(--hairline-color)] transition-[width] duration-300 md:flex"
+        className="fixed inset-y-0 left-0 z-50 hidden flex-col bg-surface transition-[width] duration-300 md:flex"
       >
         {/* Brand, with the collapse control beside it — up top, where the
             rail's own controls belong (owner, 2026-09-23). */}
