@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -21,6 +21,7 @@ import {
   Sidebar,
   CellSignalLow,
   ChatCircleDots,
+  ChatText,
   VideoCamera,
   HandWaving,
   Check,
@@ -245,6 +246,37 @@ interface StreamData {
   };
 }
 
+/**
+ * The chat over the video on the desktop player (the owner, 2026-09-28: "the
+ * chats … overlay the live"). On unless this viewer turned it off; the
+ * choice is remembered in this browser.
+ */
+const CHAT_ON_VIDEO_KEY = "xtream:watch:chat-on-video";
+const chatOnVideoListeners = new Set<() => void>();
+function chatOnVideoSnapshot(): boolean {
+  try {
+    return localStorage.getItem(CHAT_ON_VIDEO_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+function subscribeChatOnVideo(fn: () => void) {
+  chatOnVideoListeners.add(fn);
+  window.addEventListener("storage", fn);
+  return () => {
+    chatOnVideoListeners.delete(fn);
+    window.removeEventListener("storage", fn);
+  };
+}
+function setChatOnVideo(on: boolean) {
+  try {
+    localStorage.setItem(CHAT_ON_VIDEO_KEY, on ? "1" : "0");
+  } catch {
+    // Storage off: nothing to remember it in.
+  }
+  chatOnVideoListeners.forEach((fn) => fn());
+}
+
 export default function StreamPage({
   params,
 }: {
@@ -446,6 +478,9 @@ export default function StreamPage({
    * wide screens and quiet rooms where a tall side column is mostly empty.
    */
   const [chatPlacement, setChatPlacement] = useState<"side" | "below">("side");
+  /** The chat over the video (desktop player): its switch, and where LiveChat draws it. */
+  const chatOnVideo = useSyncExternalStore(subscribeChatOnVideo, chatOnVideoSnapshot, () => true);
+  const [videoLane, setVideoLane] = useState<HTMLElement | null>(null);
   /** About · Also live · Schedule beneath the player. */
   const [alsoLive, setAlsoLive] = useState<RowItem[]>([]);
   const [hostUpcoming, setHostUpcoming] = useState<RowItem[]>([]);
@@ -3484,6 +3519,15 @@ export default function StreamPage({
               </div>
             )}
 
+            {/* The chat over the video: the room's latest lines, lower left and
+                clear of the controls. Whichever chat is open draws into it. */}
+            {stream.isLive && chatOnVideo && (
+              <div
+                ref={setVideoLane}
+                className="pointer-events-none absolute bottom-[4.5rem] left-4 z-20 h-[min(42%,20rem)] w-[min(22rem,42%)]"
+              />
+            )}
+
             {/* Stream overlay info */}
             <div
               className={cn(
@@ -3582,6 +3626,18 @@ export default function StreamPage({
                   <PictureInPicture size={18} />
                 </button>
               </Tip>
+              {stream.isLive && (
+                <Tip label={chatOnVideo ? "Take chat off the video" : "Show chat on the video"}>
+                  <button
+                    onClick={() => setChatOnVideo(!chatOnVideo)}
+                    aria-pressed={chatOnVideo}
+                    className={playerButton(chatOnVideo)}
+                    aria-label="Chat on the video"
+                  >
+                    <ChatText size={18} weight={chatOnVideo ? "fill" : "regular"} />
+                  </button>
+                </Tip>
+              )}
               <Tip label={theaterMode ? "Exit theater mode" : "Theater mode"} hint="T">
                 <button
                   onClick={toggleTheater}
@@ -3618,8 +3674,10 @@ export default function StreamPage({
             </div>
 
             {/* Fullscreen chat rail — a full-height column beside the video. */}
-            {isFullscreen && fsChat && (
-              <aside className="h-full w-[380px] shrink-0 bg-background">
+            {/* In fullscreen the rail's chat draws the lane; with the rail
+                closed, the same chat stays mounted out of sight to keep it going. */}
+            {isFullscreen && (fsChat || videoLane) && (
+              <aside className={cn("h-full w-[380px] shrink-0 bg-background", !fsChat && "hidden")}>
                 <LiveChat
                   streamId={id}
                   room={roomRef.current}
@@ -3630,6 +3688,7 @@ export default function StreamPage({
                   myFan={myFan}
                   hostUsername={streamer.username}
                   watchOnly={preview.on}
+                  lane={videoLane ? { target: videoLane } : null}
                 />
               </aside>
             )}
@@ -3908,6 +3967,7 @@ export default function StreamPage({
                   myFan={myFan}
                   hostUsername={streamer.username}
                   watchOnly={preview.on}
+                  lane={videoLane ? { target: videoLane } : null}
                 />
               </div>
             </div>

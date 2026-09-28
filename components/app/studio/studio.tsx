@@ -4915,7 +4915,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                     onScene={takeScene}
                     onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
                     lane={chatOnScreen.lane}
-                    onScreen={source !== "obs" ? { on: chatOnScreen.on, onChange: chatOnScreen.setOn } : null}
+                    onScreen={{ on: chatOnScreen.on, onChange: chatOnScreen.setOn }}
                   />
                 )}
               </div>
@@ -4945,7 +4945,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               onFeatureQueue={(q) => setFeatureQueue(readFeatureQueue(q))}
               lane={chatOnScreen.lane}
               compact={chatOnScreen.compact}
-              onScreen={source !== "obs" ? { on: chatOnScreen.on, onChange: chatOnScreen.setOn } : null}
+              onScreen={{ on: chatOnScreen.on, onChange: chatOnScreen.setOn }}
             />
           </div>
           {panel !== "chat" && <div className="flex h-full flex-col">{panelBody}</div>}

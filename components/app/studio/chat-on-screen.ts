@@ -23,7 +23,8 @@ function readPref(key: string): boolean | null {
 /**
  * The chat on screen, for the studio (Greg's practice run, 2026-09-28).
  *
- * On by default on phones, off at a desk; each remembered per device. On a
+ * On by default everywhere (the owner, 2026-09-28: the chat overlays the
+ * live), phone and desk each remembered per device. On a
  * phone it also reshapes the room's sheet: while the chat is on screen the
  * sheet hugs its stats, tools and composer ("fit"); tapping Chat opens the
  * full chat, tapping it again (or pulling the sheet back down) returns to
@@ -36,19 +37,19 @@ function readPref(key: string): boolean | null {
 export function useChatOnScreen<P extends string>({
   phone,
   live,
-  source,
   panel,
   setPanel,
 }: {
   phone: boolean;
   live: boolean;
-  source: "camera" | "screen" | "obs";
+  /** The studio's source; the lane shows over every one. */
+  source?: "camera" | "screen" | "obs";
   /** The room's open panel; "chat" is the chat (compact on a phone while the lane shows). */
   panel: P;
   setPanel: (p: P) => void;
 }) {
   const [prefs, setPrefs] = useState(() => ({ phone: readPref(KEY.phone), desk: readPref(KEY.desk) }));
-  const on = phone ? (prefs.phone ?? true) : (prefs.desk ?? false);
+  const on = phone ? (prefs.phone ?? true) : (prefs.desk ?? true);
   const setOn = useCallback(
     (next: boolean) => {
       const key = phone ? KEY.phone : KEY.desk;
@@ -70,8 +71,8 @@ export function useChatOnScreen<P extends string>({
   /** Where the sheet is resting, or headed when it was sent somewhere (so a tap mid-spring reads the target). */
   const [stop, setStop] = useState<SheetStop>("fit");
 
-  // The lane is for pictures the studio draws itself: a camera or a shared screen.
-  const shows = live && on && source !== "obs";
+  // Over any picture: a camera, a shared screen, or the encoder's feed.
+  const shows = live && on;
   const phoneLane = shows && phone;
   const compact = phoneLane && panel === ("chat" as P) && !fullChat;
 
