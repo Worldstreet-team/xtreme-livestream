@@ -161,6 +161,56 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
   };
 }
 
+/** One gift that moved a battle's score, as the clash view animates it. */
+export interface BattleGiftView {
+  id: string;
+  side: "host" | "challenger";
+  /** What it added to the side's score (the ×2 window already applied), USD cents. */
+  usdMinor: number;
+  giftName: string;
+  emoji: string;
+  sender: { userId: string; displayName: string };
+  at: string;
+}
+
+/** How many recent gifts the activity feed hands back at most. */
+export const ACTIVITY_LIMIT = 24;
+
+/**
+ * The gifts that counted toward a battle, newest first — only the ones
+ * after `since`, when given, so a viewer polling the clash view gets just
+ * what's new. Senders by display name only: the feed is public and polled
+ * every few seconds, so it stays light (no avatars).
+ */
+export async function battleActivity(battleId: mongoose.Types.ObjectId, since: Date | null, limit = ACTIVITY_LIMIT): Promise<BattleGiftView[]> {
+  const filter: Record<string, unknown> = { battleId, battleScoreUsdMinor: { $gt: 0 } };
+  if (since) filter.createdAt = { $gt: since };
+  const rows = await GiftTransaction.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(Math.max(1, Math.min(limit, ACTIVITY_LIMIT)))
+    .select("senderId giftName emoji battleSide battleScoreUsdMinor createdAt")
+    .lean();
+  if (rows.length === 0) return [];
+  const senders = await User.find({ _id: { $in: [...new Set(rows.map((r) => String(r.senderId)))] } })
+    .select("username displayName")
+    .lean();
+  const byId = new Map(senders.map((u) => [String(u._id), u]));
+  return rows
+    .filter((r) => r.battleSide === "host" || r.battleSide === "challenger")
+    .map((r) => {
+      const u = byId.get(String(r.senderId));
+      return {
+        id: String(r._id),
+        side: r.battleSide as "host" | "challenger",
+        usdMinor: r.battleScoreUsdMinor,
+        giftName: r.giftName ?? "",
+        emoji: r.emoji ?? "",
+        sender: { userId: String(r.senderId), displayName: u?.displayName || u?.username || "Someone" },
+        at: new Date(r.createdAt).toISOString(),
+      };
+    });
+}
+
 /**
  * The partner a 2v2 side brings: the first guest live on its stage (a
  * viewer brought up, or a creator who came over by co-live). Null when the

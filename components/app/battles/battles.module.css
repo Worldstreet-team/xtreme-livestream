@@ -1,0 +1,676 @@
+/*
+ * Battles: the cards on Home and the clash view they open.
+ *
+ * Timings and eases come from lib/motion.ts through the --mo-* custom
+ * properties (MOTION_VARS on each root). transform, opacity and clip-path
+ * only: no blur, no filter, no glow. The ground under both is drawn art
+ * (./battle-field.tsx); its heat is a flat tint whose opacity pulses. Entrances use a `backwards` fill so an element leaves its
+ * animation layer once it lands. Loops pause off screen (data-visible) and
+ * under reduced motion everything is a plain fade, with no shake.
+ */
+
+/* ======================================================================
+   The card
+   ====================================================================== */
+
+.card {
+  display: block;
+  outline: none;
+  transition: transform var(--mo-lift, 180ms) var(--mo-ease-clash);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-4px);
+  }
+}
+.card:active {
+  transform: translateY(-1px) scale(0.985);
+  transition-duration: 90ms;
+}
+.card:focus-visible .art {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--ember);
+}
+
+.art {
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--hairline-color);
+  transition: box-shadow var(--mo-lift, 180ms) linear;
+}
+@media (hover: hover) {
+  .card:hover .art {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 22%, transparent);
+  }
+}
+
+/* ---- the faces clash into the VS -------------------------------------- */
+
+.face {
+  position: absolute;
+  top: 44%;
+  translate: -50% -50%;
+}
+.face[data-side="host"] {
+  left: 27%;
+}
+.face[data-side="challenger"] {
+  left: 73%;
+}
+.vs {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  translate: -50% -50%;
+}
+/* The impact: a flat ring spreading out of the VS as the faces meet. */
+.impact {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border-radius: 999px;
+  border: 2px solid var(--foreground);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Each face comes in from its own edge, overshoots into the middle — the
+   hit — and recoils to its mark. The VS stamps down on the hit. */
+@keyframes clash-l {
+  0% {
+    transform: translateX(-72px) scale(0.9);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  58% {
+    transform: translateX(14px) scale(1.04);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes clash-r {
+  0% {
+    transform: translateX(72px) scale(0.9);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  58% {
+    transform: translateX(-14px) scale(1.04);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes stamp {
+  0% {
+    transform: scale(2.1) rotate(-8deg);
+    opacity: 0;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes ring-out {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+@keyframes jolt {
+  0%,
+  100% {
+    transform: none;
+  }
+  30% {
+    transform: translateX(-2px);
+  }
+  60% {
+    transform: translateX(1.5px);
+  }
+}
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+@keyframes draw-out {
+  from {
+    clip-path: inset(0 50% 0 50% round 999px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 999px);
+  }
+}
+
+.card[data-play="idle"] .face,
+.card[data-play="idle"] .vs,
+.card[data-play="idle"] .tug,
+.card[data-play="idle"] .chip,
+.card[data-play="idle"] .meta {
+  opacity: 0;
+}
+.card[data-play="go"] .face[data-side="host"] .mover {
+  animation: clash-l var(--mo-clash, 380ms) var(--mo-ease-clash) var(--delay, 0ms) backwards;
+}
+.card[data-play="go"] .face[data-side="challenger"] .mover {
+  animation: clash-r var(--mo-clash, 380ms) var(--mo-ease-clash) var(--delay, 0ms) backwards;
+}
+.card[data-play="go"] .vs .mover {
+  animation: stamp calc(var(--mo-clash, 380ms) * 0.7) var(--mo-ease-clash) calc(var(--delay, 0ms) + var(--mo-clash, 380ms) * 0.5) backwards;
+}
+.card[data-play="go"] .impact {
+  animation: ring-out 520ms var(--mo-ease-unfold) calc(var(--delay, 0ms) + var(--mo-clash, 380ms) * 0.55) backwards;
+}
+.card[data-play="go"] .art {
+  animation: jolt 180ms linear calc(var(--delay, 0ms) + var(--mo-clash, 380ms) * 0.56);
+}
+.card[data-play="go"] .tug {
+  animation: draw-out 420ms var(--mo-ease-clash) calc(var(--delay, 0ms) + var(--mo-clash, 380ms) * 0.6) backwards;
+}
+.card[data-play="go"] .chip {
+  animation: rise 300ms var(--mo-ease-clash) calc(var(--delay, 0ms) + 120ms) backwards;
+}
+.card[data-play="go"] .meta {
+  animation: rise 360ms var(--mo-ease-clash) calc(var(--delay, 0ms) + var(--mo-clash, 380ms) * 0.7) backwards;
+}
+
+/* ---- the tug of war --------------------------------------------------- */
+
+/* One line: Chili from the host's end, Ember from the challenger's, meeting
+   at a knot that eases toward whoever's ahead. --share is the host's part. */
+.tug {
+  position: absolute;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ember);
+}
+.tugHost {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--chili);
+  clip-path: inset(0 calc((1 - var(--share, 0.5)) * 100%) 0 0);
+  transition: clip-path var(--mo-tug, 720ms) var(--mo-ease-clash);
+}
+/* The knot rides a full-width track, so a percentage transform is a share of the line. */
+.knotTrack {
+  position: absolute;
+  inset: 0;
+  transform: translateX(calc(var(--share, 0.5) * 100%));
+  transition: transform var(--mo-tug, 720ms) var(--mo-ease-clash);
+  pointer-events: none;
+}
+.knot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 999px;
+  background: var(--foreground);
+  box-shadow: 0 0 0 2.5px var(--surface);
+}
+
+/* ---- the clock: digits tick ------------------------------------------ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.digits {
+  display: inline-flex;
+  overflow: hidden;
+  clip-path: inset(0);
+}
+.digit {
+  display: inline-block;
+}
+@keyframes tick-in {
+  from {
+    transform: translateY(-70%);
+    opacity: 0;
+  }
+}
+.digit[data-tick] {
+  animation: tick-in 220ms var(--mo-ease-clash) backwards;
+}
+/* The booked clock's face: its hand sweeps round a minute at a time. */
+@keyframes sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.clockHand {
+  transform-box: view-box;
+  transform-origin: 8px 8px;
+  animation: sweep 60s steps(60) infinite;
+}
+.art[data-visible="false"] .clockHand {
+  animation-play-state: paused;
+}
+
+/* ======================================================================
+   The clash view: a window unfolding out of the card (computers), a sheet
+   rising from the foot (phones)
+   ====================================================================== */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+}
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.55);
+  opacity: 0;
+  transition: opacity 260ms linear;
+}
+.root[data-state="open"] .scrim {
+  opacity: 1;
+  transition-duration: 420ms;
+}
+
+/* ---- computers: out of the card -------------------------------------- */
+
+.root[data-mode="desk"] {
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.deskPanel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  /* A set height, so rows arriving don't make the window grow and jump. */
+  height: min(800px, calc(100dvh - 48px));
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: var(--elevation-popover);
+  transform-origin: 0 0;
+  outline: none;
+}
+.root[data-state="measure"] .deskPanel {
+  opacity: 0;
+}
+/* The window starts as the card: scaled to the card's width, clipped to its
+   height, sitting on it. Then it opens out to its own size and place. */
+@keyframes clash-unfold {
+  from {
+    transform: translate(var(--fx, 0px), var(--fy, 24px)) scale(var(--fs, 0.9));
+    clip-path: inset(0 0 var(--fclip, 0px) 0 round var(--fr, 12px));
+  }
+  to {
+    transform: none;
+    clip-path: inset(0 0 0 0 round 12px);
+  }
+}
+@keyframes clash-fold {
+  from {
+    transform: none;
+    clip-path: inset(0 0 0 0 round 12px);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--fx, 0px), var(--fy, 24px)) scale(var(--fs, 0.9));
+    clip-path: inset(0 0 var(--fclip, 0px) 0 round var(--fr, 12px));
+    opacity: 0;
+  }
+}
+.root[data-mode="desk"][data-state="open"] .deskPanel {
+  animation: clash-unfold 520ms var(--mo-ease-unfold) backwards;
+}
+.root[data-mode="desk"][data-state="closing"] .deskPanel {
+  animation: clash-fold 240ms var(--mo-ease-clash-out) forwards;
+}
+
+/* ---- phones: a sheet from the foot ------------------------------------ */
+
+.sheet {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  height: min(92dvh, 860px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 20px 20px 0 0;
+  background: var(--popover);
+  transform: translateY(104%);
+  transition: transform 260ms var(--mo-ease-clash-out);
+  touch-action: pan-y;
+  outline: none;
+}
+.sheet[data-fit] {
+  height: auto;
+  max-height: min(92dvh, 860px);
+}
+.root[data-state="open"] .sheet {
+  transform: translateY(var(--drag, 0px));
+  transition: transform 460ms var(--mo-ease-unfold);
+}
+.root[data-dragging] .sheet {
+  transition: none;
+}
+.grab {
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+
+/* ---- the arena --------------------------------------------------------- */
+
+.arena {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.side {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.bump {
+  position: relative;
+}
+.ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 3px solid var(--chili);
+  opacity: 0;
+  pointer-events: none;
+}
+.side[data-side="challenger"] .ring {
+  border-color: var(--ember);
+}
+
+/* Entrance: the faces slam in from their edges and meet at the emblem. */
+.stage[data-play="idle"] .enter {
+  opacity: 0;
+}
+.stage[data-play="go"] .side[data-side="host"] .enter {
+  animation: clash-l 440ms var(--mo-ease-clash) var(--lead, 160ms) backwards;
+}
+.stage[data-play="go"] .side[data-side="challenger"] .enter {
+  animation: clash-r 440ms var(--mo-ease-clash) var(--lead, 160ms) backwards;
+}
+.stage[data-play="go"] .names {
+  animation: rise 360ms var(--mo-ease-clash) calc(var(--lead, 160ms) + 260ms) backwards;
+}
+.stage[data-play="go"] .emblem {
+  animation: stamp 320ms var(--mo-ease-clash) calc(var(--lead, 160ms) + 220ms) backwards;
+}
+.stage[data-play="go"] .meterIn {
+  animation: draw-out 480ms var(--mo-ease-clash) calc(var(--lead, 160ms) + 280ms) backwards;
+}
+.stage[data-play="go"] .row {
+  animation: rise 380ms var(--mo-ease-clash) calc(var(--lead, 160ms) + 320ms + var(--i, 0) * 40ms) backwards;
+}
+
+/* The big meter: the same tug of war, heavier. */
+.meter {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--ember);
+}
+.meter .knot {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  box-shadow: 0 0 0 3px var(--popover);
+}
+
+/* ---- gifts in flight ---------------------------------------------------- */
+
+.particles {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+.p {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.pIn {
+  display: grid;
+  place-items: center;
+  will-change: transform, opacity;
+}
+.spark {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  rotate: 45deg;
+}
+.spark[data-side="host"] {
+  background: var(--chili);
+}
+.spark[data-side="challenger"] {
+  background: var(--ember);
+}
+.float {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* ---- the callout: "Ladi takes the lead" --------------------------------- */
+
+@keyframes call-in-l {
+  0% {
+    clip-path: inset(0 100% 0 0);
+  }
+  14%,
+  82% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+  100% {
+    clip-path: inset(0 0 0 100%);
+    opacity: 1;
+  }
+}
+@keyframes call-in-r {
+  0% {
+    clip-path: inset(0 0 0 100%);
+  }
+  14%,
+  82% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+  100% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 1;
+  }
+}
+@keyframes call-stay-l {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+@keyframes call-stay-r {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+}
+.callout {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  z-index: 6;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+.callout[data-side="host"] {
+  animation: call-in-l 2200ms var(--mo-ease-clash) forwards;
+}
+.callout[data-side="challenger"] {
+  animation: call-in-r 2200ms var(--mo-ease-clash) forwards;
+}
+.callout[data-stay][data-side="host"] {
+  animation: call-stay-l 520ms var(--mo-ease-clash) backwards;
+}
+.callout[data-stay][data-side="challenger"],
+.callout[data-stay][data-side="none"] {
+  animation: call-stay-r 520ms var(--mo-ease-clash) backwards;
+}
+
+/* ---- the ×2 window flares ------------------------------------------------ */
+
+@keyframes flare-in {
+  from {
+    clip-path: inset(0 50% 0 50%);
+  }
+}
+@keyframes flare-beat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+.flare {
+  animation:
+    flare-in 420ms var(--mo-ease-clash) backwards,
+    flare-beat 0.9s cubic-bezier(0.45, 0, 0.55, 1) 420ms infinite;
+}
+
+/* ---- feed rows slide in from their side ------------------------------ */
+
+@keyframes from-l {
+  from {
+    transform: translateX(-18px);
+    opacity: 0;
+  }
+}
+@keyframes from-r {
+  from {
+    transform: translateX(18px);
+    opacity: 0;
+  }
+}
+.feedRow[data-new][data-side="host"] {
+  animation: from-l 340ms var(--mo-ease-clash) backwards;
+}
+.feedRow[data-new][data-side="challenger"] {
+  animation: from-r 340ms var(--mo-ease-clash) backwards;
+}
+
+/* ======================================================================
+   Less motion: fades, no shake, no loops
+   ====================================================================== */
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card:hover,
+  .card:active {
+    transform: none;
+    transition: none;
+  }
+  .card[data-play="go"] .face .mover,
+  .card[data-play="go"] .vs .mover,
+  .card[data-play="go"] .tug,
+  .card[data-play="go"] .chip,
+  .card[data-play="go"] .meta,
+  .stage[data-play="go"] .enter,
+  .stage[data-play="go"] .names,
+  .stage[data-play="go"] .emblem,
+  .stage[data-play="go"] .meterIn,
+  .stage[data-play="go"] .row,
+  .feedRow[data-new],
+  .flare {
+    animation: fade var(--mo-fade, 160ms) linear backwards !important;
+  }
+  .card[data-play="go"] .impact,
+  .card[data-play="go"] .art,
+  .clockHand,
+  .digit[data-tick] {
+    animation: none !important;
+  }
+  .callout,
+  .callout[data-stay] {
+    animation: fade var(--mo-fade, 160ms) linear backwards !important;
+  }
+  .tugHost,
+  .knotTrack {
+    transition-duration: var(--mo-fade, 160ms);
+  }
+  .root[data-mode="desk"][data-state="open"] .deskPanel {
+    animation: fade var(--mo-fade, 160ms) linear backwards;
+  }
+  .root[data-mode="desk"][data-state="closing"] .deskPanel {
+    animation: fade var(--mo-fade, 160ms) linear reverse forwards;
+  }
+  .sheet,
+  .root[data-state="open"] .sheet {
+    transform: none;
+    opacity: 0;
+    transition: opacity var(--mo-fade, 160ms) linear;
+  }
+  .root[data-state="open"] .sheet {
+    opacity: 1;
+  }
+}

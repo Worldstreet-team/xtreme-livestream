@@ -44,6 +44,14 @@ export const EASE = {
   morph: "cubic-bezier(0.7, 0, 0.16, 1)",
   /** The same travel for small parts, landing about 5% past and settling back. */
   morphSettle: "cubic-bezier(0.62, 0, 0.22, 1.28)",
+  /**
+   * Battles: two things meeting hard. Off the mark at once, a firm arrival
+   * about 4% past rest, and still — faces clashing into the VS, a card
+   * lifting, the tug-of-war knot being yanked toward the leader.
+   */
+  clash: "cubic-bezier(0.2, 0.9, 0.1, 1.04)",
+  /** …and a quick recoil: things snapping back out of the way. */
+  clashOut: "cubic-bezier(0.5, 0, 0.75, 0)",
 } as const;
 
 /** Milliseconds. */
@@ -108,6 +116,12 @@ export const DURATION = {
   morphStagger: 24,
   /** …capped, so the last part never starts more than this after the first. */
   morphSpan: 170,
+  /** Battles: a card's faces clashing into the VS. */
+  clash: 380,
+  /** …the gap between cards in a row. */
+  clashStagger: 60,
+  /** A gift's flight from the edge into its side. */
+  flight: 620,
   /** The hit: the meter's shake and the face's bump. */
   impact: 280,
   /** The tug-of-war knot travelling to the new split. */
@@ -126,6 +140,8 @@ export const MOTION_VARS = {
   "--mo-ease-drift": EASE.drift,
   "--mo-ease-morph": EASE.morph,
   "--mo-ease-morph-settle": EASE.morphSettle,
+  "--mo-ease-clash": EASE.clash,
+  "--mo-ease-clash-out": EASE.clashOut,
   ...Object.fromEntries(Object.entries(DURATION).map(([k, v]) => [`--mo-${k}`, `${v}ms`])),
 } as CSSProperties;
 

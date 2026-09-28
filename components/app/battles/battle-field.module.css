@@ -1,0 +1,157 @@
+/*
+ * The battle's ground (./battle-field.tsx), in the art kit's paint: tokens
+ * only, flat fills, no gradients, glows or blur. Chili is the host's side,
+ * Ember the challenger's; the seam is the page's own ink. The kit's
+ * `.canvas` (on the same <svg>) supplies --art-* and pauses loops off
+ * screen through data-paused.
+ */
+
+.field {
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* The seam slides on the clash ease when the lead moves. */
+.seam {
+  transition: transform var(--mo-tug, 720ms) var(--mo-ease-clash, cubic-bezier(0.2, 0.9, 0.1, 1.04));
+}
+
+.hostField {
+  fill: color-mix(in srgb, var(--chili) 12%, transparent);
+}
+.chalField {
+  fill: color-mix(in srgb, var(--ember) 11%, transparent);
+}
+.field[data-tone="booked"] .hostField,
+.field[data-tone="ended"] .hostField {
+  fill: color-mix(in srgb, var(--chili) 6%, transparent);
+}
+.field[data-tone="booked"] .chalField,
+.field[data-tone="ended"] .chalField {
+  fill: color-mix(in srgb, var(--ember) 5.5%, transparent);
+}
+
+.crack {
+  fill: none;
+  stroke: var(--foreground);
+  stroke-opacity: 0.55;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.fork {
+  fill: none;
+  stroke: var(--foreground);
+  stroke-opacity: 0.3;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.field[data-tone="booked"] .crack {
+  stroke-opacity: 0.22;
+}
+.field[data-tone="booked"] .fork {
+  stroke-opacity: 0.12;
+}
+
+/* The sides' shapes: bold, flat, faint. */
+.hostBand {
+  fill: color-mix(in srgb, var(--chili) 30%, transparent);
+}
+.hostThin {
+  fill: color-mix(in srgb, var(--chili) 22%, transparent);
+}
+.hostShard {
+  fill: color-mix(in srgb, var(--chili) 17%, transparent);
+}
+.hostChevron {
+  fill: none;
+  stroke: color-mix(in srgb, var(--chili-hi) 45%, transparent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.challengerBand {
+  fill: color-mix(in srgb, var(--ember) 30%, transparent);
+}
+.challengerThin {
+  fill: color-mix(in srgb, var(--ember) 22%, transparent);
+}
+.challengerShard {
+  fill: color-mix(in srgb, var(--ember) 17%, transparent);
+}
+.challengerChevron {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ember-hi) 45%, transparent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.field[data-tone="booked"] [data-field-surge],
+.field[data-tone="ended"] [data-field-surge] {
+  opacity: 0.55;
+}
+
+/* A slow push toward the seam and back: transform only, paused off screen. */
+@keyframes drift {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateX(calc(var(--dir, 1) * 3px));
+  }
+}
+.drift {
+  animation: drift 7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* The leader's field breathes: a flat tint whose opacity rises and falls. */
+.hostHeat {
+  fill: var(--chili);
+  opacity: 0;
+}
+.chalHeat {
+  fill: var(--ember);
+  opacity: 0;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.16;
+  }
+}
+.field[data-lead="host"] .hostHeat,
+.field[data-lead="challenger"] .chalHeat {
+  animation: breathe 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.field[data-hot] .hostHeat,
+.field[data-hot] .chalHeat {
+  animation-duration: 0.9s;
+}
+
+/* The clash view flashes a side on a hit (from script, opacity only). */
+.hostFlash {
+  fill: var(--chili);
+  opacity: 0;
+}
+.chalFlash {
+  fill: var(--ember);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drift,
+  .field[data-lead] .hostHeat,
+  .field[data-lead] .chalHeat {
+    animation: none;
+  }
+  .seam {
+    transition-duration: 160ms;
+  }
+}

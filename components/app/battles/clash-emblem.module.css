@@ -1,0 +1,120 @@
+/*
+ * The clash emblem's paint and idle beats. Tokens only, so it follows
+ * light and dark; the driver blends between these while a morph runs and
+ * hands back to the class at rest. Flat: no gradients, no glow, no blur.
+ */
+
+.canvas {
+  display: block;
+  overflow: visible;
+}
+.canvas g {
+  transform-box: view-box;
+}
+
+.shape {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: none;
+}
+
+.disc {
+  fill: color-mix(in srgb, var(--tint) 7%, transparent);
+  stroke: color-mix(in srgb, var(--tint) 14%, transparent);
+  stroke-width: 1;
+}
+.burst {
+  fill: transparent;
+  stroke: color-mix(in srgb, var(--foreground) 55%, transparent);
+  stroke-width: 2;
+}
+.ink {
+  fill: transparent;
+  stroke: var(--foreground);
+  stroke-width: 7;
+}
+.chili {
+  fill: var(--chili);
+  stroke: var(--chili);
+  stroke-width: 1.5;
+}
+.ember {
+  fill: var(--ember);
+  stroke: var(--ember);
+  stroke-width: 1.5;
+}
+.spark {
+  fill: var(--foreground);
+  stroke: var(--foreground);
+  stroke-width: 0.5;
+}
+.face {
+  fill: color-mix(in srgb, var(--tint) 6%, transparent);
+  stroke: var(--foreground);
+  stroke-width: 3;
+}
+.hand {
+  fill: transparent;
+  stroke: var(--foreground);
+  stroke-width: 4.5;
+}
+.handHot {
+  fill: transparent;
+  stroke: var(--ember);
+  stroke-width: 3.5;
+}
+
+/* ---- idle beats: one small loop per part, on its middle <g> ---------- */
+
+/* The booked clock's hand ticks round, a second at a time. */
+@keyframes tick {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.tick {
+  transform-origin: 50px 50px;
+  animation: tick 60s steps(60) infinite;
+}
+
+/* The crown settles and lifts a hair, over and over. */
+@keyframes bob {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+.bob {
+  animation: bob 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* The winner's sparkles wink. */
+@keyframes wink {
+  0%,
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+  45% {
+    transform: scale(0.35) rotate(45deg);
+    opacity: 0.2;
+  }
+}
+.wink {
+  animation: wink 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.canvas[data-paused="true"] g {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick,
+  .bob,
+  .wink {
+    animation: none;
+  }
+}

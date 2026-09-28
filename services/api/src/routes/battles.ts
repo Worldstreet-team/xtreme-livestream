@@ -7,6 +7,8 @@ import { authenticate } from "../auth.js";
 import { ApiError } from "../errors.js";
 import { Battle, Stream, User } from "../models.js";
 import {
+  ACTIVITY_LIMIT,
+  battleActivity,
   currentBattleForStream,
   fanOutBattle,
   inQuickMatch,
@@ -52,6 +54,11 @@ async function requirePartner(streamId: mongoose.Types.ObjectId, message: string
 }
 const battleIdParamsSchema = z.object({
   id: z.string().regex(/^[a-f\d]{24}$/i, "Invalid battle id"),
+});
+const activityQuerySchema = z.object({
+  /** ISO time of the newest gift already seen; only newer gifts come back. */
+  since: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(ACTIVITY_LIMIT).optional(),
 });
 
 export const battleRoutes: FastifyPluginAsync = async (fastify) => {
@@ -268,6 +275,25 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       const battle = await Battle.findById(request.params.id);
       if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
       return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.get(
+    "/battles/:id/activity",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "A battle's state plus the gifts that counted since a time — what the clash view polls",
+        params: battleIdParamsSchema,
+        querystring: activityQuerySchema,
+      },
+    },
+    async (request) => {
+      const battle = await Battle.findById(request.params.id);
+      if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      const since = request.query.since ? new Date(request.query.since) : null;
+      const [view, gifts] = await Promise.all([toBattleView(battle), battleActivity(battle._id as mongoose.Types.ObjectId, since, request.query.limit)]);
+      return { success: true, data: { battle: view, gifts } };
     },
   );
 

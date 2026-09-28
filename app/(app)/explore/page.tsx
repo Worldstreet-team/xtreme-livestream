@@ -442,16 +442,16 @@ function RowsHome({ home, loading }: { home: HomePage | null; loading: boolean }
     <div className="space-y-7 md:space-y-10">
       {/* Phones open on the live rings (the shell puts them under the top
           bar — components/app/live-rings.tsx), then the chips and the feed —
-          no hero under 768 (owner, 2026-09-07). The stage and battles are
-          desktop-only; the Wolf race lives on the rail. */}
+          no hero under 768 (owner, 2026-09-07). The stage is desktop-only;
+          the Wolf race lives on the rail. */}
       <div className="hidden md:block">
         <HomeStage leads={home.leads} rows={home.rows} />
       </div>
 
-      {/* Battles, live and booked. Renders nothing when there are none. */}
-      <div className="hidden md:block">
-        <BattlesRow />
-      </div>
+      {/* Battles, live and booked, on every width: a tap opens the clash
+          (a window on computers, a sheet on phones). Renders nothing when
+          there are none. */}
+      <BattlesRow />
 
       {/* Desktop's stage already carries a quiet night; phones get the
           empty state, without a second Go live — that floats over the tab bar. */}
