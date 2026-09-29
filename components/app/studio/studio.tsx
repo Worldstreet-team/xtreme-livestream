@@ -92,7 +92,8 @@ import { SetsPanel } from "@/components/app/sets-panel";
 import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
 import { CollapsibleSection, openSection } from "@/components/app/collapsible-section";
 import { applyShield, getShieldSettings, getShieldStatus, setShieldSettings, shareShieldedScreen, useShieldSettings } from "@/lib/privacy-shield";
-import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
+import { useAnchorFeed, useFaceAnchors, FACE_WEAR_HZ } from "@/lib/face-anchors";
+import { FACE_EFFECTS } from "@/lib/face-effects";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
@@ -831,7 +832,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // The look follows its settings, the brand, and whichever camera track is current.
   useEffect(() => {
     applyLookTo(lookTrack());
-  }, [look.background, look.look, look.smooth, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [look.background, look.look, look.smooth, look.face, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeVoice = (next: VoiceSettings) => {
     saveVoiceSettings(next);
     // On air, the desk follows at once (the filter, the preset); Music mode's capture waits for the next stream.
@@ -906,8 +907,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     track: faceCam,
     room: isLive ? liveRoom : null,
     feed: faceFeed,
-    // Skin smoothing needs the face too: the look paints its skin mask from it (lib/looks.ts).
-    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying || look.smooth > 0),
+    // Skin smoothing and a worn face effect need the face too: the look paints
+    // its skin mask and places the effect from it (lib/looks.ts) — the effect
+    // at twice the rate, since it's drawn into every frame.
+    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying || look.smooth > 0 || look.face !== "none"),
+    maxHz: look.face !== "none" ? FACE_WEAR_HZ : undefined,
     publishHz: () => (!setUsesFace(activeSetRef.current) ? 0 : Date.now() < faceBoostUntil.current ? 12 : 1),
   });
 
@@ -3387,6 +3391,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   BACKGROUNDS.find((b) => b.id === look.background)?.label ?? "None",
                   LOOKS.find((l) => l.id === look.look)?.label ?? "Natural",
                   look.smooth > 0 ? "Smooth skin" : "None",
+                  FACE_EFFECTS.find((f) => f.id === look.face && f.id !== "none")?.label ?? "None",
                 ].filter((x) => x !== "None" && x !== "Natural")
               : []),
           ].join(" · ")}

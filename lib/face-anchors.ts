@@ -466,6 +466,12 @@ export const FACE_ASSETS = {
 
 /** The most detections a second — more buys nothing a viewer can see, since they interpolate. */
 export const FACE_MAX_HZ = 12;
+/**
+ * While the host wears a face effect (lib/face-effects.ts) the pieces are
+ * drawn into the picture at the camera's own rate, so the face is looked at
+ * twice as often — still brought down by adaptRate on a slow device.
+ */
+export const FACE_WEAR_HZ = 24;
 /** A detection that takes longer than this on average brings the rate down. */
 export const FACE_BUDGET_MS = 30;
 const FACE_MIN_HZ = 3;
@@ -656,7 +662,7 @@ function releaseLandmarker() {
  * lands as `unavailable`, and effects sit centre-frame.
  */
 export function startFaceAnchors(opts: FaceAnchorsOptions): FaceAnchorsHandle {
-  const maxHz = clamp(opts.maxHz ?? FACE_MAX_HZ, 1, FACE_MAX_HZ);
+  const maxHz = clamp(opts.maxHz ?? FACE_MAX_HZ, 1, FACE_WEAR_HZ);
   let room = opts.room ?? null;
   let landmarker: FaceLandmarker | null = null;
   let stopped = false;

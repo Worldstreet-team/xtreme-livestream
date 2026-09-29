@@ -4,6 +4,7 @@ import { useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent
 import { Eye, ImageSquare } from "@/components/icons";
 import { Pill, pillClass } from "@/components/ui/pill";
 import { BACKGROUNDS, LOOKS, SMOOTH_STEPS, gradeColor, isPlainLook, type Look, type LookSettings } from "@/lib/looks";
+import { FACE_EFFECTS, notoUrl } from "@/lib/face-effects";
 import { cn } from "@/lib/utils";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
@@ -47,7 +48,8 @@ export interface LookSetupProps {
 
 /**
  * The Look half of "Sound & look" on the setup screen: what's behind you,
- * the grade your picture wears, and skin smoothing. Every choice is a pill; the file
+ * the grade your picture wears, skin smoothing, and a face effect to wear
+ * (a crown, puppy ears…). Every choice is a pill or a tile; the file
  * input is the "Your image" pill itself. Compact on a phone, a row where
  * there's room.
  */
@@ -179,6 +181,45 @@ export function LookSetup({ settings, onChange, supported, deviceOk, onPickImage
             );
           })}
         </div>
+      </fieldset>
+
+      {/* Face effects: worn on camera, following the face. Tiles, the way camera apps show them. */}
+      <fieldset disabled={!supported} className="min-w-0 disabled:opacity-60">
+        <legend className={LABEL}>Face effects</legend>
+        <div className="mt-2 grid grid-cols-4 gap-1.5 @[420px]:grid-cols-7">
+          {FACE_EFFECTS.map((fx) => {
+            const selected = settings.face === fx.id;
+            return (
+              <button
+                key={fx.id}
+                type="button"
+                aria-pressed={selected}
+                aria-label={fx.label}
+                title={fx.label}
+                onClick={() => onChange({ ...settings, face: fx.id })}
+                className={cn(
+                  "press flex aspect-square min-w-0 flex-col items-center justify-center gap-1 rounded-[12px] transition-colors",
+                  selected ? "bg-white text-black ring-2 ring-ember" : "bg-white/[0.06] text-foreground hover:bg-white/[0.1]"
+                )}
+              >
+                {fx.icon ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- a small remote vector, cached by the browser
+                  <img src={notoUrl(fx.icon)} alt="" aria-hidden width={30} height={30} loading="lazy" className="size-[30px]" draggable={false} />
+                ) : (
+                  <span aria-hidden className="flex size-[30px] items-center justify-center rounded-full border-2 border-current opacity-60">
+                    <span className="h-0.5 w-4 rotate-45 rounded-full bg-current" />
+                  </span>
+                )}
+                <span className="max-w-full truncate px-1 text-[10.5px] font-semibold leading-none">{fx.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[12px] leading-snug text-muted-foreground/70">
+          {settings.face !== "none"
+            ? "Drawn into your picture, so everyone watching sees it. It follows your face; look at the camera if it doesn't show."
+            : "Wear something on camera: it follows your face and everyone watching sees it."}
+        </p>
       </fieldset>
 
       {/* Skin smoothing: off unless the host asks for it. */}

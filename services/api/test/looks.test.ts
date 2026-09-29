@@ -110,7 +110,7 @@ describe("the looks' cubes", () => {
 
 describe("the settings", () => {
   it("start with nothing on", () => {
-    expect(DEFAULT_LOOK_SETTINGS).toEqual({ background: "none", look: "natural", smooth: 0 });
+    expect(DEFAULT_LOOK_SETTINGS).toEqual({ background: "none", look: "natural", smooth: 0, face: "none" });
     expect(BACKGROUNDS.map((b) => b.id)).toEqual(["none", "blur-soft", "blur-strong", "brand", "image", "green"]);
     expect(SMOOTH_STEPS[0]).toEqual({ value: 0, label: "Off" });
     expect(isPlainLook(DEFAULT_LOOK_SETTINGS)).toBe(true);
@@ -119,12 +119,12 @@ describe("the settings", () => {
   });
 
   it("read what this browser kept, and shrug at anything else", () => {
-    expect(readLookSettings(JSON.stringify({ background: "blur-soft", look: "film" }))).toEqual({ background: "blur-soft", look: "film", smooth: 0 });
-    expect(readLookSettings({ background: "brand", look: "mono" })).toEqual({ background: "brand", look: "mono", smooth: 0 });
+    expect(readLookSettings(JSON.stringify({ background: "blur-soft", look: "film" }))).toEqual({ background: "blur-soft", look: "film", smooth: 0, face: "none" });
+    expect(readLookSettings({ background: "brand", look: "mono" })).toEqual({ background: "brand", look: "mono", smooth: 0, face: "none" });
     expect(readLookSettings(null)).toEqual(DEFAULT_LOOK_SETTINGS);
     expect(readLookSettings("not json")).toEqual(DEFAULT_LOOK_SETTINGS);
     expect(readLookSettings({ background: "sparkles", look: 7 })).toEqual(DEFAULT_LOOK_SETTINGS);
-    expect(readLookSettings({ background: "image" })).toEqual({ background: "image", look: "natural", smooth: 0 });
+    expect(readLookSettings({ background: "image" })).toEqual({ background: "image", look: "natural", smooth: 0, face: "none" });
   });
 
   it("keep smoothing between 0 and 1, and anything that isn't a number off", () => {

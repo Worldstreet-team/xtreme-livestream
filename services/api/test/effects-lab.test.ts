@@ -66,7 +66,7 @@ describe("the shared text", () => {
   });
 
   it("covers every stage the test runs, in order", () => {
-    expect(LAB_STAGES.map((s) => s.id)).toEqual(["camera", "look", "blur", "face", "smooth", "all"]);
+    expect(LAB_STAGES.map((s) => s.id)).toEqual(["camera", "look", "blur", "face", "smooth", "effect", "all"]);
   });
 });
 
