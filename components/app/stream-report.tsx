@@ -14,6 +14,7 @@ import { minuteStamp, MOMENT_LABELS } from "@/lib/analytics";
 import { useAuth } from "@/lib/auth-context";
 import { DURATION, EASE, prefersReducedMotion } from "@/lib/motion";
 import { recapFileName, renderRecapPng } from "@/lib/stream-report-png";
+import { useStreamEnd } from "@/lib/stream-end";
 import { BATTLE_EVENT, PRACTICE_BATTLE_HREF } from "@/lib/battles";
 import { PRACTICE_EVENT } from "@/lib/tour/state";
 import {
@@ -167,6 +168,8 @@ function ReportBody({
   phone: boolean;
 }) {
   const { report, failed, retry } = useStreamReport(streamId);
+  // End still hasn't reached the server after its quiet retries: one plain line, one tap.
+  const end = useStreamEnd(from === "studio" ? streamId : null);
   const router = useRouter();
   const pathname = usePathname();
   const practice = report?.stream.practice ?? false;
@@ -196,6 +199,14 @@ function ReportBody({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 md:px-6">
+        {end?.state === "failed" && (
+          <div role="alert" className="mt-2 mb-1 flex items-center gap-3 rounded-[10px] bg-control px-3.5 py-3 text-[13px]">
+            <p className="min-w-0 flex-1 text-muted-foreground">We couldn&apos;t reach the server to end your stream. It ends on its own in a few minutes.</p>
+            <Pill variant="glass" size="sm" icon={<ArrowClockwise size={14} />} onClick={end.retry} className="shrink-0">
+              Try again
+            </Pill>
+          </div>
+        )}
         {report ? (
           <Report report={report} shown={shown} reduce={reduce} phone={phone} onTryBattle={tryBattle} />
         ) : failed ? (

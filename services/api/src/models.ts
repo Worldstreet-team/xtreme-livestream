@@ -2127,3 +2127,45 @@ streamRatingSchema.index({ streamId: 1 }, { unique: true });
 streamRatingSchema.index({ createdAt: -1 });
 
 export const StreamRating = mongoose.model<IStreamRating>("StreamRating", streamRatingSchema);
+
+/**
+ * A stream being readied behind the studio's 3·2·1 (POST /streams with
+ * `prepare: true`): its room exists and the host holds a token for it, but
+ * nothing else does. It lives in its own collection, not as a Stream, so no
+ * list, count, channel, search or sweep that reads streams can ever see it
+ * — it becomes a Stream only when the host commits (POST /streams/:id/go).
+ * One per host: preparing again replaces it. Cancelled with
+ * DELETE /streams/:id/prepare; one never committed is swept after
+ * PREPARED_STREAM_TTL_MS (stream-prepare.ts), with the TTL index as the
+ * backstop.
+ *
+ * `_id` is the id the stream will have: fresh, or a booking's own id when
+ * it starts a scheduled stream, so the id the studio holds never changes.
+ */
+export interface IPreparedStream extends Document {
+  streamerId: mongoose.Types.ObjectId;
+  livekitRoomName: string;
+  /** The Stream's fields as POST /streams would write them, minus the live switch. */
+  fields: Record<string, unknown>;
+  /** The booking this start becomes, if any. */
+  scheduledStreamId: mongoose.Types.ObjectId | null;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const preparedStreamSchema = new Schema<IPreparedStream>(
+  {
+    streamerId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    livekitRoomName: { type: String, required: true },
+    fields: { type: Schema.Types.Mixed, default: {} },
+    scheduledStreamId: { type: Schema.Types.ObjectId, ref: "Stream", default: null },
+    expiresAt: { type: Date, required: true },
+  },
+  { timestamps: true, minimize: false },
+);
+// Mongo's own clean-up behind the sweep: a prepared stream outlives its
+// expiry by at most the TTL monitor's minute.
+preparedStreamSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+export const PreparedStream = mongoose.model<IPreparedStream>("PreparedStream", preparedStreamSchema);

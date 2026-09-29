@@ -58,6 +58,7 @@ import { readLastDetails, readMarketTools, saveLastDetails, saveMarketTools } fr
 import { StreamArt } from "@/components/app/stream-art";
 import { ViewerView } from "@/components/app/viewer-view";
 import { openStreamReport } from "@/lib/stream-report";
+import { endStreamOnServer, trackStreamEnd } from "@/lib/stream-end";
 import { offerThumbnailCandidate } from "@/lib/thumbnail-candidates";
 import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
@@ -752,8 +753,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   const startPreview = useCallback(async () => {
     try {
-      // Stop any existing preview
-      if (previewTrack) {
+      // Stop any existing preview — never the camera that went on air with it (fast go-live).
+      if (previewTrack && previewTrack !== videoTrackRef.current) {
         previewTrack.stop();
       }
 
@@ -828,7 +829,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       startPreview();
     }
     return () => {
-      if (previewTrack) {
+      // Never the camera that went on air (fast go-live publishes the preview itself).
+      if (previewTrack && previewTrack !== videoTrackRef.current) {
         previewTrack.stop();
       }
     };
@@ -1161,6 +1163,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           state?: string;
           graceMs?: number;
         };
+        // Fast go-live: the bell's count, which the commit didn't wait for.
+        if (data.__evt === "followers_told") {
+          const told = data as { streamId?: unknown; followersTold?: unknown };
+          if (typeof told.streamId === "string" && (typeof told.followersTold === "number" || told.followersTold === null)) {
+            noteFollowersTold(told.streamId, told.followersTold);
+          }
+          return;
+        }
         // A producer moved the show on from their console: the prompter follows.
         if (data.__evt === "rundown") {
           const next = readPosition((data as { position?: unknown }).position);
@@ -1556,7 +1566,15 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    */
   const shareScreen = (room: Room) => shareShieldedScreen(room);
 
-  const joinRoom = async (livekitUrl: string, livekitToken: string, src: SourceType, rejoin = false) => {
+  // ── Fast go-live (owner, 2026-09-29) ───────────────────────────────────────
+  // Joining is split in two so Go live's 3·2·1 can do the slow half: openRoom
+  // connects (nothing published, not yet this studio's room), and joinRoom
+  // adopts that room and puts the feed in it.
+  /**
+   * A room for this stream with every listener on it, connected — nothing
+   * published, and not this studio's room (roomRef) until joinRoom adopts it.
+   */
+  const openRoom = async (livekitUrl: string, livekitToken: string) => {
     const { Room: LKRoom, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason } = await import("livekit-client");
     const room = new LKRoom({
       // Pause simulcast layers no subscriber is consuming.
@@ -1758,6 +1776,27 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     });
 
     await room.connect(livekitUrl, livekitToken);
+    return room;
+  };
+
+  /**
+   * Into the stream's room with this tab's feed (see the note above
+   * shareScreen). `ready` is what Go live's count got ready (fast go-live):
+   * the room it opened, the preview camera — published as it is, so the
+   * picture never goes dark and the camera isn't asked for twice — and the
+   * mic it opened. Anything missing or gone stale is made here as before.
+   */
+  const joinRoom = async (
+    livekitUrl: string,
+    livekitToken: string,
+    src: SourceType,
+    rejoin = false,
+    ready?: { room?: Room | null; camera?: LocalVideoTrack | null; mic?: LocalAudioTrack | null }
+  ) => {
+    const { Track, ConnectionState } = await import("livekit-client");
+    const opened = ready?.room && ready.room.state === ConnectionState.Connected ? ready.room : null;
+    if (ready?.room && !opened) ready.room.disconnect();
+    const room = opened ?? (await openRoom(livekitUrl, livekitToken));
     roomRef.current = room;
     setLiveRoom(room);
     {
@@ -1770,21 +1809,39 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     // things back the way the host left them: a muted mic stays muted.
     if (src !== "obs") {
       const { micEnabled: micOn, camEnabled: camOn } = liveRef.current;
-      if (src === "camera") {
-        if (!rejoin || camOn) await room.localParticipant.setCameraEnabled(true);
-      } else {
-        try {
-          await shareScreen(room);
-        } catch (err) {
-          // Going live, a refused share is a failed start. Rejoining, it's
-          // the browser wanting a click first — the stage asks for one.
-          if (!rejoin) throw err;
-          setNeedsReshare(true);
+      const live = (t?: LocalVideoTrack | LocalAudioTrack | null) => (t?.mediaStreamTrack?.readyState === "live" ? t : null);
+      const camera = !rejoin && src === "camera" ? live(ready?.camera) : null;
+      const mic = rejoin ? null : live(ready?.mic);
+      const publishPicture = async () => {
+        if (src === "camera") {
+          // The preview goes on air as it is: same capture, same look, and
+          // the room's publish defaults give it the same encodings and simulcast.
+          if (camera) await room.localParticipant.publishTrack(camera, { source: Track.Source.Camera });
+          else if (!rejoin || camOn) await room.localParticipant.setCameraEnabled(true);
+        } else {
+          try {
+            await shareScreen(room);
+          } catch (err) {
+            // Going live, a refused share is a failed start. Rejoining, it's
+            // the browser wanting a click first — the stage asks for one.
+            if (!rejoin) throw err;
+            setNeedsReshare(true);
+          }
         }
-      }
+      };
       // The mic as the voice settings want it: Music mode takes it raw, and in stereo.
-      if (!rejoin || micOn) {
-        await room.localParticipant.setMicrophoneEnabled(true, micCaptureOptions(voiceRef.current), micPublishOptions(voiceRef.current, saveData));
+      const publishMic = async () => {
+        if (rejoin && !micOn) return;
+        const options = micPublishOptions(voiceRef.current, saveData);
+        if (mic) await room.localParticipant.publishTrack(mic, { ...options, source: Track.Source.Microphone });
+        else await room.localParticipant.setMicrophoneEnabled(true, micCaptureOptions(voiceRef.current), options);
+      };
+      // A camera and its mic go up together — one wait, not two. A screen
+      // share keeps its order: its picker first, then the mic.
+      if (src === "camera") await Promise.all([publishPicture(), publishMic()]);
+      else {
+        await publishPicture();
+        await publishMic();
       }
 
       // Attach local video to preview element
@@ -1812,6 +1869,107 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     return room;
   };
 
+  // ── Fast go-live: the 3·2·1 does the work (owner, 2026-09-29) ────────────────
+  // The tap prepares the stream on the server (not live, nobody told), opens
+  // its room without publishing and opens the mic, all while the numbers run;
+  // the end of the count only commits and publishes. Calling the count off
+  // throws it all away.
+  /** A prepared start: the server's answer, then (`extras`) the room opened and the mic opened — each null if it couldn't be. */
+  type Prepared = {
+    id: string;
+    livekitUrl: string;
+    livekitToken: string;
+    extras: Promise<{ room: Room | null; mic: LocalAudioTrack | null }>;
+  };
+  const prepRef = useRef<{ src: SourceType; cancelled: boolean; promise: Promise<Prepared | null> } | null>(null);
+
+  /** What POST /streams gets for this start — the prepare and the one-shot alike. */
+  const goLiveBody = (src: SourceType) => {
+    const tagList = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    // Custom uploaded thumbnail wins; otherwise auto-capture from preview
+    let thumbnail: string | undefined = customThumbnail ?? undefined;
+    if (!thumbnail && videoElRef.current) {
+      thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
+    }
+    return {
+      title: title.trim(),
+      category,
+      tags: tagList,
+      thumbnail,
+      source: src,
+      // A practice run stays on Xtream, and out of sight.
+      practice,
+      postToWorldSpace: postToWorldSpace && !practice,
+      ...(openOnCard ? { scene: { layout: "auto", card: "starting-soon", cardNote: cardNote.trim() } } : {}),
+      ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
+    };
+  };
+
+  /** Get a start ready behind the count. Never throws: a prepare that fails leaves the count's end to start the old way. */
+  const prepareGoLive = (src: SourceType) => {
+    discardPrepared();
+    const prep: NonNullable<typeof prepRef.current> = { src, cancelled: false, promise: Promise.resolve(null) };
+    prep.promise = (async () => {
+      try {
+        const res = await apiFetch<{ success: boolean; data: { stream: { id: string }; livekitToken: string; livekitUrl: string } }>("/api/streams", {
+          method: "POST",
+          body: JSON.stringify({ ...goLiveBody(src), prepare: true }),
+        });
+        const { livekitUrl, livekitToken } = res.data;
+        // The room and the mic open on their own clock: the end of the count
+        // commits as soon as the server's answer is in, and waits for these
+        // only to publish.
+        const extras = prep.cancelled
+          ? Promise.resolve({ room: null, mic: null })
+          : Promise.all([
+              openRoom(livekitUrl, livekitToken).catch(() => null),
+              src !== "obs" && !micBlocked
+                ? import("livekit-client")
+                    .then(({ createLocalAudioTrack }) => createLocalAudioTrack(micCaptureOptions(voiceRef.current)))
+                    .catch(() => null)
+                : null,
+            ]).then(([room, mic]) => ({ room, mic }));
+        return { id: res.data.stream.id, livekitUrl, livekitToken, extras };
+      } catch {
+        return null;
+      }
+    })();
+    prepRef.current = prep;
+  };
+
+  /** The count was called off (or the studio left): what it got ready goes — the room, the mic, the server's prepared stream. */
+  const discardPrepared = () => {
+    const prep = prepRef.current;
+    prepRef.current = null;
+    if (!prep) return;
+    prep.cancelled = true;
+    void prep.promise.then((ready) => {
+      if (!ready) return;
+      void apiFetch(`/api/streams/${ready.id}/prepare`, { method: "DELETE" }).catch(() => {});
+      void ready.extras.then(({ room, mic }) => {
+        room?.disconnect();
+        mic?.stop();
+      });
+    });
+  };
+  const discardPreparedRef = useRef(discardPrepared);
+  discardPreparedRef.current = discardPrepared;
+  useEffect(() => () => discardPreparedRef.current(), []);
+
+  /** On air but the picture's still going out: the LIVE badge says "connecting" (only past ~400 ms). */
+  const [airConnecting, setAirConnecting] = useState(false);
+  /** The go-live error the alert offers "Try again" for. */
+  const [retryFor, setRetryFor] = useState<string | null>(null);
+
+  // The live software loads with the studio, not on the Go live tap.
+  useEffect(() => {
+    void import("livekit-client").catch(() => {});
+  }, []);
+  // ── end fast go-live ───────────────────────────────────────────────────────
+
   /**
    * Start broadcasting — or, with `resume`, pick up a stream that is already
    * live: an OBS stream whose studio tab closed (the encoder never stopped),
@@ -1827,8 +1985,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   }): Promise<boolean> => {
     // No title needed: a blank one goes out and the API names the stream.
     const src: SourceType = resume ? (resume.source ?? "obs") : source;
+    // What the count got ready, taken now — before any wait — so nothing else throws it away.
+    let prep = prepRef.current;
+    if (prep && (resume || prep.src !== src)) {
+      discardPrepared();
+      prep = null;
+    }
+    prepRef.current = null;
     setIsConnecting(true);
     setError(null);
+    setRetryFor(null);
     // The desk's audio context has to start from a click: this is the click,
     // before the joins that follow outlive the browser's grace for one.
     if (src !== "obs" && !deskCtxRef.current && voiceNeedsDesk(voiceRef.current, { noiseFilter: noiseFilterOk })) {
@@ -1842,72 +2008,16 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
 
     let createdStreamId: string | null = null;
+    let ready: Prepared | null = null;
+    /** A prepared start that went live on the server (the commit). */
+    let committed = false;
+    /** The on-air console is showing (a fast start shows it before the feed is out). */
+    let onAir = false;
+    // The preview camera goes on air itself — it's never stopped for a second one.
+    const camera = src === "camera" ? previewTrack : null;
 
-    try {
-      let livekitToken: string;
-      let livekitUrl: string;
-      if (resume) {
-        ({ livekitToken, livekitUrl } = resume);
-        setStreamId(resume.id);
-        if (resume.ingress) setIngressInfo(resume.ingress);
-      } else {
-        // Step 1: Call our API to create stream + get LiveKit token
-        const tagList = tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean);
-
-        // Custom uploaded thumbnail wins; otherwise auto-capture from preview
-        let thumbnail: string | undefined = customThumbnail ?? undefined;
-        if (!thumbnail && videoElRef.current) {
-          thumbnail = captureVideoFrame(videoElRef.current, 640, 0.75) ?? undefined;
-        }
-
-        const res = await apiFetch<{
-          success: boolean;
-          data: {
-            stream: { id: string; livekitRoomName: string; title?: string };
-            livekitToken: string;
-            livekitUrl: string;
-            ingress?: { url: string; streamKey: string };
-            /** How many followers the go-live bell went to (the coach says so). */
-            followersTold?: number | null;
-          };
-        }>("/api/streams", {
-          method: "POST",
-          body: JSON.stringify({
-            title: title.trim(),
-            category,
-            tags: tagList,
-            thumbnail,
-            source: src,
-            // A practice run stays on Xtream, and out of sight.
-            practice,
-            postToWorldSpace: postToWorldSpace && !practice,
-            ...(openOnCard ? { scene: { layout: "auto", card: "starting-soon", cardNote: cardNote.trim() } } : {}),
-            ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
-          }),
-        });
-
-        ({ livekitToken, livekitUrl } = res.data);
-        createdStreamId = res.data.stream.id;
-        noteFollowersTold(createdStreamId, res.data.followersTold);
-        setStreamId(createdStreamId);
-        setAirTitle(res.data.stream.title ?? null);
-        if (res.data.ingress) setIngressInfo(res.data.ingress);
-        // Next time starts from here, in this browser.
-        saveLastDetails({ title, category });
-      }
-
-      // Step 2: Stop preview track
-      if (previewTrack) {
-        previewTrack.stop();
-        setPreviewTrack(null);
-      }
-
-      // Step 3: into the room, feed published.
-      await joinRoom(livekitUrl, livekitToken, src);
-
+    const showOnAir = () => {
+      onAir = true;
       // A fresh broadcast starts on the scene it asked for; a resume reads
       // the room's own (joinRoom picked it up from the metadata).
       if (!resume) {
@@ -1924,39 +2034,139 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       setBattleAsk(false);
       // The first time on air (a practice run counts), the walkthrough shows the live console.
       if (!resume) tourAction("first-live");
+    };
+
+    try {
+      let livekitToken = "";
+      let livekitUrl = "";
+      if (resume) {
+        ({ livekitToken, livekitUrl } = resume);
+        setStreamId(resume.id);
+        if (resume.ingress) setIngressInfo(resume.ingress);
+      } else {
+        type Started = {
+          success: boolean;
+          data: {
+            stream: { id: string; livekitRoomName: string; title?: string };
+            livekitToken: string;
+            livekitUrl: string;
+            ingress?: { url: string; streamKey: string };
+            /** How many followers the go-live bell went to (the coach says so). A commit leaves it out while it's still counting. */
+            followersTold?: number | null;
+          };
+        };
+        ready = prep ? await prep.promise : null;
+        let res: Started | null = null;
+        if (ready) {
+          const prepared = ready;
+          // At "1": the prepared stream goes live — one short write. A commit
+          // is safe to repeat (a second one answers with the same stream), so
+          // a network blip gets one quiet second try.
+          const commit = () =>
+            apiFetch<Omit<Started, "data"> & { data: Omit<Started["data"], "livekitToken" | "livekitUrl"> }>(`/api/streams/${prepared.id}/go`, {
+              method: "POST",
+            }) as Promise<Started>;
+          try {
+            res = await commit().catch((err) => {
+              if (err instanceof ApiError && err.status > 0 && err.status < 500) throw err;
+              return commit();
+            });
+            ({ livekitToken, livekitUrl } = ready);
+            committed = true;
+            // Still counting: the number follows on the room (followers_told).
+            if (res.data.followersTold !== undefined) noteFollowersTold(res.data.stream.id, res.data.followersTold);
+          } catch (err) {
+            // Too late for it (it expired): start the old way, with the mic it opened.
+            if (!(err instanceof ApiError && err.status === 404)) throw err;
+            ready = {
+              ...prepared,
+              extras: prepared.extras.then(({ room, mic }) => {
+                room?.disconnect();
+                return { room: null, mic };
+              }),
+            };
+          }
+        }
+        if (!res) {
+          // Step 1: Call our API to create stream + get LiveKit token
+          res = await apiFetch<Started>("/api/streams", {
+            method: "POST",
+            body: JSON.stringify(goLiveBody(src)),
+          });
+          ({ livekitToken, livekitUrl } = res.data);
+          noteFollowersTold(res.data.stream.id, res.data.followersTold);
+        }
+        createdStreamId = res.data.stream.id;
+        setStreamId(createdStreamId);
+        setAirTitle(res.data.stream.title ?? null);
+        if (res.data.ingress) setIngressInfo(res.data.ingress);
+        // Next time starts from here, in this browser.
+        saveLastDetails({ title, category });
+      }
+
+      // Into the room, feed published. A prepared start is on air already —
+      // the console shows now, and the badge says "connecting" if the
+      // picture takes a moment to go out.
+      if (ready && committed) {
+        showOnAir();
+        const slow = setTimeout(() => setAirConnecting(true), 400);
+        try {
+          const { room, mic } = await ready.extras;
+          await joinRoom(livekitUrl, livekitToken, src, false, { room, camera, mic });
+        } finally {
+          clearTimeout(slow);
+          setAirConnecting(false);
+        }
+      } else {
+        const mic = ready ? (await ready.extras).mic : null;
+        await joinRoom(livekitUrl, livekitToken, src, false, { camera, mic });
+        showOnAir();
+      }
+      // The preview camera is the live one now: kept, not stopped.
+      if (camera) setPreviewTrack(null);
       return true;
     } catch (err) {
       // Cleanup: if a stream was created here but connection/publish failed,
       // end it. A failed resume leaves the live stream alone — it's still
       // holding (or an encoder is still feeding it).
       if (createdStreamId && !resume) {
-        try {
-          await apiFetch(`/api/streams/${createdStreamId}/end`, {
-            method: "POST",
-          });
-        } catch {
-          // best-effort cleanup
-        }
+        void endStreamOnServer(createdStreamId).catch(() => {});
         setStreamId(null);
+      } else if (ready && !committed) {
+        // A commit that never answered may still have landed: end it if it
+        // did, and throw the prepared stream away if it didn't.
+        const id = ready.id;
+        void apiFetch(`/api/streams/${id}/prepare`, { method: "DELETE" }).catch(() => {});
+        void endStreamOnServer(id).catch(() => {});
       }
 
       // Out of roomRef first, so its Disconnected event reads as ours.
       const stale = roomRef.current;
       roomRef.current = null;
       stale?.disconnect();
+      void ready?.extras.then(({ room, mic }) => {
+        if (room !== stale) room?.disconnect();
+        mic?.stop();
+      });
+
+      // Back to setup if the console was already up.
+      if (onAir) resetAfterLive();
 
       const msg =
         err instanceof Error ? err.message : "Failed to start stream";
-      setError(
+      const denied =
         msg.toLowerCase().includes("permission") ||
-          msg.toLowerCase().includes("notallowed") ||
-          msg.toLowerCase().includes("denied")
-          ? "Camera/microphone permission denied. Please allow access in your browser settings and try again."
-          : msg
-      );
+        msg.toLowerCase().includes("notallowed") ||
+        msg.toLowerCase().includes("denied");
+      const shown = denied
+        ? "Camera/microphone permission denied. Please allow access in your browser settings and try again."
+        : msg;
+      setError(shown);
+      // One tap to try again — the picture's still up behind it.
+      if (!denied && !resume) setRetryFor(shown);
 
-      // Restart preview
-      startPreview();
+      // The preview again — only if the camera went down with the attempt.
+      if (!onAir && (!camera || camera.mediaStreamTrack?.readyState !== "live")) startPreview();
       return false;
     } finally {
       setIsConnecting(false);
@@ -1968,23 +2178,23 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     rejoinRef.current = null;
   };
 
+  // ── Fast end: off the air here at once; the server hears it behind the report ──
   const endStream = async () => {
     stopRejoin();
-    try {
-      if (streamId) {
-        await apiFetch(`/api/streams/${streamId}/end`, { method: "POST" });
-      }
-    } catch {
-      // Best-effort
-    }
+    const id = streamId;
 
     // Out of roomRef first, so its Disconnected event reads as ours.
     const room = roomRef.current;
     roomRef.current = null;
     room?.disconnect();
 
-    // The post-live report (stream-report.tsx) opens the moment End lands; it holds the thumbnail picker now.
-    if (streamId) openStreamReport({ streamId, from: "studio" });
+    if (id) {
+      // Told with keepalive and quiet retries (lib/stream-end.ts); the report
+      // reads its numbers once that lands, and says so if it never does.
+      trackStreamEnd(id);
+      // The post-live report (stream-report.tsx) opens now; it holds the thumbnail picker too.
+      openStreamReport({ streamId: id, from: "studio" });
+    }
     resetAfterLive();
   };
 
@@ -2094,7 +2304,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // latest ones through a ref; the registration itself happens once.
   // Go live's 3·2·1: the tap starts it, the next tap calls it off, and it
   // goes live when it runs out (camera only — see pressGoLive).
-  const countdown = useGoLiveCountdown(() => void goLive());
+  // Fast go-live: calling the count off throws away what it got ready.
+  const countdown = useGoLiveCountdown(() => void goLive(), undefined, discardPrepared);
   const cancelCountdown = countdown.cancel;
   const vividRef = useRef({ goLive, endStream, toggleMic, toggleCam, toggleScreenShare, cancelCountdown, isLive, micEnabled, camEnabled, screenShareActive, source, title, category, streamId, viewerCount, elapsed, isConnecting, confirmDialog });
   useEffect(() => {
@@ -2787,6 +2998,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       }
     }
     countdown.start();
+    // Fast go-live: the count covers the setup.
+    prepareGoLive("camera");
   };
 
   /** A title or category changed on air: saved to the stream (the API tells the room), and remembered here. */
@@ -4822,7 +5035,24 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         )}
 
         {error && (
-          <div role="alert" className="absolute top-[4.5rem] right-4 left-4 z-30 flex items-start gap-2 rounded-[12px] bg-chili px-4 py-3 text-[13.5px] font-semibold text-white shadow-[0_18px_40px_-18px_rgba(0,0,0,0.8)] md:right-auto md:max-w-md"><Warning size={16} className="mt-0.5 shrink-0" />{error}</div>
+          <div role="alert" className="absolute top-[4.5rem] right-4 left-4 z-30 flex items-start gap-2 rounded-[12px] bg-chili px-4 py-3 text-[13.5px] font-semibold text-white shadow-[0_18px_40px_-18px_rgba(0,0,0,0.8)] md:right-auto md:max-w-md">
+            <Warning size={16} className="mt-0.5 shrink-0" />
+            <span className="min-w-0 flex-1">{error}</span>
+            {/* A start that failed: one tap to try again, the picture still up behind it. */}
+            {retryFor === error && !isLive && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setRetryFor(null);
+                  pressGoLive();
+                }}
+                className="press -my-1 shrink-0 rounded-full bg-white px-3 py-1 text-[12.5px] font-bold text-[#0b0708]"
+              >
+                Try again
+              </button>
+            )}
+          </div>
         )}
 
         {/* ---- Top row ---- */}
@@ -4841,7 +5071,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           ) : (
             <>
               {/* LIVE, the clock and the room in one capsule — the three numbers a host glances at. */}
-              <span className="obj flex h-8 items-center overflow-hidden rounded-full">
+              {/* Fast go-live: while the picture's still going out (past ~400 ms), LIVE breathes instead of pinging. */}
+              <span className={cn("obj flex h-8 items-center overflow-hidden rounded-full", airConnecting && "[&>span:first-child]:animate-pulse")} title={airConnecting ? "Connecting…" : undefined}>
                 {practice ? (
                   // A rehearsal isn't on air: ember, and it says so.
                   <span className="flex h-full items-center gap-1.5 bg-ember px-2.5 text-[12px] font-bold tracking-[0.06em] text-on-ember" title="A practice run — nobody can find or join this room">
@@ -4849,8 +5080,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   </span>
                 ) : (
                   <span className="flex h-full items-center gap-1.5 bg-chili px-2.5 text-[12px] font-bold tracking-[0.06em]">
-                    <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
+                    <span className="relative flex size-1.5">{!airConnecting && <span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" />}<span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
                     LIVE
+                    {airConnecting && <span className="sr-only">, connecting</span>}
                   </span>
                 )}
                 <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>

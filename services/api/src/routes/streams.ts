@@ -11,9 +11,11 @@ import {
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { ensureUserIngress,
-  createToken, sendRoomData, setRoomScene } from "../livekit.js";
-import { Stream, User, type IStream } from "../models.js";
+import mongoose from "mongoose";
+import { closeRoom, ensureUserIngress,
+  createToken, sendRoomData, sendRoomDataTo, setRoomScene } from "../livekit.js";
+import { PreparedStream, Stream, User, type IStream, type IUser } from "../models.js";
+import { PREPARED_STREAM_TTL_MS } from "../stream-prepare.js";
 import { startPractice } from "../practice.js";
 import { previewAccess } from "../preview.js";
 import { relayLiveEvent } from "../socials-relay.js";
@@ -36,6 +38,220 @@ import { putScene } from "../scene-put.js";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type CreateStreamBody = z.infer<typeof createStreamBodySchema>;
+type StreamBody = Omit<CreateStreamBody, "scheduledStreamId" | "scene" | "prepare">;
+
+/**
+ * Everything POST /streams writes on a new broadcast except the live
+ * switch (liveSwitch) — what a prepared stream keeps until its commit.
+ */
+function freshStreamFields(dbUser: IUser, body: StreamBody, scene: CreateStreamBody["scene"], roomName: string) {
+  // A practice run (practice.ts): decided here and never changed.
+  const practice = body.practice === true;
+  return {
+    ...body,
+    // Going live needs no name: a blank title is the host's default.
+    title: body.title || defaultStreamTitle(dbUser, body.category),
+    practice,
+    // A fresh program every broadcast — a reused booking must not
+    // inherit last time's card.
+    scene: {
+      layout: scene?.layout ?? "auto",
+      card: scene?.card ?? null,
+      cardNote: scene?.cardNote ?? "",
+      chart: scene?.chart ?? null,
+      // A sponsor card goes up through the scene route, where it's
+      // checked and its on-screen time starts counting.
+      layers: (scene?.layers ?? []).filter((l) => l.kind !== "sponsor"),
+      featured: null,
+      version: scene ? 1 : 0,
+    },
+    // Each broadcast starts with Shield down and no suggestions waiting,
+    // no goal and a cold meter.
+    shield: { on: false, at: null, by: null },
+    featureQueue: [],
+    goal: null,
+    heat: null,
+    health: [],
+    requestsOpen: false,
+    // A fresh show: the rundown starts from the top.
+    rundown: null,
+    // Stamps the version the thumbnail URL is cache-busted on.
+    thumbnailVersion: body.thumbnail ? Date.now() : 0,
+    livekitRoomName: roomName,
+  };
+}
+type StreamFields = ReturnType<typeof freshStreamFields>;
+
+/** On air, from now. */
+function liveSwitch() {
+  return { status: "live" as const, isLive: true, startedAt: new Date(), endedAt: null };
+}
+
+/**
+ * The account's persistent ingress, re-pointed at this room. The encoder
+ * joins under its own identity: if it shared the browser's, opening the
+ * studio dashboard (same user id) would make LiveKit kick the ingress —
+ * killing the feed the moment the streamer looked at their own stream.
+ */
+async function pointIngress(dbUser: IUser, roomName: string) {
+  const ingress = await ensureUserIngress(dbUser, roomName);
+  // A WHIP key set up too: point it here as well, so whichever the
+  // encoder speaks lands in this room. Never fails the go-live.
+  if (dbUser.whipIngress?.ingressId) {
+    await ensureUserIngress(dbUser, roomName, "whip").catch(() => {});
+  }
+  return ingress;
+}
+
+function hostToken(roomName: string, dbUser: IUser) {
+  return createToken(roomName, dbUser._id.toString(), dbUser.displayName, {
+    canPublish: true,
+    canSubscribe: true,
+    canPublishData: true,
+    roomCreate: true,
+  });
+}
+
+/** The host's own booking, still upcoming — or the 404 a start from it gets. */
+async function findBooking(dbUser: IUser, scheduledStreamId: string | mongoose.Types.ObjectId) {
+  const scheduled = await Stream.findOne({
+    _id: scheduledStreamId,
+    streamerId: dbUser._id,
+    status: "upcoming",
+  });
+  if (!scheduled) {
+    throw new ApiError(404, "Scheduled stream not found", "STREAM_NOT_FOUND");
+  }
+  return scheduled;
+}
+
+/** What a booking keeps when the start doesn't say otherwise: its title and its thumbnail. */
+function keepBookingDetails(scheduled: IStream, fields: StreamFields, asked: { title: string; thumbnail: string }) {
+  // No title on go-live keeps the one it was booked under.
+  if (!asked.title && scheduled.title) fields.title = scheduled.title;
+  // No new thumbnail on go-live means keep the one it was scheduled with.
+  if (!asked.thumbnail && scheduled.thumbnail) {
+    fields.thumbnail = scheduled.thumbnail;
+    fields.thumbnailVersion = scheduled.thumbnailVersion;
+  }
+}
+
+/**
+ * Everything that happens because a stream went live. `followers` is how
+ * many followers the go-live bell went to — the studio's coach says "We're
+ * telling your N followers": 0 when nobody is told (a practice run, a
+ * booking that opted out), settled at once; otherwise the lookup, which
+ * resolves to the count, 0 with no followers, or null when it failed.
+ */
+async function announceStart(
+  stream: IStream,
+  dbUser: IUser,
+  { practice, fromSchedule }: { practice: boolean; fromSchedule: boolean },
+): Promise<{ followers: number | Promise<number | null> }> {
+  if (practice) {
+    // A rehearsal: the live ring stays off, nobody is told, nothing is
+    // posted — whatever the body said about followers or WorldSpace —
+    // and the simulated audience files in.
+    startPractice(stream);
+    return { followers: 0 };
+  }
+  dbUser.isLive = true;
+  await dbUser.save();
+  // Every client hears it at once (xtream-events.ts), WorldSpace post or not.
+  xtreamStreamStarted(stream, dbUser);
+
+  // Only when the broadcaster asked for it — see postToWorldSpace.
+  if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
+
+  // In-app bell for our own users; the socials relay handles that
+  // platform's feed separately.
+  const followers = stream.notifyFollowers !== false ? notifyFollowersOfLive(stream, dbUser) : 0;
+  if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
+  return { followers };
+}
+
+/**
+ * Get a stream ready behind the studio's 3·2·1 (stream-prepare.ts): its
+ * room and a publisher token, nothing else. It isn't a Stream yet — so it
+ * can't be listed, counted or found — nobody is told, and an encoder isn't
+ * re-pointed until the commit. A booking is checked now, so a stale one
+ * fails at the tap rather than at "1".
+ */
+async function prepareStream(dbUser: IUser, requestBody: CreateStreamBody) {
+  const { scheduledStreamId, scene, ...body } = requestBody;
+  delete body.prepare;
+  const roomName = `stream-${dbUser._id}-${Date.now()}`;
+  const fields = freshStreamFields(dbUser, body, scene, roomName);
+  const booking = scheduledStreamId && !fields.practice ? await findBooking(dbUser, scheduledStreamId) : null;
+  if (booking) keepBookingDetails(booking, fields, body);
+
+  const livekitToken = await hostToken(roomName, dbUser);
+
+  // One per host: an earlier one — a count called off, then tapped again
+  // before its cancel landed — goes, and so does its room.
+  const earlier = await PreparedStream.find({ streamerId: dbUser._id }).select("_id livekitRoomName").lean();
+  for (const row of earlier) {
+    await PreparedStream.deleteOne({ _id: row._id });
+    void closeRoom(row.livekitRoomName).catch(() => {});
+  }
+
+  // The id the stream will have: a booking keeps its own.
+  const id = booking ? (booking._id as mongoose.Types.ObjectId) : new mongoose.Types.ObjectId();
+  const expiresAt = new Date(Date.now() + PREPARED_STREAM_TTL_MS);
+  await PreparedStream.create({
+    _id: id,
+    streamerId: dbUser._id,
+    livekitRoomName: roomName,
+    fields,
+    scheduledStreamId: booking ? id : null,
+    expiresAt,
+  });
+
+  return {
+    success: true,
+    message: "Stream prepared",
+    data: {
+      stream: {
+        id,
+        title: fields.title,
+        category: fields.category,
+        source: fields.source,
+        livekitRoomName: roomName,
+        startedAt: null,
+        practice: fields.practice,
+        prepared: true,
+        expiresAt,
+      },
+      livekitToken,
+      livekitUrl: config.LIVEKIT_URL,
+    },
+  };
+}
+
+/** The commit's answer: the one-shot start's, less the token the prepare already gave. */
+function goAnswer(stream: IStream, ingress: { url: string; streamKey: string } | null, followersTold?: number) {
+  const practice = stream.practice === true;
+  return {
+    success: true,
+    message: practice ? "Practice run started" : "Stream started",
+    data: {
+      stream: {
+        id: stream._id,
+        title: stream.title,
+        category: stream.category,
+        source: stream.source,
+        livekitRoomName: stream.livekitRoomName,
+        startedAt: stream.startedAt,
+        practice,
+      },
+      ...(followersTold !== undefined ? { followersTold } : {}),
+      // OBS connection details — shown once to the broadcaster.
+      ...(ingress ? { ingress: { url: ingress.url, streamKey: ingress.streamKey } } : {}),
+    },
+  };
 }
 
 export const streamRoutes: FastifyPluginAsync = async (fastify) => {
@@ -231,7 +447,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Streams"],
-        summary: "Start a stream and receive a publisher token",
+        summary: "Start a stream and receive a publisher token — or, with prepare: true, only get it ready",
         security: [{ bearerAuth: [] }],
         body: createStreamBodySchema,
       },
@@ -241,6 +457,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
+      // The studio's 3·2·1: ready now, live on commit (stream-prepare.ts).
+      if (request.body.prepare === true) return prepareStream(dbUser, request.body);
 
       const existing = await Stream.findOne({
         streamerId: dbUser._id,
@@ -252,77 +470,18 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
 
       // OBS path: mint an RTMP ingress instead of expecting a browser
       // publisher. The encoder's push joins the room as the broadcaster.
-      let ingress: {
-        ingressId: string;
-        url: string;
-        streamKey: string;
-      } | null = null;
-      if (request.body.source === "obs") {
-        // The account's persistent ingress, re-pointed at this room. The
-        // encoder joins under its own identity: if it shared the browser's,
-        // opening the studio dashboard (same user id) would make LiveKit
-        // kick the ingress — killing the feed the moment the streamer looked
-        // at their own stream.
-        ingress = await ensureUserIngress(dbUser, roomName);
-        // A WHIP key set up too: point it here as well, so whichever the
-        // encoder speaks lands in this room. Never fails the go-live.
-        if (dbUser.whipIngress?.ingressId) {
-          await ensureUserIngress(dbUser, roomName, "whip").catch(() => {});
-        }
-      }
+      const ingress = request.body.source === "obs" ? await pointIngress(dbUser, roomName) : null;
 
-      const livekitToken = await createToken(
-        roomName,
-        dbUser._id.toString(),
-        dbUser.displayName,
-        {
-          canPublish: true,
-          canSubscribe: true,
-          canPublishData: true,
-          roomCreate: true,
-        },
-      );
+      const livekitToken = await hostToken(roomName, dbUser);
 
       const { scheduledStreamId, scene, ...body } = request.body;
-      // A practice run (practice.ts): decided here and never changed.
-      const practice = body.practice === true;
+      delete body.prepare;
       const fields = {
-        ...body,
-        // Going live needs no name: a blank title is the host's default.
-        title: body.title || defaultStreamTitle(dbUser, body.category),
-        practice,
-        // A fresh program every broadcast — a reused booking must not
-        // inherit last time's card.
-        scene: {
-          layout: scene?.layout ?? "auto",
-          card: scene?.card ?? null,
-          cardNote: scene?.cardNote ?? "",
-          chart: scene?.chart ?? null,
-          // A sponsor card goes up through the scene route, where it's
-          // checked and its on-screen time starts counting.
-          layers: (scene?.layers ?? []).filter((l) => l.kind !== "sponsor"),
-          featured: null,
-          version: scene ? 1 : 0,
-        },
-        // Each broadcast starts with Shield down and no suggestions waiting,
-        // no goal and a cold meter.
-        shield: { on: false, at: null, by: null },
-        featureQueue: [],
-        goal: null,
-        heat: null,
-        health: [],
-        requestsOpen: false,
-        // A fresh show: the rundown starts from the top.
-        rundown: null,
-        // Stamps the version the thumbnail URL is cache-busted on.
-        thumbnailVersion: body.thumbnail ? Date.now() : 0,
-        livekitRoomName: roomName,
-        status: "live" as const,
-        isLive: true,
-        startedAt: new Date(),
-        endedAt: null,
+        ...freshStreamFields(dbUser, body, scene, roomName),
+        ...liveSwitch(),
         ...(ingress ? { ingressId: ingress.ingressId } : {}),
       };
+      const practice = fields.practice;
 
       // Starting a scheduled stream keeps its document: the upcoming card,
       // its URL and the reminders people set on it all become this live
@@ -332,25 +491,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       let stream: IStream;
       let fromSchedule = false;
       if (scheduledStreamId && !practice) {
-        const scheduled = await Stream.findOne({
-          _id: scheduledStreamId,
-          streamerId: dbUser._id,
-          status: "upcoming",
-        });
-        if (!scheduled) {
-          throw new ApiError(
-            404,
-            "Scheduled stream not found",
-            "STREAM_NOT_FOUND",
-          );
-        }
-        // No title on go-live keeps the one it was booked under.
-        if (!body.title && scheduled.title) fields.title = scheduled.title;
-        // No new thumbnail on go-live means keep the one it was scheduled with.
-        if (!body.thumbnail && scheduled.thumbnail) {
-          fields.thumbnail = scheduled.thumbnail;
-          fields.thumbnailVersion = scheduled.thumbnailVersion;
-        }
+        const scheduled = await findBooking(dbUser, scheduledStreamId);
+        keepBookingDetails(scheduled, fields, body);
         Object.assign(scheduled, fields);
         await scheduled.save();
         stream = scheduled;
@@ -365,28 +507,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
        * run, a booking that opted out, no followers); null when the lookup
        * failed.
        */
-      let followersTold: number | null = 0;
-      if (practice) {
-        // A rehearsal: the live ring stays off, nobody is told, nothing is
-        // posted — whatever the body said about followers or WorldSpace —
-        // and the simulated audience files in.
-        startPractice(stream);
-      } else {
-        dbUser.isLive = true;
-        await dbUser.save();
-        // Every client hears it at once (xtream-events.ts), WorldSpace post or not.
-        xtreamStreamStarted(stream, dbUser);
-
-        // Only when the broadcaster asked for it — see postToWorldSpace.
-        if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
-
-        // In-app bell for our own users; the socials relay handles that
-        // platform's feed separately.
-        if (stream.notifyFollowers !== false) {
-          followersTold = await notifyFollowersOfLive(stream, dbUser);
-        }
-        if (fromSchedule) void notifyRemindersOfLive(stream, dbUser);
-      }
+      const { followers } = await announceStart(stream, dbUser, { practice, fromSchedule });
+      const followersTold = await followers;
 
       return {
         success: true,
@@ -410,6 +532,110 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             : {}),
         },
       };
+    },
+  );
+
+  /**
+   * Commit a prepared stream: it goes live now. What the one-shot start does
+   * after its token — end any stream still live, point the encoder, write
+   * the stream, light the ring, tell every client, relay, ring the bell —
+   * except the bell's count, which is not waited for: it reaches the host
+   * afterwards as `{ __evt: "followers_told", streamId, followersTold }`
+   * on the room, sent to the host alone.
+   *
+   * Asked again for a stream it already started (the answer was lost),
+   * it answers the same way instead of failing.
+   */
+  app.post(
+    "/streams/:id/go",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Commit a prepared stream: it goes live now",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const id = request.params.id;
+      const now = Date.now();
+
+      // Claimed by deleting it: two commits can't both start it.
+      const prepared = await PreparedStream.findOne({ _id: id, streamerId: dbUser._id });
+      const claimed = prepared ? (await PreparedStream.deleteOne({ _id: prepared._id })).deletedCount === 1 : false;
+      if (!prepared || !claimed || new Date(prepared.expiresAt).getTime() <= now) {
+        const started = await Stream.findOne({ _id: id, streamerId: dbUser._id, isLive: true });
+        if (started) {
+          const obs = started.source === "obs" && dbUser.obsIngress ? { url: dbUser.obsIngress.url, streamKey: dbUser.obsIngress.streamKey } : null;
+          return goAnswer(started, obs);
+        }
+        throw new ApiError(404, "That start expired — tap Go live again", "PREPARED_NOT_FOUND");
+      }
+
+      const existing = await Stream.findOne({ streamerId: dbUser._id, isLive: true });
+      if (existing) await markStreamEnded(existing);
+
+      const roomName = prepared.livekitRoomName;
+      const fields = { ...(prepared.fields as StreamFields) };
+      const ingress = fields.source === "obs" ? await pointIngress(dbUser, roomName) : null;
+      Object.assign(fields, liveSwitch(), ingress ? { ingressId: ingress.ingressId } : {});
+      const practice = fields.practice === true;
+
+      let stream: IStream;
+      let fromSchedule = false;
+      if (prepared.scheduledStreamId && !practice) {
+        const scheduled = await findBooking(dbUser, prepared.scheduledStreamId);
+        Object.assign(scheduled, fields);
+        await scheduled.save();
+        stream = scheduled;
+        fromSchedule = true;
+      } else {
+        stream = await Stream.create({ _id: prepared._id, streamerId: dbUser._id, ...fields });
+      }
+
+      const { followers } = await announceStart(stream, dbUser, { practice, fromSchedule });
+      // Settled already (nobody's told): in the answer. Otherwise it follows on the room.
+      if (typeof followers === "number") return goAnswer(stream, ingress, followers);
+      const streamId = String(stream._id);
+      void followers
+        .then((followersTold) =>
+          sendRoomDataTo(roomName, [dbUser._id.toString()], { __evt: "followers_told", streamId, followersTold }),
+        )
+        .catch((error) => console.error("followers told failed:", error));
+      return goAnswer(stream, ingress);
+    },
+  );
+
+  /**
+   * Throw a prepared stream away — Go live's count was called off. Nothing
+   * was announced, so there's nothing to take back; the room is closed.
+   * Harmless to repeat, and it never touches a stream that already went
+   * live.
+   */
+  app.delete(
+    "/streams/:id/prepare",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Cancel a prepared stream",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const prepared = await PreparedStream.findOne({ _id: request.params.id, streamerId: dbUser._id })
+        .select("_id livekitRoomName")
+        .lean();
+      const cancelled = prepared
+        ? (await PreparedStream.deleteOne({ _id: prepared._id, streamerId: dbUser._id })).deletedCount === 1
+        : false;
+      if (prepared && cancelled) void closeRoom(prepared.livekitRoomName).catch(() => {});
+      return { success: true, data: { cancelled } };
     },
   );
 

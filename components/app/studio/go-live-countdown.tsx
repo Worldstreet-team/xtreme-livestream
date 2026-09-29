@@ -12,19 +12,27 @@ export const COUNTDOWN_FROM = 3;
  * (or Escape) calls it off, and when it runs out `onDone` goes live. The
  * latest `onDone` is the one called, so the caller can pass a fresh
  * function every render.
+ *
+ * `onCancel` hears every way a running count is called off — the second
+ * tap, Escape, `cancel()` from the caller, leaving mid-count — so work the
+ * count started (the studio prepares the stream behind it) is thrown away.
  */
-export function useGoLiveCountdown(onDone: () => void, from = COUNTDOWN_FROM) {
+export function useGoLiveCountdown(onDone: () => void, from = COUNTDOWN_FROM, onCancel?: () => void) {
   const [count, setCount] = useState<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doneRef = useRef(onDone);
+  const cancelRef = useRef(onCancel);
   useEffect(() => {
     doneRef.current = onDone;
+    cancelRef.current = onCancel;
   });
 
   const cancel = useCallback(() => {
+    const running = timer.current !== null;
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     setCount(null);
+    if (running) cancelRef.current?.();
   }, []);
 
   const start = useCallback(() => {
@@ -61,7 +69,10 @@ export function useGoLiveCountdown(onDone: () => void, from = COUNTDOWN_FROM) {
   // Leaving the studio mid-count goes nowhere.
   useEffect(
     () => () => {
-      if (timer.current) clearTimeout(timer.current);
+      if (!timer.current) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      cancelRef.current?.();
     },
     []
   );

@@ -12,7 +12,7 @@ import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { CHAT_SLOW_MODE_SECONDS, chatPayload } from "../chat.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
-import { createToken, sendRoomData, sendRoomDataTo } from "../livekit.js";
+import { closeRoom, createToken, sendRoomData, sendRoomDataTo } from "../livekit.js";
 import { assertNotBanned } from "./moderation.js";
 import { heldView } from "./safety.js";
 import {
@@ -45,6 +45,28 @@ import { pushNotifications } from "../xtream-events.js";
  * SLOW_MODE_SECONDS in components/app/live-chat.tsx — keep the two in step
  * so the countdown matches what the server enforces.
  */
+
+/**
+ * How long an ended stream's room stays open after End is answered, then
+ * it's closed: whoever is still in it — viewers, stage guests, a
+ * producer's console — hears ROOM_DELETED and sees the stream end at once.
+ * The pause lets the host's own client leave first, under its own
+ * CLIENT_INITIATED, whatever order it disconnects and calls End in.
+ * Mutable for tests.
+ */
+export const endTiming = { roomCloseDelayMs: 3_000 };
+
+function closeRoomSoon(roomName: string) {
+  const close = () => {
+    try {
+      void closeRoom(roomName).catch((error) => console.error("room close after end failed:", error));
+    } catch (error) {
+      console.error("room close after end failed:", error);
+    }
+  };
+  if (endTiming.roomCloseDelayMs <= 0) close();
+  else setTimeout(close, endTiming.roomCloseDelayMs).unref?.();
+}
 
 /** Suspicious accounts already pointed out, per stream: once every half hour is enough. */
 const flagged = new Map<string, number>();
@@ -232,7 +254,10 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
         throw new ApiError(400, "Stream is not live", "STREAM_OFFLINE");
       }
 
-      await markStreamEnded(stream);
+      // Answered as soon as it's marked ended: the close-out runs on after
+      // the reply (markStreamEnded), and so does closing the room.
+      await markStreamEnded(stream, { background: true });
+      closeRoomSoon(stream.livekitRoomName);
 
       return {
         success: true,

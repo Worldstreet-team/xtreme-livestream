@@ -1212,6 +1212,16 @@ export const createStreamBodySchema = z.object({
    * relayed or paid. Decided when the stream is made.
    */
   practice: z.boolean().default(false),
+  /**
+   * Get the stream ready without starting it — the studio sends this the
+   * moment Go live is tapped, so its 3·2·1 covers the setup. The answer
+   * carries the room and a publisher token, but the stream is not live,
+   * not listed and nobody is told until POST /streams/:id/go commits it.
+   * DELETE /streams/:id/prepare throws it away; one never committed is
+   * gone after two minutes. Left out (or false): the one-shot start, as
+   * before.
+   */
+  prepare: z.boolean().optional(),
 });
 
 /**

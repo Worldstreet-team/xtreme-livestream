@@ -149,7 +149,15 @@ export function averageViewers(stream: ViewerAverageInput) {
   return Math.round(viewerSeconds / seconds);
 }
 
-export async function markStreamEnded(stream: IStream) {
+/**
+ * End a stream. The one write that ends it — off air, ended, timed — is
+ * always waited for; the close-out after it (the host's live ring, the
+ * socials post, every client's lists, watch sessions, sponsor runs, a
+ * practice run's audience) is too, unless `background` is set: then it
+ * runs on after the call returns, so the host's End is answered the moment
+ * the stream is marked ended (POST /streams/:id/end).
+ */
+export async function markStreamEnded(stream: IStream, opts: { background?: boolean } = {}) {
   if (!stream.isLive) return;
 
   const endedAt = new Date();
@@ -170,6 +178,13 @@ export async function markStreamEnded(stream: IStream) {
     stream.socialsRelayPending = true;
   }
   await stream.save();
+  const closing = closeOutStream(stream, endedAt, practice);
+  if (!opts.background) return closing;
+  void closing.catch((error) => console.error("stream close-out failed:", error));
+}
+
+/** Everything after the stream is marked ended (markStreamEnded). */
+async function closeOutStream(stream: IStream, endedAt: Date, practice: boolean) {
   if (practice) {
     stopPractice(stream._id);
     // Its preview link dies with it, and whoever watched on it leaves.

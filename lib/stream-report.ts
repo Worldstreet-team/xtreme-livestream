@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { StreamAnalytics } from "@xtreme/contracts";
 import { apiFetch } from "@/lib/api-client";
+import { useStreamEnd } from "@/lib/stream-end";
 
 /**
  * The post-live report on the client: the shape GET /streams/:id/report
@@ -69,9 +70,12 @@ export interface StreamReportData {
 export function useStreamReport(streamId: string | null) {
   const [state, setState] = useState<{ id: string; report: StreamReportData | null; failed: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Opened from End: the numbers are read once the server has the stream
+  // ended (lib/stream-end.ts) — until then the sheet shows its skeleton.
+  const ending = useStreamEnd(streamId)?.state === "ending";
 
   useEffect(() => {
-    if (!streamId) return;
+    if (!streamId || ending) return;
     let alive = true;
     apiFetch<{ success: boolean; data: { report: StreamReportData } }>(`/api/streams/${streamId}/report`)
       .then((r) => alive && setState({ id: streamId, report: r.data.report, failed: false }))
@@ -79,7 +83,7 @@ export function useStreamReport(streamId: string | null) {
     return () => {
       alive = false;
     };
-  }, [streamId, attempt]);
+  }, [streamId, attempt, ending]);
 
   const retry = useCallback(() => {
     setState(null);

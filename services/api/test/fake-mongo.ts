@@ -5,7 +5,8 @@ import mongoose from "mongoose";
  * enough of Mongo's query and update language to run real module code:
  * equality (ObjectIds and strings compare by value), $ne/$lt/$lte/$gt/$gte,
  * $in, $elemMatch, $type, $or/$and, $expr ($add, $lte); updates with $set,
- * $inc, $max, $push ($each, $slice), $setOnInsert and $pull; upserts; and unique
+ * $inc, $max, $push ($each, $slice), $setOnInsert and $pull (bare fields read as
+ * $set, as Mongoose does); upserts; and unique
  * indexes that refuse a duplicate with Mongo's 11000.
  */
 
@@ -105,6 +106,12 @@ export function matches(doc: Row, filter: Row): boolean {
 }
 
 function applyUpdate(doc: Row, update: Row, inserting: boolean) {
+  // Mongoose reads a bare field in an update as a $set.
+  const bare = Object.entries(update).filter(([k]) => !k.startsWith("$"));
+  if (bare.length) {
+    update = Object.fromEntries(Object.entries(update).filter(([k]) => k.startsWith("$")));
+    update.$set = { ...(update.$set as Row | undefined), ...Object.fromEntries(bare) };
+  }
   for (const [op, fields] of Object.entries(update)) {
     if (op === "$set" || (op === "$setOnInsert" && inserting)) {
       for (const [k, v] of Object.entries(fields as Row)) setPath(doc, k, v);

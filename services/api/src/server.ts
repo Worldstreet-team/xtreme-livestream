@@ -14,6 +14,7 @@ import { startWatchDrip } from "./points.js";
 import { startPayoutSweep } from "./rewards.js";
 import { startRequestSweep } from "./requests.js";
 import { startSponsorSweep } from "./sponsors.js";
+import { startPreparedStreamSweep } from "./stream-prepare.js";
 
 const app = await buildApp();
 let shuttingDown = false;
@@ -58,6 +59,7 @@ try {
   startDropSweep();
   startPayoutSweep();
   startWatchDrip();
+  startPreparedStreamSweep();
 } catch (error) {
   app.log.fatal({ err: error }, "API failed to start");
   await disconnectDatabase();
