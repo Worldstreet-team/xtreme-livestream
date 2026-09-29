@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import type { Room } from "livekit-client";
 import { Lightning, Play, X } from "@/components/icons";
 import {
   formatClock,
@@ -86,6 +87,7 @@ export function ClashView({
   onClose,
   onGone,
   feedQuery = "",
+  room = null,
 }: {
   battle: BattleView | null;
   /** The card's rect when it was tapped: the window unfolds out of it. */
@@ -97,6 +99,8 @@ export function ClashView({
   onGone?: () => void;
   /** More for the feed's query ("?previewKey=…"), for a practice run's preview link. */
   feedQuery?: string;
+  /** The room this battle is pushed to, when the surface is in it: no polling then. */
+  room?: Room | null;
 }) {
   const [present, setPresent] = useState(false);
   const [state, setState] = useState<ShellState>("measure");
@@ -220,7 +224,7 @@ export function ClashView({
   if (!present || !battle || typeof document === "undefined") return null;
 
   const label = `${teamName(battle.host)} versus ${teamName(battle.challenger)}`;
-  const content = <Clash initial={battle} phone={mode === "phone"} active={state === "open"} onClose={onClose} feedQuery={feedQuery} />;
+  const content = <Clash initial={battle} phone={mode === "phone"} active={state === "open"} onClose={onClose} feedQuery={feedQuery} room={room} />;
 
   return createPortal(
     <div
@@ -278,7 +282,21 @@ function restScene(b: BattleView): EmblemScene {
   return "vs";
 }
 
-function Clash({ initial, phone, active, onClose, feedQuery }: { initial: BattleView; phone: boolean; active: boolean; onClose: () => void; feedQuery: string }) {
+function Clash({
+  initial,
+  phone,
+  active,
+  onClose,
+  feedQuery,
+  room,
+}: {
+  initial: BattleView;
+  phone: boolean;
+  active: boolean;
+  onClose: () => void;
+  feedQuery: string;
+  room: Room | null;
+}) {
   const now = useNow(true);
   // A practice battle's scores are points, never money: written plainly, not in the money face.
   const practice = Boolean(initial.practice);
@@ -553,6 +571,7 @@ function Clash({ initial, phone, active, onClose, feedQuery }: { initial: Battle
       hits.forEach((h, i) => later(() => launch(h), i * gap));
     },
     feedQuery,
+    room,
   );
 
   // The ending, and the start of a booked one, are called out and stay.

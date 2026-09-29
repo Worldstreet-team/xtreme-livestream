@@ -665,6 +665,33 @@ export function countsInGiftFilter(filter: readonly string[] | null | undefined,
 }
 
 /**
+ * One gift that moved a battle's score: a row of GET /battles/:id/activity,
+ * and — since 2026-09-29 — the `gift` riding the server's room packet
+ * `{ __evt: "battle", battle, gift }` the moment it counted, so the battle
+ * stage and the clash view animate it without polling the feed. `usdMinor`
+ * is what it added to its side (the ×2 window already applied); a practice
+ * battle's are points, never money. Senders by display name only.
+ */
+export const battleGiftSchema = z.object({
+  id: z.string().min(1).max(64),
+  side: z.enum(["host", "challenger"]),
+  usdMinor: z.number().int().positive(),
+  giftName: z.string().max(120),
+  emoji: z.string().max(32),
+  sender: z.object({ userId: z.string().max(128), displayName: z.string().max(120) }),
+  at: z.string().max(40),
+});
+export type BattleGiftPacket = z.infer<typeof battleGiftSchema>;
+
+/**
+ * Invites and battles on your stream the studio's battle panel follows
+ * without polling: `battle_invite` is the challenger's room hearing an
+ * invite; `battle` is any change to a battle on the room's stream
+ * (accepted, matched, declined, withdrawn, expired, scored, settled).
+ */
+export const BATTLE_ROOM_EVENTS = ["battle", "battle_invite"] as const;
+
+/**
  * Sponsorships (Phase 2, sponsor slots) — two tracks, one label:
  *
  * - A creator's own deal: a sponsor they add themselves. The deal and the

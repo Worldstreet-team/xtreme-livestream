@@ -180,7 +180,11 @@ export const giftRoutes: FastifyPluginAsync = async (fastify) => {
 
         // In a battle, the gift is also a vote: stamp it, move the score,
         // tell both rooms. Never lets a scoring failure fail the gift.
-        await applyBattleGift(stream, gift, { _id: sender.dbUser._id, createdAt: sender.dbUser.createdAt }).catch((err) =>
+        await applyBattleGift(stream, gift, {
+          _id: sender.dbUser._id,
+          createdAt: sender.dbUser.createdAt,
+          displayName: sender.dbUser.displayName || sender.dbUser.username,
+        }).catch((err) =>
           request.log.error({ err }, "battle scoring failed"),
         );
 

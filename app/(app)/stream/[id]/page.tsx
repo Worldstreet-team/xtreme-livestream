@@ -50,6 +50,7 @@ import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
 import { brandWithSet, setById } from "@/lib/sets";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { sideOf, type BattleView } from "@/lib/battles";
+import { isBehind } from "@/lib/battle-feed";
 import { useShareBattleGifts } from "@/lib/battle-gifts";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
@@ -123,6 +124,8 @@ const REPORT_REASONS: Array<{ value: string; label: string }> = [
 ];
 
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
+/** What the room pushes (the battle, the game) is only polled this often while it's connected. */
+const ROOM_BACKSTOP_MS = 60_000;
 /** Section titles under the player — the same voice as the shelves below them. */
 const SECTION_TITLE =
   "mb-3.5 flex min-w-0 items-center gap-2.5 font-wide text-[17px] font-bold tracking-[-0.02em] text-foreground md:text-[19px]";
@@ -783,12 +786,16 @@ export default function StreamPage({
   // Quiet re-checks in BOTH directions: a stream that starts after the page
   // opened appears without a refresh, and a stream that ends while the page
   // sits on "waiting for the broadcaster" flips to the ended state instead
-  // of spinning forever.
+  // of spinning forever. Once the room is connected it says all of it
+  // itself — likes, goal, heat, title, the feed dropping, the room closing,
+  // and the viewer count comes from the room — so this slows to a backstop.
+  // Not for a preview link: the host stopping sharing only shows as a 404 here.
+  const streamPollMs = connected && !preview.on ? ROOM_BACKSTOP_MS : 10_000;
   useEffect(() => {
     if (loading) return;
-    const poll = setInterval(() => void fetchStream({ quiet: true }), 10_000);
+    const poll = setInterval(() => void fetchStream({ quiet: true }), streamPollMs);
     return () => clearInterval(poll);
-  }, [loading, fetchStream]);
+  }, [loading, fetchStream, streamPollMs]);
 
   useEffect(() => {
     if (stream && !stream.isLive) setStreamEnded(true);
@@ -1530,20 +1537,25 @@ export default function StreamPage({
     // rejoinNonce: a bump re-runs this to go back in after a drop.
   }, [stream?.isLive, authLoading, rejoinNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The battle and the game: pushed over the room (`battle` and `game`
+  // events above) while it's connected, so the poll is only a backstop
+  // then; off the room (waiting for the broadcaster, a drop) it keeps
+  // its pace. Connecting asks once, for whatever was said before.
+  const statePollMs = connected ? ROOM_BACKSTOP_MS : 8000;
   useEffect(() => {
     let cancelled = false;
     const load = () =>
       // A preview link sees its practice run's practice battle through its key.
       apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${id}/battle${preview.query}`)
-        .then((r) => !cancelled && setBattle(r.data.battle))
+        .then((r) => !cancelled && setBattle((held) => (held && r.data.battle && isBehind(held, r.data.battle) ? held : r.data.battle)))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, statePollMs);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [id, preview.query]);
+  }, [id, preview.query, statePollMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1552,12 +1564,12 @@ export default function StreamPage({
         .then((r) => !cancelled && setGame(r.data.game))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, statePollMs);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [id]);
+  }, [id, statePollMs]);
 
   // Track fullscreen exits (e.g. pressing Escape)
   useEffect(() => {
@@ -2835,6 +2847,7 @@ export default function StreamPage({
             onShare={setShareBattle}
             feedQuery={preview.query}
             toasts={!radio}
+            room={connected ? roomRef.current : null}
             className={band ? "right-16" : undefined}
           />
         )}
@@ -3494,6 +3507,7 @@ export default function StreamPage({
                 onShare={setShareBattle}
                 feedQuery={preview.query}
                 toasts={!radio}
+                room={connected ? roomRef.current : null}
               />
             )}
             {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}

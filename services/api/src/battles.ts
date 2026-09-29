@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { countsInGiftFilter } from "@xtreme/contracts";
+import { countsInGiftFilter, type BattleGiftPacket } from "@xtreme/contracts";
 import {
   Battle,
   BattleQueue,
@@ -256,17 +256,12 @@ export async function creatorStreak(userId: mongoose.Types.ObjectId) {
   return run;
 }
 
-/** One gift that moved a battle's score, as the clash view animates it. */
-export interface BattleGiftView {
-  id: string;
-  side: "host" | "challenger";
-  /** What it added to the side's score (the ×2 window already applied), USD cents. */
-  usdMinor: number;
-  giftName: string;
-  emoji: string;
-  sender: { userId: string; displayName: string };
-  at: string;
-}
+/**
+ * One gift that moved a battle's score, as the clash view animates it: a
+ * row of the activity feed, and the `gift` on the room packet that carried
+ * its score (the contract's battleGiftSchema).
+ */
+export type BattleGiftView = BattleGiftPacket;
 
 /** How many recent gifts the activity feed hands back at most. */
 export const ACTIVITY_LIMIT = 24;
@@ -399,16 +394,51 @@ export async function endLap(battle: IBattle, now = Date.now()) {
   return battle;
 }
 
-/** Push the current view to both rooms. Fire-and-forget: a dropped frame is re-synced by the next one. */
-export async function fanOutBattle(b: IBattle) {
+/**
+ * Push the current view to both rooms. Fire-and-forget: a dropped frame is
+ * re-synced by the next one. With `gift`, the packet also names the gift
+ * that just moved the score (side, points, name and face, who sent it), so
+ * the battle stage and the clash view toast it the moment it counts
+ * instead of polling the activity feed. Server-sent, like every room event
+ * clients trust.
+ */
+export async function fanOutBattle(b: IBattle, gift?: BattleGiftView) {
   const view = await toBattleView(b);
   const streams = await Stream.find({ _id: { $in: [b.hostStreamId, b.challengerStreamId] } })
     .select("livekitRoomName")
     .lean();
-  await Promise.all(
-    streams.map((s) => sendRoomData(s.livekitRoomName, { __evt: "battle", battle: view }).catch(() => {})),
-  );
+  const packet = gift ? { __evt: "battle", battle: view, gift } : { __evt: "battle", battle: view };
+  await Promise.all(streams.map((s) => sendRoomData(s.livekitRoomName, packet).catch(() => {})));
   return view;
+}
+
+/** A counted gift as the rooms hear it. */
+function giftPacket(
+  gift: { _id: unknown; giftName?: string | null; emoji?: string | null; createdAt?: Date | string | null },
+  side: "host" | "challenger",
+  score: number,
+  sender: { userId: string; displayName: string },
+): BattleGiftView {
+  const at = gift.createdAt ? new Date(gift.createdAt) : new Date();
+  return {
+    id: String(gift._id),
+    side,
+    usdMinor: score,
+    giftName: (gift.giftName ?? "").slice(0, 120),
+    emoji: (gift.emoji ?? "").slice(0, 32),
+    sender: { userId: sender.userId, displayName: (sender.displayName || "Someone").slice(0, 120) },
+    at: (Number.isNaN(at.getTime()) ? new Date() : at).toISOString(),
+  };
+}
+
+/** Who sent a gift, by name: the one the caller had, or a lookup. */
+async function senderName(sender: { _id: mongoose.Types.ObjectId; displayName?: string }) {
+  if (sender.displayName) return sender.displayName;
+  const u = (await User.findById(sender._id)
+    .select("username displayName")
+    .lean()
+    .catch(() => null)) as { displayName?: string; username?: string } | null;
+  return u?.displayName || u?.username || "Someone";
 }
 
 async function notify(userId: mongoose.Types.ObjectId, type: "battle_invite" | "battle_result", actor: { _id: mongoose.Types.ObjectId; username: string; displayName?: string }, stream: Pick<IStream, "_id" | "title">) {
@@ -491,7 +521,11 @@ export async function startBattle(battle: IBattle) {
  * the gifts it names; the rest are stamped with a score of nothing (they
  * are still the host's money, like any gift).
  */
-export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, sender: { _id: mongoose.Types.ObjectId; createdAt?: Date }) {
+export async function applyBattleGift(
+  stream: IStream,
+  gift: IGiftTransaction,
+  sender: { _id: mongoose.Types.ObjectId; createdAt?: Date; displayName?: string },
+) {
   const battle = await currentBattleForStream(stream._id);
   // A practice battle scores simulated gifts only (recordPracticeGift) — never money.
   if (!battle || !battle.endsAt || battle.practice) return null;
@@ -514,7 +548,17 @@ export async function applyBattleGift(stream: IStream, gift: IGiftTransaction, s
   if (score > 0) inc[side === "host" ? "hostUsdMinor" : "challengerUsdMinor"] = score;
   let updated = await Battle.findByIdAndUpdate(battle._id, { $inc: inc }, { new: true });
   if (score > 0) updated = (await lateReset(battle, now)) ?? updated;
-  if (updated) await fanOutBattle(updated);
+  if (updated) {
+    // A gift that counted rides with its score, so the stage toasts it at once.
+    const counted =
+      score > 0
+        ? giftPacket(gift, side, score, {
+            userId: String(sender._id),
+            displayName: await senderName(sender),
+          })
+        : undefined;
+    await fanOutBattle(updated, counted);
+  }
   return updated;
 }
 
@@ -579,7 +623,8 @@ export async function recordPracticeGift(battle: IBattle, side: "host" | "challe
   );
   if (!updated) return null;
   updated = (await lateReset(updated, now)) ?? updated;
-  await fanOutBattle(updated);
+  // The practice run's own room only (the sparring partner has none): the host's stage toasts it.
+  await fanOutBattle(updated, giftPacket({ _id: row._id, giftName: row.giftName, emoji: row.emoji, createdAt: row.at }, side, score, { userId: `practice:${sender}`, displayName: sender }));
   return updated;
 }
 
@@ -865,11 +910,31 @@ export function startBattleSweep() {
         console.error("battle settle failed:", error);
       }
     }
-    await Battle.updateMany(
-      { status: "invited", invitedAt: { $lte: new Date(now.getTime() - INVITE_TTL_MS) } },
-      { $set: { status: "cancelled", endedReason: "expired" } },
-    );
+    await expireInvites(now);
     await playPracticeBattles(now.getTime());
   };
   setInterval(() => void tick().catch((e) => console.error("battle sweep failed:", e)), 1000);
+}
+
+/**
+ * Invites nobody answered in time lapse — and both rooms hear it, so the
+ * host's "waiting for them" and the challenger's invite card clear at once
+ * instead of on the studio's next look. Each is claimed by a conditional
+ * write (still `invited`), so an accept racing the sweep wins or loses
+ * cleanly and nothing is told twice.
+ */
+export async function expireInvites(now = new Date()) {
+  const stale = await Battle.find({ status: "invited", invitedAt: { $lte: new Date(now.getTime() - INVITE_TTL_MS) } }).select("_id");
+  for (const { _id } of stale) {
+    try {
+      const lapsed = await Battle.findOneAndUpdate(
+        { _id, status: "invited" },
+        { $set: { status: "cancelled", endedReason: "expired" } },
+        { new: true },
+      );
+      if (lapsed) await fanOutBattle(lapsed);
+    } catch (error) {
+      console.error("battle invite expiry failed:", error);
+    }
+  }
 }
