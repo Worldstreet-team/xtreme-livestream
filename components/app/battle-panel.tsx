@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Room } from "livekit-client";
 import { Sword, X, Check, Lightning, Trophy, MagnifyingGlass, Eye, CalendarBlank, UsersThree, ShareNetwork, ArrowRight } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatScorePair, winnerSide } from "@/lib/battle-result";
+import { isOpenForMine, keepAhead, mergeMine, readBattleView } from "@/lib/battle-feed";
+import { useServerRoomEvents } from "@/lib/room-events";
+import { useXtreamPush } from "@/lib/xtream-live-events";
 import {
   formatClock,
   formatPracticeScore,
@@ -34,6 +38,9 @@ import { ClashView } from "@/components/app/battles/clash-view";
 import { GiftArt } from "@/components/app/gift-art";
 import { PracticeBadge } from "@/components/app/practice-preview";
 
+/** How often the panel looks for itself, with pushes carrying every change. */
+const BACKSTOP_MS = 60_000;
+
 /** The host's own line about the battle that just ended: "You won", "$1,234 to $987". */
 function resultLine(b: BattleView, streamId: string) {
   const mine = sideOf(b, streamId) ?? "host";
@@ -53,9 +60,16 @@ function resultLine(b: BattleView, streamId: string) {
 
 /**
  * The studio's battle controls: challenge a live creator, answer an invite,
- * and follow the score while it runs. Polls the caller's battles every few
- * seconds — a studio tab is one place, not an audience, so polling is the
- * simplest correct thing.
+ * and follow the score while it runs.
+ *
+ * Nothing here polls on a clock any more. Live, the host's room hears every
+ * change to a battle on their stream, server-sent (`battle`: accepted,
+ * matched, declined, withdrawn, lapsed, scored, settled; `battle_invite`:
+ * an invite in), and each is folded into the list. Off the room, a new
+ * invite or booking is a bell notification, which WorldSpace's Ably pushes
+ * to the person (`notification`), and the panel looks again. Past that, a
+ * look on opening, when the room comes back, when the tab comes back into
+ * view, and a one-minute backstop.
  *
  * A 2v2 is two pairs: you and the partner on your stage (a guest, or a
  * creator you co-live with) against another pair. Gifts count per stream
@@ -75,6 +89,7 @@ export function BattlePanel({
   practice = false,
   practiceNext = false,
   onPracticeNext,
+  room = null,
 }: {
   streamId: string;
   onBattle?: (b: BattleView | null) => void;
@@ -88,6 +103,8 @@ export function BattlePanel({
   practiceNext?: boolean;
   /** Set one up (or not): a practice run starts off air, so it waits for this stream to end. */
   onPracticeNext?: (on: boolean) => void;
+  /** The host's live room, while connected: battles on this stream are pushed to it. */
+  room?: Room | null;
 }) {
   const { user } = useAuth();
   const [mine, setMine] = useState<BattleView[]>([]);
@@ -119,23 +136,60 @@ export function BattlePanel({
   const outgoing = useMemo(() => mine.find((b) => b.status === "invited" && b.host.userId === user?.id) ?? null, [mine, user?.id]);
   const incoming = useMemo(() => mine.filter((b) => b.status === "invited" && b.challenger.userId === user?.id), [mine, user?.id]);
 
+  // One look at the list; a newer ask supersedes any still in flight, and a
+  // battle a push has already taken further keeps what the push said.
+  const asked = useRef(0);
+  /** Battles a push (or an action) said are over: a look that crossed it in flight can't bring them back. */
+  const gone = useRef(new Set<string>());
+  const load = useCallback(() => {
+    const n = ++asked.current;
+    apiFetch<{ success: boolean; data: { battles: BattleView[]; queued?: boolean } }>(`/api/battles/mine`)
+      .then((r) => {
+        if (n !== asked.current) return;
+        setMine((held) => keepAhead(held, r.data.battles, gone.current));
+        setQueued(Boolean(r.data.queued));
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      apiFetch<{ success: boolean; data: { battles: BattleView[]; queued?: boolean } }>(`/api/battles/mine`)
-        .then((r) => {
-          if (cancelled) return;
-          setMine(r.data.battles);
-          setQueued(Boolean(r.data.queued));
-        })
-        .catch(() => {});
-    void load();
-    const t = setInterval(load, 3000);
+    load();
+    const visible = () => document.visibilityState === "visible";
+    const backstop = setInterval(() => visible() && load(), BACKSTOP_MS);
+    const onVisible = () => visible() && load();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
-      cancelled = true;
-      clearInterval(t);
+      clearInterval(backstop);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [streamId]);
+  }, [streamId, load]);
+
+  /** One battle as it now is, into the list. */
+  const meId = user?.id;
+  const fold = (view: BattleView) => {
+    if (!isOpenForMine(view)) gone.current.add(view.id);
+    setMine((m) => mergeMine(m, view, meId));
+  };
+
+  // Live: the room's word on every battle of this stream (server-sent only).
+  useServerRoomEvents(
+    room,
+    ["battle", "battle_invite"],
+    (_evt, data) => {
+      const view = readBattleView(data.battle);
+      if (!view) return;
+      fold(view);
+      // Matched, or accepted: not waiting in quick match any more.
+      if (isBattleActive(view)) setQueued(false);
+    },
+    load,
+  );
+
+  // Off the room: an invite or a booking is a bell notification, pushed to the person.
+  useXtreamPush(["notification"], (push) => {
+    const kind = push?.data.kind;
+    if (!push || kind === "battle_invite" || kind === "battle_result") load();
+  });
 
   useEffect(() => {
     onBattle?.(active);
@@ -194,7 +248,7 @@ export function BattlePanel({
         method: "POST",
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
-      setMine((m) => [r.data.battle, ...m.filter((b) => b.id !== r.data.battle.id)]);
+      fold(r.data.battle);
       setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -213,7 +267,7 @@ export function BattlePanel({
         body: JSON.stringify({ mode }),
       });
       const matched = r.data.battle;
-      if (matched) setMine((m) => [matched, ...m.filter((b) => b.id !== matched.id)]);
+      if (matched) fold(matched);
       setQueued(r.data.queued);
       if (matched) setOpen(false);
     } catch (e) {
@@ -235,7 +289,7 @@ export function BattlePanel({
         method: "POST",
         body: JSON.stringify({ giftId }),
       });
-      setMine((m) => [r.data.battle, ...m.filter((b) => b.id !== r.data.battle.id)]);
+      fold(r.data.battle);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send the test gift");
     }
@@ -250,7 +304,7 @@ export function BattlePanel({
     setClashShown(true);
   };
   const clashView = clash && (
-    <ClashView battle={clash.battle} from={clash.from} open={clashShown} triggerRef={clashFrom} onClose={() => setClashShown(false)} onGone={() => setClash(null)} />
+    <ClashView battle={clash.battle} from={clash.from} open={clashShown} triggerRef={clashFrom} onClose={() => setClashShown(false)} onGone={() => setClash(null)} room={room} />
   );
   // Outside a practice run: the way to one, opened.
   const [howOpen, setHowOpen] = useState(false);
