@@ -97,6 +97,8 @@ export function BattlePanel({
   const [q, setQ] = useState("");
   const [live, setLive] = useState<RowItem[]>([]);
   const now = useNow(true);
+  // The running battle whose End is asking "counts as a loss?".
+  const [conceding, setConceding] = useState<string | null>(null);
 
   const active = useMemo(() => mine.find(isBattleActive) ?? null, [mine]);
   const booked = useMemo(() => mine.filter((b) => b.status === "scheduled"), [mine]);
@@ -280,17 +282,9 @@ export function BattlePanel({
             <div className="absolute inset-y-0 right-0 bg-ember transition-[width]" style={{ width: `${(1 - share) * 100}%` }} />
           </div>
           <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground tabular-nums">
-            {active.practice ? (
-              <>
-                <span>{formatPracticeScore(active.host.usdMinor, true)}</span>
-                <span>{formatPracticeScore(active.challenger.usdMinor, true)}</span>
-              </>
-            ) : (
-              <>
-                <span>${Math.round(active.host.usdMinor / 100)}</span>
-                <span>${Math.round(active.challenger.usdMinor / 100)}</span>
-              </>
-            )}
+            {/* Points, never money — a point is a cent of gift value, as on the stage's bar. */}
+            <span>{formatPracticeScore(active.host.usdMinor, true)}</span>
+            <span>{formatPracticeScore(active.challenger.usdMinor, true)}</span>
           </div>
           {giftFilterLine(active.giftFilter) && <p className="mt-0.5 truncate text-[10.5px] font-semibold text-ember-hi">{giftFilterLine(active.giftFilter)}</p>}
         </div>
@@ -300,16 +294,29 @@ export function BattlePanel({
           {active.status === "overtime" ? "OT " : ""}
           {formatClock(left)}
         </span>
-        <Pill
-          size="sm"
-          variant="ghost"
-          icon={<X size={13} />}
-          onClick={() => act(`/api/battles/${active.id}/cancel`)}
-          disabled={busy}
-          title={active.practice ? "End the practice battle" : "End the battle early — no bonus"}
-        >
-          End
-        </Pill>
+        {/* Ending a real battle early counts as a loss (the other side wins), so it asks first. */}
+        {conceding === active.id ? (
+          <span className="flex items-center gap-1.5">
+            <span className="text-[11.5px] font-semibold text-chili-hi">Counts as a loss</span>
+            <Pill size="sm" variant="live" onClick={() => act(`/api/battles/${active.id}/concede`)} disabled={busy}>
+              End
+            </Pill>
+            <Pill size="sm" variant="ghost" onClick={() => setConceding(null)}>
+              Keep going
+            </Pill>
+          </span>
+        ) : (
+          <Pill
+            size="sm"
+            variant="ghost"
+            icon={<X size={13} />}
+            onClick={() => (active.practice ? act(`/api/battles/${active.id}/cancel`) : setConceding(active.id))}
+            disabled={busy}
+            title={active.practice ? "End the practice battle" : "End the battle now — it counts as a loss"}
+          >
+            End
+          </Pill>
+        )}
         {/* The last result stays open if the next battle starts under it. */}
         {sharing && <BattleResultSheet battle={sharing} streamId={streamId} onClose={() => setSharing(null)} />}
       </div>
