@@ -78,9 +78,15 @@ export function OnboardingFlow() {
   const { user, refreshUser } = useAuth();
   const theme = useTheme();
   const next = safeNext(params.get("next"));
+  /** Opened on purpose from Settings ("Tune your feed"): the only way back in once it's done. */
+  const tuning = params.get("tune") === "1";
 
   const saved = user?.onboarding;
-  const [step, setStep] = useState<number>(() => resumeAt(saved?.step ?? null, Boolean(saved?.completedAt)));
+  const [step, setStep] = useState<number>(() => resumeAt(saved?.step ?? null, isDone(saved)));
+  // Finished or skipped already, and not here to tune the feed: it never shows again. Decided
+  // once, on arrival — finishing it here sets completedAt too, and that must not bounce the
+  // Ready screen.
+  const [bounce, setBounce] = useState(() => Boolean(user) && !tuning && isDone(saved));
   const [dir, setDir] = useState<1 | -1>(1);
   const [picked, setPicked] = useState<string[]>(() => saved?.categories ?? []);
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
@@ -108,8 +114,12 @@ export function OnboardingFlow() {
     setDisplayName(user.displayName ?? "");
     setHandle(user.username ?? "");
     if (user.onboarding?.categories?.length) setPicked(user.onboarding.categories);
-    setStep(resumeAt(user.onboarding?.step ?? null, Boolean(user.onboarding?.completedAt)));
+    setStep(resumeAt(user.onboarding?.step ?? null, isDone(user.onboarding)));
+    if (!tuning && isDone(user.onboarding)) setBounce(true);
   }
+  useEffect(() => {
+    if (bounce) router.replace(next);
+  }, [bounce, next, router]);
 
   useEffect(() => {
     apiFetch<{ success: boolean; data: { categories: { category: string; live: number }[] } }>("/api/streams/categories")
@@ -614,6 +624,14 @@ export function OnboardingFlow() {
     primary = { label: "Take me home", onClick: () => leave() };
   }
 
+  if (bounce) {
+    return (
+      <div className={s.ob}>
+        <XtreamLoader messages={["Taking you home"]} />
+      </div>
+    );
+  }
+
   const askIndex = ASKS.indexOf(id);
   return (
     <div className={s.ob}>
@@ -675,6 +693,11 @@ export function OnboardingFlow() {
       </div>
     </div>
   );
+}
+
+/** Finished or skipped: the flow has had its turn. */
+function isDone(o: { completedAt?: string | null; skippedAt?: string | null } | undefined) {
+  return Boolean(o?.completedAt || o?.skippedAt);
 }
 
 /** Where a half-done flow picks up: the step after the last one saved. */

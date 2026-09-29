@@ -801,7 +801,7 @@ function FeedSection() {
       <SectionHead id="feed" title="Your feed" lede="Home leads with what you pick here, then fills in with what's big right now." />
       {/* The first-run flow again, from the picks: covers, creators, how you'll use it. */}
       <Link
-        href="/welcome"
+        href="/welcome?tune=1"
         className="press mb-3 flex items-center justify-between gap-3 rounded-[12px] bg-surface px-5 py-4 transition-colors hover:bg-surface-hover"
       >
         <span className="min-w-0">
