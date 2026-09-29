@@ -36,6 +36,8 @@ vi.mock("../src/rewards.js", () => ({ audit: async () => {}, payBattleBonus: asy
 vi.mock("../src/socials-relay.js", () => ({ relayBattleResult: async () => {} }));
 vi.mock("../src/models.js", () => ({
   Battle: {
+    // Streaks going in (creatorStreak): nobody here has won before.
+    find: () => ({ sort: () => ({ limit: () => ({ select: () => ({ lean: async () => [] }) }) }) }),
     findOne: async () => state.battle,
     findByIdAndUpdate: async (_id: unknown, update: { $inc: Record<string, number> }) => {
       const b = state.battle!;
