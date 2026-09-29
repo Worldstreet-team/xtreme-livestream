@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { LocalVideoTrack, TrackProcessor, Track } from "livekit-client";
 import { latestFaceMesh, type FaceMesh } from "@/lib/face-anchors";
+import { ART, artFor, faceGeom, isFaceEffect, mixGeom, notoUrl, placeEffect, type ArtId, type FaceEffectId, type FaceGeom } from "@/lib/face-effects";
 import type {
   BackgroundOptions,
   BackgroundTransformer,
@@ -15,11 +16,13 @@ import type {
  * Your picture (Phase 1, the Look half of "Sound & look"): what's behind
  * you — nothing, a blur, your brand's colour, a picture of your own, or a
  * real green screen keyed out — a look, a colour grade the camera wears,
- * and skin smoothing. All of it rides one LiveKit track processor: the
+ * skin smoothing, and a face effect worn on camera (a crown, shades, puppy
+ * ears). All of it rides one LiveKit track processor: the
  * package's segmenter for a blurred or replaced background, then one
  * WebGL2 pass that smooths skin (inside a mask drawn from the face the
  * tracker in lib/face-anchors.ts finds), keys the green screen and grades
- * through a 17³ 3D LUT, on the same frame. A look is a switch of LUT
+ * through a 17³ 3D LUT, then draws the face effect's pieces locked to that
+ * same face, on the same frame. A look is a switch of LUT
  * texture, never a rebuilt pipeline, and nothing here may ever take the
  * camera down: every failure lands as "your picture, as it is".
  *
@@ -29,16 +32,32 @@ import type {
  */
 
 export type LookBackground = "none" | "blur-soft" | "blur-strong" | "brand" | "image" | "green";
-export type Look = "natural" | "warm" | "cool" | "film" | "mono" | "punch";
+export type Look =
+  | "natural"
+  | "warm"
+  | "cool"
+  | "film"
+  | "mono"
+  | "punch"
+  | "golden"
+  | "vivid"
+  | "sepia"
+  | "noir"
+  | "faded"
+  | "cinema"
+  | "rose"
+  | "moody";
 
 export interface LookSettings {
   background: LookBackground;
   look: Look;
   /** Skin smoothing, 0 (off) to 1. Off by default: it changes how a face looks, and viewers are told when it's on. */
   smooth: number;
+  /** Something worn on the face — a crown, shades, puppy ears (lib/face-effects.ts). */
+  face: FaceEffectId;
 }
 
-export const DEFAULT_LOOK_SETTINGS: LookSettings = { background: "none", look: "natural", smooth: 0 };
+export const DEFAULT_LOOK_SETTINGS: LookSettings = { background: "none", look: "natural", smooth: 0, face: "none" };
 
 /** The smoothing steps the studio offers; any value 0..1 works underneath. */
 export const SMOOTH_STEPS: { value: number; label: string }[] = [
@@ -55,7 +74,7 @@ export function changesAppearance(settings: Pick<LookSettings, "smooth">): boole
 
 /** Nothing to do: the camera goes out as captured, with no processor on it. */
 export function isPlainLook(settings: LookSettings): boolean {
-  return settings.background === "none" && settings.look === "natural" && settings.smooth <= 0;
+  return settings.background === "none" && settings.look === "natural" && settings.smooth <= 0 && settings.face === "none";
 }
 
 export const BACKGROUNDS: { id: LookBackground; label: string; hint: string }[] = [
@@ -74,6 +93,14 @@ export const LOOKS: { id: Look; label: string; hint: string }[] = [
   { id: "film", label: "Film", hint: "Soft blacks, gentle colour." },
   { id: "mono", label: "Mono", hint: "Black and white." },
   { id: "punch", label: "Punch", hint: "More contrast, more colour." },
+  { id: "golden", label: "Golden", hint: "Late-afternoon sun on your skin." },
+  { id: "vivid", label: "Vivid", hint: "Bolder colour, same light." },
+  { id: "sepia", label: "Sepia", hint: "An old photograph." },
+  { id: "noir", label: "Noir", hint: "Hard black and white." },
+  { id: "faded", label: "Faded", hint: "Washed out and soft." },
+  { id: "cinema", label: "Cinema", hint: "Teal shadows, warm highlights." },
+  { id: "rose", label: "Rosé", hint: "A soft pink glow." },
+  { id: "moody", label: "Moody", hint: "Darker, cooler, quieter." },
 ];
 
 /* ---- the looks' maths ------------------------------------------------ */
@@ -124,6 +151,45 @@ export function gradeColor(look: Look, r: number, g: number, b: number): [number
     case "punch":
       c = saturate([sCurve(r, 0.22), sCurve(g, 0.22), sCurve(b, 0.22)], 1.3);
       break;
+    case "golden":
+      // Sun low in the sky: warm, a touch of glow, gentle contrast.
+      c = saturate([sCurve(lift(r * 1.08, 0.03), 0.08), sCurve(lift(g * 1.02, 0.03), 0.08), sCurve(lift(b * 0.84, 0.03), 0.08)], 1.08);
+      break;
+    case "vivid":
+      c = saturate([sCurve(r, 0.1), sCurve(g, 0.1), sCurve(b, 0.1)], 1.45);
+      break;
+    case "sepia": {
+      // Brightness toned brown (the textbook sepia matrix clips to yellow in
+      // bright rooms), a little of the colour left in so skin keeps some life.
+      const y = sCurve(luma(r, g, b), 0.1);
+      c = [(y * 1.06 + 0.03) * 0.88 + r * 0.12, (y * 0.9 + 0.01) * 0.88 + g * 0.12, y * 0.68 * 0.88 + b * 0.12];
+      break;
+    }
+    case "noir": {
+      // Black and white with the contrast pushed and the blacks pressed down.
+      const y = Math.pow(sCurve(luma(r, g, b), 0.32), 1.12);
+      c = [y, y, y];
+      break;
+    }
+    case "faded":
+      // Raised blacks, softened whites, colour drawn back.
+      c = saturate([lift(r * 0.94, 0.1), lift(g * 0.94, 0.1), lift(b * 0.94, 0.11)], 0.72);
+      break;
+    case "cinema": {
+      // Teal in the shadows, orange in the highlights, around the mid-tones.
+      const t = luma(r, g, b) - 0.5;
+      c = saturate([sCurve(r + t * 0.12, 0.14), sCurve(g + t * 0.02, 0.14), sCurve(b - t * 0.14, 0.14)], 1.1);
+      break;
+    }
+    case "rose":
+      c = saturate([lift(r * 1.05, 0.035), lift(g * 0.97, 0.03), lift(b * 1.02, 0.035)], 0.95);
+      break;
+    case "moody": {
+      // Mid-tones down, colour down, a little blue left in the shadows.
+      const y = luma(r, g, b);
+      c = saturate([Math.pow(r, 1.18), Math.pow(g, 1.15), Math.pow(b, 1.1) + (1 - y) * 0.04], 0.78);
+      break;
+    }
   }
   return [clamp01(c[0]), clamp01(c[1]), clamp01(c[2])];
 }
@@ -185,6 +251,7 @@ export function readLookSettings(raw: unknown): LookSettings {
     background: isBackground(r.background) ? r.background : DEFAULT_LOOK_SETTINGS.background,
     look: isLook(r.look) ? r.look : DEFAULT_LOOK_SETTINGS.look,
     smooth: typeof r.smooth === "number" && Number.isFinite(r.smooth) ? clamp01(r.smooth) : DEFAULT_LOOK_SETTINGS.smooth,
+    face: isFaceEffect(r.face) ? r.face : DEFAULT_LOOK_SETTINGS.face,
   };
 }
 
@@ -338,7 +405,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, why: string): Promise<T> {
 }
 
 /** What the transformer runs with; a plain object so the wrapper's generic is happy. */
-type LookOptions = { look: Look; background: LookBackground; imagePath: string | null; smooth: number };
+type LookOptions = { look: Look; background: LookBackground; imagePath: string | null; smooth: number; face: FaceEffectId };
 
 /** What a background needs from the studio: the host's own picture, and the brand kit. */
 export interface LookSources {
@@ -425,6 +492,36 @@ uniform float u_val;
 out vec4 o_color;
 void main() {
   o_color = vec4(u_val, u_val, u_val, 1.0);
+}`;
+
+/** A face effect's piece: a textured quad turned and placed in frame pixels. */
+const SPRITE_VERT = `#version 300 es
+in vec2 a_pos;
+uniform vec2 u_res;
+uniform vec2 u_center;
+uniform vec2 u_size;
+uniform float u_rot;
+uniform float u_flip;
+out vec2 v_uv;
+void main() {
+  vec2 p = (a_pos - 0.5) * u_size;
+  float c = cos(u_rot);
+  float s = sin(u_rot);
+  vec2 q = vec2(p.x * c - p.y * s, p.x * s + p.y * c) + u_center;
+  v_uv = vec2(u_flip > 0.5 ? 1.0 - a_pos.x : a_pos.x, a_pos.y);
+  // Frame pixels, rows top-first, into clip space.
+  gl_Position = vec4(q.x / u_res.x * 2.0 - 1.0, 1.0 - q.y / u_res.y * 2.0, 0.0, 1.0);
+}`;
+
+const SPRITE_FRAG = `#version 300 es
+precision mediump float;
+uniform sampler2D u_tex;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 o_color;
+void main() {
+  vec4 c = texture(u_tex, v_uv);
+  o_color = vec4(c.rgb, c.a * u_alpha);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
@@ -531,8 +628,10 @@ interface GradeStage {
   setLut(bytes: Uint8Array): void;
   /** How much to smooth, 0..1. */
   setSmooth(amount: number): void;
-  /** The latest face; the mask is redrawn from it on the next frame. Null: nobody to smooth. */
-  setFace(mesh: FaceMesh | null): void;
+  /** The latest face; the skin mask is redrawn from it and the face effect follows it. Null: nobody in frame. */
+  setMesh(mesh: FaceMesh | null): void;
+  /** The face effect to wear, with its art loaded; "none" takes it off. The stage doesn't own the bitmaps. */
+  setEffect(effect: FaceEffectId, art: Map<ArtId, ImageBitmap>): void;
   /** The green screen's replacement, sized to the frame; null turns the key off. The stage owns the bitmap from here and closes it. */
   setKey(bg: ImageBitmap | null): void;
   /** Draw a frame through the pass onto the canvas; false when the GPU has gone away. */
@@ -560,6 +659,16 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
 
   let program: WebGLProgram | null = null;
   let maskProgram: WebGLProgram | null = null;
+  let spriteProgram: WebGLProgram | null = null;
+  let spriteVao: WebGLVertexArrayObject | null = null;
+  let spriteVbo: WebGLBuffer | null = null;
+  const spriteTex = new Map<ArtId, WebGLTexture>();
+  let effect: FaceEffectId = "none";
+  let effectArt = new Map<ArtId, ImageBitmap>();
+  let geom: FaceGeom | null = null;
+  let geomSeq = -1;
+  let effectAlpha = 0;
+  const su: Record<string, WebGLUniformLocation | null> = {};
   let frameTex: WebGLTexture | null = null;
   let lutTex: WebGLTexture | null = null;
   let maskTex: WebGLTexture | null = null;
@@ -607,6 +716,18 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
     const aPos = gl!.getAttribLocation(program, "a_pos");
     gl!.enableVertexAttribArray(aPos);
     gl!.vertexAttribPointer(aPos, 2, gl!.FLOAT, false, 0, 0);
+
+    // A unit quad for the face effect's pieces.
+    spriteProgram = link(gl!, SPRITE_VERT, SPRITE_FRAG);
+    spriteVao = gl!.createVertexArray();
+    gl!.bindVertexArray(spriteVao);
+    spriteVbo = gl!.createBuffer();
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, spriteVbo);
+    gl!.bufferData(gl!.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl!.STATIC_DRAW);
+    const sPos = gl!.getAttribLocation(spriteProgram, "a_pos");
+    gl!.enableVertexAttribArray(sPos);
+    gl!.vertexAttribPointer(sPos, 2, gl!.FLOAT, false, 0, 0);
+    for (const name of ["u_res", "u_center", "u_size", "u_rot", "u_flip", "u_alpha", "u_tex"]) su[name] = gl!.getUniformLocation(spriteProgram, name);
 
     // The mask's triangles, rewritten with each new face.
     maskVao = gl!.createVertexArray();
@@ -656,15 +777,75 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
     drawnSeq = -1;
     hasMask = false;
     if (keyBitmap) uploadKey(keyBitmap);
+    uploadArt();
+  }
+
+  /** The effect's art as textures, one each; what the effect no longer needs is let go. */
+  function uploadArt() {
+    for (const [id, tex] of spriteTex) {
+      if (!effectArt.has(id)) {
+        gl!.deleteTexture(tex);
+        spriteTex.delete(id);
+      }
+    }
+    for (const [id, bmp] of effectArt) {
+      if (spriteTex.has(id)) continue;
+      const tex = gl!.createTexture();
+      if (!tex) continue;
+      gl!.activeTexture(gl!.TEXTURE4);
+      gl!.bindTexture(gl!.TEXTURE_2D, tex);
+      gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MIN_FILTER, gl!.LINEAR);
+      gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MAG_FILTER, gl!.LINEAR);
+      gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_S, gl!.CLAMP_TO_EDGE);
+      gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_T, gl!.CLAMP_TO_EDGE);
+      gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, gl!.RGBA, gl!.UNSIGNED_BYTE, bmp);
+      spriteTex.set(id, tex);
+    }
+  }
+
+  /**
+   * The face effect's pieces over the graded frame, locked to the face: the
+   * tracker's face eased toward each frame (it looks a dozen or two times a
+   * second; the picture runs at thirty), faded out when the face goes.
+   */
+  function drawEffect(w: number, h: number) {
+    if (effect === "none" || !spriteProgram) return;
+    const target = face && face.seq !== geomSeq ? faceGeom(face.points, w, h) : null;
+    if (face) geomSeq = face.seq;
+    if (target) geom = geom ? mixGeom(geom, target, 0.6) : target;
+    effectAlpha = face ? Math.min(1, effectAlpha + 0.2) : Math.max(0, effectAlpha - 0.15);
+    if (!geom || effectAlpha <= 0) return;
+    const pieces = placeEffect(effect, geom, performance.now() / 1000, effectAlpha);
+    gl!.useProgram(spriteProgram);
+    gl!.bindVertexArray(spriteVao);
+    gl!.enable(gl!.BLEND);
+    gl!.blendFunc(gl!.SRC_ALPHA, gl!.ONE_MINUS_SRC_ALPHA);
+    gl!.uniform2f(su.u_res, w, h);
+    gl!.uniform1i(su.u_tex, 4);
+    gl!.activeTexture(gl!.TEXTURE4);
+    for (const p of pieces) {
+      const tex = spriteTex.get(p.art);
+      if (!tex) continue;
+      gl!.bindTexture(gl!.TEXTURE_2D, tex);
+      gl!.uniform2f(su.u_center, p.x, p.y);
+      gl!.uniform2f(su.u_size, p.w, p.h);
+      gl!.uniform1f(su.u_rot, p.rot);
+      gl!.uniform1f(su.u_flip, p.flip ? 1 : 0);
+      gl!.uniform1f(su.u_alpha, p.alpha);
+      gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
+    }
+    gl!.disable(gl!.BLEND);
+    gl!.bindVertexArray(null);
   }
 
   function release() {
-    for (const p of [program, maskProgram]) if (p) gl!.deleteProgram(p);
-    for (const t of [frameTex, lutTex, maskTex, bgTex]) if (t) gl!.deleteTexture(t);
-    for (const b of [vbo, maskVbo]) if (b) gl!.deleteBuffer(b);
-    for (const v of [vao, maskVao]) if (v) gl!.deleteVertexArray(v);
+    for (const p of [program, maskProgram, spriteProgram]) if (p) gl!.deleteProgram(p);
+    for (const t of [frameTex, lutTex, maskTex, bgTex, ...spriteTex.values()]) if (t) gl!.deleteTexture(t);
+    spriteTex.clear();
+    for (const b of [vbo, maskVbo, spriteVbo]) if (b) gl!.deleteBuffer(b);
+    for (const v of [vao, maskVao, spriteVao]) if (v) gl!.deleteVertexArray(v);
     if (maskFbo) gl!.deleteFramebuffer(maskFbo);
-    program = maskProgram = frameTex = lutTex = maskTex = bgTex = vbo = maskVbo = vao = maskVao = maskFbo = null;
+    program = maskProgram = spriteProgram = frameTex = lutTex = maskTex = bgTex = vbo = maskVbo = spriteVbo = vao = maskVao = spriteVao = maskFbo = null;
   }
 
   function uploadKey(bmp: ImageBitmap) {
@@ -743,9 +924,18 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
     setSmooth(amount) {
       smooth = clamp01(amount);
     },
-    setFace(mesh) {
+    setMesh(mesh) {
       face = mesh;
       if (!mesh) hasMask = false;
+    },
+    setEffect(next, art) {
+      effect = next;
+      effectArt = next === "none" ? new Map() : art;
+      if (next === "none") {
+        geom = null;
+        effectAlpha = 0;
+      }
+      if (!lost) uploadArt();
     },
     setKey(bmp) {
       keyBitmap?.close();
@@ -783,6 +973,7 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
       gl.activeTexture(gl.TEXTURE3);
       gl.bindTexture(gl.TEXTURE_2D, bgTex);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      drawEffect(w, h);
       return true;
     },
     destroy() {
@@ -795,6 +986,52 @@ function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeSta
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     },
   };
+}
+
+/** The longest side a piece of face-effect art is drawn at: sharp on a 1080p frame, light on memory. */
+const ART_PX = 320;
+const artCache = new Map<ArtId, Promise<ImageBitmap>>();
+
+/**
+ * One piece of art as a bitmap the GPU takes: a Noto emoji fetched as SVG
+ * (read as text and drawn from our own blob, so the canvas stays clean) or
+ * one of ours. Kept for the session; a failed load is forgotten so the next
+ * try fetches again.
+ */
+function loadArt(id: ArtId): Promise<ImageBitmap> {
+  let p = artCache.get(id);
+  if (p) return p;
+  p = (async () => {
+    const def = ART[id];
+    const text = def.svg ?? (await (await fetch(notoUrl(def.noto!))).text());
+    const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const w = def.aspect > 1 ? Math.round(ART_PX / def.aspect) : ART_PX;
+      const h = def.aspect > 1 ? ART_PX : Math.round(ART_PX * def.aspect);
+      const canvas = new OffscreenCanvas(w, h);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      return canvas.transferToImageBitmap();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  })();
+  artCache.set(id, p);
+  p.catch(() => artCache.delete(id));
+  return p;
+}
+
+/** Everything an effect draws, loaded; a piece that won't load is left out rather than failing the effect. */
+async function loadEffectArt(effect: FaceEffectId): Promise<Map<ArtId, ImageBitmap>> {
+  const ids = artFor(effect);
+  const loaded = await Promise.allSettled(ids.map(loadArt));
+  const out = new Map<ArtId, ImageBitmap>();
+  loaded.forEach((r, i) => {
+    if (r.status === "fulfilled") out.set(ids[i], r.value);
+  });
+  return out;
 }
 
 /**
@@ -844,6 +1081,7 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
   private inputVideo: HTMLVideoElement | null = null;
   private lut: GradeStage | null = null;
   private keyToken = 0;
+  private effectToken = 0;
   private live = false;
   private bg: BackgroundTransformer | null = null;
   private bgOn = false;
@@ -875,6 +1113,7 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
     // Not awaited: the background arrives when its model has; `update` is what waits on it.
     void this.queueBackground().catch(() => {});
     void this.syncKey().catch(() => {});
+    void this.syncEffect().catch(() => {});
   }
 
   async restart(opts: VideoTransformerInitOptions) {
@@ -902,6 +1141,7 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
     this.options = { ...prev, ...next };
     if (this.options.look !== prev.look) this.lut?.setLut(lutFor(this.options.look));
     if (this.options.smooth !== prev.smooth) this.lut?.setSmooth(this.options.smooth);
+    if (this.options.face !== prev.face) await this.syncEffect();
     if (this.options.background !== prev.background || this.options.imagePath !== prev.imagePath) {
       await Promise.all([this.queueBackground(), this.syncKey()]);
     } else {
@@ -949,6 +1189,19 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
       return;
     }
     this.lut.setKey(bmp);
+  }
+
+  /** The face effect: its art loaded (cached after the first time), then handed to the stage. */
+  private async syncEffect() {
+    const token = ++this.effectToken;
+    const effect = this.options.face;
+    if (effect === "none") {
+      this.lut?.setEffect("none", new Map());
+      return;
+    }
+    const art = await loadEffectArt(effect);
+    if (token !== this.effectToken || !this.live || !this.lut) return;
+    this.lut.setEffect(effect, art);
   }
 
   /** Background changes run one after another, each reading the latest options when its turn comes. */
@@ -1009,10 +1262,11 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
       controller.enqueue(frame);
       return;
     }
-    // Where the face is now, for the skin mask: the tracker on the raw camera sees the same frame geometry.
-    if (this.options.smooth > 0) {
+    // Where the face is now, for the skin mask and the face effect: the
+    // tracker on the raw camera sees the same frame geometry.
+    if (this.options.smooth > 0 || this.options.face !== "none") {
       const mesh = latestFaceMesh();
-      this.lut.setFace(mesh && performance.now() - mesh.t < FACE_MESH_STALE_MS ? mesh : null);
+      this.lut.setMesh(mesh && performance.now() - mesh.t < FACE_MESH_STALE_MS ? mesh : null);
     }
     if (frame.codedWidth === 0 || frame.codedHeight === 0) {
       frame.close();
@@ -1117,7 +1371,7 @@ function createLookProcessor(mod: Processors, settings: LookSettings): LookProce
         imagePath = sources.imageUrl ?? (await this.brandBackground(sources.brand ?? null));
       }
       this.settings = next;
-      await this.transformer.update({ look: next.look, background: next.background, imagePath, smooth: next.smooth });
+      await this.transformer.update({ look: next.look, background: next.background, imagePath, smooth: next.smooth, face: next.face });
     }
 
     /** The brand's flat colour with the logo small in a corner, painted once per size and kit. */
@@ -1143,7 +1397,7 @@ function createLookProcessor(mod: Processors, settings: LookSettings): LookProce
       }
     }
   };
-  return new processorClass(new LookTransformer(mod, { look: settings.look, background: settings.background, smooth: settings.smooth, imagePath: null }), settings);
+  return new processorClass(new LookTransformer(mod, { look: settings.look, background: settings.background, smooth: settings.smooth, face: settings.face, imagePath: null }), settings);
 }
 
 /** A flat accent with the logo top-right, at the frame's size; the colour alone if the logo won't load. */

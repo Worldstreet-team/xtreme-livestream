@@ -1180,7 +1180,21 @@ export interface IBattle extends Document {
    * gift still reaches the host as money either way.
    */
   giftFilter: string[];
-  endedReason: "clock" | "cancelled" | "disconnect" | "declined" | "expired" | null;
+  /** "conceded": a host ended it early, which counts as a loss (the other side wins). */
+  endedReason: "clock" | "conceded" | "cancelled" | "disconnect" | "declined" | "expired" | null;
+  /**
+   * Each creator's run of straight wins going in (real battles only: a loss
+   * or a draw ends a run; cancelled and practice battles don't count). Set
+   * when the clock starts; the view adds this battle's win on top.
+   */
+  hostStreak: number;
+  challengerStreak: number;
+  /**
+   * When the result stops showing: the victory lap (three minutes after a
+   * win), or a few seconds for a draw. Either host can end the lap early.
+   * Null until the battle is settled (and for a cancelled one).
+   */
+  lapEndsAt: Date | null;
   /**
    * A practice battle (practice-battle.ts): the host of a practice run
    * against a stand-in "Sparring partner". The challenger ids point at no
@@ -1241,6 +1255,9 @@ const battleSchema = new Schema<IBattle>(
     challengerPartnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     giftFilter: { type: [String], default: [] },
     endedReason: { type: String, default: null },
+    hostStreak: { type: Number, default: 0 },
+    challengerStreak: { type: Number, default: 0 },
+    lapEndsAt: { type: Date, default: null },
     practice: { type: Boolean, default: false },
     practiceGifts: {
       type: [

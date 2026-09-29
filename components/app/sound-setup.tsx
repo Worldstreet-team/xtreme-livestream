@@ -98,7 +98,7 @@ export function SoundSetup({ settings, onChange, supported, meter, compare, live
 
         {(meter || compare) && (
           <div className="flex items-center gap-3 rounded-[12px] bg-white/[0.045] px-3.5 py-3 @[560px]:col-span-2">
-            {meter && <MicMeter meter={meter} />}
+            {meter && <MicMeter meter={meter} live={live} />}
             {compare !== undefined && <ComparePill compare={compare} />}
           </div>
         )}
@@ -107,17 +107,84 @@ export function SoundSetup({ settings, onChange, supported, meter, compare, live
   );
 }
 
+/**
+ * The mic's level before going live, when the audio desk isn't running yet
+ * to measure it: a quiet listen of our own, the desk's scale (−60 dB to 0),
+ * only if the mic is already allowed — a meter never asks — and only while
+ * the meter is on screen (a folded section keeps it mounted but hidden), so
+ * the mic isn't open just because the studio is. Not while live: on an iPhone a
+ * second capture of the mic can silence the one on air.
+ */
+function usePreviewMicLevel(enabled: boolean) {
+  const level = useRef<number | null>(null);
+  useEffect(() => {
+    if (!enabled || typeof navigator === "undefined" || !navigator.mediaDevices) return;
+    let cancelled = false;
+    let stop = () => {};
+    void (async () => {
+      try {
+        const status = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+        if (status && status.state !== "granted") return;
+      } catch {
+        // No Permissions API: asking would prompt, so leave it.
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const scratch = new Float32Array(analyser.fftSize);
+      const timer = setInterval(() => {
+        analyser.getFloatTimeDomainData(scratch);
+        let sum = 0;
+        for (let i = 0; i < scratch.length; i++) sum += scratch[i]! * scratch[i]!;
+        const db = 20 * Math.log10(Math.max(Math.sqrt(sum / scratch.length), 1e-6));
+        level.current = Math.min(1, Math.max(0, (db + 60) / 60));
+      }, 50);
+      stop = () => {
+        clearInterval(timer);
+        source.disconnect();
+        void ctx.close().catch(() => {});
+        stream.getTracks().forEach((t) => t.stop());
+        level.current = null;
+      };
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [enabled]);
+  return level;
+}
+
 /** Twelve bars, ember as they light, and a line saying what they mean — the device check's meter, fed a level. */
-function MicMeter({ meter }: { meter: () => number | null }) {
+function MicMeter({ meter, live }: { meter: () => number | null; live: boolean }) {
   const [lit, setLit] = useState(0);
   const [heard, setHeard] = useState(false);
   const [hasMic, setHasMic] = useState(true);
+  const [shown, setShown] = useState(false);
+  const icon = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = icon.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setShown(Boolean(e?.isIntersecting)));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  const preview = usePreviewMicLevel(!live && shown);
 
   useEffect(() => {
     let raf = 0;
     let lastHeard = 0;
     const tick = () => {
-      const level = meter();
+      // The desk's reading while it runs; before that, our own quiet listen.
+      const level = meter() ?? preview.current;
       const present = level !== null;
       setHasMic((cur) => (cur === present ? cur : present));
       // Only a change in lit bars re-renders — not every frame.
@@ -131,12 +198,12 @@ function MicMeter({ meter }: { meter: () => number | null }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [meter]);
+  }, [meter, preview]);
 
   const status = !hasMic ? "No mic yet — turn it on to see it here" : heard ? "Mic's picking you up" : "Mic's quiet — say something";
   return (
     <>
-      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", hasMic ? "bg-white/[0.06] text-foreground" : "bg-chili/15 text-chili-hi")}>
+      <span ref={icon} className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", hasMic ? "bg-white/[0.06] text-foreground" : "bg-chili/15 text-chili-hi")}>
         {hasMic ? <Microphone size={17} /> : <MicrophoneSlash size={17} />}
       </span>
       <div className="min-w-0 flex-1">

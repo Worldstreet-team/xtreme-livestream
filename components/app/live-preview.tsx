@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Room, RoomEvent, Track, type RemoteTrack } from "livekit-client";
 import { apiFetch } from "@/lib/api-client";
 import { useDataMode } from "@/lib/data-mode";
@@ -20,18 +20,58 @@ import { cn } from "@/lib/utils";
 
 let active: Room | null = null;
 
+/**
+ * A room's sound, off until asked for: a battle's viewer can turn the other
+ * side up. Each audio track gets an element of its own (never in the DOM),
+ * muted unless `hear` — so turning it on is instant, with no re-subscribe.
+ */
+function useRoomSound(hear: boolean) {
+  const els = useRef(new Set<HTMLMediaElement>());
+  const hearRef = useRef(hear);
+  useEffect(() => {
+    hearRef.current = hear;
+    els.current.forEach((el) => {
+      el.muted = !hear;
+      if (hear) void el.play().catch(() => {});
+    });
+  }, [hear]);
+  return useMemo(
+    () => ({
+      add(track: RemoteTrack) {
+        const el = track.attach();
+        el.muted = !hearRef.current;
+        els.current.add(el);
+      },
+      remove(track: RemoteTrack) {
+        for (const el of track.detach()) els.current.delete(el);
+      },
+      clear() {
+        els.current.forEach((el) => {
+          el.muted = true;
+          el.srcObject = null;
+        });
+        els.current.clear();
+      },
+    }),
+    [],
+  );
+}
+
 export function LivePreview({
   streamId,
   poster,
   className,
   enabled = true,
   fallbackSrc,
+  hear = false,
 }: {
   streamId: string;
   /** Rendered until the first frame arrives, and if the connection fails. */
   poster: ReactNode;
   className?: string;
   enabled?: boolean;
+  /** Play the room's sound too (a battle's other side, turned up). Silent by default. */
+  hear?: boolean;
   /**
    * A looping clip to play when the room has no video to give us — the
    * seeded streams in development, or a broadcaster between encoder
@@ -44,6 +84,7 @@ export function LivePreview({
   const [showing, setShowing] = useState(false);
   const [fallbackPlaying, setFallbackPlaying] = useState(false);
   const saving = useDataMode() === "saver";
+  const sound = useRoomSound(hear);
 
   // The clip plays until a live track shows up, then it stops so two
   // videos never decode at once.
@@ -83,12 +124,20 @@ export function LivePreview({
         active = room;
 
         room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === Track.Kind.Audio) {
+            sound.add(track);
+            return;
+          }
           if (track.kind !== Track.Kind.Video || attached || !videoEl) return;
           attached = track;
           track.attach(videoEl);
           setShowing(true);
         });
         room.on(RoomEvent.TrackUnsubscribed, (track) => {
+          if (track.kind === Track.Kind.Audio) {
+            sound.remove(track);
+            return;
+          }
           if (track === attached) {
             track.detach();
             attached = null;
@@ -107,12 +156,13 @@ export function LivePreview({
     return () => {
       cancelled = true;
       if (attached && videoEl) attached.detach(videoEl);
+      sound.clear();
       if (room) {
         if (active === room) active = null;
         void room.disconnect().catch(() => {});
       }
     };
-  }, [streamId, enabled, saving]);
+  }, [streamId, enabled, saving, sound]);
 
   return (
     <div className={cn("relative overflow-hidden bg-black", className)}>
@@ -156,7 +206,8 @@ export function LivePreview({
  * rule. Tracks come back keyed by who publishes them; with Data saver on,
  * nothing connects.
  */
-export function useRoomPreview(streamId: string | null, enabled = true) {
+export function useRoomPreview(streamId: string | null, enabled = true, hear = false) {
+  const sound = useRoomSound(hear);
   // Kept with the room they came from, so another room never shows the last one's.
   const [seen, setSeen] = useState<{ streamId: string; tracks: ReadonlyMap<string, RemoteTrack> } | null>(null);
   const saving = useDataMode() === "saver";
@@ -184,7 +235,16 @@ export function useRoomPreview(streamId: string | null, enabled = true) {
         room = new Room({ adaptiveStream: true, dynacast: true });
         if (active && active !== room) void active.disconnect().catch(() => {});
         active = room;
-        room.on(RoomEvent.TrackSubscribed, sync).on(RoomEvent.TrackUnsubscribed, sync).on(RoomEvent.ParticipantDisconnected, sync);
+        room
+          .on(RoomEvent.TrackSubscribed, (track) => {
+            if (track.kind === Track.Kind.Audio) sound.add(track);
+            sync();
+          })
+          .on(RoomEvent.TrackUnsubscribed, (track) => {
+            if (track.kind === Track.Kind.Audio) sound.remove(track);
+            sync();
+          })
+          .on(RoomEvent.ParticipantDisconnected, sync);
         await room.connect(res.data.livekitUrl, res.data.token);
         sync();
       } catch {
@@ -195,12 +255,13 @@ export function useRoomPreview(streamId: string | null, enabled = true) {
 
     return () => {
       cancelled = true;
+      sound.clear();
       if (room) {
         if (active === room) active = null;
         void room.disconnect().catch(() => {});
       }
     };
-  }, [streamId, enabled, saving]);
+  }, [streamId, enabled, saving, sound]);
 
   return streamId && enabled && !saving && seen?.streamId === streamId ? seen.tracks : EMPTY_TRACKS;
 }

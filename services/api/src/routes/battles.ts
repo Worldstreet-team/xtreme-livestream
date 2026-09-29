@@ -14,9 +14,11 @@ import {
   ACTIVITY_LIMIT,
   battleActivity,
   currentBattleForStream,
+  endLap,
   fanOutBattle,
   inQuickMatch,
   inviteToBattle,
+  lapOpen,
   leaveQuickMatch,
   practiceActivity,
   quickMatch,
@@ -78,6 +80,14 @@ const practiceGiftBodySchema = z.object({ giftId: z.enum(GIFT_IDS) });
  * their producers see it, and so does anyone holding the run's preview
  * link. Everyone else gets the 404 a battle that doesn't exist would.
  */
+/** Either side's host, or a producer on either host's crew: who may run a battle's lap. */
+async function mayRunSide(battle: Pick<IBattle, "hostId" | "challengerId" | "practice">, userId: mongoose.Types.ObjectId) {
+  if (battle.hostId.equals(userId) || (!battle.practice && battle.challengerId.equals(userId))) return true;
+  const ids = battle.practice ? [battle.hostId] : [battle.hostId, battle.challengerId];
+  const hosts = await User.find({ _id: { $in: ids } }).select("safety").lean();
+  return hosts.some((h) => atLeast(roleIn(h, userId), "producer"));
+}
+
 async function assertMaySeePractice(request: FastifyRequest, battle: Pick<IBattle, "practice" | "hostId" | "hostStreamId">, previewKey: string | undefined) {
   if (!battle.practice) return;
   if (await previewAccess(battle.hostStreamId, previewKey)) return;
@@ -283,6 +293,113 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       } else {
         await settleBattle(battle, "cancelled");
       }
+      return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/:id/concede",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "End a running battle now, as a loss: the other side wins, with the bonus a battle that ran its clock earns",
+        security: [{ bearerAuth: [] }],
+        params: battleIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const battle = await Battle.findById(request.params.id);
+      if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      const side = battle.hostId.equals(dbUser._id) ? "host" : battle.challengerId.equals(dbUser._id) ? "challenger" : null;
+      if (!side) throw new ApiError(403, "Not your battle", "NOT_IN_BATTLE");
+      if (!["live", "overtime"].includes(battle.status)) throw new ApiError(409, "This battle is already over", "BATTLE_OVER");
+      await settleBattle(battle, "conceded", { conceded: side });
+      return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/:id/end-lap",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "End the victory lap early: the result comes down in both rooms — either side's host, or their producers",
+        security: [{ bearerAuth: [] }],
+        params: battleIdParamsSchema,
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const battle = await Battle.findById(request.params.id);
+      if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      if (!(await mayRunSide(battle, dbUser._id as mongoose.Types.ObjectId))) throw new ApiError(403, "Not your battle", "NOT_IN_BATTLE");
+      if (!lapOpen(battle)) throw new ApiError(409, "The result is already down", "LAP_OVER");
+      await endLap(battle);
+      return { success: true, data: { battle: await toBattleView(battle) } };
+    },
+  );
+
+  app.post(
+    "/battles/:id/rematch",
+    {
+      schema: {
+        tags: ["Battles"],
+        summary: "Ask for a rematch during the victory lap: the same opponent, clock, mode, forfeit and gifts — they still accept",
+        security: [{ bearerAuth: [] }],
+        params: battleIdParamsSchema,
+      },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const last = await Battle.findById(request.params.id);
+      if (!last) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
+      const mine = last.hostId.equals(dbUser._id) ? "host" : last.challengerId.equals(dbUser._id) ? "challenger" : null;
+      if (!mine) throw new ApiError(403, "Not your battle", "NOT_IN_BATTLE");
+      if (!lapOpen(last)) throw new ApiError(409, "The victory lap is over — challenge them again from Battle", "LAP_OVER");
+
+      // A practice battle's rematch is another round against the sparring partner.
+      if (last.practice) {
+        const stream = await Stream.findOne({ _id: last.hostStreamId, isLive: true });
+        if (!stream?.practice) throw new ApiError(409, "Your practice run has ended", "STREAM_OFFLINE");
+        const busy = await Battle.exists({
+          status: { $in: ["invited", "live", "overtime"] },
+          $or: [{ hostStreamId: stream._id }, { challengerStreamId: stream._id }, { hostId: dbUser._id, practice: true }],
+        });
+        if (busy) throw new ApiError(409, "A battle is already running", "BATTLE_BUSY");
+        const battle = await startPracticeBattle({ _id: dbUser._id as mongoose.Types.ObjectId }, stream);
+        return { success: true, data: { battle: await toBattleView(battle) } };
+      }
+
+      const [myStream, theirStream] = await Promise.all([
+        Stream.findOne({ _id: mine === "host" ? last.hostStreamId : last.challengerStreamId, isLive: true, practice: { $ne: true } }),
+        Stream.findOne({ _id: mine === "host" ? last.challengerStreamId : last.hostStreamId, isLive: true, practice: { $ne: true } }),
+      ]);
+      if (!myStream) throw new ApiError(409, "You're not live any more", "NOT_LIVE");
+      if (!theirStream) throw new ApiError(409, "They've gone offline", "CHALLENGER_OFFLINE");
+      const busy = await Battle.exists({
+        status: { $in: ["invited", "live", "overtime"] },
+        $or: [
+          { hostStreamId: { $in: [myStream._id, theirStream._id] } },
+          { challengerStreamId: { $in: [myStream._id, theirStream._id] } },
+        ],
+      });
+      if (busy) throw new ApiError(409, "One of you is already in a battle or has an open invite", "BATTLE_BUSY");
+      if (last.mode === "2v2") {
+        await requirePartner(myStream._id as mongoose.Types.ObjectId, "Bring your partner back on stage for the rematch");
+      }
+      // The same terms, from whoever asked: they host it, the other side accepts.
+      const battle = await inviteToBattle(
+        { _id: dbUser._id as mongoose.Types.ObjectId, username: dbUser.username, displayName: dbUser.displayName },
+        myStream,
+        theirStream,
+        last.forfeit ?? "",
+        last.mode ?? "1v1",
+        [...(last.giftFilter ?? [])],
+        last.durationSec,
+      );
+      await leaveQuickMatch(dbUser._id as mongoose.Types.ObjectId);
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
   );

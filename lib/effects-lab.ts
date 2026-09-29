@@ -12,7 +12,7 @@ import type { LookSettings } from "@/lib/looks";
  * the page runs them.
  */
 
-export type LabStageId = "camera" | "look" | "blur" | "face" | "smooth" | "all";
+export type LabStageId = "camera" | "look" | "blur" | "face" | "smooth" | "effect" | "all";
 
 export interface LabStage {
   id: LabStageId;
@@ -25,7 +25,7 @@ export interface LabStage {
   face: boolean;
 }
 
-const PLAIN: LookSettings = { background: "none", look: "natural", smooth: 0 };
+const PLAIN: LookSettings = { background: "none", look: "natural", smooth: 0, face: "none" };
 
 export const LAB_STAGES: readonly LabStage[] = [
   { id: "camera", label: "Camera alone", what: "Nothing on the picture: the baseline.", look: null, face: false },
@@ -33,7 +33,8 @@ export const LAB_STAGES: readonly LabStage[] = [
   { id: "blur", label: "Background blur", what: "Strong blur behind you.", look: { ...PLAIN, background: "blur-strong" }, face: false },
   { id: "face", label: "Face tracking", what: "Finding your face, as gift effects do.", look: null, face: true },
   { id: "smooth", label: "Skin smoothing", what: "Medium smoothing, with face tracking.", look: { ...PLAIN, smooth: 0.6 }, face: true },
-  { id: "all", label: "Everything", what: "Blur, Warm and smoothing together.", look: { background: "blur-strong", look: "warm", smooth: 0.6 }, face: true },
+  { id: "effect", label: "Face effect", what: "Puppy ears and nose, following your face.", look: { ...PLAIN, face: "puppy" }, face: true },
+  { id: "all", label: "Everything", what: "Blur, Warm, smoothing and a face effect together.", look: { background: "blur-strong", look: "warm", smooth: 0.6, face: "puppy" }, face: true },
 ];
 
 /** How long each stage runs, and how much of the start is left out while models load and shaders compile. */

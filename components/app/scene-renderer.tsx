@@ -310,11 +310,12 @@ export function SceneRenderer({
    */
   insets?: { top?: string; bottom?: string };
   /**
-   * Where the tiles sit in the frame (CSS lengths) — a battle on an upright
-   * phone keeps the two sides in a band under its header. The whole frame
+   * Where the tiles sit in the frame (CSS lengths) — a battle keeps its two
+   * sides in a band under its score bar: full width on an upright phone, a
+   * centred portrait column (`left`, `width`) on a computer. The whole frame
    * when unset. The frame itself doesn't move, so tiles glide in and out.
    */
-  stage?: { top: string; height: string };
+  stage?: { top: string; height: string; left?: string; width?: string };
   /** The host's goal and how far it's got (goals.ts on the API). */
   goal?: StreamGoal | null;
   /** The heat meter as of the last gift. */
@@ -387,8 +388,8 @@ export function SceneRenderer({
         </div>
       )}
       <div
-        className={cn("grid gap-px", stage ? "absolute inset-x-0" : "size-full", grid.container)}
-        style={stage ? { top: stage.top, height: stage.height } : undefined}
+        className={cn("grid gap-px", stage ? (stage.width ? "absolute" : "absolute inset-x-0") : "size-full", grid.container)}
+        style={stage ? { top: stage.top, height: stage.height, ...(stage.width ? { left: stage.left ?? 0, width: stage.width } : {}) } : undefined}
       >
         {/* In chart mode this same cell becomes the corner camera — restyled,
             not moved, so the host's video element is never remounted. The

@@ -63,6 +63,8 @@ import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
 import { SparringTile } from "@/components/app/battles/sparring-tile";
+import { BattleStage } from "@/components/app/battles/battle-stage";
+import { useColumnBand, useOnStage } from "@/components/app/battles/use-band";
 import { BattleAskStrip } from "@/components/app/studio/battle-ask-strip";
 import { GamesPanel } from "@/components/app/games-panel";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
@@ -92,7 +94,8 @@ import { SetsPanel } from "@/components/app/sets-panel";
 import { PrivacyShieldPanel, PrivacyZonesEditor } from "@/components/app/privacy-shield-panel";
 import { CollapsibleSection, openSection } from "@/components/app/collapsible-section";
 import { applyShield, getShieldSettings, getShieldStatus, setShieldSettings, shareShieldedScreen, useShieldSettings } from "@/lib/privacy-shield";
-import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
+import { useAnchorFeed, useFaceAnchors, FACE_WEAR_HZ } from "@/lib/face-anchors";
+import { FACE_EFFECTS } from "@/lib/face-effects";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
@@ -162,6 +165,20 @@ type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
 type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio" | "show";
+
+/**
+ * A battle's band on a phone's full-screen picture: the score bar under the
+ * live row, then the two halves full width, each 9:16 — but never down
+ * into the room's drawer (the bottom 46% of the screen).
+ */
+const STUDIO_PHONE_BAND = {
+  "--bar-top": "calc(max(env(safe-area-inset-top), 12px) + 6.25rem)",
+  "--bar-h": "16px",
+  "--band-top": "calc(var(--bar-top) + 16px)",
+  "--band-h": "min(calc(100cqw * 8 / 9), calc(54dvh - var(--band-top) - 8px))",
+  "--band-left": "0px",
+  "--band-w": "100cqw",
+} as React.CSSProperties;
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -445,9 +462,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   // ---- Stage guests ----
   const [stageRequests, setStageRequests] = useState<StageUser[]>([]);
-  // The battle this broadcast is in, fed by the battle panel; the preview
-  // splits to show the opponent the way viewers see it.
-  const [battle, setBattle] = useState<BattleView | null>(null);
+  // The battle this broadcast is in: the battle panel's poll (a running
+  // battle) and the room's own battle events (every change, the result
+  // too). The preview splits to show the opponent the way viewers see it,
+  // while it runs and through its result (the victory lap).
+  const [panelBattle, setPanelBattle] = useState<BattleView | null>(null);
+  const [heardBattle, setHeardBattle] = useState<BattleView | null>(null);
+  const latestBattle = panelBattle && heardBattle?.id !== panelBattle.id ? panelBattle : (heardBattle ?? panelBattle);
+  const battle = useOnStage(latestBattle) ? latestBattle : null;
+  // Hear the other side in your own ears? Off by default (and off for each new battle).
+  const [hearOther, setHearOther] = useState(false);
+  const [hearFor, setHearFor] = useState(battle?.id ?? null);
+  if ((battle?.id ?? null) !== hearFor) {
+    setHearFor(battle?.id ?? null);
+    setHearOther(false);
+  }
+  // The battle band on the picture, as viewers get it: on an upright phone
+  // (the picture is the screen) in CSS, under the live row; anywhere else a
+  // centred portrait column, measured.
+  const phoneBand = phone && orientation === "portrait";
+  const studioBand = useColumnBand(Boolean(battle) && !phoneBand, { top: 56, bottom: 12 });
   const [liveGuests, setLiveGuests] = useState<StageUser[]>([]);
   /** Accepted, but not on yet: in the room checking their devices, seen only by the crew (producer mode). */
   const [backstageGuests, setBackstageGuests] = useState<StageUser[]>([]);
@@ -475,7 +509,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // A 2v2's other pair, a tile each, over one connection to their room.
   const pairOpponent =
     battle && battle.mode === "2v2" && streamId ? (sideOf(battle, streamId) === "host" ? battle.challenger : battle.host) : null;
-  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, true, hearOther);
 
   // The auto-director: the layout follows whoever's talking (lib/director.ts).
   // Off until the host turns it on; remembered on this device.
@@ -813,6 +847,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   /** The camera the look rides right now: the preview before going live, the published track after. Never a shared screen or an encoder's feed. */
   const lookTrack = () => (source !== "camera" || localScreen ? null : isLive ? videoTrackRef.current : previewTrack);
+  /** The camera as captured, under any look: the looks' thumbnails are made from it. Stable per track. */
+  const lookTrackNow = source !== "camera" || localScreen ? null : isLive ? liveCam : previewTrack;
+  const lookCameraSource = useMemo(
+    () => (lookTrackNow ? () => ((lookTrackNow.getProcessor() as { source?: MediaStreamTrack } | undefined)?.source ?? lookTrackNow.mediaStreamTrack) : undefined),
+    [lookTrackNow]
+  );
   /** Put the chosen look on a camera track; a background that can't start leaves the look on and says why. */
   const applyLookTo = (track: LocalVideoTrack | null) => {
     // A track a drop already ended (a rejoin with the camera off) takes no look; the next camera will.
@@ -831,7 +871,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // The look follows its settings, the brand, and whichever camera track is current.
   useEffect(() => {
     applyLookTo(lookTrack());
-  }, [look.background, look.look, look.smooth, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [look.background, look.look, look.smooth, look.face, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeVoice = (next: VoiceSettings) => {
     saveVoiceSettings(next);
     // On air, the desk follows at once (the filter, the preset); Music mode's capture waits for the next stream.
@@ -906,8 +946,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     track: faceCam,
     room: isLive ? liveRoom : null,
     feed: faceFeed,
-    // Skin smoothing needs the face too: the look paints its skin mask from it (lib/looks.ts).
-    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying || look.smooth > 0),
+    // Skin smoothing and a worn face effect need the face too: the look paints
+    // its skin mask and places the effect from it (lib/looks.ts) — the effect
+    // at twice the rate, since it's drawn into every frame.
+    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying || look.smooth > 0 || look.face !== "none"),
+    maxHz: look.face !== "none" ? FACE_WEAR_HZ : undefined,
     publishHz: () => (!setUsesFace(activeSetRef.current) ? 0 : Date.now() < faceBoostUntil.current ? 12 : 1),
   });
 
@@ -1135,9 +1178,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           }
           return;
         }
+        // A battle moved (the server's word, the result too): the stage follows.
         // A battle won: the airhorn, once, if the desk is on and it's wanted.
         if (data.__evt === "battle") {
           const b = (data as { battle?: BattleView }).battle;
+          if (b && typeof b.id === "string" && b.host && b.challenger) setHeardBattle(b);
           if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
             hornedRef.current.add(b.id);
             void deskRef.current?.playPad("airhorn");
@@ -2479,6 +2524,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // of it — and where the mini player sat, so opening the studio grows the
   // picture back out of that.
   const pictureRef = useRef<HTMLDivElement>(null);
+  const measureBand = studioBand.ref;
+  const setPicture = useCallback(
+    (el: HTMLDivElement | null) => {
+      pictureRef.current = el;
+      measureBand(el);
+    },
+    [measureBand]
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const pictureRectRef = useRef<DOMRect | null>(null);
   const miniRectRef = useRef<DOMRect | null>(null);
@@ -2803,17 +2856,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         ? battle.challenger.streamId
         : battle.host.streamId
       : null;
-  /** The other side's picture, named on it. */
-  const opponentTile = (key: string, name: string, picture: React.ReactNode): SceneCell => ({
+  /** The other side's picture. The battle stage names it, with the speaker, over the band. */
+  const opponentTile = (key: string, picture: React.ReactNode): SceneCell => ({
     key,
-    node: (
-      <div className="relative size-full bg-black">
-        {picture}
-        <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
-          {name} · opponent
-        </span>
-      </div>
-    ),
+    node: <div className="relative size-full bg-black">{picture}</div>,
   });
   // A 2v2 is a 2×2, as viewers see it: our pair down the left, theirs down
   // the right — so after us come their host, our partner, their partner.
@@ -2823,41 +2869,33 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     const mateTile = mate ? stageTiles.find((t) => t.identity === mate.userId) : undefined;
     const theirMate = pairOpponent.partner ?? null;
     return [
-      opponentTile("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+      opponentTile("opponent", <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
       mateTile
         ? { key: mateTile.identity, node: <StageTile fill track={guestTracksRef.current.get(mateTile.identity)} label={mateTile.name} /> }
         : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Your partner"} /> },
       theirMate
-        ? opponentTile("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+        ? opponentTile("opponent-mate", <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
         : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
     ];
   };
-  // The others on stage, in the order the scene brings them in.
-  const stageOthers: SceneCell[] = pairOpponent ? pairCells() : [
-    ...(opponentStreamId && battle && streamId
+  // The others on stage, in the order the scene brings them in. A battle
+  // is exactly two halves: in a 1v1 your guests sit it out, as a 2v2's
+  // other guests do.
+  const stageOthers: SceneCell[] = pairOpponent
+    ? pairCells()
+    : opponentStreamId && battle && streamId
       ? [
-          {
-            key: "opponent",
-            node: (
-              <div className="relative size-full bg-black">
-                {/* A practice battle's sparring partner is drawn: there's no stream behind it. */}
-                {battle.practice ? (
-                  <SparringTile battle={battle} />
-                ) : (
-                  <>
-                    <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-                    <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
-                      {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
-                    </span>
-                  </>
-                )}
-              </div>
+          opponentTile(
+            "opponent",
+            // A practice battle's sparring partner is drawn: there's no stream behind it.
+            battle.practice ? (
+              <SparringTile battle={battle} />
+            ) : (
+              <LivePreview streamId={opponentStreamId} hear={hearOther} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
             ),
-          },
+          ),
         ]
-      : []),
-    ...stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
-  ];
+      : stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> }));
   // The phone cam, a source the scene places (scene.phoneSlot): the
   // renderer puts it over your picture, beside it, or in the corner.
   const phoneTile = phoneConnected && phoneTrackRef.current ? <StageTile fill track={phoneTrackRef.current} label="Phone cam" /> : undefined;
@@ -3387,6 +3425,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   BACKGROUNDS.find((b) => b.id === look.background)?.label ?? "None",
                   LOOKS.find((l) => l.id === look.look)?.label ?? "Natural",
                   look.smooth > 0 ? "Smooth skin" : "None",
+                  FACE_EFFECTS.find((f) => f.id === look.face && f.id !== "none")?.label ?? "None",
                 ].filter((x) => x !== "None" && x !== "Natural")
               : []),
           ].join(" · ")}
@@ -3420,6 +3459,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   }}
                   imageUrl={lookImage?.url ?? null}
                   compare={lookTrack() ? { start: () => setLookBypass(lookTrack()!, true), stop: () => setLookBypass(lookTrack()!, false) } : null}
+                  cameraSource={lookCameraSource}
+                  mirrored={facing === "user"}
                 />
                 {lookNote && (
                   <p role="status" className="mt-2 text-[12px] leading-snug text-warning">
@@ -4421,7 +4462,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           <BattlePanel
             inline
             streamId={streamId}
-            onBattle={setBattle}
+            onBattle={setPanelBattle}
             practice={practice}
             practiceNext={practiceNext}
             onPracticeNext={setPracticeNext}
@@ -4493,6 +4534,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
    * every edge of their own shot.
    */
   const mode: "phone" | "stacked" | "side" = phone ? "phone" : stacked ? "stacked" : "side";
+  /**
+   * More, open on a phone before going live: the picture steps back to the
+   * top of the screen — smaller, rounded, still live — and More sits under
+   * it (the way a reel makes room for its comments), so every look and
+   * effect is chosen while you watch it land on your face.
+   */
+  const framed = mode === "phone" && !isLive && moreOpen;
+  const outOfFrame = framed ? "pointer-events-none opacity-0" : "";
   /** Only a mouse gets the three-second hide; touch screens keep their controls. */
   const dockHidden = mode === "side" && !controlsVisible;
 
@@ -4521,11 +4570,19 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         onMouseMove={isLive ? showControls : undefined}
         onTouchStart={isLive ? showControls : undefined}
       >
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center origin-top transition-transform duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+            framed && "translate-y-[calc(max(env(safe-area-inset-top),12px)+6px)] scale-[0.4]"
+          )}
+        >
           <div
-            ref={pictureRef}
+            ref={setPicture}
+            style={battle ? (phoneBand ? STUDIO_PHONE_BAND : studioBand.style) : undefined}
             className={cn(
-              "relative overflow-hidden",
+              "relative overflow-hidden transition-[border-radius] duration-[460ms]",
+              // Stepped back for More: rounded like a card (40px at 0.4 reads as 16).
+              framed && "rounded-[40px]",
               // Contained, never cropped: a portrait broadcast fills a phone and
               // is pillarboxed elsewhere; a landscape one letterboxes to fit.
               orientation === "portrait"
@@ -4542,7 +4599,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               portrait={orientation === "portrait"}
               forceAuto={Boolean(opponentStreamId)}
               host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
-              mainLabel="You"
+              // In a battle the stage names the sides itself.
+              mainLabel={battle ? undefined : "You"}
+              stage={battle ? (phoneBand ? { top: "var(--band-top)", height: "var(--band-h)" } : studioBand.stage) : undefined}
               main={
                 <div className="relative size-full">
                   <video
@@ -4600,6 +4659,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             />
             {/* The Set's stinger between layouts, over the whole picture. */}
             <SetStinger set={activeSet} trigger={scene.layout} />
+            {/* The battle stage, as viewers see it, with the host's own controls:
+                hear the other side, End battle, and after the result Rematch and End lap. */}
+            {battle && streamId && (phoneBand || studioBand.style) && (
+              <BattleStage battle={battle} streamId={streamId} layout="inset" host hear={hearOther} onHear={setHearOther} onBattle={setHeardBattle} toasts={isLive} />
+            )}
             {/* The chat on screen (host-only, never in the program): LiveChat draws its lane in here. */}
             {chatOnScreen.shows && (
               <div
@@ -4618,7 +4682,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
         {/* Pre-live idle stage: a lit set, not a black box. */}
         {idle && (
-          <div className="absolute inset-0 overflow-hidden">
+          <div
+            className={cn(
+              "absolute inset-0 origin-top overflow-hidden transition-[transform,border-radius] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+              framed && "translate-y-[calc(max(env(safe-area-inset-top),12px)+6px)] scale-[0.4] rounded-[40px]"
+            )}
+          >
             <div className="absolute inset-0 bg-surface" />
             <BrandMark size={360} className="absolute -right-16 -bottom-20 opacity-[0.06]" />
             <div className={cn("absolute inset-0 flex items-center justify-center px-8 text-center", mode === "phone" && "pb-60")}>
@@ -4718,8 +4787,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         <CountdownOverlay count={countdown.count} />
 
         {/* Scrims: the copy and controls sit on black, never on the picture. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
-        {(isLive || mode === "phone") && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent", mode === "phone" ? (isLive ? "h-64" : "h-80") : "h-36")} />}
+        <div className={cn("pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent transition-opacity duration-300", framed && "opacity-0")} />
+        {(isLive || mode === "phone") && <div className={cn("pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", mode === "phone" ? (isLive ? "h-64" : "h-80") : "h-36", framed && "opacity-0")} />}
 
         {/* Tip alerts — the on-air moment */}
         {tipAlerts.length > 0 && (
@@ -4757,7 +4826,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         )}
 
         {/* ---- Top row ---- */}
-        <div className="absolute top-0 right-0 left-0 z-20 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] md:px-4 md:pt-4">
+        <div className={cn("absolute top-0 right-0 left-0 z-20 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] transition-opacity duration-300 md:px-4 md:pt-4", outOfFrame)}>
           {!isLive ? (
             <>
               <Link href="/explore" aria-label="Back" className="obj press flex size-11 items-center justify-center rounded-full text-white md:hidden"><CaretLeft size={20} weight="bold" /></Link>
@@ -4827,7 +4896,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
         {/* Pre-live: camera status, under the source picker. */}
         {!isLive && source === "camera" && previewTrack && (
-          <div className="absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 z-20 flex gap-1.5 md:top-[4.5rem] md:left-4">
+          <div className={cn("absolute top-[calc(max(env(safe-area-inset-top),12px)+3.5rem)] left-3 z-20 flex gap-1.5 transition-opacity duration-300 md:top-[4.5rem] md:left-4", outOfFrame)}>
             <span className="obj flex h-7 items-center gap-2 rounded-full px-3 text-[11.5px] font-medium text-white/85">
               <span className="size-1.5 rounded-full bg-emerald-400" />
               Camera ready · {micEnabled ? "mic on" : "mic off"}
@@ -4930,7 +4999,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         {/* ---- Phone, pre-live: the camera and one big button. A title and
             a category if you like; everything else is behind More. ---- */}
         {mode === "phone" && !isLive && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)]">
+          <div className={cn("absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)] transition-opacity duration-300", outOfFrame)}>
             {setupNotices && <div className="rounded-[14px] bg-surface text-foreground">{setupNotices}</div>}
             {!countdown.running && quickFields("picture")}
             {goLiveAction("picture")}
@@ -5051,27 +5120,29 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         </DragSheet>
       )}
 
-      {/* ---- Phones: More, pre-live — every other setup option, in a sheet ---- */}
-      {mode === "phone" && !isLive && moreOpen && (
+      {/* ---- Phones: More, pre-live — the picture steps back to the top
+          (see `framed`) and More takes the rest, with nothing dimmed: a tap
+          on the picture, or Done, brings it back. ---- */}
+      {framed && (
         <>
-          <button type="button" aria-label="Close More" onClick={() => setMoreOpen(false)} className="animate-fade-in absolute inset-0 z-[35] bg-black/50" />
-          <DragSheet
-            label="More"
-            detents={[0.62, 0.9]}
-            defaultDetent={0}
-            onDismiss={() => setMoreOpen(false)}
-            className="animate-sheet-up z-40"
-            header={
-              <div className="flex items-center justify-between px-4 pb-3">
-                <h2 className="font-wide text-[18px] font-bold tracking-[-0.02em]">More</h2>
-                <button type="button" onClick={() => setMoreOpen(false)} className="press h-9 rounded-full bg-tint/[0.08] px-4 text-[13px] font-semibold text-foreground">
-                  Done
-                </button>
-              </div>
-            }
+          <button
+            type="button"
+            aria-label="Close More"
+            onClick={() => setMoreOpen(false)}
+            className="absolute inset-x-0 top-0 z-[35] h-[calc(max(env(safe-area-inset-top),12px)+6px+40dvh)]"
+          />
+          <section
+            aria-label="More"
+            className="animate-sheet-up absolute inset-x-0 bottom-0 z-40 flex flex-col rounded-t-[22px] bg-surface text-foreground shadow-[inset_0_1px_0_rgba(255,236,230,0.06)] top-[calc(max(env(safe-area-inset-top),12px)+6px+40dvh+12px)]"
           >
-            <div className="px-4 pb-[max(env(safe-area-inset-bottom),20px)]">{moreSections}</div>
-          </DragSheet>
+            <div className="flex shrink-0 items-center justify-between px-4 pt-3 pb-2">
+              <h2 className="font-wide text-[18px] font-bold tracking-[-0.02em]">More</h2>
+              <button type="button" onClick={() => setMoreOpen(false)} className="press h-9 rounded-full bg-tint/[0.08] px-4 text-[13px] font-semibold text-foreground">
+                Done
+              </button>
+            </div>
+            <div className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(env(safe-area-inset-bottom),20px)]">{moreSections}</div>
+          </section>
         </>
       )}
 

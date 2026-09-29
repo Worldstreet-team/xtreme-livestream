@@ -56,6 +56,14 @@ const LATE_RESET_SEC = 15;
 const QUEUE_TTL_MS = 120_000;
 /** How many backers each side shows. */
 const TOP_BACKERS = 3;
+/** The victory lap: how long a win's result stays up (the loser does the forfeit). Either host can end it early. */
+export const VICTORY_LAP_SEC = 180;
+/** A draw has no lap: the result shows this long, then the stage goes back to normal. */
+export const DRAW_RESULT_SEC = 8;
+/** A result settled before laps existed shows this long after the clock. */
+const LEGACY_RESULT_MS = 120_000;
+/** How far back a streak is counted — a run longer than this reads as this. */
+const STREAK_LOOKBACK = 50;
 
 export interface BattleView {
   id: string;
@@ -80,6 +88,8 @@ export interface BattleView {
   endedReason: string | null;
   /** A practice battle: the challenger is the stand-in, and the scores are simulated — never money. */
   practice: boolean;
+  /** When the result stops showing (the victory lap, or a draw's few seconds); null before it's settled. */
+  lapEndsAt: string | null;
 }
 interface PartnerView {
   userId: string;
@@ -98,6 +108,11 @@ interface BattleSideView {
   top: Array<{ userId: string; username: string; displayName: string; avatar: string; usdMinor: number }>;
   /** A 2v2's partner on this side's stage; null in a 1v1 (or if they'd left before the clock). */
   partner: PartnerView | null;
+  /**
+   * Straight wins in a row: the run going in, and — once this battle is
+   * settled — one more for the winner, nothing for a loss or a draw.
+   */
+  streak: number;
 }
 
 const USER_FIELDS = "username displayName avatar";
@@ -164,6 +179,7 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     usd: number,
     backers: BattleSideView["top"],
     partner: PartnerView | null,
+    streak: number,
   ): BattleSideView => ({
     userId: String(id),
     username: u?.username ?? "",
@@ -173,6 +189,7 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     usdMinor: usd,
     top: backers,
     partner,
+    streak,
   });
   return {
     id: String(b._id),
@@ -183,13 +200,13 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     durationSec: b.durationSec,
     multiplierWindowSec: b.multiplierWindowSec,
     multiplier: b.multiplier,
-    host: side(host, b.hostId, b.hostStreamId, b.hostUsdMinor, top.host, partnerView(b.hostPartnerId)),
+    host: side(host, b.hostId, b.hostStreamId, b.hostUsdMinor, top.host, partnerView(b.hostPartnerId), streakShown(b, "host")),
     challenger: practice
       ? {
-          ...side(null, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, null),
+          ...side(null, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, null, 0),
           displayName: SPARRING_NAME,
         }
-      : side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, partnerView(b.challengerPartnerId)),
+      : side(challenger, b.challengerId, b.challengerStreamId, b.challengerUsdMinor, top.challenger, partnerView(b.challengerPartnerId), streakShown(b, "challenger")),
     winnerId: b.winnerId ? String(b.winnerId) : null,
     bonusUsdMinor: b.bonusUsdMinor,
     overtimeUsed: b.overtimeUsed,
@@ -199,7 +216,44 @@ export async function toBattleView(b: IBattle): Promise<BattleView> {
     giftFilter: [...(b.giftFilter ?? [])],
     endedReason: b.endedReason,
     practice,
+    lapEndsAt: b.lapEndsAt ? b.lapEndsAt.toISOString() : null,
   };
+}
+
+/**
+ * A side's streak as the view shows it — from the battle alone, no query
+ * (the view is built on every gift's fan-out). Going in, the run stored at
+ * the start; settled, the winner's run plus this win, and nothing for a
+ * loss or a draw, which end a run. Practice battles have no streaks.
+ */
+export function streakShown(
+  b: Pick<IBattle, "status" | "winnerId" | "hostId" | "challengerId" | "hostStreak" | "challengerStreak" | "practice">,
+  which: "host" | "challenger",
+) {
+  if (b.practice) return 0;
+  const before = Math.max(0, (which === "host" ? b.hostStreak : b.challengerStreak) ?? 0);
+  if (b.status !== "ended") return before;
+  const id = which === "host" ? b.hostId : b.challengerId;
+  return b.winnerId && String(b.winnerId) === String(id) ? before + 1 : 0;
+}
+
+/**
+ * A creator's straight wins going into their next battle: their settled
+ * real battles, newest first, counted until the first that wasn't a win (a
+ * loss or a draw). Cancelled and practice battles never count either way.
+ */
+export async function creatorStreak(userId: mongoose.Types.ObjectId) {
+  const recent = await Battle.find({ status: "ended", practice: { $ne: true }, $or: [{ hostId: userId }, { challengerId: userId }] })
+    .sort({ endsAt: -1 })
+    .limit(STREAK_LOOKBACK)
+    .select("winnerId")
+    .lean();
+  let run = 0;
+  for (const b of recent) {
+    if (!b.winnerId || String(b.winnerId) !== String(userId)) break;
+    run += 1;
+  }
+  return run;
 }
 
 /** One gift that moved a battle's score, as the clash view animates it. */
@@ -310,14 +364,39 @@ export async function currentBattleForStream(streamId: mongoose.Types.ObjectId |
   });
 }
 
-/** Most recent battle a stream took part in that ended in the last two minutes — the result card. */
-export async function recentResultForStream(streamId: mongoose.Types.ObjectId | string) {
+/**
+ * The battle a stream just finished, while its result is still up: through
+ * the victory lap (or a draw's few seconds) — and, for one settled before
+ * laps existed, two minutes after the clock.
+ */
+export async function recentResultForStream(streamId: mongoose.Types.ObjectId | string, now = Date.now()) {
   const id = new mongoose.Types.ObjectId(String(streamId));
   return Battle.findOne({
     status: "ended",
-    endsAt: { $gte: new Date(Date.now() - 120_000) },
-    $or: [{ hostStreamId: id }, { challengerStreamId: id }],
+    $and: [
+      { $or: [{ hostStreamId: id }, { challengerStreamId: id }] },
+      { $or: [{ lapEndsAt: { $gt: new Date(now) } }, { lapEndsAt: null, endsAt: { $gte: new Date(now - LEGACY_RESULT_MS) } }] },
+    ],
   }).sort({ endsAt: -1 });
+}
+
+/** When a settled battle's result stops showing: the victory lap after a win, a few seconds after a draw. */
+export function lapEndFor(b: Pick<IBattle, "winnerId" | "endsAt">, now = Date.now()) {
+  const end = b.endsAt ? Math.min(b.endsAt.getTime(), now) : now;
+  return new Date(end + (b.winnerId ? VICTORY_LAP_SEC : DRAW_RESULT_SEC) * 1000);
+}
+
+/** Whether a settled battle's result (its lap) is still up. */
+export function lapOpen(b: Pick<IBattle, "status" | "lapEndsAt">, now = Date.now()) {
+  return b.status === "ended" && Boolean(b.lapEndsAt) && b.lapEndsAt!.getTime() > now;
+}
+
+/** End the victory lap now: the result comes down in both rooms. */
+export async function endLap(battle: IBattle, now = Date.now()) {
+  battle.lapEndsAt = new Date(now);
+  await battle.save();
+  await fanOutBattle(battle);
+  return battle;
 }
 
 /** Push the current view to both rooms. Fire-and-forget: a dropped frame is re-synced by the next one. */
@@ -360,6 +439,8 @@ export async function inviteToBattle(
   forfeit = "",
   mode: BattleMode = "1v1",
   giftFilter: string[] = [],
+  /** The clock's length; the model's five minutes when unset. A rematch keeps the last battle's. */
+  durationSec?: number,
 ) {
   const battle = await Battle.create({
     hostId: host._id,
@@ -371,6 +452,7 @@ export async function inviteToBattle(
     forfeit,
     mode,
     giftFilter,
+    ...(durationSec ? { durationSec } : {}),
   });
   await notify(challengerStream.streamerId as mongoose.Types.ObjectId, "battle_invite", host, hostStream);
   // The challenger's room hears it too, so the studio shows the invite at once.
@@ -386,6 +468,12 @@ export async function startBattle(battle: IBattle) {
     const [hp, cp] = await Promise.all([stagePartner(battle.hostStreamId), stagePartner(battle.challengerStreamId)]);
     battle.hostPartnerId = hp;
     battle.challengerPartnerId = cp;
+  }
+  // Each side's run of wins going in — counted once here, so the view never has to.
+  if (!battle.practice) {
+    const [hs, cs] = await Promise.all([creatorStreak(battle.hostId), creatorStreak(battle.challengerId)]);
+    battle.hostStreak = hs;
+    battle.challengerStreak = cs;
   }
   battle.status = "live";
   battle.startsAt = now;
@@ -581,8 +669,16 @@ export async function inQuickMatch(userId: mongoose.Types.ObjectId) {
   return Boolean(await BattleQueue.exists({ userId, at: { $gte: new Date(Date.now() - QUEUE_TTL_MS) } }));
 }
 
-/** The clock ran out: overtime once on a tie, otherwise settle and pay. */
-export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle["endedReason"]> = "clock") {
+/**
+ * The clock ran out: overtime once on a tie, otherwise settle and pay. Or a
+ * host conceded (`conceded` names their side): the other side wins, on the
+ * same bonus rules as a battle that ran its clock.
+ */
+export async function settleBattle(
+  battle: IBattle,
+  reason: NonNullable<IBattle["endedReason"]> = "clock",
+  opts: { conceded?: "host" | "challenger" } = {},
+) {
   if (reason === "clock" && battle.hostUsdMinor === battle.challengerUsdMinor && !battle.overtimeUsed) {
     battle.status = "overtime";
     battle.overtimeUsed = true;
@@ -592,17 +688,19 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
     return battle;
   }
 
-  battle.status = reason === "clock" ? "ended" : "cancelled";
+  const conceded = reason === "conceded" ? (opts.conceded ?? "host") : null;
+  battle.status = reason === "clock" || conceded ? "ended" : "cancelled";
   battle.endedReason = reason;
   if (!battle.endsAt || battle.endsAt.getTime() > Date.now()) battle.endsAt = new Date();
 
   // Practice: a result for the host to see, and nothing else — no bonus,
   // no earnings, no payout or audit row, no relay, no notifications.
-  if (battle.practice) return settlePracticeBattle(battle);
+  if (battle.practice) return settlePracticeBattle(battle, conceded);
 
   if (battle.status === "ended") {
-    const hostWins = battle.hostUsdMinor > battle.challengerUsdMinor;
-    const tie = battle.hostUsdMinor === battle.challengerUsdMinor;
+    // Conceding hands the other side the win, whatever the score said.
+    const hostWins = conceded ? conceded === "challenger" : battle.hostUsdMinor > battle.challengerUsdMinor;
+    const tie = !conceded && battle.hostUsdMinor === battle.challengerUsdMinor;
     battle.winnerId = tie ? null : hostWins ? battle.hostId : battle.challengerId;
     battle.bonusUsdMinor = tie ? 0 : Math.floor(battle.commissionUsdMinor * BONUS_SHARE);
     // The bonus is booked to the winner's earnings here — split down the
@@ -612,6 +710,7 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
         await User.updateOne({ _id: share.userId }, { $inc: { earningsUsdMinor: share.usdMinor } });
       }
     }
+    battle.lapEndsAt = lapEndFor(battle);
   }
   await battle.save();
   await fanOutBattle(battle);
@@ -659,11 +758,14 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
 }
 
 /** The end of a practice battle: the winner is named, nothing is paid, and only the host's own show rules hear of it. */
-async function settlePracticeBattle(battle: IBattle) {
+async function settlePracticeBattle(battle: IBattle, conceded: "host" | "challenger" | null = null) {
   battle.bonusUsdMinor = 0;
   if (battle.status === "ended") {
-    const tie = battle.hostUsdMinor === battle.challengerUsdMinor;
-    battle.winnerId = tie ? null : battle.hostUsdMinor > battle.challengerUsdMinor ? battle.hostId : battle.challengerId;
+    const tie = !conceded && battle.hostUsdMinor === battle.challengerUsdMinor;
+    const hostWins = conceded ? conceded === "challenger" : battle.hostUsdMinor > battle.challengerUsdMinor;
+    battle.winnerId = tie ? null : hostWins ? battle.hostId : battle.challengerId;
+    // A practice lap too, so the host rehearses the whole thing.
+    battle.lapEndsAt = lapEndFor(battle);
   }
   await battle.save();
   await fanOutBattle(battle);
