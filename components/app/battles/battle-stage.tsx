@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
+import type { Room } from "livekit-client";
 import { ArrowClockwise, Flag, ShareNetwork, SpeakerHigh, SpeakerSlash, Trophy, X } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { shortTeamName } from "@/lib/battle-result";
@@ -92,8 +93,14 @@ export interface BattleStageProps {
   onShare?: (battle: BattleView) => void;
   /** A host action came back with the battle as it now is — hand it to the surface before the fan-out lands. */
   onBattle?: (battle: BattleView) => void;
-  /** Gift toasts poll the battle's activity feed while it runs; off where nobody's watching (radio). */
+  /** Gift toasts while it runs; off where nobody's watching (radio). */
   toasts?: boolean;
+  /**
+   * The room the stage is drawn in, while connected: its server-sent
+   * `battle` packets carry each counted gift, so the toasts need no poll
+   * (just a slow backstop). Unset, they poll the battle's activity feed.
+   */
+  room?: Room | null;
   /** More for the activity feed's query ("?previewKey=…"): a practice run's preview link. */
   feedQuery?: string;
   className?: string;
@@ -110,6 +117,7 @@ export function BattleStage({
   onBattle,
   toasts = true,
   feedQuery = "",
+  room = null,
   className,
 }: BattleStageProps) {
   const now = useNow(true) + serverOffset();
@@ -159,7 +167,7 @@ export function BattleStage({
   const [told, setTold] = useState<string | null>(null);
   if (ended && told !== battle.id) setTold(battle.id);
 
-  // Gift toasts, from the battle's activity feed (the gifts that counted).
+  // Gift toasts: the gifts that counted, pushed over the room (or, outside one, polled).
   const [toastList, setToastList] = useState<GiftToast[]>([]);
   const onHits = useCallback((hits: ClashHit[]) => {
     const at = Date.now();
@@ -170,7 +178,7 @@ export function BattleStage({
       ),
     );
   }, []);
-  useClashFeed(battle, toasts && active, onHits, feedQuery);
+  useClashFeed(battle, toasts && active, onHits, feedQuery, room);
   const clientNow = now - serverOffset();
   const shownToasts = toastList.filter((t) => clientNow - t.at < TOAST_MS);
 

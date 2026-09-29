@@ -189,8 +189,12 @@ export async function completeRequest(orderId: string | mongoose.Types.ObjectId,
 
   const stream = await Stream.findById(order.streamId);
   if (stream) {
-    const viewer = await User.findById(order.viewerId).select("createdAt").lean();
-    await applyBattleGift(stream, gift, { _id: order.viewerId, ...(viewer?.createdAt ? { createdAt: viewer.createdAt } : {}) }).catch(() => {});
+    const viewer = await User.findById(order.viewerId).select("createdAt username displayName").lean();
+    await applyBattleGift(stream, gift, {
+      _id: order.viewerId,
+      ...(viewer?.createdAt ? { createdAt: viewer.createdAt } : {}),
+      displayName: viewer?.displayName || viewer?.username || order.viewerUsername,
+    }).catch(() => {});
     const message = await ChatMessage.create({
       streamId: stream._id,
       userId: order.viewerId,

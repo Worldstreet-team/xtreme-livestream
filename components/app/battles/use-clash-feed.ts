@@ -1,42 +1,40 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Room } from "livekit-client";
 import { apiFetch } from "@/lib/api-client";
-import { isBattleActive, type BattleGift, type BattleView } from "@/lib/battles";
+import type { BattleGift, BattleView } from "@/lib/battles";
+import { clashStep, feedStillRunning, isBehind, readBattlePacket, type ClashFeedState, type ClashHit } from "@/lib/battle-feed";
+import { useServerRoomEvents } from "@/lib/room-events";
 
 /**
- * What the clash view animates: the battle, polled while the view is open,
- * turned into hits.
+ * What the clash view and the battle stage animate: the battle, followed
+ * while the view is open, turned into hits (lib/battle-feed.ts `clashStep`).
  *
- * Every few seconds it asks GET /api/battles/:id/activity for the battle
- * and the gifts that counted since the last ask. Each new gift is a hit
- * with its art and its sender. Whatever the score moved by that those
- * gifts don't account for (gifts older than the feed's page, or a score
- * that moved some other way) becomes one plain hit on that side — so the
- * view only ever animates what really changed, and nothing is invented.
+ * In the room (`room` set — the watch page, the studio), the server pushes
+ * every change to both rooms as `{ __evt: "battle", battle, gift }`, the
+ * counted gift riding with the score it moved: each packet is a step, and
+ * the only asks are one on opening (the recent gifts, listed as history)
+ * and a slow backstop for anything a dropped connection missed — plus one
+ * the moment the room comes back.
  *
- * The gifts already there on the first ask are history, not hits: they
- * were counted before the view opened, so they're listed, not replayed.
+ * Outside a room (the Home battles row's clash view, a practice preview
+ * link) nothing pushes the gifts, so it asks GET /api/battles/:id/activity
+ * every few seconds for the battle and the gifts that counted since the
+ * last ask, as before.
  */
 
-export type ClashSide = "host" | "challenger";
-
-export interface ClashHit {
-  key: string;
-  side: ClashSide;
-  usdMinor: number;
-  /** Set when a real gift explains the hit; unset for a plain score move. */
-  gift?: { name: string; emoji: string; sender: string };
-}
+export type { ClashHit, ClashSide } from "@/lib/battle-feed";
 
 type Feed = { success: boolean; data: { battle: BattleView; gifts: BattleGift[] } };
 
 export const POLL_MS = 2500;
 const BOOKED_POLL_MS = 10_000;
-/** Gifts shown one by one per poll; past this the rest ride in the plain remainder. */
-const MAX_GIFT_HITS = 8;
+/** In a room, pushes carry everything; this only mops up what a drop missed. */
+export const PUSHED_BACKSTOP_MS = 30_000;
 
 let seq = 0;
+const nextKey = () => `d${++seq}`;
 
 export function useClashFeed(
   initial: BattleView | null,
@@ -44,6 +42,8 @@ export function useClashFeed(
   onHits: (hits: ClashHit[], next: BattleView) => void,
   /** More for the query ("?previewKey=…"): how a practice run's preview link reads its practice battle. */
   feedQuery = "",
+  /** The room this battle is pushed to, when the surface is in it. */
+  room: Room | null = null,
 ) {
   const [battle, setBattle] = useState(initial);
   const [history, setHistory] = useState<BattleGift[]>([]);
@@ -61,67 +61,90 @@ export function useClashFeed(
     setHistory([]);
   }
 
+  // The feed's working state, shared by the poll and the pushes of one opening.
+  const feed = useRef<{ id: string; state: ClashFeedState; since?: string; first: boolean; poll: () => void } | null>(null);
+  /** The room's pushes, into the opening that's current. */
+  const stepRef = useRef<((next: BattleView, gift: BattleGift | null) => void) | null>(null);
+  const pushed = Boolean(room);
+
   useEffect(() => {
     if (!open || !initial) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let prev = initial;
-    let since: string | undefined;
-    let first = true;
-    const seen = new Set<string>();
-    // Booked battles only need an occasional look (has it started?).
-    let wait = initial.status === "scheduled" ? BOOKED_POLL_MS : POLL_MS;
+    const me = { id: initial.id, state: { prev: initial, seen: new Set<string>() } as ClashFeedState, since: undefined as string | undefined, first: true, poll: () => {} };
+    feed.current = me;
+    const waitFor = (b: BattleView) => (pushed ? PUSHED_BACKSTOP_MS : b.status === "scheduled" ? BOOKED_POLL_MS : POLL_MS);
+    let wait = waitFor(initial);
 
+    const schedule = () => {
+      clearTimeout(timer);
+      if (!cancelled) timer = setTimeout(poll, wait);
+    };
     const poll = async () => {
-      if (document.hidden) {
-        timer = setTimeout(poll, wait);
-        return;
-      }
+      if (document.hidden) return schedule();
       try {
-        const q = since ? `?since=${encodeURIComponent(since)}` : "?limit=6";
+        const q = me.since ? `?since=${encodeURIComponent(me.since)}` : "?limit=6";
         const more = feedQuery ? `&${feedQuery.replace(/^\?/, "")}` : "";
         const r = await apiFetch<Feed>(`/api/battles/${initial.id}/activity${q}${more}`);
         if (cancelled) return;
-        const next = r.data.battle;
-        // Oldest first, never the same gift twice.
-        const fresh = r.data.gifts.filter((g) => !seen.has(g.id)).reverse();
-        fresh.forEach((g) => seen.add(g.id));
-        if (fresh.length) since = fresh[fresh.length - 1]!.at;
-
-        const hits: ClashHit[] = [];
-        const explained = { host: 0, challenger: 0 };
-        if (first) {
-          setHistory(fresh.slice(-5).reverse());
-        } else {
-          for (const g of fresh.slice(-MAX_GIFT_HITS)) {
-            explained[g.side] += g.usdMinor;
-            hits.push({ key: `g${g.id}`, side: g.side, usdMinor: g.usdMinor, gift: { name: g.giftName, emoji: g.emoji, sender: g.sender.displayName } });
-          }
-        }
-        first = false;
-        for (const side of ["host", "challenger"] as const) {
-          const rest = next[side].usdMinor - prev[side].usdMinor - explained[side];
-          if (rest > 0) hits.push({ key: `d${++seq}`, side, usdMinor: rest });
-        }
-        prev = next;
-        wait = next.status === "scheduled" ? BOOKED_POLL_MS : POLL_MS;
-        setBattle(next);
-        onHitsRef.current(hits, next);
+        const next = step(r.data.battle, r.data.gifts, true);
+        wait = waitFor(next);
         // A battle that's over stops asking.
-        if (!isBattleActive(next) && next.status !== "scheduled" && next.status !== "invited") return;
+        if (!feedStillRunning(next)) return;
       } catch {
-        // A missed poll is fine; the next one catches up.
+        // A missed ask is fine; the next one (or a push) catches up.
       }
-      if (!cancelled) timer = setTimeout(poll, wait);
+      schedule();
     };
+    me.poll = () => void poll();
+
+    /**
+     * Count a newer view (and its gifts) into hits; hands back the view now
+     * held. Only the first ask's gifts are history: a push is always news.
+     */
+    function step(next: BattleView, gifts: readonly BattleGift[], asked: boolean) {
+      const history = asked && me.first;
+      if (asked) me.first = false;
+      const { state, hits, fresh } = clashStep(me.state, next, gifts, { history, key: nextKey });
+      me.state = state;
+      const newest = gifts.reduce<string | undefined>((at, g) => (!at || Date.parse(g.at) > Date.parse(at) ? g.at : at), me.since);
+      me.since = newest;
+      if (history) setHistory(fresh.slice(-5).reverse());
+      const held = state.prev;
+      setBattle(held);
+      onHitsRef.current(hits, held);
+      return held;
+    }
+    stepRef.current = (next, gift) => {
+      if (cancelled || next.id !== me.id) return;
+      // A push that lands before the first ask has answered is a step all the same.
+      if (isBehind(me.state.prev, next)) return;
+      step(next, gift ? [gift] : [], false);
+    };
+
     void poll();
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      stepRef.current = null;
+      if (feed.current === me) feed.current = null;
     };
     // The card's battle seeds each opening; re-polling on every card refresh would reset the deltas.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, id]);
+  }, [open, id, pushed]);
+
+  useServerRoomEvents(
+    open ? room : null,
+    ["battle"],
+    (_evt, data) => {
+      const packet = readBattlePacket(data);
+      if (packet) stepRef.current?.(packet.battle, packet.gift);
+    },
+    // Back after a drop: ask once now rather than at the backstop.
+    () => {
+      if (feed.current && !feed.current.first) feed.current.poll();
+    },
+  );
 
   return { battle, history };
 }

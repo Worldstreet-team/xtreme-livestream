@@ -4680,6 +4680,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             practiceNext={practiceNext}
             onPracticeNext={setPracticeNext}
             partner={liveGuests[0] ? { userId: liveGuests[0].userId, username: liveGuests[0].username, avatar: liveGuests[0].avatar } : null}
+            room={isLive ? liveRoom : null}
           />
         )}
       </div>
@@ -4692,6 +4693,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             markets={[...new Set([...priceStrip, ...tickers.map((t) => t.symbol), ...(scene.chart ? [scene.chart.symbol] : [])])]}
             marketPreset={marketPreset}
             marketsOn={marketsUp}
+            room={isLive ? liveRoom : null}
           />
         )}
       </div>
@@ -4875,7 +4877,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             {/* The battle stage, as viewers see it, with the host's own controls:
                 hear the other side, End battle, and after the result Rematch and End lap. */}
             {battle && streamId && (phoneBand || studioBand.style) && (
-              <BattleStage battle={battle} streamId={streamId} layout="inset" host hear={hearOther} onHear={setHearOther} onBattle={setHeardBattle} toasts={isLive} />
+              <BattleStage battle={battle} streamId={streamId} layout="inset" host hear={hearOther} onHear={setHearOther} onBattle={setHeardBattle} toasts={isLive} room={isLive ? liveRoom : null} />
             )}
             {/* The chat on screen (host-only, never in the program): LiveChat draws its lane in here. */}
             {chatOnScreen.shows && (

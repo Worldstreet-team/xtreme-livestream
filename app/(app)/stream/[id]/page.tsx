@@ -43,12 +43,14 @@ import { BattleStage } from "@/components/app/battles/battle-stage";
 import { portraitBandStyle, useColumnBand, useOnStage } from "@/components/app/battles/use-band";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
 import { SparringTile } from "@/components/app/battles/sparring-tile";
+import { ChatBackdrop } from "@/components/app/battles/chat-backdrop";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
 import { brandWithSet, setById } from "@/lib/sets";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
 import { sideOf, type BattleView } from "@/lib/battles";
+import { isBehind } from "@/lib/battle-feed";
 import { useShareBattleGifts } from "@/lib/battle-gifts";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
@@ -122,6 +124,8 @@ const REPORT_REASONS: Array<{ value: string; label: string }> = [
 ];
 
 const EYEBROW = "caps font-mono text-[10.5px] text-muted-foreground";
+/** What the room pushes (the battle, the game) is only polled this often while it's connected. */
+const ROOM_BACKSTOP_MS = 60_000;
 /** Section titles under the player — the same voice as the shelves below them. */
 const SECTION_TITLE =
   "mb-3.5 flex min-w-0 items-center gap-2.5 font-wide text-[17px] font-bold tracking-[-0.02em] text-foreground md:text-[19px]";
@@ -208,7 +212,9 @@ function RailButton({
       <span
         className={cn(
           "relative flex size-12 items-center justify-center rounded-full transition-colors",
-          tone === "obj" && "obj text-white",
+          // Plain actions are bare icons with a soft shadow, not buttons in
+          // boxes; a state that needs saying (asked, muted, leave) keeps its fill.
+          tone === "obj" && "text-white [&_svg]:size-[30px] [&_svg]:drop-shadow-[0_2px_6px_rgba(0,0,0,0.55)]",
           tone === "chili" && "bg-chili text-white",
           tone === "ember" && "bg-ember text-on-ember",
           pulse && "animate-pulse"
@@ -449,6 +455,8 @@ export default function StreamPage({
   // A battle's result card, open: held here so it outlives the scoreboard,
   // which lets an ended battle go a couple of minutes after the clock.
   const [shareBattle, setShareBattle] = useState<BattleView | null>(null);
+  /** The phone view, for the battle chat's backdrop to find the band's videos in. */
+  const battleRoot = useCallback(() => document.querySelector<HTMLElement>("[data-watch-phone]"), []);
   // The phone's track comes and goes: a re-render of its own, never the host's element re-attached.
   const [, setPhoneEpoch] = useState(0);
   const anglePick = useAnglePick(id);
@@ -778,12 +786,16 @@ export default function StreamPage({
   // Quiet re-checks in BOTH directions: a stream that starts after the page
   // opened appears without a refresh, and a stream that ends while the page
   // sits on "waiting for the broadcaster" flips to the ended state instead
-  // of spinning forever.
+  // of spinning forever. Once the room is connected it says all of it
+  // itself — likes, goal, heat, title, the feed dropping, the room closing,
+  // and the viewer count comes from the room — so this slows to a backstop.
+  // Not for a preview link: the host stopping sharing only shows as a 404 here.
+  const streamPollMs = connected && !preview.on ? ROOM_BACKSTOP_MS : 10_000;
   useEffect(() => {
     if (loading) return;
-    const poll = setInterval(() => void fetchStream({ quiet: true }), 10_000);
+    const poll = setInterval(() => void fetchStream({ quiet: true }), streamPollMs);
     return () => clearInterval(poll);
-  }, [loading, fetchStream]);
+  }, [loading, fetchStream, streamPollMs]);
 
   useEffect(() => {
     if (stream && !stream.isLive) setStreamEnded(true);
@@ -1525,20 +1537,25 @@ export default function StreamPage({
     // rejoinNonce: a bump re-runs this to go back in after a drop.
   }, [stream?.isLive, authLoading, rejoinNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The battle and the game: pushed over the room (`battle` and `game`
+  // events above) while it's connected, so the poll is only a backstop
+  // then; off the room (waiting for the broadcaster, a drop) it keeps
+  // its pace. Connecting asks once, for whatever was said before.
+  const statePollMs = connected ? ROOM_BACKSTOP_MS : 8000;
   useEffect(() => {
     let cancelled = false;
     const load = () =>
       // A preview link sees its practice run's practice battle through its key.
       apiFetch<{ success: boolean; data: { battle: BattleView | null } }>(`/api/streams/${id}/battle${preview.query}`)
-        .then((r) => !cancelled && setBattle(r.data.battle))
+        .then((r) => !cancelled && setBattle((held) => (held && r.data.battle && isBehind(held, r.data.battle) ? held : r.data.battle)))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, statePollMs);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [id, preview.query]);
+  }, [id, preview.query, statePollMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1547,12 +1564,12 @@ export default function StreamPage({
         .then((r) => !cancelled && setGame(r.data.game))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 8000);
+    const t = setInterval(load, statePollMs);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, [id]);
+  }, [id, statePollMs]);
 
   // Track fullscreen exits (e.g. pressing Escape)
   useEffect(() => {
@@ -2686,6 +2703,7 @@ export default function StreamPage({
     return (
       <div
         ref={sidewaysBand.ref}
+        data-watch-phone
         className="fixed inset-0 z-[60] bg-black"
         style={band ? portraitBandStyle("calc(max(env(safe-area-inset-top), 12px) + 92px)") : sideways ? sidewaysBand.style : undefined}
       >
@@ -2762,6 +2780,14 @@ export default function StreamPage({
         {!band && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
         )}
+        {/* In a battle the chat sits on the live picture itself, blurred and
+            darkened under the band — the room's colour, felt more than seen. */}
+        {band && (
+          <ChatBackdrop
+            root={battleRoot}
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] top-[calc(var(--band-top)+var(--band-h))] overflow-hidden"
+          />
+        )}
         {/* Gift banners ride above the chat lane, not over it. */}
         <GiftOverlay onReady={handleGiftOverlayReady} laneBottom="calc(34dvh + 96px + env(safe-area-inset-bottom))" />
         <FloatingHearts onReady={handleHeartsReady} />
@@ -2821,6 +2847,7 @@ export default function StreamPage({
             onShare={setShareBattle}
             feedQuery={preview.query}
             toasts={!radio}
+            room={connected ? roomRef.current : null}
             className={band ? "right-16" : undefined}
           />
         )}
@@ -3480,6 +3507,7 @@ export default function StreamPage({
                 onShare={setShareBattle}
                 feedQuery={preview.query}
                 toasts={!radio}
+                room={connected ? roomRef.current : null}
               />
             )}
             {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}

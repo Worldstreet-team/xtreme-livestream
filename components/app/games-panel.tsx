@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Room } from "livekit-client";
 import { formatMarketTime, type MarketOracleBody, type MarketQuestionPreset } from "@xtreme/contracts";
 import { Sparkle, X, Plus, Trophy, Coins, Ticket, Question, Check, ChartLineUp } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { GAME_LABEL, STALE_REFUND_HOURS, formatPoints, holdsStakes, pickShare, questionOf, secondsToClose, type GameType, type GameView } from "@/lib/games";
 import { formatClock } from "@/lib/battles";
 import { useNow } from "@/lib/use-now";
+import { useServerRoomEvents } from "@/lib/room-events";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/pill";
 import { Tip } from "@/components/ui/tip";
 import { PillTabs } from "@/components/ui/tabs";
 import { SwitchField } from "@/components/ui/selection-controls";
 import { MarketQuestionForm } from "@/components/app/market-question-form";
+
+/** How often the panel looks for itself, with the room pushing every change. */
+const BACKSTOP_MS = 60_000;
 
 /** What the host can open: the three game types, and the market question (a prediction the market settles). */
 type Template = GameType | "market";
@@ -23,6 +28,11 @@ type Template = GameType | "market";
  * needs, open it, watch it build, then settle: tap the outcome that
  * happened, draw the raffle, or let the quiz reveal itself. A market
  * question settles itself from Coinbase. Cancel refunds everyone.
+ *
+ * Live, the room hears every change to the game (the server's `game`
+ * event: opened, entered, locked, settled, called off), so the panel
+ * follows that instead of polling; it looks for itself on opening, when
+ * the room comes back, and once a minute as a backstop.
  */
 export function GamesPanel({
   streamId,
@@ -30,6 +40,7 @@ export function GamesPanel({
   markets = [],
   marketPreset = null,
   marketsOn = true,
+  room = null,
 }: {
   streamId: string;
   /** Inside a sheet or tab: full width, form open from the start, no toggle. */
@@ -38,6 +49,8 @@ export function GamesPanel({
   marketsOn?: boolean;
   /** Markets a market question offers first: the price strip's, chat's tickers, the chart's. */
   markets?: string[];
+  /** The host's live room, while connected: the game is pushed to it. */
+  room?: Room | null;
   /** A market question to fill in (a market move's "Ask chat") — opens the Market template with it; a new object each time. */
   marketPreset?: MarketQuestionPreset | null;
 }) {
@@ -57,19 +70,36 @@ export function GamesPanel({
   const [voteOnly, setVoteOnly] = useState(false);
   const now = useNow(!!game && game.status === "open");
 
+  // One look at the game; a newer ask (or a push) supersedes any still in flight.
+  const asked = useRef(0);
+  const load = useCallback(() => {
+    const n = ++asked.current;
+    apiFetch<{ success: boolean; data: { game: GameView | null } }>(`/api/streams/${streamId}/games/current`)
+      .then((r) => n === asked.current && setGame(r.data.game))
+      .catch(() => {});
+  }, [streamId]);
+
   useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      apiFetch<{ success: boolean; data: { game: GameView | null } }>(`/api/streams/${streamId}/games/current`)
-        .then((r) => !cancelled && setGame(r.data.game))
-        .catch(() => {});
-    void load();
-    const t = setInterval(load, 3000);
+    load();
+    const t = setInterval(() => document.visibilityState === "visible" && load(), BACKSTOP_MS);
     return () => {
-      cancelled = true;
       clearInterval(t);
     };
-  }, [streamId]);
+  }, [load]);
+
+  // Live: the room's word on the game (server-sent only). The host never
+  // has an entry of their own, so the broadcast view is the whole story.
+  useServerRoomEvents(
+    room,
+    ["game"],
+    (_evt, data) => {
+      const next = data.game as GameView | undefined;
+      if (!next || typeof next !== "object" || typeof next.id !== "string" || next.streamId !== streamId) return;
+      asked.current++;
+      setGame(next);
+    },
+    load,
+  );
 
   // "Ask chat" on a market move: the Market template, filled in, for the host to open.
   const [seenPreset, setSeenPreset] = useState(marketPreset);
