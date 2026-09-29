@@ -1,3 +1,4 @@
+import { xtreamBattleChange } from "../xtream-events.js";
 import type { FastifyPluginAsync } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
@@ -273,6 +274,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       battle.endedReason = "declined";
       await battle.save();
       await fanOutBattle(battle);
+      xtreamBattleChange(battle, "declined");
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
   );
@@ -286,6 +288,7 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       if (!battle) throw new ApiError(404, "Battle not found", "BATTLE_NOT_FOUND");
       if (!battle.hostId.equals(dbUser._id) && !battle.challengerId.equals(dbUser._id)) throw new ApiError(403, "Not your battle", "NOT_IN_BATTLE");
       if (!["scheduled", "invited", "live", "overtime"].includes(battle.status)) throw new ApiError(409, "This battle is already over", "BATTLE_OVER");
+      const was = battle.status;
       if (battle.status === "scheduled") {
         battle.status = "cancelled";
         battle.endedReason = "cancelled";
@@ -293,6 +296,9 @@ export const battleRoutes: FastifyPluginAsync = async (fastify) => {
       } else {
         await settleBattle(battle, "cancelled");
       }
+      // A booking called off, or an invite taken back, reaches both creators; a running battle's end is battle.ended.
+      if (was === "scheduled") xtreamBattleChange(battle, "cancelled");
+      else if (was === "invited") xtreamBattleChange(battle, "withdrawn");
       return { success: true, data: { battle: await toBattleView(battle) } };
     },
   );

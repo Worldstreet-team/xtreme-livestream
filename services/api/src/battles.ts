@@ -15,7 +15,7 @@ import {
 import { sendRoomData } from "./livekit.js";
 import { audit, payBattleBonus } from "./rewards.js";
 import { relayBattleResult } from "./socials-relay.js";
-import { pushNotifications, xtreamBattle } from "./xtream-events.js";
+import { pushNotifications, xtreamBattle, xtreamBattleChange, xtreamBattleGift } from "./xtream-events.js";
 import { fireRules } from "./rules.js";
 import {
   PRACTICE_BATTLE_SEC,
@@ -409,6 +409,8 @@ export async function fanOutBattle(b: IBattle, gift?: BattleGiftView) {
     .lean();
   const packet = gift ? { __evt: "battle", battle: view, gift } : { __evt: "battle", battle: view };
   await Promise.all(streams.map((s) => sendRoomData(s.livekitRoomName, packet).catch(() => {})));
+  // Watchers outside the rooms (the Home battles row) hear the gift on the battle's own channel.
+  if (gift) xtreamBattleGift(b, gift, { host: b.hostUsdMinor, challenger: b.challengerUsdMinor });
   return view;
 }
 
@@ -485,6 +487,7 @@ export async function inviteToBattle(
     ...(durationSec ? { durationSec } : {}),
   });
   await notify(challengerStream.streamerId as mongoose.Types.ObjectId, "battle_invite", host, hostStream);
+  xtreamBattleChange(battle, "invited");
   // The challenger's room hears it too, so the studio shows the invite at once.
   const view = await toBattleView(battle);
   await sendRoomData(challengerStream.livekitRoomName, { __evt: "battle_invite", battle: view }).catch(() => {});
@@ -511,6 +514,7 @@ export async function startBattle(battle: IBattle) {
   await battle.save();
   await fanOutBattle(battle);
   xtreamBattle("started", battle);
+  xtreamBattleChange(battle, "accepted");
   return battle;
 }
 
@@ -854,6 +858,7 @@ export async function scheduleBattle(
   });
   const fake = { _id: placeholder, title: `Battle: ${host.displayName || host.username} vs ${challenger.displayName || challenger.username}` } as Pick<IStream, "_id" | "title">;
   await notify(challenger._id, "battle_invite", host, fake);
+  xtreamBattleChange(battle, "invited");
   return battle;
 }
 
@@ -894,6 +899,8 @@ export function startBattleSweep() {
           b.status = "cancelled";
           b.endedReason = "expired";
           await b.save();
+          // A booking that never started: both creators hear it, not just the sweep.
+          xtreamBattleChange(b, "lapsed");
         }
       } catch (error) {
         console.error("scheduled battle start failed:", error);
@@ -932,7 +939,10 @@ export async function expireInvites(now = new Date()) {
         { $set: { status: "cancelled", endedReason: "expired" } },
         { new: true },
       );
-      if (lapsed) await fanOutBattle(lapsed);
+      if (lapsed) {
+        await fanOutBattle(lapsed);
+        xtreamBattleChange(lapsed, "expired");
+      }
     } catch (error) {
       console.error("battle invite expiry failed:", error);
     }

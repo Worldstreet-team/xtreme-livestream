@@ -284,6 +284,76 @@ export function xtreamBattle(kind: "started" | "ended", battle: BattleLike) {
   ]);
 }
 
+/** What happened to a battle, for the people in it (their own channels). */
+export type BattleChange = "invited" | "accepted" | "declined" | "withdrawn" | "expired" | "matched" | "cancelled" | "lapsed";
+
+interface BattleParties extends BattleLike {
+  hostId: unknown;
+  challengerId: unknown;
+  hostPartnerId?: unknown;
+  challengerPartnerId?: unknown;
+}
+
+/**
+ * A battle changed for the creators in it — both hosts, and a 2v2's
+ * partners: each one's own channel hears `battle { battleId, change }`, and
+ * their studio's battle panel reads /battles/mine again. Ids only, never
+ * the battle itself, so nothing here can drift from the real view. It
+ * reaches them off the room too (a creator not live, a booking), where the
+ * room's own packets can't. Never a practice battle.
+ */
+export function xtreamBattleChange(battle: BattleParties, change: BattleChange) {
+  if (battle.practice) return;
+  const ids = [...new Set([battle.hostId, battle.challengerId, battle.hostPartnerId, battle.challengerPartnerId].filter(Boolean).map(String))];
+  if (ids.length === 0) return;
+  detached("battle change", async () => {
+    const users = await User.find({ _id: { $in: ids } }).select("authUserId").lean();
+    const battleId = String(battle._id);
+    publishXtreamEvents(
+      (users as Array<{ authUserId?: string }>).flatMap((u) => (u.authUserId ? [{ to: u.authUserId, name: "battle", data: { battleId, change } }] : [])),
+    );
+  });
+}
+
+/** What the gateway takes as a battle's channel name. */
+const BATTLE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * A gift counted in a battle: the battle's own channel
+ * (`xtream:battle:<id>`, message "gift") hears it with both new totals, for
+ * anyone watching the battle from outside its rooms (the Home battles row's
+ * clash view). Only those who open that view subscribe. Points, never money
+ * (the score is gift value in cents, already public on the battle); flat,
+ * like every event. Never a practice battle.
+ */
+export function xtreamBattleGift(
+  battle: BattleLike,
+  gift: { id: string; side: "host" | "challenger"; usdMinor: number; giftName: string; emoji: string; sender: { userId: string; displayName: string }; at: string },
+  totals: { host: number; challenger: number },
+) {
+  if (battle.practice) return;
+  const battleId = String(battle._id);
+  if (!BATTLE_ID.test(battleId)) return;
+  publishXtreamEvents([
+    {
+      to: `battle:${battleId}`,
+      name: "gift",
+      data: {
+        id: gift.id,
+        side: gift.side,
+        points: gift.usdMinor,
+        giftName: gift.giftName,
+        emoji: gift.emoji,
+        senderId: gift.sender.userId,
+        senderName: gift.sender.displayName,
+        at: gift.at,
+        hostPoints: totals.host,
+        challengerPoints: totals.challenger,
+      },
+    },
+  ]);
+}
+
 /**
  * The phone cam (`cam-<userId>`) joined or left a room: the streamer's own
  * devices hear it, so "Use this phone" and the studio's camera slot follow

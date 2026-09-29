@@ -9,7 +9,10 @@
  *   `battle.started`, `battle.ended`);
  * - personal events on the person's own `user:<profileId>` channel, as
  *   message `xtream` with the event's name in `data.type` (`notification`,
- *   `live`).
+ *   `live`, `battle` — a battle you're in changed: `{ battleId, change }`).
+ * - a battle's gifts on its own `xtream:battle:<id>` channel (message
+ *   `gift`), for whoever has that battle's clash view open
+ *   (`useXtreamBattleGifts` in lib/xtream-live-events.ts).
  *
  * The hub turns both into one stream of pushes and keeps one fact the
  * polls pace themselves by: pushes are arriving right now (at least one
@@ -30,7 +33,8 @@ export type XtreamPushName =
   | "battle.started"
   | "battle.ended"
   | "notification"
-  | "live";
+  | "live"
+  | "battle";
 
 export interface XtreamPush {
   name: string;
