@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 // helpers are exercised from here via a relative import.
 import type { BattleSide, BattleView } from "../../../lib/battles";
 import { formatPoints, formatPracticeScore } from "../../../lib/battles";
+import { resultOf } from "../../../lib/battle-result";
 import {
   BAR_H,
   SHARE_MIN,
@@ -233,6 +234,12 @@ describe("for screen readers", () => {
     expect(shouldAnnounce(prev, "host", "b", T0 + 10_000)).toBe(true);
     expect(shouldAnnounce(prev, "host", "a", T0 + 60_000)).toBe(false);
     expect(shouldAnnounce(prev, "challenger", "b", T0 + 1_000)).toBe(true);
+  });
+
+  it("tells the result card when the other side ended it early", () => {
+    expect(resultOf(won({ endedReason: "conceded" })).subline).toBe("The other side ended it early");
+    expect(resultOf(won()).subline).toBeNull();
+    expect(resultOf(won({ endedReason: "conceded", overtimeUsed: true })).subline).toBe("Won in overtime");
   });
 
   it("says the result once", () => {
