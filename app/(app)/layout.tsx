@@ -2,12 +2,32 @@
 
 import { signInHref } from "@/lib/auth-urls";
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app/sidebar";
 import { VividVoiceProvider } from "@/components/vivid-provider";
 import { CallProvider } from "@/components/app/calls/call-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useViewerFrame } from "@/lib/viewer-view";
+import { WELCOME_SKIP_KEY } from "@/components/app/welcome/onboarding-flow";
+
+/** A new account gets the first-run flow; older ones never do. */
+const WELCOME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Pages the first-run flow never interrupts: someone who arrived on a
+ * stream, a channel or a camera link came for that, and the studio is
+ * already where a new creator wants to be. The flow waits for their next page.
+ */
+function welcomeWaits(pathname: string) {
+  return (
+    pathname.startsWith("/welcome") ||
+    pathname.startsWith("/stream/") ||
+    pathname.startsWith("/c/") ||
+    pathname.startsWith("/camera/") ||
+    pathname.startsWith("/studio") ||
+    pathname.startsWith("/produce/")
+  );
+}
 
 
 /** Routes browsable without an account (interactions still require sign-in). */
@@ -29,8 +49,9 @@ function isPublicPath(pathname: string) {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { isLoading, isAuthenticated, error, refreshUser } = useAuth();
+  const { user, isLoading, isAuthenticated, error, refreshUser } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const publicPath = isPublicPath(pathname);
   // The studio's "See what viewers see" frame is a second copy of the app: it mustn't ring for calls too.
   const viewerFrame = useViewerFrame();
@@ -44,11 +65,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [publicPath, isLoading, isAuthenticated, error]);
 
-  // Onboarding is built and reachable at /welcome, but nothing routes anyone
-  // into it for now — a first sign-in lands straight on the home page. To
-  // bring it back, restore the redirect: for a user with no picker done and
-  // nobody followed, who hasn't stored "xtreme-welcome-seen", replace the
-  // route with /welcome (skipping /welcome itself and /stream/ pages).
+  // The first-run flow (/welcome), once: a new account (under a week old)
+  // that hasn't finished or skipped it and follows nobody yet. It comes back
+  // to the page they were on. Finishing or skipping on the app counts too —
+  // the record is on the account.
+  const onboarding = user?.onboarding;
+  const createdAt = user?.createdAt ? new Date(user.createdAt).getTime() : 0;
+  const welcomeDue =
+    Boolean(user) &&
+    !viewerFrame &&
+    !onboarding?.completedAt &&
+    !onboarding?.skippedAt &&
+    (user?.following ?? 0) === 0 &&
+    !welcomeWaits(pathname);
+  useEffect(() => {
+    if (!welcomeDue || Date.now() - createdAt >= WELCOME_WINDOW_MS) return;
+    try {
+      if (localStorage.getItem(WELCOME_SKIP_KEY)) return;
+    } catch {
+      // Storage off: the account's record decides.
+    }
+    router.replace(`/welcome?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  }, [welcomeDue, createdAt, router]);
 
   // Public pages render immediately for everyone — no auth gate
   if (publicPath) {
