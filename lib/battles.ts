@@ -28,6 +28,12 @@ export interface BattleSide {
   top?: Array<{ userId: string; username: string; displayName: string; avatar: string; usdMinor: number }>;
   /** A 2v2's partner on this side's stage (null in a 1v1). */
   partner?: BattlePartner | null;
+  /**
+   * Straight wins in a row: the run going in, and once the battle is
+   * settled one more for the winner (a loss or a draw ends a run). 0 when
+   * there is none, and always in a practice battle.
+   */
+  streak?: number;
 }
 
 export interface BattleView {
@@ -59,6 +65,12 @@ export interface BattleView {
    * written as money.
    */
   practice?: boolean;
+  /**
+   * When a settled battle's result stops showing: the victory lap (three
+   * minutes after a win, unless a host ends it early), or a few seconds
+   * after a draw. Null before it's settled.
+   */
+  lapEndsAt?: string | null;
 }
 
 /**
@@ -88,8 +100,22 @@ export const PRACTICE_TEST_GIFTS = [
  */
 export function formatPracticeScore(minor: number, compact = false) {
   const n = Math.max(0, Math.round(minor));
-  if (compact && n >= 10_000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1).replace(/\.0$/, "")}K pts`;
+  if (compact && n >= 10_000) return `${formatPoints(n)} pts`;
   return `${n.toLocaleString("en-US")} pts`;
+}
+
+/**
+ * Battle points, the way the score bar writes them — never money: a point
+ * is a cent of gift value. Whole and grouped to 9,999, then short: "12.4K",
+ * "125K", "1.2M", "12M".
+ */
+export function formatPoints(minor: number) {
+  const n = Number.isFinite(minor) ? Math.max(0, Math.round(minor)) : 0;
+  if (n < 10_000) return n.toLocaleString("en-US");
+  const short = (v: number, digits: number) => v.toFixed(digits).replace(/\.0$/, "");
+  if (n < 99_950) return `${short(n / 1000, 1)}K`;
+  if (n < 999_500) return `${short(n / 1000, 0)}K`;
+  return `${short(n / 1_000_000, n < 9_950_000 ? 1 : 0)}M`;
 }
 
 /** A side as people say it: "Ada", or a pair, "Ada & Tolu". */

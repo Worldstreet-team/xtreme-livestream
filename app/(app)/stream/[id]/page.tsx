@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { registerVividContext } from "@/lib/vivid/page-context";
 import {
   Eye,
@@ -39,7 +39,8 @@ import { Tip } from "@/components/ui/tip";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/feedback";
 import { signInHref } from "@/lib/auth-urls";
-import { BattleBar } from "@/components/app/battle-bar";
+import { BattleStage } from "@/components/app/battles/battle-stage";
+import { portraitBandStyle, useColumnBand, useOnStage } from "@/components/app/battles/use-band";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
 import { SparringTile } from "@/components/app/battles/sparring-tile";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
@@ -47,7 +48,7 @@ import { SetStinger } from "@/components/app/set-stinger";
 import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
 import { brandWithSet, setById } from "@/lib/sets";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
-import { isBattleActive, sideOf, type BattleView } from "@/lib/battles";
+import { sideOf, type BattleView } from "@/lib/battles";
 import { useShareBattleGifts } from "@/lib/battle-gifts";
 import { PlayPanel } from "@/components/app/play-panel";
 import { ScheduleList } from "@/components/app/supporters-strip";
@@ -617,6 +618,17 @@ export default function StreamPage({
   const [battle, setBattle] = useState<BattleView | null>(null);
   // Which gifts count in it, for the gift picker to mark.
   useShareBattleGifts(battle);
+  // The battle owns the stage while it runs and through its result (the
+  // victory lap, or a draw's few seconds): the two sides stay up side by side.
+  const battleStaged = useOnStage(battle);
+  const stagedBattle = battleStaged ? battle : null;
+  // Hear the other side too? Off by default, and off again for each new battle.
+  const [hearOther, setHearOther] = useState(false);
+  const [hearFor, setHearFor] = useState(battle?.id ?? null);
+  if ((battle?.id ?? null) !== hearFor) {
+    setHearFor(battle?.id ?? null);
+    setHearOther(false);
+  }
   // The prediction running in this stream, if any — same feed: room events
   // plus a slow poll.
   const [game, setGame] = useState<GameView | null>(null);
@@ -644,8 +656,11 @@ export default function StreamPage({
   // A 2v2's other pair: their host and partner over one connection to their
   // room, a tile each. (A 1v1's other side is one LivePreview.)
   const pairOpponent =
-    battle && isBattleActive(battle) && battle.mode === "2v2" ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
-  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, !radio);
+    stagedBattle && stagedBattle.mode === "2v2" ? (sideOf(stagedBattle, id) === "host" ? stagedBattle.challenger : stagedBattle.host) : null;
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, !radio, hearOther);
+  // Where the band sits on a computer's player (and a phone held sideways): a centred portrait column.
+  const deskBand = useColumnBand(Boolean(stagedBattle) && !isMobileView, { top: 12, bottom: 12 });
+  const sidewaysBand = useColumnBand(Boolean(stagedBattle) && isMobileView && !portraitScreen, { top: 60, bottom: 12 });
   // The host's guest faders: every guest plays at the level the scene carries.
   const sceneGains = stream?.scene?.gains;
   useEffect(() => {
@@ -2377,9 +2392,9 @@ export default function StreamPage({
   // The host's feed dropped and the stream is holding for it (the API's
   // reconnect grace): say so plainly, instead of a black or frozen frame.
   const hostAway = stream.isLive && Boolean(stream.feedDroppedAt) && !hasVideo && !playbackError;
-  // In a battle the scoreboard stays up top (gifts still count), so the
+  // In a battle the score bar stays up top (gifts still count), so the
   // card sits below it rather than under it.
-  const battleUp = Boolean(battle && (isBattleActive(battle) || battle.status === "ended"));
+  const battleUp = battleStaged;
   /** The player's badges and controls are up (they fade while live and idle). */
   const chromeShown = controlsVisible || !stream.isLive;
   const brbCard = (
@@ -2573,24 +2588,14 @@ export default function StreamPage({
     </div>
   );
 
-  // A battle's other side, while it's on: a muted picture of their room on
-  // our stage — the same tile on a phone and on the desktop player.
-  const opponent =
-    battle && isBattleActive(battle) ? (sideOf(battle, id) === "host" ? battle.challenger : battle.host) : null;
-  /** The other side's picture, named on it: "Ada · muted". */
-  const previewCell = (key: string, name: string, picture: ReactNode): SceneCell => ({
+  // A battle's other side, while it runs and through its result: a picture
+  // of their room on our stage (their sound only if this viewer turns it
+  // up) — the same tile on a phone and on the desktop player.
+  const opponent = stagedBattle ? (sideOf(stagedBattle, id) === "host" ? stagedBattle.challenger : stagedBattle.host) : null;
+  /** The other side's picture. BattleStage names it, with the speaker, over the band. */
+  const previewCell = (key: string, _name: string, picture: ReactNode): SceneCell => ({
     key,
-    node: (
-      <div className="relative size-full bg-black">
-        {picture}
-        <div className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-full bg-black/55 px-2.5 py-1">
-          <span className="block truncate text-xs font-semibold text-white">
-            {name}
-            <span className="font-medium text-white/60"> · muted</span>
-          </span>
-        </div>
-      </div>
-    ),
+    node: <div className="relative size-full bg-black">{picture}</div>,
   });
   const opponentCell = (o: BattleView["host"]): SceneCell =>
     // A practice battle's sparring partner is nobody, so it's drawn, not watched.
@@ -2599,11 +2604,11 @@ export default function StreamPage({
       : previewCell(
           "opponent",
           o.displayName,
-          <LivePreview streamId={o.streamId} enabled={!radio} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
+          <LivePreview streamId={o.streamId} enabled={!radio} hear={hearOther} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
         );
   /**
-   * Everyone else in the picture, in the order the scene brings them in: a
-   * battle's other side, the guests, you. A 2v2 is a 2×2 — our pair down
+   * Everyone else in the picture, in the order the scene brings them in:
+   * the guests, you — or in a battle, its other side alone. A 2v2 is a 2×2 — our pair down
    * the left, theirs down the right, so after our host the grid takes their
    * host, our partner, their partner. Other guests sit the battle out.
    */
@@ -2634,7 +2639,9 @@ export default function StreamPage({
           : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
       ];
     }
-    return [...(opponent ? [opponentCell(opponent)] : []), ...onStage.map(guestCell), ...(me ? [me] : [])];
+    // A 1v1 is exactly two halves: the guests sit it out, as a 2v2's others do.
+    if (opponent) return [opponentCell(opponent)];
+    return [...onStage.map(guestCell), ...(me ? [me] : [])];
   };
 
   /**
@@ -2669,13 +2676,18 @@ export default function StreamPage({
     const others = stageCells();
     const sharing = tilesShown(others.length) > 0;
     // A battle on an upright phone, TikTok's way: the two sides side by side
-    // in a band under the header, the scoreboard and "Back" right under
-    // them where a thumb reaches, the chat in what's left.
+    // in a band under the header — the score bar on top, each half 9:16 —
+    // and the chat in what's left, on the room's dark. Held sideways, the
+    // sides are a centred portrait column, as on a computer.
     const band = Boolean(opponent) && portraitScreen;
+    const sideways = Boolean(opponent) && !portraitScreen;
+    // The result is up (the victory lap): its card and Share sit under the band, so the chat starts lower.
+    const battleResult = Boolean(stagedBattle && stagedBattle.status === "ended");
     return (
       <div
+        ref={sidewaysBand.ref}
         className="fixed inset-0 z-[60] bg-black"
-        style={{ "--band-top": "calc(max(env(safe-area-inset-top), 12px) + 98px)", "--band-h": "min(80vw, 40dvh)" } as CSSProperties}
+        style={band ? portraitBandStyle("calc(max(env(safe-area-inset-top), 12px) + 92px)") : sideways ? sidewaysBand.style : undefined}
       >
         {/* The program, drawn from the scene — full-bleed, and split along
             the screen's long axis: rows while upright, columns once the
@@ -2684,15 +2696,16 @@ export default function StreamPage({
         <div className="absolute inset-0">
           <SceneRenderer
             scene={scene}
-            portrait={band ? false : portraitScreen}
+            portrait={opponent ? false : portraitScreen}
             forceAuto={Boolean(opponent)}
             layout={resolved.layout}
             phone={phoneTile}
             phoneSlot={resolved.slot}
             face={hostFace}
-            stage={band ? { top: "var(--band-top)", height: "var(--band-h)" } : undefined}
+            stage={band ? { top: "var(--band-top)", height: "var(--band-h)" } : sideways ? sidewaysBand.stage : undefined}
             host={{ name: hostName, avatar: streamer.avatar }}
-            mainLabel={hostName}
+            // In a battle the stage names the sides itself.
+            mainLabel={opponent ? undefined : hostName}
             main={
               <div className="relative size-full">
                 <video
@@ -2743,8 +2756,12 @@ export default function StreamPage({
 
         {radio && stream.isLive && <RadioCard name={hostName} avatar={streamer.avatar} onPicture={() => pickPicture(dataMode)} />}
 
-        {/* Light falls off at the bottom, so the chat lane reads on any picture. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+        {/* Light falls off at the bottom, so the chat lane reads on any picture.
+            In a battle's band the chat sits on the room's dark instead, and
+            the feeds stay clear to their edges. */}
+        {!band && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+        )}
         {/* Gift banners ride above the chat lane, not over it. */}
         <GiftOverlay onReady={handleGiftOverlayReady} laneBottom="calc(34dvh + 96px + env(safe-area-inset-bottom))" />
         <FloatingHearts onReady={handleHeartsReady} />
@@ -2792,47 +2809,19 @@ export default function StreamPage({
           </div>
         )}
 
-        {/* The battle's scoreboard: under the band while the sides are up,
-            under the header while the result stays on after the clock. */}
-        {battle && (isBattleActive(battle) || battle.status === "ended") && (
-          <BattleBar
-            battle={battle}
+        {/* The battle stage over the band: the score bar, the clock, the
+            streaks, seats and names, gift toasts, and the result. */}
+        {stagedBattle && (band || sidewaysBand.style) && (
+          <BattleStage
+            battle={stagedBattle}
             streamId={id}
+            layout={band ? "phone" : "inset"}
+            hear={hearOther}
+            onHear={setHearOther}
             onShare={setShareBattle}
             feedQuery={preview.query}
-            className={band ? "top-[calc(var(--band-top)+var(--band-h)+10px)]" : "top-[calc(var(--band-top)+4px)]"}
-            // Like and share ride in the scoreboard's row while the band is
-            // up — the side rail would climb over the totals on a short phone.
-            actionsEnd={
-              band && !preview.on ? (
-                <>
-                  {/* Icon-only: with Back and Their side, the row has to fit a 375px screen. */}
-                  <Tip label={user && !liked ? "Like this stream" : "Send a heart"} side="bottom">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        heartsRef.current?.push();
-                        if (user && !liked) void toggleLike();
-                      }}
-                      aria-label={`${liked ? "Liked" : "Like"} · ${formatNumber(likeCount)}`}
-                      className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
-                    >
-                      <Heart size={15} weight="fill" className={liked ? "text-chili" : "text-white"} />
-                    </button>
-                  </Tip>
-                  <Tip label={copied ? "Link copied" : "Share this stream"} side="bottom">
-                    <button
-                      type="button"
-                      onClick={shareStream}
-                      aria-label={copied ? "Link copied" : "Share this stream"}
-                      className="press flex size-8 items-center justify-center rounded-full bg-control text-white hover:bg-control-hover"
-                    >
-                      {copied ? <Check size={15} weight="bold" /> : <ShareNetwork size={15} weight="fill" />}
-                    </button>
-                  </Tip>
-                </>
-              ) : undefined
-            }
+            toasts={!radio}
+            className={band ? "right-16" : undefined}
           />
         )}
         {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
@@ -3043,8 +3032,8 @@ export default function StreamPage({
               icon={<Ticket size={22} weight="fill" />}
             />
           )}
-          {/* In a battle's band these two ride in the scoreboard instead. A preview has neither. */}
-          {!band && !preview.on && (
+          {/* A preview has neither. */}
+          {!preview.on && (
             <>
               <RailButton
                 title={liked ? "Liked" : "Like"}
@@ -3129,8 +3118,9 @@ export default function StreamPage({
         <div
           className={cn(
             "pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pr-16 pb-[max(env(safe-area-inset-bottom),10px)]",
-            // In a battle the chat takes what's left under the scoreboard.
-            band && "top-[calc(var(--band-top)+var(--band-h)+132px)]"
+            // In a battle the chat takes what's left under the band — and
+            // under the result's card and Share while the lap runs.
+            band && (battleResult ? "top-[calc(var(--band-top)+var(--band-h)+64px)]" : "top-[calc(var(--band-top)+var(--band-h)+8px)]")
           )}
         >
           <div className={band ? "h-full" : "h-[46dvh]"}>
@@ -3402,7 +3392,7 @@ export default function StreamPage({
             {/* h-full: without it the stage is only as tall as the video's
                 own picture — 150px before the first frame — and the controls
                 pinned to its bottom float halfway up the player. */}
-            <div className="relative h-full min-w-0 flex-1">
+            <div ref={deskBand.ref} style={deskBand.style} className="relative h-full min-w-0 flex-1">
             {/* The program, drawn from the scene: the host — their screen
                 when they share one, camera in the corner — the guests and a
                 battle's other side as the layout allows, and any card over
@@ -3423,7 +3413,8 @@ export default function StreamPage({
                   phoneSlot={resolved.slot}
                   face={hostFace}
                   host={{ name: hostName, avatar: streamer.avatar }}
-                  mainLabel={hostName}
+                  // In a battle the stage names the sides itself.
+                  mainLabel={opponent ? undefined : hostName}
                   main={
                     <div className="relative size-full">
                       <video
@@ -3452,9 +3443,10 @@ export default function StreamPage({
                   }
                   pipClassName="top-14 right-3"
                   guests={others}
-                  // A 2v2's four tiles start under the scoreboard's strip,
-                  // so the top two keep their faces.
-                  stage={pairOpponent ? { top: "92px", height: "calc(100% - 92px)" } : undefined}
+                  // A battle is a centred portrait column under its score
+                  // bar — two 9:16 halves (a 2v2's pairs down each), never
+                  // two stretched wide halves.
+                  stage={opponent ? deskBand.stage : undefined}
                   goal={goal}
                   heat={heat}
                   brand={brand}
@@ -3477,9 +3469,18 @@ export default function StreamPage({
             {/* Gift spectacle layer */}
             <GiftOverlay onReady={handleGiftOverlayReady} />
 
-            {/* The battle scoreboard, while a battle is on or just ended. */}
-            {battle && (isBattleActive(battle) || battle.status === "ended") && (
-              <BattleBar battle={battle} streamId={id} onShare={setShareBattle} feedQuery={preview.query} />
+            {/* The battle stage over the column, while a battle runs and through its result. */}
+            {stagedBattle && deskBand.style && (
+              <BattleStage
+                battle={stagedBattle}
+                streamId={id}
+                layout="inset"
+                hear={hearOther}
+                onHear={setHearOther}
+                onShare={setShareBattle}
+                feedQuery={preview.query}
+                toasts={!radio}
+              />
             )}
             {shareBattle && <BattleResultSheet battle={shareBattle} streamId={id} onClose={() => setShareBattle(null)} />}
 
@@ -3487,7 +3488,11 @@ export default function StreamPage({
             {muted && stream.isLive && hasVideo && !playbackError && !viewerView && (
               <button
                 onClick={toggleMute}
-                className="obj-on press absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold"
+                className={cn(
+                  "obj-on press absolute left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold",
+                  // A battle's score bar and clock have the top.
+                  opponent ? "bottom-20" : "top-4"
+                )}
               >
                 <SpeakerSlash size={16} weight="fill" />
                 Turn sound on

@@ -386,6 +386,8 @@ export function resultOf(b: BattleView, dateOptions: { locale?: string; timeZone
     ? { host: formatPracticeScore(b.host.usdMinor), challenger: formatPracticeScore(b.challenger.usdMinor) }
     : formatScorePair(b.host.usdMinor, b.challenger.usdMinor);
   const overtime = b.overtimeUsed ? (winner ? "Won in overtime" : "Still level after overtime") : null;
+  // A host who ends a battle early concedes it: the other side wins, whatever the score said.
+  const note = overtime ?? (winner && b.endedReason === "conceded" ? "The other side ended it early" : null);
   const won = winner ? b[winner] : null;
   const lost = winner ? b[winner === "host" ? "challenger" : "host"] : null;
   const forfeit = (b.forfeit ?? "").trim();
@@ -394,7 +396,7 @@ export function resultOf(b: BattleView, dateOptions: { locale?: string; timeZone
     winner,
     headline: won ? `${shortTeamName(won)}${end}` : "It's a draw",
     headlineEnd: end,
-    subline: b.practice ? ["Practice battle", overtime].filter(Boolean).join(" · ") : overtime,
+    subline: b.practice ? ["Practice battle", note].filter(Boolean).join(" · ") : note,
     victoryLap: won && lost && forfeit ? `Victory lap · ${shortTeamName(lost)} ${forfeit}` : null,
     scores,
     hostShare: hostShare(b),

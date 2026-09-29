@@ -50,6 +50,7 @@ export { Money, formatUsd } from "./money";
 
 /* ---- competing -------------------------------------------------------- */
 export { BattleBar } from "@/components/app/battle-bar";
+export { BattleStage } from "@/components/app/battles/battle-stage";
 export { PeltBoard } from "./pelt-board";
 export type { PeltRow } from "./pelt-board";
 

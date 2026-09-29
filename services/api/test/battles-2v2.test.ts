@@ -42,6 +42,8 @@ vi.mock("../src/models.js", () => ({
   // Settling fires show rules: none here.
   ShowRule: { find: () => ({ lean: async () => [] }) },
   Battle: {
+    // Streaks going in (creatorStreak): nobody here has won before.
+    find: () => ({ sort: () => ({ limit: () => ({ select: () => ({ lean: async () => [] }) }) }) }),
     create: async (fields: Row) => {
       const d: Row = {
         _id: oid(BATTLE), durationSec: 300, multiplierWindowSec: 30, multiplier: 2, hostUsdMinor: 0, challengerUsdMinor: 0,

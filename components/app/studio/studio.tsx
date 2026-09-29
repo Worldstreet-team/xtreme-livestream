@@ -63,6 +63,8 @@ import { GiftArt } from "@/components/app/gift-art";
 import { cn } from "@/lib/utils";
 import { BattlePanel } from "@/components/app/battle-panel";
 import { SparringTile } from "@/components/app/battles/sparring-tile";
+import { BattleStage } from "@/components/app/battles/battle-stage";
+import { useColumnBand, useOnStage } from "@/components/app/battles/use-band";
 import { BattleAskStrip } from "@/components/app/studio/battle-ask-strip";
 import { GamesPanel } from "@/components/app/games-panel";
 import { LivePreview, PreviewVideo, hostTrackOf, useRoomPreview } from "@/components/app/live-preview";
@@ -163,6 +165,20 @@ type Orientation = "portrait" | "landscape";
 type Facing = "user" | "environment";
 /** What the live panel is showing. Chat floats over the picture on phones. */
 type Panel = "chat" | "stage" | "requests" | "scenes" | "viewers" | "stats" | "battle" | "games" | "more" | "audio" | "show";
+
+/**
+ * A battle's band on a phone's full-screen picture: the score bar under the
+ * live row, then the two halves full width, each 9:16 — but never down
+ * into the room's drawer (the bottom 46% of the screen).
+ */
+const STUDIO_PHONE_BAND = {
+  "--bar-top": "calc(max(env(safe-area-inset-top), 12px) + 6.25rem)",
+  "--bar-h": "16px",
+  "--band-top": "calc(var(--bar-top) + 16px)",
+  "--band-h": "min(calc(100cqw * 8 / 9), calc(54dvh - var(--band-top) - 8px))",
+  "--band-left": "0px",
+  "--band-w": "100cqw",
+} as React.CSSProperties;
 
 const ORIENTATION_KEY = "xtreme-studio-orientation";
 const WORLDSPACE_KEY = "xtreme-studio-worldspace";
@@ -446,9 +462,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
 
   // ---- Stage guests ----
   const [stageRequests, setStageRequests] = useState<StageUser[]>([]);
-  // The battle this broadcast is in, fed by the battle panel; the preview
-  // splits to show the opponent the way viewers see it.
-  const [battle, setBattle] = useState<BattleView | null>(null);
+  // The battle this broadcast is in: the battle panel's poll (a running
+  // battle) and the room's own battle events (every change, the result
+  // too). The preview splits to show the opponent the way viewers see it,
+  // while it runs and through its result (the victory lap).
+  const [panelBattle, setPanelBattle] = useState<BattleView | null>(null);
+  const [heardBattle, setHeardBattle] = useState<BattleView | null>(null);
+  const latestBattle = panelBattle && heardBattle?.id !== panelBattle.id ? panelBattle : (heardBattle ?? panelBattle);
+  const battle = useOnStage(latestBattle) ? latestBattle : null;
+  // Hear the other side in your own ears? Off by default (and off for each new battle).
+  const [hearOther, setHearOther] = useState(false);
+  const [hearFor, setHearFor] = useState(battle?.id ?? null);
+  if ((battle?.id ?? null) !== hearFor) {
+    setHearFor(battle?.id ?? null);
+    setHearOther(false);
+  }
+  // The battle band on the picture, as viewers get it: on an upright phone
+  // (the picture is the screen) in CSS, under the live row; anywhere else a
+  // centred portrait column, measured.
+  const phoneBand = phone && orientation === "portrait";
+  const studioBand = useColumnBand(Boolean(battle) && !phoneBand, { top: 56, bottom: 12 });
   const [liveGuests, setLiveGuests] = useState<StageUser[]>([]);
   /** Accepted, but not on yet: in the room checking their devices, seen only by the crew (producer mode). */
   const [backstageGuests, setBackstageGuests] = useState<StageUser[]>([]);
@@ -476,7 +509,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // A 2v2's other pair, a tile each, over one connection to their room.
   const pairOpponent =
     battle && battle.mode === "2v2" && streamId ? (sideOf(battle, streamId) === "host" ? battle.challenger : battle.host) : null;
-  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null);
+  const pairTracks = useRoomPreview(pairOpponent?.streamId ?? null, true, hearOther);
 
   // The auto-director: the layout follows whoever's talking (lib/director.ts).
   // Off until the host turns it on; remembered on this device.
@@ -1139,9 +1172,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           }
           return;
         }
+        // A battle moved (the server's word, the result too): the stage follows.
         // A battle won: the airhorn, once, if the desk is on and it's wanted.
         if (data.__evt === "battle") {
           const b = (data as { battle?: BattleView }).battle;
+          if (b && typeof b.id === "string" && b.host && b.challenger) setHeardBattle(b);
           if (b?.status === "ended" && b.winnerId && b.winnerId === meRef.current && deskOnRef.current && deskMomentsRef.current.battleWin && !hornedRef.current.has(b.id)) {
             hornedRef.current.add(b.id);
             void deskRef.current?.playPad("airhorn");
@@ -2483,6 +2518,14 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // of it — and where the mini player sat, so opening the studio grows the
   // picture back out of that.
   const pictureRef = useRef<HTMLDivElement>(null);
+  const measureBand = studioBand.ref;
+  const setPicture = useCallback(
+    (el: HTMLDivElement | null) => {
+      pictureRef.current = el;
+      measureBand(el);
+    },
+    [measureBand]
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const pictureRectRef = useRef<DOMRect | null>(null);
   const miniRectRef = useRef<DOMRect | null>(null);
@@ -2807,17 +2850,10 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         ? battle.challenger.streamId
         : battle.host.streamId
       : null;
-  /** The other side's picture, named on it. */
-  const opponentTile = (key: string, name: string, picture: React.ReactNode): SceneCell => ({
+  /** The other side's picture. The battle stage names it, with the speaker, over the band. */
+  const opponentTile = (key: string, picture: React.ReactNode): SceneCell => ({
     key,
-    node: (
-      <div className="relative size-full bg-black">
-        {picture}
-        <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
-          {name} · opponent
-        </span>
-      </div>
-    ),
+    node: <div className="relative size-full bg-black">{picture}</div>,
   });
   // A 2v2 is a 2×2, as viewers see it: our pair down the left, theirs down
   // the right — so after us come their host, our partner, their partner.
@@ -2827,41 +2863,33 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     const mateTile = mate ? stageTiles.find((t) => t.identity === mate.userId) : undefined;
     const theirMate = pairOpponent.partner ?? null;
     return [
-      opponentTile("opponent", pairOpponent.displayName, <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
+      opponentTile("opponent", <PreviewVideo track={hostTrackOf(pairTracks, pairOpponent, theirMate?.userId)} />),
       mateTile
         ? { key: mateTile.identity, node: <StageTile fill track={guestTracksRef.current.get(mateTile.identity)} label={mateTile.name} /> }
         : { key: "mate", node: <AwayTile name={mate?.displayName ?? "Your partner"} /> },
       theirMate
-        ? opponentTile("opponent-mate", theirMate.displayName, <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
+        ? opponentTile("opponent-mate", <PreviewVideo track={pairTracks.get(theirMate.userId)} />)
         : { key: "opponent-mate", node: <AwayTile name="Their partner" /> },
     ];
   };
-  // The others on stage, in the order the scene brings them in.
-  const stageOthers: SceneCell[] = pairOpponent ? pairCells() : [
-    ...(opponentStreamId && battle && streamId
+  // The others on stage, in the order the scene brings them in. A battle
+  // is exactly two halves: in a 1v1 your guests sit it out, as a 2v2's
+  // other guests do.
+  const stageOthers: SceneCell[] = pairOpponent
+    ? pairCells()
+    : opponentStreamId && battle && streamId
       ? [
-          {
-            key: "opponent",
-            node: (
-              <div className="relative size-full bg-black">
-                {/* A practice battle's sparring partner is drawn: there's no stream behind it. */}
-                {battle.practice ? (
-                  <SparringTile battle={battle} />
-                ) : (
-                  <>
-                    <LivePreview streamId={opponentStreamId} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
-                    <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold">
-                      {(sideOf(battle, streamId) === "host" ? battle.challenger : battle.host).displayName} · opponent
-                    </span>
-                  </>
-                )}
-              </div>
+          opponentTile(
+            "opponent",
+            // A practice battle's sparring partner is drawn: there's no stream behind it.
+            battle.practice ? (
+              <SparringTile battle={battle} />
+            ) : (
+              <LivePreview streamId={opponentStreamId} hear={hearOther} className="absolute inset-0" poster={<div className="absolute inset-0 bg-black" />} fallbackSrc={null} />
             ),
-          },
+          ),
         ]
-      : []),
-    ...stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> })),
-  ];
+      : stageTiles.map((t) => ({ key: t.identity, node: <StageTile fill track={guestTracksRef.current.get(t.identity)} label={t.name} /> }));
   // The phone cam, a source the scene places (scene.phoneSlot): the
   // renderer puts it over your picture, beside it, or in the corner.
   const phoneTile = phoneConnected && phoneTrackRef.current ? <StageTile fill track={phoneTrackRef.current} label="Phone cam" /> : undefined;
@@ -4426,7 +4454,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
           <BattlePanel
             inline
             streamId={streamId}
-            onBattle={setBattle}
+            onBattle={setPanelBattle}
             practice={practice}
             practiceNext={practiceNext}
             onPracticeNext={setPracticeNext}
@@ -4528,7 +4556,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
       >
         <div className="absolute inset-0 flex items-center justify-center">
           <div
-            ref={pictureRef}
+            ref={setPicture}
+            style={battle ? (phoneBand ? STUDIO_PHONE_BAND : studioBand.style) : undefined}
             className={cn(
               "relative overflow-hidden",
               // Contained, never cropped: a portrait broadcast fills a phone and
@@ -4547,7 +4576,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
               portrait={orientation === "portrait"}
               forceAuto={Boolean(opponentStreamId)}
               host={{ name: user?.displayName || user?.username || "You", avatar: user?.avatar }}
-              mainLabel="You"
+              // In a battle the stage names the sides itself.
+              mainLabel={battle ? undefined : "You"}
+              stage={battle ? (phoneBand ? { top: "var(--band-top)", height: "var(--band-h)" } : studioBand.stage) : undefined}
               main={
                 <div className="relative size-full">
                   <video
@@ -4605,6 +4636,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             />
             {/* The Set's stinger between layouts, over the whole picture. */}
             <SetStinger set={activeSet} trigger={scene.layout} />
+            {/* The battle stage, as viewers see it, with the host's own controls:
+                hear the other side, End battle, and after the result Rematch and End lap. */}
+            {battle && streamId && (phoneBand || studioBand.style) && (
+              <BattleStage battle={battle} streamId={streamId} layout="inset" host hear={hearOther} onHear={setHearOther} onBattle={setHeardBattle} toasts={isLive} />
+            )}
             {/* The chat on screen (host-only, never in the program): LiveChat draws its lane in here. */}
             {chatOnScreen.shows && (
               <div
