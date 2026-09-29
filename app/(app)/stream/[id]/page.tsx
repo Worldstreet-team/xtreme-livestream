@@ -43,6 +43,7 @@ import { BattleStage } from "@/components/app/battles/battle-stage";
 import { portraitBandStyle, useColumnBand, useOnStage } from "@/components/app/battles/use-band";
 import { BattleResultSheet } from "@/components/app/battle-result-card";
 import { SparringTile } from "@/components/app/battles/sparring-tile";
+import { ChatBackdrop } from "@/components/app/battles/chat-backdrop";
 import { GiftEffects, type GiftEffectsHandle } from "@/components/app/gift-effects";
 import { SetStinger } from "@/components/app/set-stinger";
 import { anchorsListener, useAnchorFeed } from "@/lib/face-anchors";
@@ -208,7 +209,9 @@ function RailButton({
       <span
         className={cn(
           "relative flex size-12 items-center justify-center rounded-full transition-colors",
-          tone === "obj" && "obj text-white",
+          // Plain actions are bare icons with a soft shadow, not buttons in
+          // boxes; a state that needs saying (asked, muted, leave) keeps its fill.
+          tone === "obj" && "text-white [&_svg]:size-[30px] [&_svg]:drop-shadow-[0_2px_6px_rgba(0,0,0,0.55)]",
           tone === "chili" && "bg-chili text-white",
           tone === "ember" && "bg-ember text-on-ember",
           pulse && "animate-pulse"
@@ -449,6 +452,8 @@ export default function StreamPage({
   // A battle's result card, open: held here so it outlives the scoreboard,
   // which lets an ended battle go a couple of minutes after the clock.
   const [shareBattle, setShareBattle] = useState<BattleView | null>(null);
+  /** The phone view, for the battle chat's backdrop to find the band's videos in. */
+  const battleRoot = useCallback(() => document.querySelector<HTMLElement>("[data-watch-phone]"), []);
   // The phone's track comes and goes: a re-render of its own, never the host's element re-attached.
   const [, setPhoneEpoch] = useState(0);
   const anglePick = useAnglePick(id);
@@ -2686,6 +2691,7 @@ export default function StreamPage({
     return (
       <div
         ref={sidewaysBand.ref}
+        data-watch-phone
         className="fixed inset-0 z-[60] bg-black"
         style={band ? portraitBandStyle("calc(max(env(safe-area-inset-top), 12px) + 92px)") : sideways ? sidewaysBand.style : undefined}
       >
@@ -2761,6 +2767,14 @@ export default function StreamPage({
             the feeds stay clear to their edges. */}
         {!band && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[56dvh] bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+        )}
+        {/* In a battle the chat sits on the live picture itself, blurred and
+            darkened under the band — the room's colour, felt more than seen. */}
+        {band && (
+          <ChatBackdrop
+            root={battleRoot}
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] top-[calc(var(--band-top)+var(--band-h))] overflow-hidden"
+          />
         )}
         {/* Gift banners ride above the chat lane, not over it. */}
         <GiftOverlay onReady={handleGiftOverlayReady} laneBottom="calc(34dvh + 96px + env(safe-area-inset-bottom))" />

@@ -1381,7 +1381,7 @@ export function LiveChat({
             "overflow-y-auto overscroll-contain",
             overlay
               ? // Newest at the bottom; older lines dissolve into the picture.
-                "pointer-events-auto max-h-[34dvh] pb-1 scrollbar-none [mask-image:linear-gradient(to_top,black_78%,transparent)]"
+                "pointer-events-auto max-h-[34dvh] pb-1 scrollbar-none [mask-image:linear-gradient(to_top,black_65%,transparent)]"
               : "h-full px-2 py-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
           )}
         >
@@ -1582,7 +1582,7 @@ export function LiveChat({
             Sign in to chat
           </a>
         ) : isLive ? (
-          <div className={cn("flex items-center gap-1", overlay ? "h-11 rounded-full bg-black/50 px-1" : "")}>
+          <div className={cn("flex items-center gap-1", overlay ? "h-11" : "")}>
             {iconButton(
               "Send a reaction",
               showReactions,
@@ -1601,12 +1601,20 @@ export function LiveChat({
                   if (showGiftPanel) setShowGiftPanel(false);
                   else openGifts("gifts");
                 },
-                <Gift size={19} weight="fill" className={showGiftPanel ? "text-value" : undefined} />
+                overlay ? (
+                  // On the picture the gift is the gift itself, animated — not an icon in a box.
+                  <GiftArt art="1f381" emoji="🎁" size={30} className={cn("drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)]", showGiftPanel && "scale-110")} />
+                ) : (
+                  <Gift size={19} weight="fill" className={showGiftPanel ? "text-value" : undefined} />
+                )
               )}
             <div
               className={cn(
                 "flex min-w-0 flex-1 items-center rounded-full pr-1",
-                overlay ? "h-full pl-1" : "h-10 bg-white/[0.06] pl-4 focus-within:bg-white/[0.09]"
+                // On the picture: a light capsule with a hairline edge, the field and send inside.
+                overlay
+                  ? "h-full bg-white/[0.09] pl-3 ring-1 ring-white/[0.1] ring-inset transition-colors focus-within:bg-white/[0.13]"
+                  : "h-10 bg-white/[0.06] pl-4 focus-within:bg-white/[0.09]"
               )}
             >
               <input
