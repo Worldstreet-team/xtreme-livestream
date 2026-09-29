@@ -142,6 +142,16 @@ export interface IUser extends Document {
     categories: string[];
     /** Content language the viewer asked for; "" when never set. */
     language: string;
+    /** v2 (the first-run flow): where they got to, and what they said. */
+    version?: number;
+    startedAt?: Date | null;
+    skippedAt?: Date | null;
+    /** The last step finished on the way through; resumes after it. */
+    step?: "name" | "likes" | "creators" | "you" | null;
+    languages?: string[];
+    intent?: "watch" | "create" | "both" | null;
+    /** When they asked to hear about go-lives; null when they said no. */
+    alertsAt?: Date | null;
   };
   /**
    * The walkthrough, shared by the web and the app: tour id → when it was
@@ -274,6 +284,13 @@ const userSchema = new Schema<IUser>(
       completedAt: { type: Date, default: null },
       categories: { type: [String], default: [] },
       language: { type: String, default: "", maxlength: 12 },
+      version: { type: Number },
+      startedAt: { type: Date, default: null },
+      skippedAt: { type: Date, default: null },
+      step: { type: String, enum: ["name", "likes", "creators", "you", null], default: null },
+      languages: { type: [String], default: undefined },
+      intent: { type: String, enum: ["watch", "create", "both", null], default: null },
+      alertsAt: { type: Date, default: null },
     },
     tours: {
       seen: { type: Map, of: Date, default: undefined },

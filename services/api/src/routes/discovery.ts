@@ -5,12 +5,16 @@ import { z } from "zod";
 import {
   impressionsBodySchema,
   onboardingBodySchema,
+  onboardingCreatorsQuerySchema,
   scheduleStreamBodySchema,
   streamIdParamsSchema,
+  usernameAvailableQuerySchema,
+  usernameSchema,
 } from "@xtreme/contracts";
 import { authenticate, getOptionalAuthUserId } from "../auth.js";
 import { ApiError } from "../errors.js";
 import {
+  Follow,
   GiftTransaction,
   Impression,
   Stream,
@@ -20,6 +24,7 @@ import {
 } from "../models.js";
 import { alsoWatchedLive, buildHomePage, toItem } from "../discovery.js";
 import { thumbnailUrlFor } from "../stream-service.js";
+import { ensureWelcomeGrant, WELCOME_POINTS } from "../points.js";
 
 async function callerId(request: Parameters<typeof getOptionalAuthUserId>[0]) {
   const authUserId = getOptionalAuthUserId(request);
@@ -368,19 +373,148 @@ export const discoveryRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const { dbUser } = await authenticate(request);
+      const body = request.body;
+      const now = new Date();
+      // What they said so far. A step saves without finishing, so leaving
+      // halfway resumes after it; Skip records itself; anything else finishes.
+      const answers: Record<string, unknown> = {
+        ...(body.categories.length > 0 || !body.step ? { "onboarding.categories": body.categories } : {}),
+        ...(body.language ? { "onboarding.language": body.language } : {}),
+        ...(body.languages ? { "onboarding.languages": body.languages } : {}),
+        ...(body.intent ? { "onboarding.intent": body.intent } : {}),
+        ...(body.alerts !== undefined ? { "onboarding.alertsAt": body.alerts ? now : null } : {}),
+      };
+      const finishing = !body.step && !body.skipped;
       await User.updateOne(
         { _id: dbUser._id },
         {
           $set: {
-            "onboarding.completedAt": new Date(),
-            "onboarding.categories": request.body.categories,
-            ...(request.body.language
-              ? { "onboarding.language": request.body.language }
-              : {}),
+            ...answers,
+            "onboarding.version": 2,
+            ...(body.step ? { "onboarding.step": body.step } : {}),
+            ...(body.skipped ? { "onboarding.skippedAt": now } : {}),
+            ...(finishing ? { "onboarding.completedAt": now, "onboarding.step": null } : {}),
           },
         },
       );
-      return { success: true, message: "Saved" };
+      // When they started: set once (a null or missing startedAt only).
+      await User.updateOne({ _id: dbUser._id, "onboarding.startedAt": null }, { $set: { "onboarding.startedAt": now } });
+      // Finishing is where the welcome points land (once per account, ever).
+      const granted = finishing ? await ensureWelcomeGrant(dbUser._id).catch(() => null) : null;
+      return { success: true, message: "Saved", data: { welcomePoints: granted === null ? null : WELCOME_POINTS } };
+    },
+  );
+
+  app.get(
+    "/users/username-available",
+    {
+      schema: {
+        tags: ["Users"],
+        summary: "Whether an @username is free to take (the first-run flow asks as you type)",
+        querystring: usernameAvailableQuerySchema,
+      },
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const parsed = usernameSchema.safeParse(request.query.username);
+      if (!parsed.success) {
+        return { success: true, data: { available: false, reason: "invalid" as const, message: parsed.error.issues[0]?.message ?? "Not a valid username" } };
+      }
+      const username = parsed.data;
+      const me = await callerId(request);
+      const holder = await User.findOne({ username }).select("_id").lean();
+      if (!holder) return { success: true, data: { available: true, reason: null, username } };
+      if (me && holder._id.equals(me)) return { success: true, data: { available: true, reason: "yours" as const, username } };
+      return { success: true, data: { available: false, reason: "taken" as const, username } };
+    },
+  );
+
+  app.get(
+    "/onboarding/creators",
+    {
+      schema: {
+        tags: ["Discovery"],
+        summary: "Creators to follow in the first-run flow: live ones in your picks first, then the most-followed there, then anyone popular",
+        querystring: onboardingCreatorsQuerySchema,
+      },
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const { limit } = request.query;
+      const cats = request.query.categories
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .slice(0, 18);
+      const me = await callerId(request);
+      const skip = new Set<string>();
+      if (me) {
+        skip.add(String(me));
+        const follows = await Follow.find({ followerId: me }).select("followingId").lean();
+        for (const f of follows) skip.add(String(f.followingId));
+      }
+
+      type Pick = { id: string; category: string; viewers: number | null };
+      const picks: Pick[] = [];
+      const add = (id: unknown, category: string, viewers: number | null) => {
+        const key = String(id);
+        if (skip.has(key) || picks.some((p) => p.id === key)) return;
+        picks.push({ id: key, category, viewers });
+      };
+
+      // 1. Live now in their picks, busiest first.
+      if (cats.length) {
+        const live = await Stream.find({ isLive: true, practice: { $ne: true }, category: { $in: cats } })
+          .sort({ viewers: -1 })
+          .limit(limit * 3)
+          .select("streamerId category viewers")
+          .lean();
+        for (const s of live) add(s.streamerId, s.category, s.viewers ?? 0);
+      }
+      // 2. Who streams there most, by followers.
+      if (cats.length && picks.length < limit) {
+        const rows = await Stream.aggregate<{ _id: mongoose.Types.ObjectId; category: string }>([
+          { $match: { category: { $in: cats }, practice: { $ne: true } } },
+          { $sort: { startedAt: -1 } },
+          { $group: { _id: "$streamerId", category: { $first: "$category" } } },
+          { $limit: 200 },
+        ]);
+        const byId = new Map(rows.map((r) => [String(r._id), r.category]));
+        const users = await User.find({ _id: { $in: rows.map((r) => r._id) } })
+          .sort({ followers: -1 })
+          .limit(limit * 3)
+          .select("_id")
+          .lean();
+        for (const u of users) add(u._id, byId.get(String(u._id)) ?? cats[0]!, null);
+      }
+      // 3. Anyone popular, so the list is never empty.
+      if (picks.length < limit) {
+        const top = await User.find({ followers: { $gt: 0 } }).sort({ followers: -1 }).limit(limit * 3).select("_id").lean();
+        for (const u of top) add(u._id, "", null);
+      }
+
+      const chosen = picks.slice(0, limit);
+      const users = await User.find({ _id: { $in: chosen.map((p) => new mongoose.Types.ObjectId(p.id)) } })
+        .select("username displayName avatar followers isLive verified")
+        .lean();
+      const userById = new Map(users.map((u) => [String(u._id), u]));
+      const creators = chosen.flatMap((p) => {
+        const u = userById.get(p.id);
+        if (!u) return [];
+        return [
+          {
+            username: u.username,
+            displayName: u.displayName || u.username,
+            avatar: u.avatar ?? "",
+            followers: u.followers ?? 0,
+            verified: Boolean(u.verified),
+            category: p.category,
+            isLive: p.viewers !== null,
+            viewers: p.viewers ?? 0,
+          },
+        ];
+      });
+      return { success: true, data: { creators } };
     },
   );
 };

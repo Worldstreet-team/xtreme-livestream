@@ -51,6 +51,15 @@ export interface AppUser {
     completedAt: string | null;
     categories: string[];
     language?: string;
+    /** v2, the first-run flow (components/app/welcome). */
+    version?: number;
+    startedAt?: string | null;
+    skippedAt?: string | null;
+    /** The last step finished; the flow resumes after it. */
+    step?: "name" | "likes" | "creators" | "you" | null;
+    languages?: string[];
+    intent?: "watch" | "create" | "both" | null;
+    alertsAt?: string | null;
   };
   createdAt: string;
   /**

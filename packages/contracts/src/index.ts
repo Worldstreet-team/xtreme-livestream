@@ -1317,10 +1317,61 @@ export const impressionsBodySchema = z.object({
     .max(60),
 });
 
+/**
+ * The first-run picker's rooms, in the order shown. Web and app show the
+ * same set; live counts come from /streams/categories.
+ */
+export const ONBOARDING_CATEGORIES = [
+  "Just Chatting",
+  "Crypto Markets",
+  "Football (Soccer)",
+  "Afrobeats & Amapiano",
+  "Memecoins & Degen",
+  "Video Games",
+  "Comedy & Memes",
+  "Stocks & Equities",
+  "Call of Duty",
+  "Hip-Hop & Rap",
+  "Podcasts & Talk",
+  "Basketball",
+  "Fashion & Style",
+  "Food & Cooking",
+  "Fitness & Training",
+  "AI & Machine Learning",
+  "Personal Finance",
+  "Anime & Manga",
+] as const;
+
+export const ONBOARDING_STEPS = ["name", "likes", "creators", "you"] as const;
+export const ONBOARDING_INTENTS = ["watch", "create", "both"] as const;
+
+/**
+ * The first-run flow's answers. Sent after each step with `step` (saved,
+ * not finished, so it resumes there), once with `skipped: true` for Skip,
+ * and once with neither to finish. A v1 body ({ categories, language })
+ * still finishes it.
+ */
 export const onboardingBodySchema = z.object({
-  categories: z.array(categorySchema).max(8),
-  /** BCP-47-ish content language preference, e.g. "en", "yo", "pt-BR". */
+  categories: z.array(categorySchema).max(18),
+  /** BCP-47-ish content language preference, e.g. "en", "yo", "pt-BR" (v1). */
   language: z.string().trim().min(2).max(12).optional(),
+  /** The languages they watch in. */
+  languages: z.array(z.string().trim().min(2).max(12)).max(8).optional(),
+  /** Mostly watch, go live, or a bit of both. */
+  intent: z.enum(ONBOARDING_INTENTS).optional(),
+  /** "Tell me when they go live". */
+  alerts: z.boolean().optional(),
+  /** The step just finished, on the way through. */
+  step: z.enum(ONBOARDING_STEPS).optional(),
+  skipped: z.boolean().optional(),
+});
+
+export const usernameAvailableQuerySchema = z.object({ username: z.string().max(40) });
+
+export const onboardingCreatorsQuerySchema = z.object({
+  /** Comma-separated category names. */
+  categories: z.string().max(1200).default(""),
+  limit: z.coerce.number().int().min(1).max(20).default(8),
 });
 
 export const chatQuerySchema = z.object({

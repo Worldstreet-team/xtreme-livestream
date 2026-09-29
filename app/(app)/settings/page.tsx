@@ -799,6 +799,17 @@ function FeedSection() {
   return (
     <section id="feed" aria-labelledby="feed-title" className="scroll-mt-32">
       <SectionHead id="feed" title="Your feed" lede="Home leads with what you pick here, then fills in with what's big right now." />
+      {/* The first-run flow again, from the picks: covers, creators, how you'll use it. */}
+      <Link
+        href="/welcome"
+        className="press mb-3 flex items-center justify-between gap-3 rounded-[12px] bg-surface px-5 py-4 transition-colors hover:bg-surface-hover"
+      >
+        <span className="min-w-0">
+          <span className="block text-[15px] font-semibold">Tune your feed</span>
+          <span className="block text-[13px] text-muted-foreground">Pick rooms from their covers, follow creators and say how you use Xtream.</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-inverse px-4 py-2 text-[13px] font-semibold text-on-inverse">Open</span>
+      </Link>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <div className={cn(TILE, "p-6 md:p-8 lg:col-span-8")}>
           <div className="flex items-baseline justify-between gap-3">
