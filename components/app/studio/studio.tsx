@@ -96,7 +96,7 @@ import { useAnchorFeed, useFaceAnchors } from "@/lib/face-anchors";
 import { brandWithSet, setById, setUsesFace, soundForGift, soundGate } from "@/lib/sets";
 import { LookSetup } from "@/components/app/look-setup";
 import { SoundSetup } from "@/components/app/sound-setup";
-import { applyLook, BACKGROUNDS, deviceTest, isLooksSupported, LOOKS, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
+import { applyLook, BACKGROUNDS, changesAppearance, deviceTest, isLooksSupported, LOOKS, setLookBypass, setLookImage, setLookSettings, useLookImage, useLookSettings, type LookSettings } from "@/lib/looks";
 import { micCaptureOptions, micPublishOptions, noiseFilterSupported, presetLabel, saveVoiceSettings, useVoiceSettings, voiceNeedsDesk, type VoiceSettings } from "@/lib/voice";
 import { isCameraIdentity, phoneOnScreen, placePhone } from "@/lib/angles";
 import { applyCues, formatLength, readPosition, totalSeconds, useRundown, useRundownPosition, type CueSponsor, type RundownSegment } from "@/lib/rundown";
@@ -831,7 +831,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   // The look follows its settings, the brand, and whichever camera track is current.
   useEffect(() => {
     applyLookTo(lookTrack());
-  }, [look.background, look.look, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [look.background, look.look, look.smooth, lookImage?.url, brand.accent, brand.logoUrl, looksSupported, previewTrack, isLive, source, localScreen]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeVoice = (next: VoiceSettings) => {
     saveVoiceSettings(next);
     // On air, the desk follows at once (the filter, the preset); Music mode's capture waits for the next stream.
@@ -853,6 +853,26 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     }
     setLookSettings(next);
   };
+
+  // Smoothing changes how the host looks, so viewers are told ("Effects on"
+  // on the watch page). Kept true to the camera while live; a new stream
+  // starts without it, so only a change is worth a request.
+  const appearanceFx = source === "camera" && !localScreen && looksSupported && changesAppearance(look);
+  const fxSent = useRef<{ id: string; on: boolean } | null>(null);
+  useEffect(() => {
+    if (!isLive || !streamId) {
+      fxSent.current = null;
+      return;
+    }
+    const sent = fxSent.current;
+    if (sent?.id === streamId && sent.on === appearanceFx) return;
+    fxSent.current = { id: streamId, on: appearanceFx };
+    if (!sent && !appearanceFx) return;
+    void apiFetch(`/api/streams/${streamId}`, { method: "PATCH", body: JSON.stringify({ appearanceFx }) }).catch(() => {
+      // Try again on the next change rather than leave viewers told the wrong thing.
+      fxSent.current = null;
+    });
+  }, [isLive, streamId, appearanceFx]);
 
   // The Set the stream wears (gift-reactive Sets): its gift effects around
   // the host's face — on every viewer's screen from the anchors the face
@@ -886,7 +906,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     track: faceCam,
     room: isLive ? liveRoom : null,
     feed: faceFeed,
-    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying),
+    // Skin smoothing needs the face too: the look paints its skin mask from it (lib/looks.ts).
+    enabled: Boolean(faceCam) && (setUsesFace(activeSet) || trying || look.smooth > 0),
     publishHz: () => (!setUsesFace(activeSetRef.current) ? 0 : Date.now() < faceBoostUntil.current ? 12 : 1),
   });
 
@@ -3362,7 +3383,11 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             voice.musicMode ? "Music mode" : voice.noiseFilter ? "Noise filter" : "No filter",
             presetLabel(voice.preset),
             ...(source === "camera"
-              ? [BACKGROUNDS.find((b) => b.id === look.background)?.label ?? "None", LOOKS.find((l) => l.id === look.look)?.label ?? "Natural"].filter((x) => x !== "None" && x !== "Natural")
+              ? [
+                  BACKGROUNDS.find((b) => b.id === look.background)?.label ?? "None",
+                  LOOKS.find((l) => l.id === look.look)?.label ?? "Natural",
+                  look.smooth > 0 ? "Smooth skin" : "None",
+                ].filter((x) => x !== "None" && x !== "Natural")
               : []),
           ].join(" · ")}
           className="border-t border-white/[0.06] pt-3 @[620px]:col-span-2"

@@ -3,7 +3,7 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Eye, ImageSquare } from "@/components/icons";
 import { Pill, pillClass } from "@/components/ui/pill";
-import { BACKGROUNDS, LOOKS, gradeColor, type Look, type LookSettings } from "@/lib/looks";
+import { BACKGROUNDS, LOOKS, SMOOTH_STEPS, gradeColor, isPlainLook, type Look, type LookSettings } from "@/lib/looks";
 import { cn } from "@/lib/utils";
 
 const LABEL = "caps font-mono text-[10.5px] text-muted-foreground";
@@ -47,7 +47,7 @@ export interface LookSetupProps {
 
 /**
  * The Look half of "Sound & look" on the setup screen: what's behind you,
- * and the grade your picture wears. Every choice is a pill; the file
+ * the grade your picture wears, and skin smoothing. Every choice is a pill; the file
  * input is the "Your image" pill itself. Compact on a phone, a row where
  * there's room.
  */
@@ -55,7 +55,9 @@ export function LookSetup({ settings, onChange, supported, deviceOk, onPickImage
   const fileId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const swatches = useMemo(() => Object.fromEntries(LOOKS.map((l) => [l.id, swatch(l.id)])) as Record<Look, string>, []);
-  const anythingOn = settings.background !== "none" || settings.look !== "natural";
+  const anythingOn = !isPlainLook(settings);
+  // The nearest step, so a value from elsewhere still lights a pill.
+  const smoothStep = SMOOTH_STEPS.reduce((best, s) => (Math.abs(s.value - settings.smooth) < Math.abs(best.value - settings.smooth) ? s : best), SMOOTH_STEPS[0]);
   const backgroundHint = BACKGROUNDS.find((b) => b.id === settings.background)?.hint;
 
   return (
@@ -177,6 +179,32 @@ export function LookSetup({ settings, onChange, supported, deviceOk, onPickImage
             );
           })}
         </div>
+      </fieldset>
+
+      {/* Skin smoothing: off unless the host asks for it. */}
+      <fieldset disabled={!supported} className="min-w-0 disabled:opacity-60">
+        <legend className={LABEL}>Skin</legend>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {SMOOTH_STEPS.map((step) => {
+            const selected = smoothStep.value === step.value;
+            return (
+              <Pill
+                key={step.label}
+                size="sm"
+                variant={selected ? "primary" : "glass"}
+                aria-pressed={selected}
+                onClick={() => onChange({ ...settings, smooth: step.value })}
+              >
+                {step.label}
+              </Pill>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[12px] leading-snug text-muted-foreground/70">
+          {settings.smooth > 0
+            ? "Evens out your skin. Eyes, brows and lips stay sharp. Viewers see an Effects on tag while it's on."
+            : "Evens out your skin while you're live. Off by default."}
+        </p>
       </fieldset>
 
       {supported && compare && anythingOn && <ComparePill compare={compare} />}

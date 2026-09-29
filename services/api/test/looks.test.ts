@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   BACKGROUNDS,
   DEFAULT_LOOK_SETTINGS,
+  FACE_OVAL,
   LOOKS,
   LUT_SIZE,
+  SMOOTH_STEPS,
+  changesAppearance,
   gradeColor,
+  isPlainLook,
   makeLut,
   readLookSettings,
+  skinShape,
+  smoothRadius,
 } from "../../../lib/looks";
 
 /**
@@ -104,17 +110,75 @@ describe("the looks' cubes", () => {
 
 describe("the settings", () => {
   it("start with nothing on", () => {
-    expect(DEFAULT_LOOK_SETTINGS).toEqual({ background: "none", look: "natural" });
-    expect(BACKGROUNDS.map((b) => b.id)).toEqual(["none", "blur-soft", "blur-strong", "brand", "image"]);
+    expect(DEFAULT_LOOK_SETTINGS).toEqual({ background: "none", look: "natural", smooth: 0 });
+    expect(BACKGROUNDS.map((b) => b.id)).toEqual(["none", "blur-soft", "blur-strong", "brand", "image", "green"]);
+    expect(SMOOTH_STEPS[0]).toEqual({ value: 0, label: "Off" });
+    expect(isPlainLook(DEFAULT_LOOK_SETTINGS)).toBe(true);
+    expect(changesAppearance(DEFAULT_LOOK_SETTINGS)).toBe(false);
     expect(LOOKS.map((l) => l.id)).toEqual(["natural", "warm", "cool", "film", "mono", "punch"]);
   });
 
   it("read what this browser kept, and shrug at anything else", () => {
-    expect(readLookSettings(JSON.stringify({ background: "blur-soft", look: "film" }))).toEqual({ background: "blur-soft", look: "film" });
-    expect(readLookSettings({ background: "brand", look: "mono" })).toEqual({ background: "brand", look: "mono" });
+    expect(readLookSettings(JSON.stringify({ background: "blur-soft", look: "film" }))).toEqual({ background: "blur-soft", look: "film", smooth: 0 });
+    expect(readLookSettings({ background: "brand", look: "mono" })).toEqual({ background: "brand", look: "mono", smooth: 0 });
     expect(readLookSettings(null)).toEqual(DEFAULT_LOOK_SETTINGS);
     expect(readLookSettings("not json")).toEqual(DEFAULT_LOOK_SETTINGS);
     expect(readLookSettings({ background: "sparkles", look: 7 })).toEqual(DEFAULT_LOOK_SETTINGS);
-    expect(readLookSettings({ background: "image" })).toEqual({ background: "image", look: "natural" });
+    expect(readLookSettings({ background: "image" })).toEqual({ background: "image", look: "natural", smooth: 0 });
+  });
+
+  it("keep smoothing between 0 and 1, and anything that isn't a number off", () => {
+    expect(readLookSettings({ smooth: 0.6 }).smooth).toBe(0.6);
+    expect(readLookSettings({ smooth: 4 }).smooth).toBe(1);
+    expect(readLookSettings({ smooth: -1 }).smooth).toBe(0);
+    expect(readLookSettings({ smooth: "lots" }).smooth).toBe(0);
+    expect(readLookSettings({ smooth: Number.NaN }).smooth).toBe(0);
+  });
+
+  it("count smoothing as something on the camera, and as something viewers are told about", () => {
+    const smoothed = { ...DEFAULT_LOOK_SETTINGS, smooth: 0.35 };
+    expect(isPlainLook(smoothed)).toBe(false);
+    expect(changesAppearance(smoothed)).toBe(true);
+    // A colour grade or a background isn't a change to the face.
+    expect(changesAppearance({ smooth: 0 })).toBe(false);
+    expect(isPlainLook({ ...DEFAULT_LOOK_SETTINGS, background: "green" })).toBe(false);
+  });
+});
+
+describe("where the skin is", () => {
+  // A stand-in face: every point on a circle round the frame's centre, in index order.
+  const face = (cx = 0.5, cy = 0.5, r = 0.2) => {
+    const pts = new Float32Array(478 * 2);
+    for (let i = 0; i < 478; i++) {
+      const a = (i / 478) * Math.PI * 2;
+      pts[i * 2] = cx + Math.cos(a) * r;
+      pts[i * 2 + 1] = cy + Math.sin(a) * r;
+    }
+    return pts;
+  };
+
+  it("needs a whole face", () => {
+    expect(skinShape(new Float32Array(10))).toBeNull();
+  });
+
+  it("fans the outline into triangles and cuts eyes, brows and lips back out", () => {
+    const shape = skinShape(face())!;
+    // A fan of n points is n triangles of 3 points of 2 numbers.
+    expect(shape.face.length).toBe(FACE_OVAL.length * 6);
+    // Two eyes (16 each), two brows (10 each), the lips (20).
+    expect(shape.holes.length).toBe((16 + 16 + 10 + 10 + 20) * 6);
+    for (const v of shape.face) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it("measures the face's height off its outline", () => {
+    const shape = skinShape(face(0.5, 0.5, 0.2))!;
+    expect(shape.height).toBeGreaterThan(0.3);
+    expect(shape.height).toBeLessThanOrEqual(0.4 + 1e-6);
+  });
+
+  it("reaches further on a bigger face, within bounds", () => {
+    expect(smoothRadius(300)).toBeCloseTo(6);
+    expect(smoothRadius(20)).toBe(1.5);
+    expect(smoothRadius(5000)).toBe(9);
   });
 });

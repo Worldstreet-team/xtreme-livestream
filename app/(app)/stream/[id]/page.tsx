@@ -147,6 +147,22 @@ function runTime(duration: string) {
  * the same object the live feed's column uses. Chili for the stage's
  * warnings (a muted mic, leaving), Ember while a request is waiting.
  */
+/**
+ * Said while the host's camera changes how they look (skin smoothing): the
+ * disclosure several countries ask of retouched paid content, and fair to
+ * everyone watching.
+ */
+function EffectsBadge() {
+  return (
+    <span
+      title="The host is using an effect that changes how they look"
+      className="flex h-7 shrink-0 items-center rounded-full bg-black/55 px-2.5 text-xs font-semibold text-white motion-safe:animate-[fade-in_200ms_ease-out_both]"
+    >
+      Effects on
+    </span>
+  );
+}
+
 /** Said while the host's AI assistant speaks, in case its voice is on air. */
 function AiVoiceBadge() {
   return (
@@ -227,6 +243,8 @@ interface StreamData {
   pinnedMessage?: PinnedMessage | null;
   /** Set while the host's feed has dropped and the stream is holding for it. */
   feedDroppedAt?: string | null;
+  /** The host's camera changes how they look (skin smoothing): the "Effects on" tag. */
+  appearanceFx?: boolean;
   /** How the program is laid out: layout and card (see lib/scene.ts). */
   scene?: Scene;
   /** The goal bar and the heat meter, as the API last had them (lib/goals.ts reads them). */
@@ -1168,6 +1186,12 @@ export default function StreamPage({
           if (data.__evt === "stage_line") {
             const who = readStageLine(data).who;
             setStream((prev) => (prev ? { ...prev, streamerId: { ...prev.streamerId, settings: { ...prev.streamerId.settings, stageRequests: who } } } : prev));
+            return;
+          }
+          // The host turned skin smoothing on or off: the "Effects on" tag follows.
+          if (data.__evt === "fx") {
+            const on = (data as { appearanceFx?: unknown }).appearanceFx === true;
+            setStream((prev) => (prev ? { ...prev, appearanceFx: on } : prev));
             return;
           }
           // The host renamed the stream (or moved its category) on air.
@@ -2870,6 +2894,7 @@ export default function StreamPage({
           <div className="mt-2 flex items-center gap-1.5">
             {stream.isLive && (preview.on ? <PracticeBadge /> : <LiveBadge size="md" />)}
             {stream.isLive && aiVoice && <AiVoiceBadge />}
+            {stream.isLive && stream.appearanceFx && <EffectsBadge />}
             <Link href={`/browse?category=${encodeURIComponent(stream.category)}`} className="press min-w-0">
               <Badge variant="glass" size="md" className="max-w-[44vw] truncate">
                 {stream.category}
@@ -3543,6 +3568,7 @@ export default function StreamPage({
             >
               {stream.isLive && (preview.on ? <PracticeBadge /> : <LiveBadge size="md" />)}
               {stream.isLive && aiVoice && <AiVoiceBadge />}
+              {stream.isLive && stream.appearanceFx && <EffectsBadge />}
               <Badge variant="glass" size="md" icon={<Eye size={14} />}>
                 {stream.isLive
                   ? // Prefer the room roster once we're actually in the room;

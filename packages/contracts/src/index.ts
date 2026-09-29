@@ -1219,7 +1219,15 @@ export const createStreamBodySchema = z.object({
  * the stream its host's default name again.
  */
 export const updateStreamBodySchema = z
-  .object(streamDetailsShape)
+  .object({
+    ...streamDetailsShape,
+    /**
+     * The host's camera wears something that changes how they look (skin
+     * smoothing today): viewers are shown an "Effects on" tag while it's on.
+     * The studio keeps it true to the camera; it's never set for them.
+     */
+    appearanceFx: z.boolean(),
+  })
   .partial()
   .refine((body) => Object.keys(body).length > 0, {
     message: "At least one field is required",

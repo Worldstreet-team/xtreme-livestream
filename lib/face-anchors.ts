@@ -484,6 +484,41 @@ const INPUT_WIDTH = 640;
 export type FaceTrackState = "off" | "loading" | "tracking" | "searching" | "unavailable";
 
 /**
+ * The whole face, for the host's own device only: the camera's look reads
+ * it to know where skin is (lib/looks.ts, skin smoothing). Never sent
+ * anywhere — viewers only ever get the 28-byte anchors above.
+ */
+export interface FaceMesh {
+  /** x, y pairs as fractions of the raw camera frame (never mirrored), MediaPipe's 478 points in order. */
+  points: Float32Array;
+  /** performance.now() when the frame was looked at. */
+  t: number;
+  /** Goes up with every new mesh, so a reader redraws only when it changed. */
+  seq: number;
+}
+
+let mesh: FaceMesh | null = null;
+let meshSeq = 0;
+
+/** The latest face on this device's camera, or null when nobody is in frame or nothing is tracking. */
+export function latestFaceMesh(): FaceMesh | null {
+  return mesh;
+}
+
+function putMesh(landmarks: ArrayLike<{ x: number; y: number }> | null | undefined, t: number) {
+  if (!landmarks || landmarks.length < 468) {
+    mesh = null;
+    return;
+  }
+  const points = new Float32Array(landmarks.length * 2);
+  for (let i = 0; i < landmarks.length; i++) {
+    points[i * 2] = landmarks[i].x;
+    points[i * 2 + 1] = landmarks[i].y;
+  }
+  mesh = { points, t, seq: ++meshSeq };
+}
+
+/**
  * The next rate, given what a detection costs on this device: over budget,
  * a quarter fewer looks a second (never below three); comfortably under,
  * a tenth more, back up to the most.
@@ -693,6 +728,7 @@ export function startFaceAnchors(opts: FaceAnchorsOptions): FaceAnchorsHandle {
     const started = performance.now();
     if (attach().readyState === "ended" || opts.track.isMuted) {
       // Camera off, or between cameras: nobody to follow for now. Stopping is the studio's call.
+      putMesh(null, started);
       opts.feed?.put(null, aspect, started);
       publish(null, started);
       setState("searching");
@@ -712,8 +748,11 @@ export function startFaceAnchors(opts: FaceAnchorsOptions): FaceAnchorsHandle {
       let face: FaceAnchors | null = null;
       try {
         inputCtx?.drawImage(video, 0, 0, w, h);
-        face = reduceLandmarks(lm.detectForVideo(inputCtx ? input : video, started).faceLandmarks[0], aspect);
+        const landmarks = lm.detectForVideo(inputCtx ? input : video, started).faceLandmarks[0];
+        putMesh(landmarks, started);
+        face = reduceLandmarks(landmarks, aspect);
       } catch {
+        putMesh(null, started);
         face = null;
       }
       const cost = performance.now() - started;
@@ -774,6 +813,7 @@ export function startFaceAnchors(opts: FaceAnchorsOptions): FaceAnchorsHandle {
       document.removeEventListener("visibilitychange", onVisibility);
       video.pause();
       video.srcObject = null;
+      putMesh(null, performance.now());
       opts.feed?.put(null, aspect);
       if (landmarker) releaseLandmarker();
       landmarker = null;

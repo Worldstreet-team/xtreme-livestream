@@ -311,6 +311,8 @@ export interface IStream extends Document {
    * unchanged.
    */
   thumbnailVersion: number;
+  /** The host's camera changes how they look (skin smoothing): viewers see "Effects on". Set by the studio. */
+  appearanceFx?: boolean;
   /**
    * Up to three frames the studio grabbed while live and scored itself
    * (sharpness, exposure, a face), kept spread across the broadcast — the
@@ -523,6 +525,7 @@ const streamSchema = new Schema<IStream>(
     thumbnail: { type: String, default: "" },
     previewUrl: { type: String },
     thumbnailVersion: { type: Number, default: 0 },
+    appearanceFx: { type: Boolean, default: false },
     thumbnailCandidates: {
       type: [{ _id: false, id: String, image: String, score: Number, at: Date }],
       default: () => [],

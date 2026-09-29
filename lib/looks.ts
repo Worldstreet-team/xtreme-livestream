@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { LocalVideoTrack, TrackProcessor, Track } from "livekit-client";
+import { latestFaceMesh, type FaceMesh } from "@/lib/face-anchors";
 import type {
   BackgroundOptions,
   BackgroundTransformer,
@@ -12,27 +13,50 @@ import type {
 
 /**
  * Your picture (Phase 1, the Look half of "Sound & look"): what's behind
- * you — nothing, a blur, your brand's colour, a picture of your own — and
- * a look, a colour grade the camera wears. Both ride one LiveKit track
- * processor: the package's segmenter for the background, then a 17³ 3D
- * LUT in WebGL2 for the look, on the same frame. A look is a switch of
- * LUT texture, never a rebuilt pipeline, and nothing here may ever take
- * the camera down: every failure lands as "your picture, as it is".
+ * you — nothing, a blur, your brand's colour, a picture of your own, or a
+ * real green screen keyed out — a look, a colour grade the camera wears,
+ * and skin smoothing. All of it rides one LiveKit track processor: the
+ * package's segmenter for a blurred or replaced background, then one
+ * WebGL2 pass that smooths skin (inside a mask drawn from the face the
+ * tracker in lib/face-anchors.ts finds), keys the green screen and grades
+ * through a 17³ 3D LUT, on the same frame. A look is a switch of LUT
+ * texture, never a rebuilt pipeline, and nothing here may ever take the
+ * camera down: every failure lands as "your picture, as it is".
  *
  * The pure parts (the looks' maths, the settings) run in Node for the
  * tests; the browser parts sit behind guards and a dynamic import, so the
  * studio's bundle only carries MediaPipe once someone picks a look.
  */
 
-export type LookBackground = "none" | "blur-soft" | "blur-strong" | "brand" | "image";
+export type LookBackground = "none" | "blur-soft" | "blur-strong" | "brand" | "image" | "green";
 export type Look = "natural" | "warm" | "cool" | "film" | "mono" | "punch";
 
 export interface LookSettings {
   background: LookBackground;
   look: Look;
+  /** Skin smoothing, 0 (off) to 1. Off by default: it changes how a face looks, and viewers are told when it's on. */
+  smooth: number;
 }
 
-export const DEFAULT_LOOK_SETTINGS: LookSettings = { background: "none", look: "natural" };
+export const DEFAULT_LOOK_SETTINGS: LookSettings = { background: "none", look: "natural", smooth: 0 };
+
+/** The smoothing steps the studio offers; any value 0..1 works underneath. */
+export const SMOOTH_STEPS: { value: number; label: string }[] = [
+  { value: 0, label: "Off" },
+  { value: 0.35, label: "Light" },
+  { value: 0.6, label: "Medium" },
+  { value: 0.85, label: "Strong" },
+];
+
+/** Anything the camera wears that changes how the host looks (not just the light): viewers see an "Effects on" tag. */
+export function changesAppearance(settings: Pick<LookSettings, "smooth">): boolean {
+  return settings.smooth > 0;
+}
+
+/** Nothing to do: the camera goes out as captured, with no processor on it. */
+export function isPlainLook(settings: LookSettings): boolean {
+  return settings.background === "none" && settings.look === "natural" && settings.smooth <= 0;
+}
 
 export const BACKGROUNDS: { id: LookBackground; label: string; hint: string }[] = [
   { id: "none", label: "None", hint: "Your picture as it is." },
@@ -40,6 +64,7 @@ export const BACKGROUNDS: { id: LookBackground; label: string; hint: string }[] 
   { id: "blur-strong", label: "Strong blur", hint: "Hides what's behind you." },
   { id: "brand", label: "Brand", hint: "Your accent colour, your logo in the corner — the kit from Scenes." },
   { id: "image", label: "Your image", hint: "Stays on this device. It's never uploaded." },
+  { id: "green", label: "Green screen", hint: "For a real green backdrop: keyed out and swapped for your image, or your brand if you haven't picked one." },
 ];
 
 export const LOOKS: { id: Look; label: string; hint: string }[] = [
@@ -159,6 +184,7 @@ export function readLookSettings(raw: unknown): LookSettings {
   return {
     background: isBackground(r.background) ? r.background : DEFAULT_LOOK_SETTINGS.background,
     look: isLook(r.look) ? r.look : DEFAULT_LOOK_SETTINGS.look,
+    smooth: typeof r.smooth === "number" && Number.isFinite(r.smooth) ? clamp01(r.smooth) : DEFAULT_LOOK_SETTINGS.smooth,
   };
 }
 
@@ -312,7 +338,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, why: string): Promise<T> {
 }
 
 /** What the transformer runs with; a plain object so the wrapper's generic is happy. */
-type LookOptions = { look: Look; background: LookBackground; imagePath: string | null };
+type LookOptions = { look: Look; background: LookBackground; imagePath: string | null; smooth: number };
 
 /** What a background needs from the studio: the host's own picture, and the brand kit. */
 export interface LookSources {
@@ -331,19 +357,74 @@ void main() {
   gl_Position = vec4(a_pos, 0.0, 1.0);
 }`;
 
+/**
+ * The one pass every frame takes: smooth the skin, key the green screen,
+ * grade through the LUT. Each step costs nothing when it's off — the
+ * smoothing only samples where the mask says skin, the key is one branch.
+ */
 const FRAG = `#version 300 es
 precision highp float;
 precision highp sampler3D;
 uniform sampler2D u_frame;
 uniform sampler3D u_lut;
+uniform sampler2D u_mask;
+uniform sampler2D u_bg;
 uniform float u_scale;
 uniform float u_offset;
+uniform float u_smooth;
+uniform float u_radius;
+uniform vec2 u_texel;
+uniform float u_key;
 in vec2 v_uv;
 out vec4 o_color;
+// Two rings of six, the outer turned half a step: an even spread with twelve reads.
+const vec2 TAPS[12] = vec2[12](
+  vec2(0.5, 0.0), vec2(0.25, 0.433), vec2(-0.25, 0.433), vec2(-0.5, 0.0), vec2(-0.25, -0.433), vec2(0.25, -0.433),
+  vec2(0.866, 0.5), vec2(0.0, 1.0), vec2(-0.866, 0.5), vec2(-0.866, -0.5), vec2(0.0, -1.0), vec2(0.866, -0.5)
+);
 void main() {
   vec3 c = texture(u_frame, v_uv).rgb;
+  // Skin: an edge-preserving blur, only where the mask says face (never eyes, brows or lips).
+  float m = u_smooth > 0.0 ? texture(u_mask, v_uv).r * u_smooth : 0.0;
+  if (m > 0.004) {
+    vec3 sum = c;
+    float ws = 1.0;
+    for (int i = 0; i < 12; i++) {
+      vec3 s = texture(u_frame, v_uv + TAPS[i] * u_radius * u_texel).rgb;
+      vec3 d = s - c;
+      // Close colours blend; an edge (a jawline, a strand of hair) doesn't.
+      float w = exp(-dot(d, d) * 90.0);
+      sum += s * w;
+      ws += w;
+    }
+    c = mix(c, sum / ws, m);
+  }
+  // Green screen: how much greener a pixel is than its other two channels.
+  if (u_key > 0.5) {
+    float g = c.g - max(c.r, c.b);
+    float a = 1.0 - smoothstep(0.04, 0.15, g);
+    // Green light bouncing onto hair and shoulders, taken back out.
+    vec3 despilled = vec3(c.r, min(c.g, max(c.r, c.b) + 0.015), c.b);
+    c = mix(texture(u_bg, v_uv).rgb, despilled, a);
+  }
   // Sample cell centres, so the cube's corners are exactly black and white.
   o_color = vec4(texture(u_lut, c * u_scale + u_offset).rgb, 1.0);
+}`;
+
+/** The skin mask: triangles in frame fractions, painted 1 for face and 0 for the holes cut in it. */
+const MASK_VERT = `#version 300 es
+in vec2 a_pos;
+void main() {
+  // Fractions of the frame, rows top-first, into a texture sampled the same way as the frame.
+  gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const MASK_FRAG = `#version 300 es
+precision mediump float;
+uniform float u_val;
+out vec4 o_color;
+void main() {
+  o_color = vec4(u_val, u_val, u_val, 1.0);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
@@ -359,20 +440,114 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string) {
   return shader;
 }
 
-interface LutStage {
+function link(gl: WebGL2RenderingContext, vert: string, frag: string) {
+  const vs = compile(gl, gl.VERTEX_SHADER, vert);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, frag);
+  const program = gl.createProgram();
+  if (!program) throw new LookError("The look's program couldn't be created.");
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  gl.deleteShader(vs);
+  gl.deleteShader(fs);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new LookError(`The look's program didn't link: ${gl.getProgramInfoLog(program) ?? ""}`);
+  }
+  return program;
+}
+
+/* ---- where the skin is ------------------------------------------------- */
+
+/**
+ * MediaPipe's face mesh, by landmark number: the face's outline, and the
+ * parts smoothing must leave sharp. Each is a loop in order.
+ */
+export const FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+const SKIN_HOLES: { loop: number[]; grow: number }[] = [
+  // Eyes grow the most: lashes and lids read as detail, and the mask trails a fast blink.
+  { loop: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246], grow: 1.55 },
+  { loop: [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466], grow: 1.55 },
+  { loop: [70, 63, 105, 66, 107, 55, 65, 52, 53, 46], grow: 1.3 },
+  { loop: [300, 293, 334, 296, 336, 285, 295, 282, 283, 276], grow: 1.3 },
+  { loop: [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185], grow: 1.2 },
+];
+
+/** A loop as a fan of triangles from its centre, grown by `grow` around that centre. */
+function fan(points: ArrayLike<number>, loop: number[], grow: number, out: number[]) {
+  let cx = 0;
+  let cy = 0;
+  for (const i of loop) {
+    cx += points[i * 2];
+    cy += points[i * 2 + 1];
+  }
+  cx /= loop.length;
+  cy /= loop.length;
+  const at = (i: number) => [cx + (points[i * 2] - cx) * grow, cy + (points[i * 2 + 1] - cy) * grow];
+  for (let k = 0; k < loop.length; k++) {
+    const [ax, ay] = at(loop[k]);
+    const [bx, by] = at(loop[(k + 1) % loop.length]);
+    out.push(cx, cy, ax, ay, bx, by);
+  }
+}
+
+export interface SkinShape {
+  /** Triangles (x, y pairs, frame fractions) covering the face. */
+  face: Float32Array;
+  /** Triangles to cut back out: eyes, brows, lips. */
+  holes: Float32Array;
+  /** The face's height, in frame heights — sizes the blur. */
+  height: number;
+}
+
+/** Where the skin is, from MediaPipe's 478 points as x, y fractions. Null for too few points. */
+export function skinShape(points: ArrayLike<number>): SkinShape | null {
+  if (points.length < 468 * 2) return null;
+  const face: number[] = [];
+  const holes: number[] = [];
+  fan(points, FACE_OVAL, 1, face);
+  for (const h of SKIN_HOLES) fan(points, h.loop, h.grow, holes);
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const i of FACE_OVAL) {
+    const y = points[i * 2 + 1];
+    if (y < top) top = y;
+    if (y > bottom) bottom = y;
+  }
+  return { face: new Float32Array(face), holes: new Float32Array(holes), height: Math.max(0, bottom - top) };
+}
+
+/** The blur's reach in pixels for a face this many pixels tall: bigger faces, wider pores. */
+export function smoothRadius(facePx: number) {
+  return Math.min(9, Math.max(1.5, facePx * 0.02));
+}
+
+/** The mask's width: small on purpose — sampled back up, its edges come out feathered. */
+const MASK_WIDTH = 160;
+/** A face older than this is left alone rather than smoothed where it used to be. */
+export const FACE_MESH_STALE_MS = 400;
+
+interface GradeStage {
   /** Swap the look: a texture upload, nothing else. */
   setLut(bytes: Uint8Array): void;
-  /** Draw a frame through the LUT onto the canvas; false when the GPU has gone away. */
+  /** How much to smooth, 0..1. */
+  setSmooth(amount: number): void;
+  /** The latest face; the mask is redrawn from it on the next frame. Null: nobody to smooth. */
+  setFace(mesh: FaceMesh | null): void;
+  /** The green screen's replacement, sized to the frame; null turns the key off. The stage owns the bitmap from here and closes it. */
+  setKey(bg: ImageBitmap | null): void;
+  /** Draw a frame through the pass onto the canvas; false when the GPU has gone away. */
   grade(frame: VideoFrame): boolean;
   destroy(): void;
 }
 
 /**
- * One WebGL2 context on the processor's canvas, one frame texture, one
- * 17³ LUT texture, one full-screen pass. That's the whole GPU budget of a
- * look. A lost context passes frames through until it comes back.
+ * One WebGL2 context on the processor's canvas: the frame, the 17³ LUT, a
+ * small skin mask and the green screen's picture as textures, one
+ * full-screen pass, and a tiny second program that paints the mask when a
+ * new face comes in. That's the whole GPU budget of a look. A lost context
+ * passes frames through until it comes back.
  */
-function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage | null {
+function createGradeStage(canvas: OffscreenCanvas | HTMLCanvasElement): GradeStage | null {
   const gl = canvas.getContext("webgl2", {
     alpha: false,
     antialias: false,
@@ -384,26 +559,43 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
   if (!gl) return null;
 
   let program: WebGLProgram | null = null;
+  let maskProgram: WebGLProgram | null = null;
   let frameTex: WebGLTexture | null = null;
   let lutTex: WebGLTexture | null = null;
+  let maskTex: WebGLTexture | null = null;
+  let bgTex: WebGLTexture | null = null;
+  let maskFbo: WebGLFramebuffer | null = null;
   let vao: WebGLVertexArrayObject | null = null;
   let vbo: WebGLBuffer | null = null;
+  let maskVao: WebGLVertexArrayObject | null = null;
+  let maskVbo: WebGLBuffer | null = null;
   let current: Uint8Array | null = null;
   let lost = false;
 
+  let smooth = 0;
+  let face: FaceMesh | null = null;
+  let drawnSeq = -1;
+  let maskW = 0;
+  let maskH = 0;
+  let faceHeight = 0;
+  let hasMask = false;
+  let keyOn = false;
+  let keyBitmap: ImageBitmap | null = null;
+  const u: Record<string, WebGLUniformLocation | null> = {};
+
+  const texture2D = (filter: number) => {
+    const t = gl!.createTexture();
+    gl!.bindTexture(gl!.TEXTURE_2D, t);
+    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MIN_FILTER, filter);
+    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MAG_FILTER, filter);
+    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_S, gl!.CLAMP_TO_EDGE);
+    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_T, gl!.CLAMP_TO_EDGE);
+    return t;
+  };
+
   function build() {
-    const vs = compile(gl!, gl!.VERTEX_SHADER, VERT);
-    const fs = compile(gl!, gl!.FRAGMENT_SHADER, FRAG);
-    program = gl!.createProgram();
-    if (!program) throw new LookError("The look's program couldn't be created.");
-    gl!.attachShader(program, vs);
-    gl!.attachShader(program, fs);
-    gl!.linkProgram(program);
-    gl!.deleteShader(vs);
-    gl!.deleteShader(fs);
-    if (!gl!.getProgramParameter(program, gl!.LINK_STATUS)) {
-      throw new LookError(`The look's program didn't link: ${gl!.getProgramInfoLog(program) ?? ""}`);
-    }
+    program = link(gl!, VERT, FRAG);
+    maskProgram = link(gl!, MASK_VERT, MASK_FRAG);
     gl!.useProgram(program);
 
     // A quad that covers the canvas.
@@ -416,16 +608,19 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
     gl!.enableVertexAttribArray(aPos);
     gl!.vertexAttribPointer(aPos, 2, gl!.FLOAT, false, 0, 0);
 
-    // The frame, sampled 1:1 — no filtering to soften it.
-    frameTex = gl!.createTexture();
-    gl!.activeTexture(gl!.TEXTURE0);
-    gl!.bindTexture(gl!.TEXTURE_2D, frameTex);
-    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MIN_FILTER, gl!.NEAREST);
-    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MAG_FILTER, gl!.NEAREST);
-    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_S, gl!.CLAMP_TO_EDGE);
-    gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_T, gl!.CLAMP_TO_EDGE);
+    // The mask's triangles, rewritten with each new face.
+    maskVao = gl!.createVertexArray();
+    gl!.bindVertexArray(maskVao);
+    maskVbo = gl!.createBuffer();
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, maskVbo);
+    const mPos = gl!.getAttribLocation(maskProgram, "a_pos");
+    gl!.enableVertexAttribArray(mPos);
+    gl!.vertexAttribPointer(mPos, 2, gl!.FLOAT, false, 0, 0);
+    gl!.bindVertexArray(null);
 
-    // The cube, trilinear so 17 points a side reads as a smooth grade.
+    // The frame, sampled 1:1 by the pass — linear so the smoothing's taps land between pixels.
+    frameTex = texture2D(gl!.LINEAR);
+
     lutTex = gl!.createTexture();
     gl!.activeTexture(gl!.TEXTURE1);
     gl!.bindTexture(gl!.TEXTURE_3D, lutTex);
@@ -436,19 +631,87 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
     gl!.texParameteri(gl!.TEXTURE_3D, gl!.TEXTURE_WRAP_R, gl!.CLAMP_TO_EDGE);
     gl!.texImage3D(gl!.TEXTURE_3D, 0, gl!.RGBA8, LUT_SIZE, LUT_SIZE, LUT_SIZE, 0, gl!.RGBA, gl!.UNSIGNED_BYTE, current);
 
+    // The mask and the green screen's picture start as a single black pixel.
+    gl!.activeTexture(gl!.TEXTURE2);
+    maskTex = texture2D(gl!.LINEAR);
+    gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, 1, 1, 0, gl!.RGBA, gl!.UNSIGNED_BYTE, new Uint8Array(4));
+    maskW = maskH = 1;
+    maskFbo = gl!.createFramebuffer();
+    gl!.activeTexture(gl!.TEXTURE3);
+    bgTex = texture2D(gl!.LINEAR);
+    gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, 1, 1, 0, gl!.RGBA, gl!.UNSIGNED_BYTE, new Uint8Array(4));
+
+    for (const name of ["u_smooth", "u_radius", "u_texel", "u_key", "u_val"]) {
+      u[name] = gl!.getUniformLocation(name === "u_val" ? maskProgram : program, name);
+    }
+    gl!.useProgram(program);
     gl!.uniform1i(gl!.getUniformLocation(program, "u_frame"), 0);
     gl!.uniform1i(gl!.getUniformLocation(program, "u_lut"), 1);
+    gl!.uniform1i(gl!.getUniformLocation(program, "u_mask"), 2);
+    gl!.uniform1i(gl!.getUniformLocation(program, "u_bg"), 3);
     gl!.uniform1f(gl!.getUniformLocation(program, "u_scale"), (LUT_SIZE - 1) / LUT_SIZE);
     gl!.uniform1f(gl!.getUniformLocation(program, "u_offset"), 0.5 / LUT_SIZE);
+
+    // A rebuilt context has lost what was uploaded: the mask redraws, the key re-uploads.
+    drawnSeq = -1;
+    hasMask = false;
+    if (keyBitmap) uploadKey(keyBitmap);
   }
 
   function release() {
-    if (program) gl!.deleteProgram(program);
-    if (frameTex) gl!.deleteTexture(frameTex);
-    if (lutTex) gl!.deleteTexture(lutTex);
-    if (vbo) gl!.deleteBuffer(vbo);
-    if (vao) gl!.deleteVertexArray(vao);
-    program = frameTex = lutTex = vbo = vao = null;
+    for (const p of [program, maskProgram]) if (p) gl!.deleteProgram(p);
+    for (const t of [frameTex, lutTex, maskTex, bgTex]) if (t) gl!.deleteTexture(t);
+    for (const b of [vbo, maskVbo]) if (b) gl!.deleteBuffer(b);
+    for (const v of [vao, maskVao]) if (v) gl!.deleteVertexArray(v);
+    if (maskFbo) gl!.deleteFramebuffer(maskFbo);
+    program = maskProgram = frameTex = lutTex = maskTex = bgTex = vbo = maskVbo = vao = maskVao = maskFbo = null;
+  }
+
+  function uploadKey(bmp: ImageBitmap) {
+    if (!bgTex) return;
+    gl!.activeTexture(gl!.TEXTURE3);
+    gl!.bindTexture(gl!.TEXTURE_2D, bgTex);
+    gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, gl!.RGBA, gl!.UNSIGNED_BYTE, bmp);
+  }
+
+  /** Paint the skin mask from the latest face: the outline in white, the holes back to black. */
+  function drawMask(frameW: number, frameH: number) {
+    if (!face || !maskProgram || !maskFbo || !maskTex) return;
+    const shape = skinShape(face.points);
+    drawnSeq = face.seq;
+    if (!shape) {
+      hasMask = false;
+      return;
+    }
+    const w = MASK_WIDTH;
+    const h = Math.max(1, Math.round((MASK_WIDTH * frameH) / Math.max(1, frameW)));
+    gl!.activeTexture(gl!.TEXTURE2);
+    gl!.bindTexture(gl!.TEXTURE_2D, maskTex);
+    if (w !== maskW || h !== maskH) {
+      gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, w, h, 0, gl!.RGBA, gl!.UNSIGNED_BYTE, null);
+      maskW = w;
+      maskH = h;
+    }
+    gl!.bindFramebuffer(gl!.FRAMEBUFFER, maskFbo);
+    gl!.framebufferTexture2D(gl!.FRAMEBUFFER, gl!.COLOR_ATTACHMENT0, gl!.TEXTURE_2D, maskTex, 0);
+    gl!.viewport(0, 0, w, h);
+    gl!.clearColor(0, 0, 0, 1);
+    gl!.clear(gl!.COLOR_BUFFER_BIT);
+    gl!.useProgram(maskProgram);
+    gl!.bindVertexArray(maskVao);
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, maskVbo);
+    const all = new Float32Array(shape.face.length + shape.holes.length);
+    all.set(shape.face, 0);
+    all.set(shape.holes, shape.face.length);
+    gl!.bufferData(gl!.ARRAY_BUFFER, all, gl!.DYNAMIC_DRAW);
+    gl!.uniform1f(u.u_val, 1);
+    gl!.drawArrays(gl!.TRIANGLES, 0, shape.face.length / 2);
+    gl!.uniform1f(u.u_val, 0);
+    gl!.drawArrays(gl!.TRIANGLES, shape.face.length / 2, shape.holes.length / 2);
+    gl!.bindFramebuffer(gl!.FRAMEBUFFER, null);
+    gl!.bindVertexArray(null);
+    faceHeight = shape.height;
+    hasMask = true;
   }
 
   const onLost = (e: Event) => {
@@ -477,6 +740,22 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
       gl.bindTexture(gl.TEXTURE_3D, lutTex);
       gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, LUT_SIZE, LUT_SIZE, LUT_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
     },
+    setSmooth(amount) {
+      smooth = clamp01(amount);
+    },
+    setFace(mesh) {
+      face = mesh;
+      if (!mesh) hasMask = false;
+    },
+    setKey(bmp) {
+      keyBitmap?.close();
+      keyBitmap = null;
+      keyOn = Boolean(bmp);
+      if (!bmp) return;
+      // Kept: a restored context needs it again.
+      keyBitmap = bmp;
+      if (!lost) uploadKey(bmp);
+    },
     grade(frame) {
       if (lost || !program) return false;
       const w = frame.displayWidth;
@@ -485,20 +764,32 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
         canvas.width = w;
         canvas.height = h;
       }
+      const smoothing = smooth > 0 && face !== null;
+      if (smoothing && face && face.seq !== drawnSeq) drawMask(w, h);
       gl.viewport(0, 0, w, h);
       gl.useProgram(program);
       gl.bindVertexArray(vao);
+      gl.uniform1f(u.u_smooth, smoothing && hasMask ? smooth : 0);
+      gl.uniform1f(u.u_radius, smoothRadius(faceHeight * h));
+      gl.uniform2f(u.u_texel, 1 / w, 1 / h);
+      gl.uniform1f(u.u_key, keyOn ? 1 : 0);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, frameTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_3D, lutTex);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, maskTex);
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, bgTex);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       return true;
     },
     destroy() {
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
+      keyBitmap?.close();
+      keyBitmap = null;
       release();
       // Hand the GPU memory back now rather than whenever the canvas is collected.
       gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -507,8 +798,31 @@ function createLutStage(canvas: OffscreenCanvas | HTMLCanvasElement): LutStage |
 }
 
 /**
- * The transformer: the package's background stage (when a background is
- * chosen) and then the LUT, on one frame. The background stage arrives
+ * A picture cropped to cover a frame of this size (centred), as a bitmap
+ * the GPU takes directly: the green screen's replacement.
+ */
+async function coverBitmap(url: string, width: number, height: number): Promise<ImageBitmap> {
+  const blob = await (await fetch(url)).blob();
+  const src = await createImageBitmap(blob);
+  try {
+    const want = width / height;
+    const have = src.width / src.height;
+    let sw = src.width;
+    let sh = src.height;
+    if (have > want) sw = Math.round(src.height * want);
+    else sh = Math.round(src.width / want);
+    const sx = Math.round((src.width - sw) / 2);
+    const sy = Math.round((src.height - sh) / 2);
+    return await createImageBitmap(src, sx, sy, sw, sh, { resizeWidth: width, resizeHeight: height, resizeQuality: "high" });
+  } finally {
+    src.close();
+  }
+}
+
+/**
+ * The transformer: the package's background stage (when a blur or a
+ * replaced background is chosen) and then the pass — skin, green screen,
+ * LUT — on one frame. The background stage arrives
  * when its model has loaded; frames wear the look alone until then, and
  * again if it ever stops delivering — a blur that fails must never freeze
  * the camera.
@@ -522,11 +836,14 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
   onFrame?: (stats: FrameStats) => void;
   /** The background stopped coming through; the look carries on without it. */
   onBackgroundLost?: (reason: string) => void;
+  /** Every frame that went out through the pass, and what the pass cost — the device test counts these. */
+  onGraded?: (ms: number) => void;
 
   private readonly mod: Processors;
   private canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
   private inputVideo: HTMLVideoElement | null = null;
-  private lut: LutStage | null = null;
+  private lut: GradeStage | null = null;
+  private keyToken = 0;
   private live = false;
   private bg: BackgroundTransformer | null = null;
   private bgOn = false;
@@ -547,13 +864,17 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
     // No WebGL2 (a context limit, a GPU reset): frames pass through untouched
     // rather than the camera stopping — LiveKit restarts a processor with no
     // way back if its init throws, and the look is the one thing allowed to fail.
-    const lut = createLutStage(outputCanvas);
-    if (lut) lut.setLut(lutFor(this.options.look));
+    const lut = createGradeStage(outputCanvas);
+    if (lut) {
+      lut.setLut(lutFor(this.options.look));
+      lut.setSmooth(this.options.smooth);
+    }
     this.lut = lut;
     this.live = true;
     this.bgMisses = 0;
     // Not awaited: the background arrives when its model has; `update` is what waits on it.
     void this.queueBackground().catch(() => {});
+    void this.syncKey().catch(() => {});
   }
 
   async restart(opts: VideoTransformerInitOptions) {
@@ -563,6 +884,7 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
 
   async destroy(opts?: TrackTransformerDestroyOptions) {
     this.live = false;
+    this.keyToken++;
     this.lut?.destroy();
     this.lut = null;
     const bg = this.bg;
@@ -579,8 +901,9 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
     const prev = this.options;
     this.options = { ...prev, ...next };
     if (this.options.look !== prev.look) this.lut?.setLut(lutFor(this.options.look));
+    if (this.options.smooth !== prev.smooth) this.lut?.setSmooth(this.options.smooth);
     if (this.options.background !== prev.background || this.options.imagePath !== prev.imagePath) {
-      await this.queueBackground();
+      await Promise.all([this.queueBackground(), this.syncKey()]);
     } else {
       await this.bgQueue;
     }
@@ -599,6 +922,33 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
       return { blurRadius: undefined, imagePath, backgroundDisabled: false };
     }
     return null;
+  }
+
+  /**
+   * The green screen: key it out against the host's picture (or the brand),
+   * cropped to the frame. No segmenter — the colour does the work, which is
+   * cheaper and cleaner when there's a real backdrop.
+   */
+  private async syncKey() {
+    const token = ++this.keyToken;
+    const { background, imagePath } = this.options;
+    if (background !== "green" || !imagePath) {
+      this.lut?.setKey(null);
+      return;
+    }
+    const { width, height } = this.size;
+    let bmp: ImageBitmap;
+    try {
+      bmp = await coverBitmap(imagePath, width, height);
+    } catch (e) {
+      throw new LookError(`The green screen's picture couldn't load: ${message(e)}`);
+    }
+    // Settings moved on (or the processor stopped) while it loaded.
+    if (token !== this.keyToken || !this.live || !this.lut) {
+      bmp.close();
+      return;
+    }
+    this.lut.setKey(bmp);
   }
 
   /** Background changes run one after another, each reading the latest options when its turn comes. */
@@ -659,6 +1009,11 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
       controller.enqueue(frame);
       return;
     }
+    // Where the face is now, for the skin mask: the tracker on the raw camera sees the same frame geometry.
+    if (this.options.smooth > 0) {
+      const mesh = latestFaceMesh();
+      this.lut.setFace(mesh && performance.now() - mesh.t < FACE_MESH_STALE_MS ? mesh : null);
+    }
     if (frame.codedWidth === 0 || frame.codedHeight === 0) {
       frame.close();
       return;
@@ -687,10 +1042,12 @@ class LookTransformer implements VideoTrackTransformer<LookOptions> {
   /** The LUT pass: a new frame from the canvas, or the frame as it is if the GPU won't play. */
   private grade(frame: VideoFrame, controller: TransformStreamDefaultController<VideoFrame>) {
     try {
+      const t0 = performance.now();
       if (this.lut && this.canvas && this.lut.grade(frame)) {
         const out = new VideoFrame(this.canvas, { timestamp: frame.timestamp });
         frame.close();
         controller.enqueue(out);
+        this.onGraded?.(performance.now() - t0);
         return;
       }
     } catch {
@@ -711,6 +1068,8 @@ export interface LookProcessor extends TrackProcessor<Track.Kind> {
   readonly bypassed: boolean;
   /** The background stage gave up mid-stream; the look carries on without it. */
   onBackgroundLost?: (reason: string) => void;
+  /** Each frame out through the pass, with what the pass cost in ms (the device test). */
+  onGraded?: (ms: number) => void;
 }
 
 type LookProcessorClass = new (transformer: LookTransformer, settings: LookSettings) => LookProcessor;
@@ -732,9 +1091,11 @@ function createLookProcessor(mod: Processors, settings: LookSettings): LookProce
         this.settings = { ...this.settings, background: "none" };
         this.onBackgroundLost?.(reason);
       };
+      transformer.onGraded = (ms) => this.onGraded?.(ms);
     }
 
     onBackgroundLost?: (reason: string) => void;
+    onGraded?: (ms: number) => void;
 
     get bypassed() {
       return this.transformer.bypass;
@@ -751,9 +1112,12 @@ function createLookProcessor(mod: Processors, settings: LookSettings): LookProce
         if (!imagePath) throw new LookError("Pick a picture first.");
       } else if (next.background === "brand") {
         imagePath = await this.brandBackground(sources.brand ?? null);
+      } else if (next.background === "green") {
+        // Keyed out onto the host's own picture when there is one, else the brand.
+        imagePath = sources.imageUrl ?? (await this.brandBackground(sources.brand ?? null));
       }
       this.settings = next;
-      await this.transformer.update({ look: next.look, background: next.background, imagePath });
+      await this.transformer.update({ look: next.look, background: next.background, imagePath, smooth: next.smooth });
     }
 
     /** The brand's flat colour with the logo small in a corner, painted once per size and kit. */
@@ -779,7 +1143,7 @@ function createLookProcessor(mod: Processors, settings: LookSettings): LookProce
       }
     }
   };
-  return new processorClass(new LookTransformer(mod, { ...settings, imagePath: null }), settings);
+  return new processorClass(new LookTransformer(mod, { look: settings.look, background: settings.background, smooth: settings.smooth, imagePath: null }), settings);
 }
 
 /** A flat accent with the logo top-right, at the frame's size; the colour alone if the logo won't load. */
@@ -842,7 +1206,7 @@ export function applyLook(track: LocalVideoTrack, settings: LookSettings, source
 
 async function applyNow(track: LocalVideoTrack, settings: LookSettings, sources: LookSources): Promise<LookResult> {
   const running = getLookProcessor(track);
-  if (settings.background === "none" && settings.look === "natural") {
+  if (isPlainLook(settings)) {
     if (running) await track.stopProcessor().catch(() => {});
     return { ok: true, applied: DEFAULT_LOOK_SETTINGS };
   }
@@ -864,7 +1228,7 @@ async function applyNow(track: LocalVideoTrack, settings: LookSettings, sources:
     if (settings.background !== "none" && proc && getLookProcessor(track) === proc) {
       const fallback: LookSettings = { ...settings, background: "none" };
       try {
-        if (fallback.look === "natural") await track.stopProcessor();
+        if (isPlainLook(fallback)) await track.stopProcessor();
         else await proc.apply(fallback, sources);
         return { ok: false, reason, applied: fallback };
       } catch {

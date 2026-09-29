@@ -236,6 +236,32 @@ describe("going live and renaming, through the routes", () => {
     expect(db.Stream!.rows[0]!.title).toBe("Amara on Afrobeats");
   });
 
+  it("tells the room when the host's camera starts or stops changing how they look, and only then", async () => {
+    state.caller = "host";
+    const live = await call("POST", "/streams", { category: "Just Chatting" });
+    const id = live.json().data.stream.id as string;
+    const row = db.Stream!.rows.find((r) => String(r._id) === id)!;
+    const room = row.livekitRoomName as string;
+
+    state.sent = [];
+    const on = await call("PATCH", `/streams/${id}`, { appearanceFx: true });
+    expect(on.statusCode).toBe(200);
+    expect(row.appearanceFx).toBe(true);
+    expect(state.sent).toEqual([{ room, data: { __evt: "fx", appearanceFx: true } }]);
+
+    // Saying it again changes nothing, so the room isn't told twice.
+    state.sent = [];
+    await call("PATCH", `/streams/${id}`, { appearanceFx: true });
+    expect(state.sent).toEqual([]);
+
+    await call("PATCH", `/streams/${id}`, { appearanceFx: false });
+    expect(row.appearanceFx).toBe(false);
+    expect(state.sent).toEqual([{ room, data: { __evt: "fx", appearanceFx: false } }]);
+
+    // It's not a detail: no rename event rides along, and the title stays.
+    expect(state.sent.some((s) => s.data.__evt === "details")).toBe(false);
+  });
+
   it("says nothing to a room when the stream isn't live", async () => {
     state.caller = "host";
     const ended = db.Stream!.insert({

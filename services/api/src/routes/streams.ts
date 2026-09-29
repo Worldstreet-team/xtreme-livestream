@@ -645,6 +645,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       const detailsChanged =
         (patch.title !== undefined && patch.title !== stream.title) ||
         (patch.category !== undefined && patch.category !== stream.category);
+      const fxChanged = patch.appearanceFx !== undefined && patch.appearanceFx !== Boolean(stream.appearanceFx);
 
       // Bump the version only on an actual image change, so cached copies
       // survive ordinary title/category edits.
@@ -665,6 +666,10 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           title: stream.title,
           category: stream.category,
         });
+      }
+      // Smoothing went on or off: the "Effects on" tag follows on every screen.
+      if (fxChanged && stream.isLive) {
+        void sendRoomData(stream.livekitRoomName, { __evt: "fx", appearanceFx: Boolean(stream.appearanceFx) });
       }
 
       return {
