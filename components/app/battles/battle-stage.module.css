@@ -1,0 +1,111 @@
+/*
+ * The battle stage's motion. Every animation here is decoration on data
+ * that is already on screen, so prefers-reduced-motion drops them all:
+ * the numbers and the bar step, nothing beats, stamps or flies.
+ */
+
+/* The bar's two ends meet at the seam, which eases to the new share. No
+   overshoot: a spring past the true share would briefly show a wrong score. */
+.fill {
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.seam {
+  transition: left 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    0 0 6px 1px rgb(255 255 255 / 0.9),
+    0 0 14px 3px rgb(255 255 255 / 0.35);
+}
+
+/* The side that just scored: one bright pulse (a white wash over its end, so the width can keep easing). */
+.flash {
+  animation: flash 560ms ease-out both;
+}
+@keyframes flash {
+  0% { opacity: 0; }
+  25% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+/* The last ten seconds: the pill beats once a second (keyed by the second). */
+.beat {
+  animation: beat 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes beat {
+  0% { transform: scale(1); }
+  28% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+
+/* "+15s" flies up into the pill from below. */
+.fly {
+  animation: fly 1500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fly {
+  0% { opacity: 0; transform: translate(-50%, 34px) scale(0.7); }
+  22% { opacity: 1; transform: translate(-50%, 16px) scale(1.08); }
+  70% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -4px) scale(0.9); }
+}
+
+/* WIN / LOSE / DRAW / VS: stamped in, big to size, with a hard landing. */
+.stamp {
+  animation: stamp 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes stamp {
+  0% { opacity: 0; transform: scale(1.9); }
+  60% { opacity: 1; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* A seat changing hands — someone moved up — pops. */
+.pop {
+  animation: pop 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes pop {
+  0% { transform: scale(0.6); }
+  100% { transform: scale(1); }
+}
+
+/* Gift toasts drop in over the half they went to. */
+.toast {
+  animation: toast 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes toast {
+  0% { opacity: 0; transform: translateY(-10px); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* A streak going up after the win. */
+.bump {
+  animation: pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* The loser's dimming and anything else that fades. */
+.fade {
+  transition: opacity 500ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .seam,
+  .fade {
+    transition: none;
+  }
+  .flash,
+  .beat,
+  .fly,
+  .stamp,
+  .pop,
+  .toast,
+  .bump {
+    animation: none;
+  }
+  /* No wash either: the numbers say who scored. */
+  .flash {
+    opacity: 0;
+  }
+  /* Nothing flies: the chip just shows beside the pill for its moment. */
+  .fly {
+    transform: translate(-50%, 0);
+  }
+}
