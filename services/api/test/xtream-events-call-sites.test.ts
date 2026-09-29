@@ -248,7 +248,12 @@ describe("battle call sites", () => {
     await startBattle(battle);
     await settle();
     const streamIds = [String(battle.hostStreamId), String(battle.challengerStreamId)];
-    expect(pushed()).toEqual([{ to: "all", name: "battle.started", data: { battleId: String(battle._id), streamIds } }]);
+    // Public: the battle started. Personal: each host's panel hears it was accepted (ids only).
+    expect(pushed()).toEqual([
+      { to: "all", name: "battle.started", data: { battleId: String(battle._id), streamIds } },
+      { to: "user_host", name: "battle", data: { battleId: String(battle._id), change: "accepted" } },
+      { to: "user_rival", name: "battle", data: { battleId: String(battle._id), change: "accepted" } },
+    ]);
 
     fetchMock.mockClear();
     battle.hostUsdMinor = 5_000;

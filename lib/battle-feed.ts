@@ -54,6 +54,51 @@ export function readBattlePacket(data: Record<string, unknown>): { battle: Battl
   return battle ? { battle, gift: data.gift === undefined ? null : readBattleGift(data.gift) } : null;
 }
 
+/**
+ * A gift from a battle's own Ably channel (`xtream:battle:<id>`, message
+ * "gift"; services/api/src/xtream-events.ts `xtreamBattleGift`): flat and
+ * money-free on the wire — `points`, `senderId`/`senderName`, and both new
+ * totals — read back into the room's gift shape. Null when it isn't one.
+ */
+export function readChannelGift(raw: unknown): { gift: BattleGift; totals: { host: number; challenger: number } } | null {
+  let data = raw;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  const gift = readBattleGift({
+    id: d.id,
+    side: d.side,
+    usdMinor: d.points,
+    giftName: d.giftName ?? "",
+    emoji: d.emoji ?? "",
+    sender: { userId: d.senderId, displayName: d.senderName ?? "Someone" },
+    at: d.at,
+  });
+  const host = d.hostPoints;
+  const challenger = d.challengerPoints;
+  if (!gift || typeof host !== "number" || typeof challenger !== "number" || !Number.isFinite(host) || !Number.isFinite(challenger)) return null;
+  return { gift, totals: { host, challenger } };
+}
+
+/**
+ * The view a channel gift implies: the one held, with the new totals —
+ * never lower than what's held (scores only go up; a push can overtake a
+ * slower ask). Clock and status still come from the view itself.
+ */
+export function withTotals(held: BattleView, totals: { host: number; challenger: number }): BattleView {
+  return {
+    ...held,
+    host: { ...held.host, usdMinor: Math.max(held.host.usdMinor, totals.host) },
+    challenger: { ...held.challenger, usdMinor: Math.max(held.challenger.usdMinor, totals.challenger) },
+  };
+}
+
 const RANK: Record<string, number> = { scheduled: 0, invited: 0, live: 1, overtime: 2, ended: 3, cancelled: 3 };
 
 /**

@@ -129,3 +129,50 @@ export function useXtreamPoll(
   });
   return { pace: pollPace(fastMs, backstopMs, live), tick };
 }
+
+/**
+ * A battle's gifts, pushed on its own channel (`xtream:battle:<id>`) while
+ * `battleId` is set — for a clash view watching from outside the battle's
+ * rooms. Subscribes on the Ably session messaging already holds, and lets
+ * go (unsubscribe and detach) when the view closes, so only open views
+ * cost anything. Returns whether it's listening, so the caller can slow its
+ * own asking down. The latest `onGift` is always the one called.
+ */
+export function useXtreamBattleGifts(battleId: string | null, onGift: (data: unknown) => void): boolean {
+  const { user } = useAuth();
+  const handler = useRef(onGift);
+  useEffect(() => {
+    handler.current = onGift;
+  });
+  const [listening, setListening] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user || !battleId) return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    void getMessagingSession()
+      .then(({ live }) => {
+        if (cancelled) return;
+        const client = live.client as unknown as {
+          channels: { get(name: string): { subscribe(name: string, fn: (m: { data?: unknown }) => void): unknown; unsubscribe(fn?: (m: { data?: unknown }) => void): void; detach?(): unknown } };
+        };
+        const channel = client.channels.get(`xtream:battle:${battleId}`);
+        const onMessage = (m: { data?: unknown }) => handler.current(m?.data);
+        void Promise.resolve(channel.subscribe("gift", onMessage))
+          .then(() => !cancelled && setListening(battleId))
+          .catch(() => {});
+        stop = () => {
+          channel.unsubscribe(onMessage);
+          void Promise.resolve(channel.detach?.()).catch(() => {});
+        };
+      })
+      .catch(() => {
+        // Signed out or the gateway is down: the view keeps asking at its own pace.
+      });
+    return () => {
+      cancelled = true;
+      stop?.();
+      setListening((cur) => (cur === battleId ? null : cur));
+    };
+  }, [user, battleId]);
+  return Boolean(user) && listening !== null && listening === battleId;
+}

@@ -60,7 +60,7 @@ vi.mock("../src/livekit.js", () => ({
 }));
 vi.mock("../src/rewards.js", () => ({ audit: async () => {}, payBattleBonus: async () => {} }));
 vi.mock("../src/socials-relay.js", () => ({ relayBattleResult: async () => {} }));
-vi.mock("../src/xtream-events.js", () => ({ pushNotifications: () => {}, xtreamBattle: () => {} }));
+vi.mock("../src/xtream-events.js", () => ({ pushNotifications: () => {}, xtreamBattle: () => {}, xtreamBattleChange: () => {}, xtreamBattleGift: () => {} }));
 vi.mock("../src/rules.js", () => ({ fireRules: async () => [] }));
 
 const db = (await import("../src/models.js")) as unknown as Record<string, import("./fake-mongo.js").FakeModel>;

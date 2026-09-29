@@ -165,3 +165,34 @@ describe("the studio battle panel's list", () => {
     ]);
   });
 });
+
+
+describe("a gift from the battle's own channel", () => {
+  it("reads the flat wire shape back into the room's gift, with both totals", async () => {
+    const { readChannelGift } = await import("../../../lib/battle-feed");
+    const got = readChannelGift({ id: "g1", side: "challenger", points: 900, giftName: "Lion", emoji: "🦁", senderId: "u2", senderName: "Ngozi", at: "2026-09-29T12:00:00.000Z", hostPoints: 100, challengerPoints: 900 });
+    expect(got).toEqual({
+      gift: { id: "g1", side: "challenger", usdMinor: 900, giftName: "Lion", emoji: "🦁", sender: { userId: "u2", displayName: "Ngozi" }, at: "2026-09-29T12:00:00.000Z" },
+      totals: { host: 100, challenger: 900 },
+    });
+    // A JSON string (how Ably can hand data over) reads the same.
+    expect(readChannelGift(JSON.stringify({ id: "g1", side: "host", points: 5, at: "x", senderId: "u", hostPoints: 5, challengerPoints: 0 }))?.totals).toEqual({ host: 5, challenger: 0 });
+  });
+
+  it("refuses anything that isn't one", async () => {
+    const { readChannelGift } = await import("../../../lib/battle-feed");
+    expect(readChannelGift(null)).toBeNull();
+    expect(readChannelGift("not json")).toBeNull();
+    expect(readChannelGift({ id: "g1", side: "left", points: 5, at: "x", senderId: "u", hostPoints: 5, challengerPoints: 0 })).toBeNull();
+    expect(readChannelGift({ id: "g1", side: "host", points: 5, at: "x", senderId: "u", hostPoints: "5", challengerPoints: 0 })).toBeNull();
+  });
+
+  it("never lets a push move a score backwards", async () => {
+    const { withTotals } = await import("../../../lib/battle-feed");
+    const held = { id: "b", status: "live", host: { userId: "h", usdMinor: 500 }, challenger: { userId: "c", usdMinor: 300 } } as unknown as import("../../../lib/battles").BattleView;
+    const next = withTotals(held, { host: 400, challenger: 800 });
+    expect(next.host.usdMinor).toBe(500);
+    expect(next.challenger.usdMinor).toBe(800);
+    expect(next.status).toBe("live");
+  });
+});

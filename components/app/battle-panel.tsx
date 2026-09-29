@@ -186,9 +186,10 @@ export function BattlePanel({
   );
 
   // Off the room: an invite or a booking is a bell notification, pushed to the person.
-  useXtreamPush(["notification"], (push) => {
+  // …and every change to a battle you're in (declined, withdrawn, expired, matched, a booking called off) as its own push.
+  useXtreamPush(["notification", "battle"], (push) => {
     const kind = push?.data.kind;
-    if (!push || kind === "battle_invite" || kind === "battle_result") load();
+    if (!push || push.name === "battle" || kind === "battle_invite" || kind === "battle_result") load();
   });
 
   useEffect(() => {
