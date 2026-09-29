@@ -10,6 +10,7 @@ import { useTheme } from "@/lib/theme";
 import { markTourSeen } from "@/lib/tour/state";
 import { TourArt, type TourScene } from "@/components/app/tour/tour-art";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { XtreamLoader } from "@/components/ui/xtream-loader";
 import type { BattleView } from "@/lib/battles";
 import { CaretLeft, Check } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,8 @@ export function OnboardingFlow() {
   /** A battle live right now, to recommend at the end (practice ones are never listed). */
   const [battle, setBattle] = useState<BattleView | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  /** On the way out: "We're setting up your space" while Home gets ready. */
+  const [leaving, setLeaving] = useState<string[] | null>(null);
 
   // The profile arrives after the first render on a cold load.
   const [seeded, setSeeded] = useState(Boolean(user));
@@ -177,19 +180,34 @@ export function OnboardingFlow() {
     void apiFetch("/api/user/me/onboarding", { method: "POST", body: JSON.stringify({ categories: picked, step: sid, ...extra }) }).catch(() => {});
   };
 
-  const leave = (to = next) => {
+  /**
+   * Out of the flow, never straight into a half-loaded page: the Xtream mark
+   * and a few lines about what's being set up, while the account refreshes
+   * and the next page is fetched (at least long enough to read a line).
+   */
+  const leave = (to = next, lines?: string[]) => {
     try {
       localStorage.setItem(WELCOME_SKIP_KEY, "1");
     } catch {
       // Storage off: the account's record still says so.
     }
-    void refreshUser();
-    router.replace(to);
+    const picks = picked.slice(0, 2).map(short);
+    setLeaving(
+      lines ?? [
+        "We're setting up your space",
+        picks.length ? `Lining up ${picks.join(" and ")}` : "Lining up what's big right now",
+        follows.length ? `Tuning in to the ${follows.length} you follow` : "Checking who's live right now",
+        "Almost there",
+      ],
+    );
+    router.prefetch(to);
+    const ready = Promise.all([refreshUser().catch(() => {}), new Promise((r) => setTimeout(r, 2600))]);
+    void ready.then(() => router.replace(to));
   };
 
   const skip = async () => {
     void apiFetch("/api/user/me/onboarding", { method: "POST", body: JSON.stringify({ categories: picked, skipped: true }) }).catch(() => {});
-    leave();
+    leave(next, ["Taking you home", "Home starts with what's big right now"]);
   };
 
   const submitName = async () => {
@@ -583,10 +601,10 @@ export function OnboardingFlow() {
         )}
         {(intent === "create" || intent === "both") && (
           <div className={s.tryRow}>
-            <button type="button" className={s.secondary} onClick={() => leave("/studio?practice=1")}>
+            <button type="button" className={s.secondary} onClick={() => leave("/studio?practice=1", ["Setting up your studio", "A practice run nobody else sees"])}>
               <span className={cn(s.glyph, s.g_create, s.glyphSm)} aria-hidden /> Try a practice run
             </button>
-            <button type="button" className={s.secondary} onClick={() => leave("/studio?practice=1&battle=1")}>
+            <button type="button" className={s.secondary} onClick={() => leave("/studio?practice=1&battle=1", ["Setting up your studio", "Your sparring partner is warming up"])}>
               <span className={cn(s.glyph, s.g_battle, s.glyphSm)} aria-hidden /> Try a practice battle
             </button>
           </div>
@@ -599,6 +617,7 @@ export function OnboardingFlow() {
   const askIndex = ASKS.indexOf(id);
   return (
     <div className={s.ob}>
+      {leaving && <XtreamLoader messages={leaving} className="z-10" />}
       <div className={s.shell}>
       <div className={s.art}>
         <div className={s.artBox}>

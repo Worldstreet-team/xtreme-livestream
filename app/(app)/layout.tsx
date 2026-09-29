@@ -9,6 +9,7 @@ import { CallProvider } from "@/components/app/calls/call-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useViewerFrame } from "@/lib/viewer-view";
 import { WELCOME_SKIP_KEY } from "@/components/app/welcome/onboarding-flow";
+import { XtreamLoader } from "@/components/ui/xtream-loader";
 
 /** A new account gets the first-run flow; older ones never do. */
 const WELCOME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -103,11 +104,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Still loading — show spinner
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
+      <div className="relative min-h-screen bg-background">
+        <XtreamLoader messages={["Getting Xtream ready"]} />
       </div>
     );
   }
@@ -132,11 +130,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Not signed in at all — redirect to login
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Redirecting...</p>
-        </div>
+      <div className="relative min-h-screen bg-background">
+        <XtreamLoader messages={["Taking you to sign in"]} />
       </div>
     );
   }
