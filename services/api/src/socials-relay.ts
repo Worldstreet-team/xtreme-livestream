@@ -36,33 +36,43 @@ export function socialsRelayEnabled() {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** One signed POST. Timestamp and signature are minted per attempt so a
- *  retried request isn't rejected as a replay. Throws on non-2xx. */
 /**
  * The gateway said no, and saying it again won't help. The common case is
  * a streamer with no WorldSpace account: plenty of people broadcast here
  * and nowhere else, and their stream must not leave a relay retrying for
  * a day. 408, 429 and every 5xx stay transient — those are worth a retry.
  */
-class RelayRejected extends Error {
+export class RelayRejected extends Error {
   constructor(readonly status: number) {
     super(`Socials gateway rejected the relay (${status})`);
     this.name = "RelayRejected";
   }
 }
 
-function permanent(status: number) {
+export function permanent(status: number) {
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
-async function postLiveEvent(kind: LiveRelayKind, body: string) {
-  const timestamp = String(Date.now());
-  const signature = crypto
+/** The relay's signature: HMAC-SHA256 of `${timestamp}.${body}` with the shared secret. */
+export function signRelayBody(timestamp: string, body: string) {
+  return crypto
     .createHmac("sha256", config.SOCIALS_WEBHOOK_SECRET)
     .update(`${timestamp}.${body}`)
     .digest("hex");
+}
 
-  const res = await fetch(`${config.SOCIALS_GATEWAY_URL}/internal/live/${kind}`, {
+/**
+ * One signed POST to a gateway path (`/internal/...`). Timestamp and
+ * signature are minted per call, so a retry is never refused as a replay.
+ * Throws RelayRejected on a permanent 4xx, a plain Error on anything else
+ * that isn't 2xx. Shared by the live relay and the Xtream events feed
+ * (xtream-events.ts).
+ */
+export async function postSigned(path: string, body: string) {
+  const timestamp = String(Date.now());
+  const signature = signRelayBody(timestamp, body);
+
+  const res = await fetch(`${config.SOCIALS_GATEWAY_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -77,6 +87,11 @@ async function postLiveEvent(kind: LiveRelayKind, body: string) {
     if (permanent(res.status)) throw new RelayRejected(res.status);
     throw new Error(`Socials gateway responded ${res.status}`);
   }
+  return res;
+}
+
+async function postLiveEvent(kind: LiveRelayKind, body: string) {
+  await postSigned(`/internal/live/${kind}`, body);
 }
 
 /**

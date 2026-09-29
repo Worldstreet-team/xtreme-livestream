@@ -8,6 +8,7 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { GoLiveSheet, useOnAir } from "@/components/app/go-live-fab";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { BACKSTOP_VIEWERS_MS, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import { cn } from "@/lib/utils";
 
 /**
@@ -181,6 +182,9 @@ export function LiveRingsBar() {
   const collapsed = useCollapseOnScrollDown(on);
   const [cascade, setCascade] = useState(introDue);
 
+  // Who went live or ended is pushed; the poll is the backstop for viewer order.
+  const { pace, tick } = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES);
+
   // The same list the rail's "Live now" reads, plus who you're an Ally of.
   useEffect(() => {
     if (!on) return;
@@ -199,12 +203,12 @@ export function LiveRingsBar() {
       }
     };
     load();
-    const timer = setInterval(load, REFRESH_MS);
+    const timer = setInterval(load, pace);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [on, isAuthenticated]);
+  }, [on, isAuthenticated, pace, tick]);
 
   const rings = useMemo<Ring[]>(() => {
     const seen = new Set<string>(user ? [user.username] : []);

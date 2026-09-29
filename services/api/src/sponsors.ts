@@ -31,6 +31,7 @@ import {
 import { minutesWithin } from "./quests.js";
 import { createPayout } from "./rewards.js";
 import { NEW_ACCOUNT_MS } from "./safety/filter.js";
+import { pushNotifications } from "./xtream-events.js";
 
 /**
  * Sponsorships (Phase 2, sponsor slots). Two tracks, one label:
@@ -342,7 +343,7 @@ export async function settleRun(run: ISponsorRun, now = new Date(), final = fals
     streamTitle: `$${(pay / 100).toFixed(2)} for ${stream?.title ? `“${stream.title}”` : "your stream"}`,
     link: "/sponsorships",
     read: false,
-  }).catch(() => {});
+  }).then(pushNotifications, () => {});
   if (streamsLeft(funded) < 1) await endIfDry(funded._id as Id, now);
   return claimed;
 }

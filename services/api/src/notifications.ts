@@ -5,6 +5,7 @@ import {
   StreamReminder,
   type IStream,
 } from "./models.js";
+import { NOTIFICATION_PUSH_CAP, pushNotifications } from "./xtream-events.js";
 
 /**
  * Fan a "went live" notification out to every follower.
@@ -52,9 +53,11 @@ export async function notifyFollowersOfLive(
   void (async () => {
     try {
       for (let i = 0; i < rows.length; i += 1000) {
-        await Notification.insertMany(rows.slice(i, i + 1000), {
+        const inserted = await Notification.insertMany(rows.slice(i, i + 1000), {
           ordered: false,
         });
+        // Each follower's bell, by push — the first NOTIFICATION_PUSH_CAP of them.
+        if (i < NOTIFICATION_PUSH_CAP) pushNotifications(inserted.slice(0, NOTIFICATION_PUSH_CAP - i));
       }
     } catch (error) {
       console.error("go-live notification fan-out failed:", error);
@@ -83,7 +86,7 @@ export async function notifyRemindersOfLive(
       .lean();
     if (reminders.length === 0) return;
 
-    await Notification.insertMany(
+    const inserted = await Notification.insertMany(
       reminders.map((r) => ({
         userId: r.userId,
         type: "reminder" as const,
@@ -95,6 +98,7 @@ export async function notifyRemindersOfLive(
       })),
       { ordered: false },
     );
+    pushNotifications(inserted);
     await StreamReminder.deleteMany({ streamId: stream._id });
   } catch (error) {
     console.error("reminder notification fan-out failed:", error);

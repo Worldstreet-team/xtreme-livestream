@@ -30,6 +30,7 @@ import { ECOSYSTEM } from "@/lib/ecosystem";
 import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { BACKSTOP_VIEWERS_MS, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import { apiFetch } from "@/lib/api-client";
 import { formatNumber } from "@/lib/categories";
 import { UnreadNumber, useUnreadBadge } from "@/components/app/messages/unread-badge";
@@ -771,6 +772,8 @@ function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pat
   const [turn, setTurn] = useState(0);
   const [more, setMore] = useState(false);
   const watchingId = pathname.startsWith("/stream/") ? pathname.split("/")[2] ?? null : null;
+  // Going live and ending are pushed; the polls are the backstop for viewer order.
+  const { pace, tick } = useXtreamPoll(45_000, BACKSTOP_VIEWERS_MS, STREAM_PUSHES);
 
   useEffect(() => {
     let cancelled = false;
@@ -785,9 +788,9 @@ function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pat
       }
     }
     void load();
-    const timer = setInterval(() => void load(), 45_000);
+    const timer = setInterval(() => void load(), pace);
     return () => { cancelled = true; clearInterval(timer); };
-  }, []);
+  }, [pace, tick]);
 
 
   useEffect(() => {
@@ -802,9 +805,9 @@ function LiveRail({ collapsed, pathname, onNavigate }: { collapsed: boolean; pat
       }
     }
     void load();
-    const timer = setInterval(() => void load(), 45_000);
+    const timer = setInterval(() => void load(), pace);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, pace, tick]);
 
   useEffect(() => {
     if (!watchingId) return;

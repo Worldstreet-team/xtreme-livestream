@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatNumber } from "@/lib/categories";
 import { formatOnAir, liveActions, useLiveSession, type LiveSession } from "@/lib/live-session";
 import { useNow } from "@/lib/use-now";
+import { BACKSTOP_QUIET_MS, useXtreamPoll } from "@/lib/xtream-live-events";
 import { cn } from "@/lib/utils";
 
 export interface HeldStream {
@@ -26,6 +27,8 @@ export interface HeldStream {
  * Only asked for when your account says you're live and nothing here is on
  * air, then again every half minute and whenever you come back to the tab.
  */
+const LIVE_PUSHES = ["live"] as const;
+
 export function useHeldStream(): HeldStream | null {
   const { user } = useAuth();
   const session = useLiveSession();
@@ -33,6 +36,8 @@ export function useHeldStream(): HeldStream | null {
   const [held, setHeld] = useState<HeldStream | null>(null);
   // The studio says it itself, with its own banner.
   const look = Boolean(user?.isLive) && !session && pathname !== "/studio";
+  // Going live or ending on any device is pushed to this person; the poll is the backstop.
+  const { pace, tick } = useXtreamPoll(30_000, BACKSTOP_QUIET_MS, LIVE_PUSHES);
 
   useEffect(() => {
     if (!look) return;
@@ -52,14 +57,14 @@ export function useHeldStream(): HeldStream | null {
         });
     };
     check();
-    const t = setInterval(check, 30_000);
+    const t = setInterval(check, pace);
     window.addEventListener("focus", check);
     return () => {
       alive = false;
       clearInterval(t);
       window.removeEventListener("focus", check);
     };
-  }, [look]);
+  }, [look, pace, tick]);
 
   return look ? held : null;
 }

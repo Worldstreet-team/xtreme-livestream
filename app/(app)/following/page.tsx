@@ -9,6 +9,7 @@ import { AvatarRingsRow } from "@/components/app/avatar-rings-row";
 import { Shelf, LiveDot } from "@/components/app/shelf";
 import { Empty, GoLiveButton } from "@/components/app/empty";
 import { apiFetch, apiUrl } from "@/lib/api-client";
+import { BACKSTOP_VIEWERS_MS, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import type { Category } from "@/lib/categories";
 import { toCard, type HomePage, type HomeRow } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
@@ -65,14 +66,18 @@ export default function FollowingPage() {
     }
   }, []);
 
+  // Who went live or ended is pushed and refetched quietly; the poll is the backstop for viewer counts.
+  const { pace } = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES, () => void load(true));
   useEffect(() => {
     resetImpressions();
     void load();
+  }, [load]);
+  useEffect(() => {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
-    }, REFRESH_MS);
+    }, pace);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, pace]);
 
   const live = channels.filter((c) => c.isLive && c.stream);
   const offline = channels.filter((c) => !c.isLive);

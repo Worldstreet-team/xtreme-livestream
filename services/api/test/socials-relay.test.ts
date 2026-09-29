@@ -26,6 +26,13 @@ vi.mock("../src/config.js", () => ({
   },
 }));
 
+// The realtime pushes share this gateway and fetch; they're tested on
+// their own (xtream-events.test.ts), so the relay's fetch counts stay its own.
+vi.mock("../src/xtream-events.js", () => ({
+  xtreamStreamEnded: () => {},
+  pushNotifications: () => {},
+}));
+
 vi.mock("../src/livekit.js", () => ({
   deleteIngress: async () => {},
   isBroadcasterConnected: async () => true,

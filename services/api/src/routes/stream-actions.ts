@@ -37,6 +37,7 @@ import { fanStatus, fanStatuses } from "../fans.js";
 import { fireRules } from "../rules.js";
 import { noteTickers } from "../tickers.js";
 import { PREVIEW_TOKEN_TTL, assertMayInteract, previewAccess, previewIdentity } from "../preview.js";
+import { pushNotifications } from "../xtream-events.js";
 
 /**
  * Cooldown between messages when the streamer has slow mode on
@@ -511,7 +512,7 @@ export const streamActionRoutes: FastifyPluginAsync = async (fastify) => {
               streamTitle: message ? `a chat line in “${stream.title}”` : stream.title,
               link: "/admin/reports",
             })),
-          ).catch(() => {});
+          ).then(pushNotifications, () => {});
         }
       }
 

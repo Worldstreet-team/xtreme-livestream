@@ -19,6 +19,7 @@ import { Appeal, ChatMessage, Notification, Report, Stream, User } from "../mode
 import { transparencyReport } from "../transparency.js";
 import { appealView } from "./appeals.js";
 import { markStreamEnded } from "../stream-service.js";
+import { pushNotifications } from "../xtream-events.js";
 
 /**
  * The takedown workflow (safety kit): every report lands in one queue with
@@ -169,7 +170,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
               streamTitle: stream.title,
               // Where they can read what happened and appeal it.
               link: "/dashboard#takedowns",
-            }).catch(() => {});
+            }).then(pushNotifications, () => {});
           }
         }
       }
@@ -262,7 +263,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
           streamId: appeal.streamId,
           streamTitle: stream.title,
           link: decision === "reverse" && owner ? `/c/${owner.username}` : "/dashboard#takedowns",
-        }).catch(() => {});
+        }).then(pushNotifications, () => {});
       }
       await audit(admin._id, decision === "reverse" ? "appeal.reverse" : "appeal.uphold", "stream", appeal.streamId, {
         appealId: String(appeal._id),

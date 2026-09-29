@@ -22,6 +22,7 @@ import { ChatMessage, Notification, Stream, User, type IStream, type IUser } fro
 import { HELD_REASON_LABELS, type FilterVerdict } from "../safety/filter.js";
 import { atLeast, moderatorIdentities, requireChannelRole, roleIn } from "../safety/roles.js";
 import { fanStatus } from "../fans.js";
+import { pushNotifications } from "../xtream-events.js";
 
 /**
  * The safety kit's routes: who you are in a room, the channel's filter and
@@ -250,7 +251,7 @@ export const safetyRoutes: FastifyPluginAsync = async (fastify) => {
           streamId: null,
           streamTitle: newRole === "producer" ? "producer" : newRole === "lead" ? "lead moderator" : "moderator",
           link: newRole === "producer" ? `/produce/${channel.username}` : `/c/${channel.username}`,
-        }).catch(() => {});
+        }).then(pushNotifications, () => {});
       }
       // Live now? Their chat grows the tools at once.
       const live = await Stream.findOne({ streamerId: channel._id, isLive: true }).select("livekitRoomName").lean();

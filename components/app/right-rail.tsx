@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Broadcast, SealCheck, Sparkle, Play, Trophy, ClockCounterClockwise, Sword, Ticket, Question, Coins } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { BACKSTOP_VIEWERS_MS, LIVE_LIST_PUSHES, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import type { BattleView } from "@/lib/battles";
 import { formatNumber } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
@@ -168,6 +169,9 @@ export function RightRail() {
   const [games, setGames] = useState<LiveGameItem[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loadedAt, setLoadedAt] = useState(0);
+  // Streams and battles starting or ending are pushed; the polls are the backstop for counts.
+  const lists = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, LIVE_LIST_PUSHES);
+  const mine = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,12 +196,12 @@ export function RightRail() {
       setLoadedAt(Date.now());
     };
     void load();
-    const timer = setInterval(() => document.visibilityState === "visible" && void load(), REFRESH_MS);
+    const timer = setInterval(() => document.visibilityState === "visible" && void load(), lists.pace);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [lists.pace, lists.tick]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -212,12 +216,12 @@ export function RightRail() {
         if (r) setResume(r);
       });
     void load();
-    const timer = setInterval(load, REFRESH_MS);
+    const timer = setInterval(load, mine.pace);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, mine.pace, mine.tick]);
 
   // Stories: followed channels live first; signed out, the biggest rooms.
   const stories = useMemo(() => {

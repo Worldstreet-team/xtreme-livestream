@@ -28,6 +28,7 @@ import {
 } from "@/lib/discovery";
 import { resetImpressions } from "@/lib/impressions";
 import { apiFetch, apiUrl } from "@/lib/api-client";
+import { BACKSTOP_VIEWERS_MS, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 
@@ -206,14 +207,21 @@ export default function ExplorePage() {
     }
   }, []);
 
+  // Going live and ending are pushed and refetched quietly; the polls are the backstop for viewer counts.
+  const homePoll = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES, () => {
+    if (!filtered) void fetchHome(true);
+  });
   useEffect(() => {
     if (filtered) return;
     void fetchHome();
+  }, [filtered, fetchHome, isAuthenticated]);
+  useEffect(() => {
+    if (filtered) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void fetchHome(true);
-    }, REFRESH_MS);
+    }, homePoll.pace);
     return () => clearInterval(timer);
-  }, [filtered, fetchHome, isAuthenticated]);
+  }, [filtered, fetchHome, homePoll.pace]);
 
   /* ---------------- grid mode ---------------- */
 
@@ -250,13 +258,16 @@ export default function ExplorePage() {
     return () => clearTimeout(timer);
   }, [filtered, fetchStreams, search]);
 
+  const gridPoll = useXtreamPoll(VIEWER_REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES, () => {
+    if (filtered) void fetchStreams(true);
+  });
   useEffect(() => {
     if (!filtered) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") fetchStreams(true);
-    }, VIEWER_REFRESH_MS);
+    }, gridPoll.pace);
     return () => clearInterval(timer);
-  }, [filtered, fetchStreams]);
+  }, [filtered, fetchStreams, gridPoll.pace]);
 
   // Channel results, on the same debounce as the grid — and they also feed
   // the typeahead, so a name search finds the person before you press enter.
@@ -282,6 +293,7 @@ export default function ExplorePage() {
 
   /* ---------------- categories (both modes) ---------------- */
 
+  const categoriesPoll = useXtreamPoll(VIEWER_REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES);
   useEffect(() => {
     let cancelled = false;
     async function loadCategories() {
@@ -297,12 +309,12 @@ export default function ExplorePage() {
     void loadCategories();
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void loadCategories();
-    }, VIEWER_REFRESH_MS);
+    }, categoriesPoll.pace);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [categoriesPoll.pace, categoriesPoll.tick]);
 
   const coverTheme = useTheme();
   const chromeH = useChromeHeight();

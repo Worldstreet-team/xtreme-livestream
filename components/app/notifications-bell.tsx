@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
+import { BACKSTOP_QUIET_MS, useXtreamPoll } from "@/lib/xtream-live-events";
 import { staggerDelay } from "@/lib/motion";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Empty } from "@/components/app/empty";
@@ -133,6 +134,7 @@ function hrefFor(n: NotificationRow) {
 }
 
 const POLL_MS = 30_000;
+const NOTIFICATION_PUSHES = ["notification"] as const;
 
 function timeAgo(iso: string, now: number): string {
   const diff = now - new Date(iso).getTime();
@@ -171,6 +173,8 @@ export function NotificationsBell({
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [openedAt, setOpenedAt] = useState(0);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // A new row is pushed the moment it's written; the poll is the backstop.
+  const { pace, tick } = useXtreamPoll(POLL_MS, BACKSTOP_QUIET_MS, NOTIFICATION_PUSHES);
 
   useEffect(() => {
     if (!user) return;
@@ -191,12 +195,12 @@ export function NotificationsBell({
       }
     }
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    const timer = setInterval(() => void load(), pace);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [user]);
+  }, [user, pace, tick]);
 
   const close = () => {
     setOpen(false);

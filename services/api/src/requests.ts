@@ -20,6 +20,7 @@ import {
 import { attemptPayout } from "./rewards.js";
 import { moderatorIdentities } from "./safety/roles.js";
 import { chargeWalletWithSplit, isTreasuryConfigured, refundWalletCharge } from "./wallet.js";
+import { pushNotifications } from "./xtream-events.js";
 
 /**
  * Paid requests (Phase 2). The viewer's money goes to the platform's
@@ -249,7 +250,7 @@ export async function skipRequest(orderId: string | mongoose.Types.ObjectId, rea
     streamTitle: `${order.title} · $${(order.priceUsdMinor / 100).toFixed(2)} ${order.refund.status === "refunded" ? "back in your wallet" : "on its way back"}`,
     link: "/wallet",
     read: false,
-  }).catch(() => {});
+  }).then(pushNotifications, () => {});
   return order;
 }
 

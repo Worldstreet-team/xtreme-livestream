@@ -6,6 +6,7 @@ import { stopPractice } from "./practice.js";
 import { stopPreview } from "./preview.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
 import { closeStreamRuns } from "./sponsors.js";
+import { xtreamStreamEnded } from "./xtream-events.js";
 import { closeAllWatchSessions } from "./watch-sessions.js";
 
 export const STREAM_GRACE_MS = 90_000;
@@ -179,6 +180,8 @@ export async function markStreamEnded(stream: IStream) {
     // key in the encoder keeps working for the next broadcast.
     // A stream that was never posted to WorldSpace has no post to close out.
     if (stream.postToWorldSpace) void relayLiveEvent("ended", stream);
+    // Every client's live lists, and the streamer's other devices.
+    xtreamStreamEnded(stream);
   }
   void closeAllWatchSessions(stream._id).catch((error) =>
     console.error("watch session close-all failed:", error),

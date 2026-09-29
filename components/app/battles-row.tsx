@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api-client";
 import { isBattleActive, type BattleView } from "@/lib/battles";
 import { MOTION_VARS } from "@/lib/motion";
 import { useNow } from "@/lib/use-now";
+import { BACKSTOP_VIEWERS_MS, BATTLE_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import { Shelf } from "@/components/app/shelf";
 import { BattleCard } from "@/components/app/battles/battle-card";
 import { ClashView } from "@/components/app/battles/clash-view";
@@ -25,6 +26,9 @@ export function BattlesRow() {
   // Live clocks tick every second; a booked one counts down too, when it's under a day out.
   const now = useNow(live.length + upcoming.length > 0);
 
+  // Starts and ends are pushed; the poll is the backstop for the scores.
+  const { pace, tick } = useXtreamPoll(15_000, BACKSTOP_VIEWERS_MS, BATTLE_PUSHES);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -37,12 +41,12 @@ export function BattlesRow() {
       setUpcoming(u);
     };
     void load();
-    const t = setInterval(load, 15_000);
+    const t = setInterval(load, pace);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [pace, tick]);
 
   const items = [...live, ...upcoming];
   if (items.length === 0 && !open) return null;

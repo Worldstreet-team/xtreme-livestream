@@ -15,6 +15,7 @@ import {
 import { sendRoomData } from "./livekit.js";
 import { audit, payBattleBonus } from "./rewards.js";
 import { relayBattleResult } from "./socials-relay.js";
+import { pushNotifications, xtreamBattle } from "./xtream-events.js";
 import { fireRules } from "./rules.js";
 import {
   PRACTICE_BATTLE_SEC,
@@ -333,7 +334,7 @@ export async function fanOutBattle(b: IBattle) {
 
 async function notify(userId: mongoose.Types.ObjectId, type: "battle_invite" | "battle_result", actor: { _id: mongoose.Types.ObjectId; username: string; displayName?: string }, stream: Pick<IStream, "_id" | "title">) {
   try {
-    await Notification.create({
+    pushNotifications(await Notification.create({
       userId,
       type,
       actorId: actor._id,
@@ -341,7 +342,7 @@ async function notify(userId: mongoose.Types.ObjectId, type: "battle_invite" | "
       streamId: stream._id,
       streamTitle: stream.title,
       read: false,
-    });
+    }));
   } catch (error) {
     console.error("battle notification failed:", error);
   }
@@ -391,6 +392,7 @@ export async function startBattle(battle: IBattle) {
   battle.endsAt = new Date(now.getTime() + battle.durationSec * 1000);
   await battle.save();
   await fanOutBattle(battle);
+  xtreamBattle("started", battle);
   return battle;
 }
 
@@ -613,6 +615,8 @@ export async function settleBattle(battle: IBattle, reason: NonNullable<IBattle[
   }
   await battle.save();
   await fanOutBattle(battle);
+  // Over, however it ended — if it ever started (a withdrawn invite never did).
+  if (battle.startsAt) xtreamBattle("ended", battle);
   await audit(null, battle.status === "ended" ? "battle.settle" : "battle.cancel", "battle", battle._id as mongoose.Types.ObjectId, {
     reason,
     hostUsdMinor: battle.hostUsdMinor,

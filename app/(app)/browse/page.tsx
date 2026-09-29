@@ -24,6 +24,7 @@ import { Pill, PillLink } from "@/components/ui/pill";
 import { PillTabs } from "@/components/ui/tabs";
 import { Badge, LiveBadge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api-client";
+import { BACKSTOP_VIEWERS_MS, STREAM_PUSHES, useXtreamPoll } from "@/lib/xtream-live-events";
 import {
   CATEGORY_GROUPS,
   formatNumber,
@@ -61,6 +62,8 @@ const ALL = "all";
 
 function useSummaries() {
   const [categories, setCategories] = useState<CategorySummary[]>([]);
+  // Going live and ending are pushed; the poll is the backstop for the counts.
+  const { pace, tick } = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES);
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -74,12 +77,12 @@ function useSummaries() {
       }
     }
     void load();
-    const t = setInterval(() => document.visibilityState === "visible" && void load(), REFRESH_MS);
+    const t = setInterval(() => document.visibilityState === "visible" && void load(), pace);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [pace, tick]);
   return categories;
 }
 
@@ -115,11 +118,15 @@ function useStreams(params: Record<string, string | undefined>, enabled = true) 
     [key, enabled]
   );
 
+  // A push refetches quietly; the poll is the backstop for viewer counts.
+  const { pace } = useXtreamPoll(REFRESH_MS, BACKSTOP_VIEWERS_MS, STREAM_PUSHES, () => void load(true));
   useEffect(() => {
     void load();
-    const t = setInterval(() => document.visibilityState === "visible" && void load(true), REFRESH_MS);
-    return () => clearInterval(t);
   }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === "visible" && void load(true), pace);
+    return () => clearInterval(t);
+  }, [load, pace]);
 
   return { items, total, loading };
 }

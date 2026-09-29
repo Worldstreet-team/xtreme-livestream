@@ -17,6 +17,7 @@ import { Stream, User, type IStream } from "../models.js";
 import { startPractice } from "../practice.js";
 import { previewAccess } from "../preview.js";
 import { relayLiveEvent } from "../socials-relay.js";
+import { xtreamStreamStarted, xtreamStreamUpdated } from "../xtream-events.js";
 import { resolveSceneLayers, sponsorLayerOf, trackSponsorExposure } from "../sponsors.js";
 import { atLeast, requireChannelRole, roleIn } from "../safety/roles.js";
 import {
@@ -373,6 +374,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
       } else {
         dbUser.isLive = true;
         await dbUser.save();
+        // Every client hears it at once (xtream-events.ts), WorldSpace post or not.
+        xtreamStreamStarted(stream, dbUser);
 
         // Only when the broadcaster asked for it — see postToWorldSpace.
         if (stream.postToWorldSpace) void relayLiveEvent("started", stream);
@@ -666,6 +669,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
           title: stream.title,
           category: stream.category,
         });
+        xtreamStreamUpdated(stream);
       }
       // Smoothing went on or off: the "Effects on" tag follows on every screen.
       if (fxChanged && stream.isLive) {

@@ -5,6 +5,7 @@ import { authenticate } from "../auth.js";
 import { config } from "../config.js";
 import { ApiError } from "../errors.js";
 import { Appeal, Notification, Stream, User, type IAppeal, type IStream } from "../models.js";
+import { pushNotifications } from "../xtream-events.js";
 
 /**
  * Appeals (Phase 3, deeper moderation): a creator whose stream the platform
@@ -108,7 +109,7 @@ export const appealRoutes: FastifyPluginAsync = async (fastify) => {
             streamTitle: stream.title,
             link: "/admin/appeals",
           })),
-        ).catch(() => {});
+        ).then(pushNotifications, () => {});
       }
       return { success: true, data: { appeal: appealView(appeal, stream) } };
     },
