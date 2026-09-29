@@ -108,6 +108,41 @@ describe("the looks' cubes", () => {
   });
 });
 
+describe("the newer looks", () => {
+  const grey = (v: number): [number, number, number] => [v, v, v];
+  it("keep every colour in range", () => {
+    for (const look of LOOKS) {
+      for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+        for (const c of [grey(v), [v, 0.2, 0.9] as [number, number, number], [0.9, v, 0.1] as [number, number, number]]) {
+          for (const x of gradeColor(look.id, ...c)) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThanOrEqual(1);
+          }
+        }
+      }
+    }
+  });
+
+  it("do what they say", () => {
+    const skin: [number, number, number] = [0.76, 0.55, 0.42];
+    // Noir throws colour away; Sepia turns grey brown; Golden warms; Moody darkens; Faded lifts black.
+    const [nr, ng, nb] = gradeColor("noir", ...skin);
+    expect(nr).toBe(ng);
+    expect(ng).toBe(nb);
+    const [sr, , sb] = gradeColor("sepia", ...grey(0.5));
+    expect(sr).toBeGreaterThan(sb);
+    const [gr, , gb] = gradeColor("golden", ...grey(0.5));
+    expect(gr - gb).toBeGreaterThan(0.08);
+    expect(gradeColor("moody", ...grey(0.5))[0]).toBeLessThan(0.5);
+    expect(gradeColor("faded", ...grey(0))[0]).toBeGreaterThan(0.08);
+    // Cinema: highlights go warm, shadows go teal.
+    const [hr, , hb] = gradeColor("cinema", ...grey(0.85));
+    const [lr, , lb] = gradeColor("cinema", ...grey(0.15));
+    expect(hr).toBeGreaterThan(hb);
+    expect(lb).toBeGreaterThan(lr);
+  });
+});
+
 describe("the settings", () => {
   it("start with nothing on", () => {
     expect(DEFAULT_LOOK_SETTINGS).toEqual({ background: "none", look: "natural", smooth: 0, face: "none" });
@@ -115,7 +150,7 @@ describe("the settings", () => {
     expect(SMOOTH_STEPS[0]).toEqual({ value: 0, label: "Off" });
     expect(isPlainLook(DEFAULT_LOOK_SETTINGS)).toBe(true);
     expect(changesAppearance(DEFAULT_LOOK_SETTINGS)).toBe(false);
-    expect(LOOKS.map((l) => l.id)).toEqual(["natural", "warm", "cool", "film", "mono", "punch"]);
+    expect(LOOKS.map((l) => l.id)).toEqual(["natural", "warm", "cool", "film", "mono", "punch", "golden", "vivid", "sepia", "noir", "faded", "cinema", "rose", "moody"]);
   });
 
   it("read what this browser kept, and shrug at anything else", () => {

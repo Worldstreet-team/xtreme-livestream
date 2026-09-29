@@ -32,7 +32,21 @@ import type {
  */
 
 export type LookBackground = "none" | "blur-soft" | "blur-strong" | "brand" | "image" | "green";
-export type Look = "natural" | "warm" | "cool" | "film" | "mono" | "punch";
+export type Look =
+  | "natural"
+  | "warm"
+  | "cool"
+  | "film"
+  | "mono"
+  | "punch"
+  | "golden"
+  | "vivid"
+  | "sepia"
+  | "noir"
+  | "faded"
+  | "cinema"
+  | "rose"
+  | "moody";
 
 export interface LookSettings {
   background: LookBackground;
@@ -79,6 +93,14 @@ export const LOOKS: { id: Look; label: string; hint: string }[] = [
   { id: "film", label: "Film", hint: "Soft blacks, gentle colour." },
   { id: "mono", label: "Mono", hint: "Black and white." },
   { id: "punch", label: "Punch", hint: "More contrast, more colour." },
+  { id: "golden", label: "Golden", hint: "Late-afternoon sun on your skin." },
+  { id: "vivid", label: "Vivid", hint: "Bolder colour, same light." },
+  { id: "sepia", label: "Sepia", hint: "An old photograph." },
+  { id: "noir", label: "Noir", hint: "Hard black and white." },
+  { id: "faded", label: "Faded", hint: "Washed out and soft." },
+  { id: "cinema", label: "Cinema", hint: "Teal shadows, warm highlights." },
+  { id: "rose", label: "Rosé", hint: "A soft pink glow." },
+  { id: "moody", label: "Moody", hint: "Darker, cooler, quieter." },
 ];
 
 /* ---- the looks' maths ------------------------------------------------ */
@@ -129,6 +151,45 @@ export function gradeColor(look: Look, r: number, g: number, b: number): [number
     case "punch":
       c = saturate([sCurve(r, 0.22), sCurve(g, 0.22), sCurve(b, 0.22)], 1.3);
       break;
+    case "golden":
+      // Sun low in the sky: warm, a touch of glow, gentle contrast.
+      c = saturate([sCurve(lift(r * 1.08, 0.03), 0.08), sCurve(lift(g * 1.02, 0.03), 0.08), sCurve(lift(b * 0.84, 0.03), 0.08)], 1.08);
+      break;
+    case "vivid":
+      c = saturate([sCurve(r, 0.1), sCurve(g, 0.1), sCurve(b, 0.1)], 1.45);
+      break;
+    case "sepia": {
+      // Brightness toned brown (the textbook sepia matrix clips to yellow in
+      // bright rooms), a little of the colour left in so skin keeps some life.
+      const y = sCurve(luma(r, g, b), 0.1);
+      c = [(y * 1.06 + 0.03) * 0.88 + r * 0.12, (y * 0.9 + 0.01) * 0.88 + g * 0.12, y * 0.68 * 0.88 + b * 0.12];
+      break;
+    }
+    case "noir": {
+      // Black and white with the contrast pushed and the blacks pressed down.
+      const y = Math.pow(sCurve(luma(r, g, b), 0.32), 1.12);
+      c = [y, y, y];
+      break;
+    }
+    case "faded":
+      // Raised blacks, softened whites, colour drawn back.
+      c = saturate([lift(r * 0.94, 0.1), lift(g * 0.94, 0.1), lift(b * 0.94, 0.11)], 0.72);
+      break;
+    case "cinema": {
+      // Teal in the shadows, orange in the highlights, around the mid-tones.
+      const t = luma(r, g, b) - 0.5;
+      c = saturate([sCurve(r + t * 0.12, 0.14), sCurve(g + t * 0.02, 0.14), sCurve(b - t * 0.14, 0.14)], 1.1);
+      break;
+    }
+    case "rose":
+      c = saturate([lift(r * 1.05, 0.035), lift(g * 0.97, 0.03), lift(b * 1.02, 0.035)], 0.95);
+      break;
+    case "moody": {
+      // Mid-tones down, colour down, a little blue left in the shadows.
+      const y = luma(r, g, b);
+      c = saturate([Math.pow(r, 1.18), Math.pow(g, 1.15), Math.pow(b, 1.1) + (1 - y) * 0.04], 0.78);
+      break;
+    }
   }
   return [clamp01(c[0]), clamp01(c[1]), clamp01(c[2])];
 }

@@ -89,7 +89,7 @@ function giftNames(set: SetManifest, effect: EffectId) {
 const FACE_LINE: Record<FaceTrackState, string | null> = {
   off: null,
   loading: "Getting face tracking ready…",
-  tracking: "Following your face.",
+  tracking: null,
   searching: "Looking for your face — effects sit centre-frame until it's found.",
   unavailable: "Face tracking can't run in this browser — effects sit centre-frame.",
 };
@@ -99,7 +99,7 @@ const FACE_LINE: Record<FaceTrackState, string | null> = {
  * layout, gift sounds and effects; No set goes back. Every effect has a
  * Try button that plays it on your own preview only.
  */
-export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, onTry, face = "off", soundsReady = true, disabled = false, className, headless = false }: SetsPanelProps) {
+export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, onTry, face = "off", disabled = false, className, headless = false }: SetsPanelProps) {
   const [busy, setBusy] = useState<SetId | "none" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const swatches = useMemo(() => Object.fromEntries(LOOKS.map((l) => [l.id, lookSwatch(l.id)])) as Record<Look, string>, []);
@@ -227,23 +227,14 @@ export function SetsPanel({ active, onBrand, look, onLook, onLayout, onSounds, o
         {faceLine && (
           <p role="status" className="flex items-start gap-2 text-[12px] leading-snug text-foreground/85">
             <span aria-hidden className={cn("mt-[5px] size-1.5 shrink-0 rounded-full", face === "tracking" ? "bg-success" : face === "unavailable" ? "bg-white/30" : "bg-ember")} />
-            <span>
-              {faceLine}
-              {(face === "tracking" || face === "searching") && (
-                <span className="block text-[11.5px] text-muted-foreground">Found on this device. Viewers get a few points — where your eyes and mouth are — never a picture.</span>
-              )}
-            </span>
+            <span>{faceLine}</span>
           </p>
-        )}
-        {!soundsReady && active && (
-          <p className="text-[12px] leading-snug text-warning">Gift sounds play through the audio desk — turn it on under Sound.</p>
         )}
         {error && (
           <p role="alert" className="text-[12px] text-chili-hi">
             {error}
           </p>
         )}
-        <p className="text-[11.5px] text-muted-foreground/70">Sets from designers are coming later.</p>
       </div>
     </section>
   );
