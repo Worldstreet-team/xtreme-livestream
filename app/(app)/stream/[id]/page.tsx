@@ -781,12 +781,16 @@ export default function StreamPage({
   // Quiet re-checks in BOTH directions: a stream that starts after the page
   // opened appears without a refresh, and a stream that ends while the page
   // sits on "waiting for the broadcaster" flips to the ended state instead
-  // of spinning forever.
+  // of spinning forever. Once the room is connected it says all of it
+  // itself — likes, goal, heat, title, the feed dropping, the room closing,
+  // and the viewer count comes from the room — so this slows to a backstop.
+  // Not for a preview link: the host stopping sharing only shows as a 404 here.
+  const streamPollMs = connected && !preview.on ? ROOM_BACKSTOP_MS : 10_000;
   useEffect(() => {
     if (loading) return;
-    const poll = setInterval(() => void fetchStream({ quiet: true }), 10_000);
+    const poll = setInterval(() => void fetchStream({ quiet: true }), streamPollMs);
     return () => clearInterval(poll);
-  }, [loading, fetchStream]);
+  }, [loading, fetchStream, streamPollMs]);
 
   useEffect(() => {
     if (stream && !stream.isLive) setStreamEnded(true);
