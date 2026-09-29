@@ -6,13 +6,19 @@ import type { IUser } from "./models.js";
  * snoozes it on both.
  *
  * Tour ids are the clients' own (lib/tour/story.ts on the web): short
- * kebab-case names. The record is small by design — a cap keeps a buggy
+ * kebab-case names. The same record holds the walkthrough's lone tips,
+ * as `tip-<tourId>-<stepIndex>`: a client writes the steps a tour played
+ * when it ends (POST /user/me/tours/seen) and a tip when it's closed. The record is small by design — a cap keeps a buggy
  * client from growing it without end.
  */
 
 export const TOUR_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
-/** More tours than any walkthrough will ever have. */
-export const MAX_TOURS = 100;
+/**
+ * More ids than the walkthrough will ever need: every tour, plus a tip id
+ * per step (`tip-<tourId>-<stepIndex>`, a step that couldn't play with its
+ * tour and comes back later as a lone tooltip).
+ */
+export const MAX_TOURS = 300;
 /** "Later" defaults to a day; a client may ask for anything up to a month. */
 export const SNOOZE_HOURS = 24;
 export const MAX_SNOOZE_HOURS = 24 * 30;

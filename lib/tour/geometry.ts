@@ -296,3 +296,57 @@ export function placeDock(
   // Nothing sensible to light around it: keep the card clear of its middle at least.
   return { ...docked(byHalf, hole), pointer: null };
 }
+
+/* ---- A lone tip ------------------------------------------------------ */
+
+export interface TipPlacement {
+  x: number;
+  y: number;
+  /** Where the bubble is: "above" the target (arrow on its foot), "below" (arrow on its top), or "over" a target too big to clear (no arrow). */
+  at: "above" | "below" | "over";
+  /** The arrow's tip, along the bubble's edge, from its left. */
+  along: number;
+}
+
+/** Target edge to bubble edge; the arrow sits in this gap. */
+export const TIP_GAP = 10;
+/** The closest the bubble comes to the screen's edges (and the app's bars). */
+export const TIP_MARGIN = 12;
+/** The arrow keeps clear of the bubble's rounded corners. */
+const TIP_CORNER = 16;
+
+/**
+ * A lone tip beside its target: above or below it, whichever has room (the
+ * side it's on now, while that still fits, so scrolling doesn't flip it),
+ * slid along to stay inside the screen and clear of the app's bars, with its
+ * arrow at the target's middle. A target too tall to clear either way gets
+ * the bubble over its top, pointing nowhere.
+ */
+export function placeTip(
+  target: Box,
+  bubble: { w: number; h: number },
+  vp: Viewport,
+  bars: { top: number; bottom: number },
+  keep: TipPlacement["at"] | null = null,
+): TipPlacement {
+  const lo = bars.top + TIP_MARGIN;
+  const hi = vp.h - bars.bottom - TIP_MARGIN;
+  const need = bubble.h + TIP_GAP;
+  const room = { above: target.y - lo, below: hi - (target.y + target.h) };
+  const fits = (s: "above" | "below") => room[s] >= need;
+
+  const cx = target.x + target.w / 2;
+  const x = clamp(cx - bubble.w / 2, TIP_MARGIN, vp.w - TIP_MARGIN - bubble.w);
+  const along = clamp(cx - x, TIP_CORNER, bubble.w - TIP_CORNER);
+
+  let at: TipPlacement["at"];
+  if ((keep === "above" || keep === "below") && fits(keep)) at = keep;
+  else if (fits("below") && (room.below >= room.above || !fits("above"))) at = "below";
+  else if (fits("above")) at = "above";
+  else at = "over";
+
+  if (at === "above") return { x, y: target.y - TIP_GAP - bubble.h, at, along };
+  if (at === "below") return { x, y: target.y + target.h + TIP_GAP, at, along };
+  const y = clamp(Math.max(target.y, lo) + TIP_GAP, lo, hi - bubble.h);
+  return { x, y, at, along };
+}

@@ -111,6 +111,32 @@ describe("walkthrough tours on the account", () => {
     expect((await put("ok", { state: "gone" })).statusCode).toBe(400);
   });
 
+  it("records a tour's tips beside it: the steps it played in one call, a lone tip when closed", async () => {
+    await put("browse", { state: "seen" });
+    const res = await app.inject({ method: "POST", url: "/v1/user/me/tours/seen", payload: { ids: ["tip-browse-0", "tip-browse-2"] } });
+    expect(res.statusCode).toBe(200);
+    expect(Object.keys((res.json().data.tours as Tours).seen).sort()).toEqual(["browse", "tip-browse-0", "tip-browse-2"]);
+    expect((await put("tip-browse-1", { state: "seen" })).statusCode).toBe(200);
+    expect(Object.keys((await tours()).seen).sort()).toEqual(["browse", "tip-browse-0", "tip-browse-1", "tip-browse-2"]);
+    // The longest tip id the clients can make still fits the id rule.
+    expect((await put("tip-gift-keyboard-12", { state: "seen" })).statusCode).toBe(200);
+  });
+
+  it("holds every tour and a tip per step: 300 ids", async () => {
+    expect(MAX_TOURS).toBe(300);
+    const seen: Record<string, Date> = {};
+    for (let i = 0; i < 250; i++) seen[`tip-t-${i}`] = new Date();
+    db.User!.rows[0]!.tours = { seen };
+    // A tour's played steps arrive 50 at a time; room runs out at the cap, and the rest are dropped, not refused.
+    const ids = Array.from({ length: 50 }, (_, i) => `tip-u-${i}`);
+    const res = await app.inject({ method: "POST", url: "/v1/user/me/tours/seen", payload: { ids } });
+    expect(res.statusCode).toBe(200);
+    expect(Object.keys((res.json().data.tours as Tours).seen)).toHaveLength(300);
+    const over = await app.inject({ method: "POST", url: "/v1/user/me/tours/seen", payload: { ids: ["tip-v-0"] } });
+    expect(Object.keys((over.json().data.tours as Tours).seen)).toHaveLength(300);
+    expect((await app.inject({ method: "POST", url: "/v1/user/me/tours/seen", payload: { ids: Array.from({ length: 51 }, (_, i) => `x${i}`) } })).statusCode).toBe(400);
+  });
+
   it("caps how many tours an account can hold", async () => {
     const seen: Record<string, Date> = {};
     for (let i = 0; i < MAX_TOURS; i++) seen[`t${i}`] = new Date();

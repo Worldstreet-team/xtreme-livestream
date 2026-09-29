@@ -1,0 +1,131 @@
+/*
+ * A lone tip: a step that couldn't play with its tour, back as one small
+ * bubble beside its target. Timings and curves arrive as custom properties
+ * from lib/motion.ts (TIP_VARS in tour-tip.tsx). Only transform and opacity
+ * move. Flat: the popover surface, no gradient, glow or blur.
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-overlay, 40);
+  pointer-events: none;
+  /* The same Ember ring as the walkthrough's spotlight. */
+  --tip-ring: var(--ember);
+  --tip-pulse: color-mix(in srgb, var(--ember) 55%, transparent);
+  --tip-pulse-end: color-mix(in srgb, var(--ember) 0%, transparent);
+}
+
+/* ---- The ring: one soft pulse on the target, then gone ---------------- */
+
+.ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 2px var(--tip-ring),
+    0 0 0 0 var(--tip-pulse);
+}
+.root[data-shown] .ring {
+  animation: ring-once 1500ms cubic-bezier(0.2, 0.7, 0.3, 1) 120ms both;
+}
+@keyframes ring-once {
+  0% {
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px var(--tip-ring),
+      0 0 0 0 var(--tip-pulse);
+  }
+  14% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px var(--tip-ring),
+      0 0 0 11px var(--tip-pulse-end);
+  }
+  100% {
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px var(--tip-ring),
+      0 0 0 11px var(--tip-pulse-end);
+  }
+}
+
+/* ---- The bubble -------------------------------------------------------- */
+
+.positioner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+/* Not measured yet: laid out, unseen. */
+.positioner:not([data-placed]) {
+  visibility: hidden;
+}
+
+/*
+ * In: grows from the arrow (0.96 → 1) as it fades, on the tooltip curve.
+ * Out: a fade only, at full size; the scale drops back to 0.96 once it's
+ * unseen (the delayed transform), ready for the next entrance.
+ */
+.bubble {
+  position: relative;
+  pointer-events: auto;
+  opacity: 0;
+  transform: scale(0.96);
+  transform-origin: var(--tip-origin, 50% 100%);
+  transition:
+    opacity var(--tip-out) var(--tip-ease-out),
+    transform 0s linear var(--tip-out);
+}
+.root[data-shown] .bubble {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--tip-in) linear,
+    transform var(--tip-in) var(--tip-ease);
+}
+/* Off screen with its target, or leaving: it fades, and takes no clicks while it does. */
+.root:not([data-shown]) .bubble {
+  pointer-events: none;
+}
+
+.arrow {
+  position: absolute;
+  width: 14px;
+  height: 7px;
+}
+/* The path points down: under a bubble that sits above its target as drawn, turned over for one below. */
+.arrow[data-at="above"] {
+  bottom: -6px;
+}
+.arrow[data-at="below"] {
+  top: -6px;
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble,
+  .root[data-shown] .bubble {
+    transform: none;
+    transition: opacity var(--tip-fade) linear;
+  }
+  .root[data-shown] .ring {
+    animation: ring-fade 1400ms linear 120ms both;
+  }
+}
+@keyframes ring-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  15%,
+  70% {
+    opacity: 1;
+  }
+}

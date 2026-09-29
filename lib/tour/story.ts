@@ -12,8 +12,13 @@ import type { TourScene } from "@/components/app/tour/tour-art";
  *
  * Targets are `data-tour` names. A step can list several, in order of
  * preference: the first one on screen and visible wins (the rail's Go live
- * on a desktop, the floating one on a phone). A step with no target, or
- * whose targets aren't on screen, plays centred with no cut-out.
+ * on a desktop, the floating one on a phone). A step with no target (for
+ * this layout) plays centred with no cut-out, always. A step whose target
+ * isn't on the page drops out of the tour (and a target that vanishes
+ * mid-tour is skipped); it comes back later as a lone tip, once its target
+ * is on screen (components/app/tour/tour-tip.tsx). Its index here is its
+ * tip's id: `tip-<tourId>-<stepIndex>`, so reordering a tour's steps
+ * re-points its tips.
  */
 
 export type TourId =

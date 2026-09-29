@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { CaretLeft } from "@/components/icons";
 import { Pill } from "@/components/ui/pill";
@@ -9,7 +9,10 @@ import { DURATION, EASE } from "@/lib/motion";
 import { closedHole, holeFor, openHole, placeCard, placeDock, ringClip, scrimClip, type Box, type Dock, type Hole, type Side, type Viewport } from "@/lib/tour/geometry";
 import { resolveStep, stepButtons, type Tour, type TourMove } from "@/lib/tour/story";
 import { cn } from "@/lib/utils";
+import { barInsets, boxOf, findTarget, pageBusy, pinned, sameBox, stillThere, usePhoneLayout, useReducedMotion, viewport, type Bars } from "./tour-dom";
 import styles from "./tour.module.css";
+
+export { findTarget, pageBusy, usePhoneLayout, useReducedMotion } from "./tour-dom";
 
 /**
  * One step of a tour, drawn: the dim with its rounded cut-out around the
@@ -35,8 +38,6 @@ import styles from "./tour.module.css";
 
 /** The phone card's distance from the screen's edges (safe areas added on top). */
 const SHEET_INSET = 8;
-/** Targets smaller than this are measured with whatever pokes out of them (the tab bar's raised Go live). */
-const SMALL = 120;
 /** A phone card never gets wider than this, even on a big phone held sideways. */
 const PHONE_CARD_MAX = 440;
 const CARD_W = 348;
@@ -59,153 +60,30 @@ const TOUR_VARS = {
   "--tour-fade": `${DURATION.fade}ms`,
   "--tour-inset": `${SHEET_INSET}px`,
 } as CSSProperties;
-/** How long a missing target is looked for before the step plays centred. */
-const FIND_FOR_MS = 4000;
+/**
+ * How long a step's target is looked for before the step is skipped (in the
+ * direction of travel): a card never points at nothing. The same grace
+ * covers a target that vanishes while its step is up.
+ */
+const FIND_FOR_MS = 1500;
 const FIND_EVERY_MS = 150;
 /** A target counts as settled once its box has held still this long… */
 const STABLE_MS = 150;
 const SETTLE_EVERY_MS = 50;
-/** …and the page has stopped loading, but no step waits longer than this for that. */
-const SETTLE_CAP_MS = 3500;
+/** …and the page has stopped loading. A page still busy after this long skips the step rather than light it. */
+const BUSY_CAP_MS = 12_000;
 /** Waiting longer than this for a step's target, the light leaves the last one. */
 const LET_GO_MS = 320;
 /** Bringing a target into view: done once scrolling has been quiet this long, or after the most it may take. */
 const SCROLL_QUIET_MS = 140;
 const SCROLL_MAX_MS = 1200;
 
-/* ---- Small stores --------------------------------------------------- */
-
-function mediaStore(query: string) {
-  return {
-    subscribe(cb: () => void) {
-      const mq = window.matchMedia(query);
-      mq.addEventListener("change", cb);
-      return () => mq.removeEventListener("change", cb);
-    },
-    get: () => window.matchMedia(query).matches,
-  };
-}
-const reducedStore = mediaStore("(prefers-reduced-motion: reduce)");
-const phoneStore = mediaStore("(max-width: 767px)");
-
-export function useReducedMotion() {
-  return useSyncExternalStore(reducedStore.subscribe, reducedStore.get, () => false);
-}
-export function usePhoneLayout() {
-  return useSyncExternalStore(phoneStore.subscribe, phoneStore.get, () => false);
-}
-
 /* ---- Targets ---------------------------------------------------------- */
 
-/** The first element named `data-tour=<name>` that's actually on screen to be seen. */
-export function findTarget(names: string[]): HTMLElement | null {
-  for (const name of names) {
-    const all = document.querySelectorAll<HTMLElement>(`[data-tour="${CSS.escape(name)}"]`);
-    for (const el of all) {
-      if (el.closest("[data-tour-root]")) continue;
-      if (el.closest("[aria-hidden='true'], [inert]")) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2) continue;
-      if (getComputedStyle(el).visibility === "hidden") continue;
-      return el;
-    }
-  }
-  return null;
-}
-
-const viewport = (): Viewport => ({ w: window.innerWidth, h: window.innerHeight });
-
-/** Inside something position: fixed (the tab bar, a floating button): it never scrolls, so it's never scrolled to. */
-function pinned(el: HTMLElement): boolean {
-  for (let n: HTMLElement | null = el; n && n !== document.body; n = n.parentElement) {
-    if (getComputedStyle(n).position === "fixed") return true;
-  }
-  return false;
-}
-
-interface Bars {
-  top: number;
-  bottom: number;
-}
-
-/**
- * How much of the screen the app's own bars hold at its top and foot (the
- * top bar, the tab bar): whatever fixed or sticky thing is uppermost at the
- * very edge. Scrolling a target into view keeps it out from under them.
- */
-function barInsets(vp: Viewport): Bars {
-  const at = (y: number): DOMRect | null => {
-    for (const el of document.elementsFromPoint(vp.w / 2, y)) {
-      if (!(el instanceof HTMLElement) || el.closest("[data-tour-root]")) continue;
-      for (let n: HTMLElement | null = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
-        const pos = getComputedStyle(n).position;
-        if (pos === "fixed" || pos === "sticky") return n.getBoundingClientRect();
-      }
-      return null;
-    }
-    return null;
-  };
-  const top = at(1);
-  const foot = at(vp.h - 1);
-  return {
-    top: top && top.top <= 1 ? Math.min(Math.max(0, top.bottom), vp.h * 0.3) : 0,
-    bottom: foot && foot.bottom >= vp.h - 1 ? Math.min(Math.max(0, vp.h - foot.top), vp.h * 0.3) : 0,
-  };
-}
-
-/**
- * The target's box. A small one counts whatever pokes out of it, so the tab
- * bar's Go live is lit round its raised circle, not just its cell.
- */
-function boxOf(el: HTMLElement | null, vp: Viewport): Box | null {
-  if (!el || !el.isConnected) return null;
-  const r = el.getBoundingClientRect();
-  if (r.width < 2 || r.height < 2) return null;
-  let { left, top, right, bottom } = r;
-  if (r.width < SMALL && r.height < SMALL) {
-    const kids = el.querySelectorAll<HTMLElement>("*");
-    for (let i = 0; i < kids.length && i < 40; i++) {
-      const k = kids[i].getBoundingClientRect();
-      if (k.width < 1 || k.height < 1) continue;
-      left = Math.min(left, k.left);
-      top = Math.min(top, k.top);
-      right = Math.max(right, k.right);
-      bottom = Math.max(bottom, k.bottom);
-    }
-  }
-  // Scrolled right out of view: the step plays centred until it's back.
-  if (bottom < 0 || top > vp.h || right < 0 || left > vp.w) return null;
-  // Its own corner, unless something poking out of it set the shape.
-  const grown = left < r.left - 0.5 || top < r.top - 0.5 || right > r.right + 0.5 || bottom > r.bottom + 0.5;
-  return { x: left, y: top, w: right - left, h: bottom - top, r: grown ? undefined : radiusOf(el, r) };
-}
-
-const near = (a: number, b: number) => Math.abs(a - b) < 0.75;
-function sameBox(a: Box, b: Box) {
-  return near(a.x, b.x) && near(a.y, b.y) && near(a.w, b.w) && near(a.h, b.h) && a.r === b.r;
-}
 function sameGeo(a: Geo, b: Geo) {
   if (a.vp.w !== b.vp.w || a.vp.h !== b.vp.h || a.safe.top !== b.safe.top || a.safe.bottom !== b.safe.bottom) return false;
   if (!a.box || !b.box) return a.box === b.box;
   return sameBox(a.box, b.box);
-}
-
-/**
- * Something on screen is still loading: a skeleton, a spinner, a region
- * marked busy. Small pulsing things (a live dot) don't count.
- */
-export function pageBusy(): boolean {
-  const vp = viewport();
-  const all = document.querySelectorAll<HTMLElement>('[aria-busy="true"], [data-loading="true"], .animate-pulse, .animate-spin');
-  for (const el of all) {
-    if (el.closest("[data-tour-root]")) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 24 || r.height < 12) continue;
-    if (r.bottom <= 0 || r.top >= vp.h || r.right <= 0 || r.left >= vp.w) continue;
-    if (getComputedStyle(el).visibility === "hidden") continue;
-    return true;
-  }
-  return false;
 }
 
 /** Calls back once a scroll has come to rest: scrollend where there is one, or quiet (Safari), or a cap. */
@@ -233,15 +111,6 @@ function afterScroll(instant: boolean, done: () => void) {
   window.addEventListener("scroll", onScroll, true);
   quiet = setTimeout(finish, 220);
   const cap = setTimeout(finish, SCROLL_MAX_MS);
-}
-
-/** An element's own corner, in px (a round one reads as half its short side). */
-function radiusOf(el: HTMLElement, r: DOMRect): number {
-  const raw = getComputedStyle(el).borderTopLeftRadius;
-  const n = parseFloat(raw);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  const px = raw.trim().endsWith("%") ? (Math.min(r.width, r.height) * n) / 100 : n;
-  return Math.min(px, Math.min(r.width, r.height) / 2);
 }
 
 /** The screen's safe areas, read off a probe padded with env(). */
@@ -302,26 +171,50 @@ interface Geo {
 
 export function TourOverlay({
   tour,
-  index,
+  plan,
+  at,
   closing,
   onMove,
   onExited,
+  onLanded,
+  onMissing,
 }: {
   tour: Tour;
-  index: number;
+  /** The steps that play, as indexes into `tour.steps` (the ones whose targets are there), in order. */
+  plan: number[];
+  /** Where in `plan` we are. */
+  at: number;
   /** Play the exit, then call `onExited`. */
   closing: boolean;
   onMove: (move: TourMove) => void;
   onExited: () => void;
+  /** A step was actually shown: its target lit (or it's a centred step). */
+  onLanded: (index: number) => void;
+  /** A step's target never turned up, vanished, or the page never settled around it: skip it. */
+  onMissing: (index: number) => void;
 }) {
   const reduced = useReducedMotion();
   const phone = usePhoneLayout();
+  /** The step on screen, as an index into the full story (tips and records use these). */
+  const index = plan[at] ?? plan[plan.length - 1] ?? 0;
   const step = tour.steps[index];
   const copy = resolveStep(step, phone);
-  const { primary, secondary, back } = stepButtons(tour, index);
-  const last = index === tour.steps.length - 1;
+  // Buttons, dots and "Got it" follow the steps that play, not the story's full list.
+  const playing: Tour = { ...tour, steps: plan.map((i) => tour.steps[i]) };
+  const { primary, secondary, back } = stepButtons(playing, Math.min(at, plan.length - 1));
+  const last = at >= plan.length - 1;
   const titleId = useId();
   const lineId = useId();
+
+  // The host's callbacks change with its state; the searches below read the latest.
+  const landedRef = useRef(onLanded);
+  const missingRef = useRef(onMissing);
+  useEffect(() => {
+    landedRef.current = onLanded;
+    missingRef.current = onMissing;
+  }, [onLanded, onMissing]);
+  /** The step whose target is lit right now (its vanishing skips it). */
+  const litFor = useRef<number | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
@@ -364,20 +257,29 @@ export function TourOverlay({
   }, [index, step.then]);
   const scene = pose.second && pose.index === index && step.then ? step.then : step.scene;
 
-  /* -- Finding the target: wait for it to render and hold still, bring it into view, then light it. */
+  /* -- Finding the target: wait for it to render and hold still, bring it into view, then light it.
+     A target that never turns up (or a page that never stops loading) skips the step instead. */
   const targetsKey = copy.targets.join("|");
   useEffect(() => {
     const names = targetsKey ? targetsKey.split("|") : [];
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const started = Date.now();
+    litFor.current = null;
     const land = (el: HTMLElement | null) => {
       if (!alive) return;
       clearTimeout(timer);
+      litFor.current = el ? index : null;
       setTarget(el);
       setGeo(readGeo(el, probeRef.current));
       setLanded((n) => n + 1);
       setPhase((p) => (p === "track" ? "glide" : p));
+      landedRef.current(index);
+    };
+    const miss = () => {
+      if (!alive) return;
+      clearTimeout(timer);
+      missingRef.current(index);
     };
     // While the target is still loading, the light leaves the last one (after a moment, so a target
     // that's simply settling doesn't make the light blink): the new words never sit beside the old
@@ -398,7 +300,7 @@ export function TourOverlay({
       const el = findTarget(names);
       if (!el) {
         if (waited < FIND_FOR_MS) timer = setTimeout(look, FIND_EVERY_MS);
-        else land(null);
+        else miss();
         return;
       }
       // Bring it into view once, then light it when the page has come to rest.
@@ -412,7 +314,7 @@ export function TourOverlay({
         return;
       }
       // Settled: its box has held still for a moment, and nothing on screen is still loading.
-      // A page that never settles gets its light anyway, at the cap.
+      // A page that never settles doesn't get a light pointing into the loading: the step is skipped.
       const vp = viewport();
       const box = boxOf(el, vp);
       // Not yet: a sheet still sliding up from below the screen can hold still at its edge for a moment.
@@ -422,7 +324,8 @@ export function TourOverlay({
         seen = box;
         seenAt = Date.now();
       }
-      if ((still && Date.now() - seenAt >= STABLE_MS && !pageBusy()) || waited >= SETTLE_CAP_MS) return land(el);
+      if (still && Date.now() - seenAt >= STABLE_MS && !pageBusy()) return land(el);
+      if (waited >= BUSY_CAP_MS) return miss();
       timer = setTimeout(look, SETTLE_EVERY_MS);
     };
     timer = setTimeout(look, 0);
@@ -431,6 +334,33 @@ export function TourOverlay({
       clearTimeout(timer);
     };
   }, [targetsKey, index, reduced]);
+
+  /* -- A lit target that goes away (a panel closing, a list re-rendering) is looked for again; if
+     it's still gone after the grace, the step is skipped rather than left pointing at nothing. */
+  useEffect(() => {
+    if (!target) return;
+    const names = targetsKey ? targetsKey.split("|") : [];
+    let goneSince = 0;
+    const check = setInterval(() => {
+      if (litFor.current !== index || stillThere(target)) {
+        goneSince = 0;
+        return;
+      }
+      const again = findTarget(names);
+      if (again) {
+        goneSince = 0;
+        setTarget(again);
+        return;
+      }
+      goneSince ||= Date.now();
+      if (Date.now() - goneSince >= FIND_FOR_MS) {
+        clearInterval(check);
+        litFor.current = null;
+        missingRef.current(index);
+      }
+    }, FIND_EVERY_MS);
+    return () => clearInterval(check);
+  }, [target, targetsKey, index]);
 
   /* -- Following it: a scroll cuts the light to the target as it moves (no glide lagging behind a
      finger); a frame loop catches everything else that moves it — a resize, a layout shift as
@@ -516,20 +446,20 @@ export function TourOverlay({
         if (!last) onMove("next");
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        if (index > 0) onMove("back");
+        if (at > 0) onMove("back");
       } else if (e.key === "Tab") {
         const focusable = [...card.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
         if (focusable.length === 0) return;
         const first = focusable[0];
         const end = focusable[focusable.length - 1];
-        const at = document.activeElement;
-        if (!card.contains(at)) {
+        const focused = document.activeElement;
+        if (!card.contains(focused)) {
           e.preventDefault();
           first.focus();
-        } else if (e.shiftKey && at === first) {
+        } else if (e.shiftKey && focused === first) {
           e.preventDefault();
           end.focus();
-        } else if (!e.shiftKey && at === end) {
+        } else if (!e.shiftKey && focused === end) {
           e.preventDefault();
           first.focus();
         }
@@ -539,7 +469,7 @@ export function TourOverlay({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [escMove, index, last, onMove]);
+  }, [escMove, at, last, onMove]);
 
   // Focus the way forward on arrival, and whenever a step leaves focus nowhere.
   useEffect(() => {
@@ -612,12 +542,12 @@ export function TourOverlay({
 
   /* -- The words for a step, on this screen. */
   const words = (i: number) => resolveStep(tour.steps[i], phone);
-  const announce = `Step ${index + 1} of ${tour.steps.length}. ${copy.title}. ${copy.line}`;
+  const announce = `Step ${at + 1} of ${plan.length}. ${copy.title}. ${copy.line}`;
 
   const words_ = (
     <div className={styles.stack}>
       {/* Every step's words, unseen: the cell takes the tallest, so the card never jumps. */}
-      {tour.steps.map((_, i) => {
+      {plan.map((i) => {
         const w = words(i);
         return (
           <div key={`size-${i}`} aria-hidden className={styles.sizer}>
@@ -661,7 +591,7 @@ export function TourOverlay({
   // Phones: Back on the left (or the first step's "Later"), dots in the middle, the way on at the right;
   // Skip — or the last step's own way out — in the corner.
   const quiet = secondary && secondary.move !== "back" ? secondary : null;
-  const phoneBack = index > 0;
+  const phoneBack = at > 0;
   const corner: { label: string; move: TourMove } | null = phoneBack && quiet ? quiet : !last ? { label: "Skip", move: "finish" } : null;
   const left = phoneBack ? null : quiet;
 
@@ -674,11 +604,12 @@ export function TourOverlay({
       aria-describedby={lineId}
       className={cn(styles.card, "relative w-full rounded-[20px] bg-popover p-3 text-popover-foreground shadow-popover")}
     >
+      {/* Above the words: their animated layers paint over it otherwise, and a tap on Skip lands on the title. */}
       {corner && (
         <button
           type="button"
           onClick={() => onMove(corner.move)}
-          className="press absolute top-1.5 right-1.5 flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-semibold text-subtle transition-colors outline-none hover:bg-tint/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ember"
+          className="press absolute top-1.5 right-1.5 z-10 flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-semibold text-subtle transition-colors outline-none hover:bg-tint/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ember"
         >
           {corner.label}
         </button>
@@ -704,7 +635,7 @@ export function TourOverlay({
             </Pill>
           ) : null}
         </div>
-        <Dots count={tour.steps.length} at={index} />
+        <Dots count={plan.length} at={at} />
         <div className="flex min-w-0 justify-end">
           <Pill
             ref={primaryRef}
@@ -731,7 +662,7 @@ export function TourOverlay({
     >
       {/* Where you are, and the way out. */}
       <div className="flex h-8 items-center justify-between pr-1 pl-3">
-        <Dots count={tour.steps.length} at={index} />
+        <Dots count={plan.length} at={at} />
         {!last && (
           <button
             type="button"

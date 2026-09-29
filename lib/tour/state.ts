@@ -18,6 +18,14 @@ import type { TourAction, TourId } from "./story";
  * tour is due and plays it. An action that fires before the host is ready
  * waits in a short queue.
  *
+ * Deferred tips: a step that couldn't play with its tour (its target
+ * wasn't on the page, or vanished mid-tour) comes back later as a lone
+ * tooltip, the first time its target is on screen. Each is recorded in
+ * the same record as a tour, under the id `tip-<tourId>-<stepIndex>` (the
+ * index in the tour's full story, lib/tour/story.ts). When a tour ends,
+ * the steps it actually played are written as seen in one go, so a tip is
+ * due exactly when its tour is seen and its own id isn't.
+ *
  * Dev override: `?tour=<id>` plays that tour now, seen or not (and
  * `&tourStep=<n>` opens it on step n, from 1); `?tour=reset` forgets
  * everything this person has seen.
@@ -28,10 +36,10 @@ const KEY = "xtream:tour:v1";
 export const SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 interface TourRecord {
-  /** Tour → when it was finished or skipped. */
-  seen: Partial<{ [K in TourId]: number }>;
+  /** Tour (or tip) → when it was finished, skipped or closed. */
+  seen: Partial<Record<string, number>>;
   /** Tour → when "Later" runs out. */
-  snoozed: Partial<{ [K in TourId]: number }>;
+  snoozed: Partial<Record<string, number>>;
 }
 
 const empty = (): TourRecord => ({ seen: {}, snoozed: {} });
@@ -46,13 +54,24 @@ export interface AccountTours {
 /** The signed-in account's record, from the profile (see `hydrateTours`). */
 let account: { userId: string; record: TourRecord } | null = null;
 
-function toMs(from: Record<string, string> | undefined): Partial<Record<TourId, number>> {
-  const out: Partial<Record<TourId, number>> = {};
+function toMs(from: Record<string, string> | undefined): Partial<Record<string, number>> {
+  const out: Partial<Record<string, number>> = {};
   for (const [id, iso] of Object.entries(from ?? {})) {
     const at = Date.parse(iso);
-    if (Number.isFinite(at)) out[id as TourId] = at;
+    if (Number.isFinite(at)) out[id] = at;
   }
   return out;
+}
+
+/** The account takes at most this many ids per POST /user/me/tours/seen. */
+const SEEN_BATCH = 50;
+
+/** Several ids seen at once, in as few calls as the API allows. */
+function postSeen(ids: string[]) {
+  for (let i = 0; i < ids.length; i += SEEN_BATCH) {
+    const chunk = ids.slice(i, i + SEEN_BATCH);
+    void apiFetch("/api/user/me/tours/seen", { method: "POST", body: JSON.stringify({ ids: chunk }) }).catch(() => {});
+  }
 }
 
 /**
@@ -67,10 +86,10 @@ export function hydrateTours(userId: string, tours: AccountTours | undefined) {
   account = { userId, record };
   if (typeof window === "undefined") return;
   const local = readLocal(userId);
-  const carry = (Object.keys(local.seen) as TourId[]).filter((id) => !record.seen[id]).slice(0, 50);
+  const carry = Object.keys(local.seen).filter((id) => !record.seen[id]);
   if (carry.length === 0) return;
   for (const id of carry) record.seen[id] = local.seen[id]!;
-  void apiFetch("/api/user/me/tours/seen", { method: "POST", body: JSON.stringify({ ids: carry }) }).catch(() => {});
+  postSeen(carry);
 }
 
 /** Tell the account (signed in only). Best effort: the local copy already holds it. */
@@ -96,7 +115,7 @@ function read(userId: string | null): TourRecord {
   if (!userId || account?.userId !== userId) return local;
   const { seen, snoozed } = account.record;
   const merged: TourRecord = { seen: { ...seen, ...local.seen }, snoozed: { ...local.snoozed } };
-  for (const [id, until] of Object.entries(snoozed) as [TourId, number][]) {
+  for (const [id, until] of Object.entries(snoozed) as [string, number][]) {
     merged.snoozed[id] = Math.max(until, merged.snoozed[id] ?? 0);
   }
   return merged;
@@ -128,6 +147,49 @@ export function markTourSeen(id: TourId, userId: string | null) {
     account.record.seen[id] ??= r.seen[id];
     delete account.record.snoozed[id];
   }
+  tellAccount(userId, `/${id}`, { method: "PUT", body: JSON.stringify({ state: "seen" }) });
+}
+
+/* ---- Deferred tips -------------------------------------------------- */
+
+/** The record's id for a step's lone tip: `tip-<tourId>-<stepIndex>`, the index in the tour's full story. */
+export function tipId(tourId: TourId, stepIndex: number): string {
+  return `tip-${tourId}-${stepIndex}`;
+}
+
+/**
+ * A step's lone tip is due once its tour is seen (not while it's snoozed or
+ * still to play) and the tip itself isn't. A tour seen before tips existed
+ * recorded none of its steps; its steps all played back then (a missing
+ * target played centred), so it has nothing to hand out.
+ */
+export function isTipDue(tourId: TourId, stepIndex: number, userId: string | null): boolean {
+  const r = read(userId);
+  if (!r.seen[tourId] || r.seen[tipId(tourId, stepIndex)]) return false;
+  const ours = new RegExp(`^tip-${tourId}-\\d+$`);
+  return Object.keys(r.seen).some((id) => ours.test(id));
+}
+
+function markIds(ids: string[], userId: string | null): string[] {
+  const r = read(userId);
+  const now = Date.now();
+  const fresh = ids.filter((id) => !r.seen[id]);
+  for (const id of fresh) r.seen[id] = now;
+  write(userId, r);
+  if (userId && account?.userId === userId) for (const id of fresh) account.record.seen[id] ??= now;
+  return fresh;
+}
+
+/** A tour ended: the steps it played won't come back as tips. One call to the account. */
+export function markTipsSeen(tourId: TourId, stepIndexes: number[], userId: string | null) {
+  const ids = markIds([...new Set(stepIndexes)].map((i) => tipId(tourId, i)), userId);
+  if (userId && ids.length > 0) postSeen(ids);
+}
+
+/** A lone tip was closed (its × or its target tapped): never again. */
+export function markTipSeen(tourId: TourId, stepIndex: number, userId: string | null) {
+  const id = tipId(tourId, stepIndex);
+  if (markIds([id], userId).length === 0) return;
   tellAccount(userId, `/${id}`, { method: "PUT", body: JSON.stringify({ state: "seen" }) });
 }
 
