@@ -1,6 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
-import { HUB_ORIGIN, HUB_REGISTER, HUB_SIGN_IN, isLocalClerk, signInReturn } from "@/lib/auth-urls";
+import { HUB_ORIGIN, HUB_REGISTER, HUB_SIGN_IN, isLocalClerk, movedHostUrl, signInReturn } from "@/lib/auth-urls";
 
 /**
  * Sign-in belongs to the WorldStreet hub, done the way WorldSpace does it
@@ -208,6 +208,19 @@ const withClerk = clerkMiddleware(
  * stream and channel links keep rendering their previews.
  */
 export default function middleware(req: NextRequest, evt: NextFetchEvent) {
+  // The old host, before anything else: a page asked for there is the same
+  // page here. 307, not 308 — browsers keep a permanent redirect for good,
+  // and this one is meant to be taken down. Not /api: a tab still open on the
+  // old host fetches there, and a cross-origin redirect fails a fetch. That
+  // tab's next in-app navigation (an RSC fetch, which Next hands us looking
+  // like any other GET) fails the same way, and the router falls back to a
+  // full page load — which lands here and moves the tab over.
+  if ((req.method === "GET" || req.method === "HEAD") && !req.nextUrl.pathname.startsWith("/api/")) {
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const moved = movedHostUrl(host, req.nextUrl.pathname, req.nextUrl.search);
+    if (moved) return NextResponse.redirect(moved, 307);
+  }
+
   const isDocument = req.method === "GET" && !isSpeculative(req) && req.headers.get("sec-fetch-dest") === "document";
   if (!isLocalClerk && isDocument && !req.headers.get("cookie")) {
     if (req.nextUrl.searchParams.get(HS_MARK) === "1") {

@@ -24,6 +24,10 @@ import { redactPreviewKey } from "./preview.js";
 // so CORS doesn't silently break if CORS_ORIGINS is unset or incomplete in a
 // given environment; CORS_ORIGINS adds any additional origins on top.
 const DEFAULT_ALLOWED_ORIGINS = [
+  "https://xtream.worldstreetgold.com",
+  // The web app's previous host. Kept so a tab still open on it (or the
+  // host itself, until it redirects) isn't CORS-blocked — which shows up as
+  // "can't stay logged in", not as an API error.
   "https://xtreme.worldstreetgold.com",
   // WorldStreet Social reaches this API from the BROWSER as well as from its
   // server actions — LiveChatPanel fetches /v1/streams/:id/chat directly — so

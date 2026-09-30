@@ -165,7 +165,7 @@ describe("thread context links", () => {
       kind: "stream",
       id: "65f0c0ffee",
       title: "Late set",
-      url: "https://xtreme.worldstreetgold.com/stream/65f0c0ffee",
+      url: "https://xtream.worldstreetgold.com/stream/65f0c0ffee",
     });
   });
 
@@ -175,13 +175,15 @@ describe("thread context links", () => {
   });
 
   it("follows our own links in the app and sends others out", () => {
+    expect(contextHref("https://xtream.worldstreetgold.com/stream/abc")).toEqual({ href: "/stream/abc", internal: true });
+    // A thread opened while the site lived on its previous host still carries that link.
     expect(contextHref("https://xtreme.worldstreetgold.com/stream/abc")).toEqual({ href: "/stream/abc", internal: true });
     expect(contextHref("https://shop.worldstreetgold.com/orders/9")).toEqual({
       href: "https://shop.worldstreetgold.com/orders/9",
       internal: false,
     });
     // A lookalike host is not ours.
-    expect(contextHref("https://xtreme.worldstreetgold.com.evil.example/x").internal).toBe(false);
+    expect(contextHref("https://xtream.worldstreetgold.com.evil.example/x").internal).toBe(false);
   });
 });
 

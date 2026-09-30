@@ -21,11 +21,11 @@ const req = (authorization?: string) => ({ headers: authorization ? { authorizat
 describe("signedInUserId: the authorized-parties rule, applied by us", () => {
   beforeEach(() => {
     state.auth = { userId: "user_ada", sessionClaims: {} };
-    state.parties = ["https://xtreme.worldstreetgold.com"];
+    state.parties = ["https://xtream.worldstreetgold.com"];
   });
 
   it("accepts a browser token naming one of our parties", () => {
-    state.auth.sessionClaims = { azp: "https://xtreme.worldstreetgold.com" };
+    state.auth.sessionClaims = { azp: "https://xtream.worldstreetgold.com" };
     expect(signedInUserId(req("Bearer t"))).toBe("user_ada");
   });
 

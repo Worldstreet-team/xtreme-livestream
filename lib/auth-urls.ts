@@ -14,6 +14,26 @@ export const HUB_ORIGIN = "https://www.worldstreetgold.com";
 export const HUB_SIGN_IN = `${HUB_ORIGIN}/login`;
 export const HUB_REGISTER = `${HUB_ORIGIN}/register`;
 
+/** Xtream's own public origin, and the host it lived on before the rename. */
+export const APP_ORIGIN = "https://xtream.worldstreetgold.com";
+export const LEGACY_HOST = "xtreme.worldstreetgold.com";
+
+/**
+ * The same page on today's host, for a request that arrived on the old one
+ * (its bookmarks, shared links and home-screen shortcuts are still out
+ * there); null for any other host.
+ */
+export function movedHostUrl(host: string | null, pathname: string, search = ""): URL | null {
+  const name = (host ?? "").split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
+  if (name !== LEGACY_HOST) return null;
+  // Set on the URL, never parsed as one: a path of "//elsewhere.example"
+  // would otherwise name another host.
+  const url = new URL(APP_ORIGIN);
+  url.pathname = pathname;
+  url.search = search;
+  return url;
+}
+
 /** Local dev runs on a pk_test_ key; production is the hub's satellite (as WorldSpace decides it). */
 export const isLocalClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_"));
 

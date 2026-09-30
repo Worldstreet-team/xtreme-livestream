@@ -185,7 +185,11 @@ function settingWords(changed: unknown): string {
  * whoever opens the thread first, and WorldSpace shows it forever — so it
  * always names the real site, never the localhost a thread was opened from.
  */
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://xtreme.worldstreetgold.com").replace(/\/+$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://xtream.worldstreetgold.com").replace(/\/+$/, "");
+
+/** Every origin a stored context link may name: today's, and the host the
+ *  site lived on before — threads opened back then still carry it. */
+const OWN_ORIGINS = [SITE_URL, "https://xtreme.worldstreetgold.com"];
 
 /** What a thread is about, as the gateway stores it (its ThreadContext). */
 interface Context {
@@ -209,9 +213,8 @@ export function streamContext(stream: { _id: string; title?: string }): Context 
 /** A context link, as this app should follow it: our own pages stay in the
  *  app (so localhost stays on localhost); anything else goes out as is. */
 export function contextHref(url: string): { href: string; internal: boolean } {
-  return url.startsWith(`${SITE_URL}/`)
-    ? { href: url.slice(SITE_URL.length), internal: true }
-    : { href: url, internal: false };
+  const origin = OWN_ORIGINS.find((o) => url.startsWith(`${o}/`));
+  return origin ? { href: url.slice(origin.length), internal: true } : { href: url, internal: false };
 }
 
 /* ---------------- Time ---------------- */
