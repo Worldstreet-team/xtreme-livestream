@@ -7,6 +7,8 @@ import {
   streamSeconds,
   thumbnailUrlFor,
 } from "../stream-service.js";
+import { replayView } from "../recording.js";
+import type { IStreamRecording } from "../models.js";
 
 export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
@@ -26,7 +28,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         // stream this creator has ever run, so inlining the blobs made the
         // payload scale with their history. Thumbnails come from the
         // cacheable per-stream endpoint instead.
-        .select("-thumbnail")
+        .select("-thumbnail +recording")
         .sort({ startedAt: -1 })
         .lean();
       const pastStreams = allStreams.filter((stream) => !stream.isLive);
@@ -117,6 +119,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
           duration: stream.duration,
           date: stream.startedAt,
           earningsUsdMinor: earned,
+          // Recording, processing, ready or failed — null when it wasn't recorded.
+          replay: replayView(stream.recording as IStreamRecording | null | undefined, stream.isLive),
           // Legacy pre-formatted string kept for existing clients.
           earnings: `$${(earned / 100).toFixed(2)}`,
         };

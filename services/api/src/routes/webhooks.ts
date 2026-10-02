@@ -14,6 +14,7 @@ import { recordViewers } from "../analytics.js";
 import { isCameraIdentity, isConsoleIdentity } from "../safety/roles.js";
 import { evictStalePreview, isPreviewIdentity } from "../preview.js";
 import { forgetSecondCamera } from "./camera.js";
+import { isRecorderParticipant, onEgressEvent, startRecordingIfWanted } from "../recording.js";
 
 /**
  * How long a stage guest — asking, backstage or on stage — who drops out of
@@ -83,7 +84,7 @@ async function releaseGuestIfGone(roomName: string, identity: string) {
  * `participant_left` (it may or may not still include the leaver), and blind
  * to who in the room is a feed or crew rather than audience.
  */
-async function updateViewerCounts(stream: IStream, roster?: Array<{ identity: string }> | null) {
+async function updateViewerCounts(stream: IStream, roster?: Array<{ identity: string; kind?: number }> | null) {
   let viewers: number | undefined;
 
   try {
@@ -100,7 +101,9 @@ async function updateViewerCounts(stream: IStream, roster?: Array<{ identity: st
         // A producer's console (producer mode) is crew, not audience.
         !isConsoleIdentity(p.identity) &&
         // The host's phone cam (cam-<id>) is a feed, like the encoder.
-        !isCameraIdentity(p.identity),
+        !isCameraIdentity(p.identity) &&
+        // A recording's headless browser watches, but isn't audience.
+        !isRecorderParticipant(p),
     ).length;
   } catch {
     // No roster: the room's headcount can't tell the audience from the feeds
@@ -156,6 +159,12 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
+      // A recording's progress: started, written, failed (recording.ts).
+      if (event.egressInfo && event.event.startsWith("egress_")) {
+        await onEgressEvent(event.egressInfo);
+        return { success: true };
+      }
+
       const roomName = event.room?.name;
       if (!roomName) return { success: true };
 
@@ -186,6 +195,10 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
         // clear the drop and tell the room.
         if (stream && identity === feedIdentity(stream)) {
           await markFeedBack(stream);
+          // The feed is what a recording waits for: the room exists now, with a picture coming.
+          void startRecordingIfWanted(stream).catch((error) =>
+            console.error("recording start failed:", error),
+          );
         }
         // A practice preview's viewer on a link that's since been stopped
         // or replaced (a kept token): out again at once.
@@ -200,7 +213,9 @@ export const webhookRoutes: FastifyPluginAsync = async (fastify) => {
           identity !== `mon-${bid}` &&
           !isConsoleIdentity(identity) &&
           // The phone cam arriving is a second feed, not an arrival.
-          !isCameraIdentity(identity)
+          !isCameraIdentity(identity) &&
+          // Nor is a recording starting.
+          !isRecorderParticipant(event.participant!)
         ) {
           // The identity is the viewer's user id. Recording it is what turns
           // "how many are watching" into "who watches what", which every

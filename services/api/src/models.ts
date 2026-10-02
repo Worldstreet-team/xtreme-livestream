@@ -503,10 +503,41 @@ export interface IStream extends Document {
    * can't leave the socials feed showing the stream as live forever.
    */
   socialsRelayPending?: boolean;
+  /**
+   * The broadcast's recording (recording.ts). `requested` is the host's
+   * go-live choice; each part is one LiveKit egress — usually one, but a
+   * room that closed during a reconnect hold and came back starts another,
+   * and the replay plays them in order. `select: false`: storage keys and
+   * egress ids never ride along with a read; routes show `replayView`.
+   */
+  recording?: IStreamRecording;
   duration: string;
   earnings: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type RecordingPartStatus = "starting" | "active" | "complete" | "failed";
+
+export interface IStreamRecordingPart {
+  /** Ours, so a part can be claimed before LiveKit hands back its egress id. */
+  id: string;
+  egressId: string;
+  /** The object's key in the R2 bucket. */
+  key: string;
+  status: RecordingPartStatus;
+  durationMs: number;
+  sizeBytes: number;
+  startedAt: Date;
+  endedAt: Date | null;
+  error: string;
+}
+
+export interface IStreamRecording {
+  requested: boolean;
+  parts: IStreamRecordingPart[];
+  /** The host deleted the replay: its files are gone from the bucket. */
+  deletedAt: Date | null;
 }
 
 const streamSchema = new Schema<IStream>(
@@ -639,6 +670,36 @@ const streamSchema = new Schema<IStream>(
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, default: null },
     socialsRelayPending: { type: Boolean, default: false },
+    recording: {
+      type: new Schema(
+        {
+          requested: { type: Boolean, default: false },
+          parts: {
+            type: [
+              new Schema(
+                {
+                  id: { type: String, required: true },
+                  egressId: { type: String, default: "" },
+                  key: { type: String, default: "" },
+                  status: { type: String, enum: ["starting", "active", "complete", "failed"], default: "starting" },
+                  durationMs: { type: Number, default: 0 },
+                  sizeBytes: { type: Number, default: 0 },
+                  startedAt: { type: Date, default: Date.now },
+                  endedAt: { type: Date, default: null },
+                  error: { type: String, default: "" },
+                },
+                { _id: false },
+              ),
+            ],
+            default: [],
+          },
+          deletedAt: { type: Date, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+      select: false,
+    },
     duration: { type: String, default: "0:00" },
     earnings: { type: String, default: "$0" },
   },
@@ -649,6 +710,8 @@ streamSchema.index({ isLive: 1, viewers: -1 });
 streamSchema.index({ isLive: 1, category: 1 });
 streamSchema.index({ isLive: 1, velocity: -1 });
 streamSchema.index({ status: 1, scheduledStartAt: 1 });
+// The egress webhook finds its stream by egress id. Sparse: most streams have no parts.
+streamSchema.index({ "recording.parts.egressId": 1 }, { sparse: true });
 streamSchema.index({ streamerId: 1, status: 1, scheduledStartAt: 1 });
 // Partial: nearly every stream has the flag cleared, so a full index on a
 // boolean would be dead weight — only the sweep's tiny pending set is indexed.

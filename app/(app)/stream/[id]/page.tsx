@@ -61,6 +61,8 @@ import { toCard, type RowItem } from "@/lib/discovery";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { formatNumber, type Category } from "@/lib/categories";
 import { SceneRenderer, type SceneCell } from "@/components/app/scene-renderer";
+import { ReplayPlayer } from "@/components/app/replay-player";
+import type { ReplayView } from "@/lib/replays";
 import { newerGoal, newerHeat, readGoal, readHeat, type StreamGoal, type StreamHeat } from "@/lib/goals";
 import type { TopFan } from "@/components/app/chat/chat-lines";
 import { readFan, type FanStanding } from "@/components/app/chat/lines";
@@ -230,6 +232,10 @@ interface StreamData {
   scene?: Scene;
   /** The goal bar and the heat meter, as the API last had them (lib/goals.ts reads them). */
   goal?: unknown;
+  /** The broadcast's replay once it's over (null: not recorded, or deleted). */
+  replay?: ReplayView | null;
+  /** API-relative, or null without a thumbnail: the replay's poster. */
+  thumbnailUrl?: string | null;
   heat?: unknown;
   streamerId: {
     _id: string;
@@ -2756,11 +2762,21 @@ export default function StreamPage({
           </div>
         )}
         {!stream.isLive && !streamEnded && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <p className="font-wide text-[17px] font-bold tracking-[-0.02em] text-white/70">
-              This stream is offline
-            </p>
-          </div>
+          stream.replay ? (
+            // Over, and recorded: the replay plays where the live picture was.
+            <ReplayPlayer
+              streamId={stream._id}
+              replay={stream.replay}
+              poster={stream.thumbnailUrl ? apiUrl(stream.thumbnailUrl) : null}
+              isOwner={isOwner}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+              <p className="font-wide text-[17px] font-bold tracking-[-0.02em] text-white/70">
+                This stream is offline
+              </p>
+            </div>
+          )
         )}
 
         {/* The battle's scoreboard: under the band while the sides are up,

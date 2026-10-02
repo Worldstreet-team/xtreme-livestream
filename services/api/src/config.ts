@@ -78,6 +78,24 @@ const envSchema = z.object({
    * every surface of it (GET /calls/enabled).
    */
   CALL_RECEIPTS: booleanString,
+  /**
+   * Stream recording (recording.ts): replays go to a Cloudflare R2 bucket,
+   * written there by LiveKit egress and played straight from its public
+   * URL. Leave any of the R2 values unset to switch recording off — the
+   * go-live switch hides and nothing is recorded.
+   */
+  R2_ACCOUNT_ID: z.string().default(""),
+  R2_ACCESS_KEY_ID: z.string().default(""),
+  R2_SECRET_ACCESS_KEY: z.string().default(""),
+  R2_BUCKET_NAME: z.string().default(""),
+  /** The bucket's public base URL (a custom domain or r2.dev), no trailing slash needed. */
+  R2_PUBLIC_URL: z.string().default(""),
+  /**
+   * The web app's recording page (app/record/[id]): egress opens
+   * `<this>/<streamId>` in a headless browser and records what it draws —
+   * the program as viewers see it.
+   */
+  RECORDING_TEMPLATE_URL: z.string().url().default("https://xtream.worldstreetgold.com/record"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -99,6 +117,14 @@ export const config = {
   ...parsed.data,
   clerkAuthorizedParties: splitList(parsed.data.CLERK_AUTHORIZED_PARTIES),
   corsOrigins: splitList(parsed.data.CORS_ORIGINS),
+  /** Every R2 value is set: streams can be recorded. */
+  recordingEnabled: Boolean(
+    parsed.data.R2_ACCOUNT_ID &&
+      parsed.data.R2_ACCESS_KEY_ID &&
+      parsed.data.R2_SECRET_ACCESS_KEY &&
+      parsed.data.R2_BUCKET_NAME &&
+      parsed.data.R2_PUBLIC_URL,
+  ),
 };
 
 export type ApiConfig = typeof config;

@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { Stream, User, type IStream } from "./models.js";
 import { stopPractice } from "./practice.js";
 import { stopPreview } from "./preview.js";
+import { stopRecording } from "./recording.js";
 import { relayLiveEvent, socialsRelayEnabled } from "./socials-relay.js";
 import { closeStreamRuns } from "./sponsors.js";
 import { closeAllWatchSessions } from "./watch-sessions.js";
@@ -182,6 +183,10 @@ export async function markStreamEnded(stream: IStream) {
   }
   void closeAllWatchSessions(stream._id).catch((error) =>
     console.error("watch session close-all failed:", error),
+  );
+  // The recording stops with the broadcast; its file lands through the egress webhook.
+  void stopRecording(stream._id).catch((error) =>
+    console.error("recording stop failed:", error),
   );
   // A sponsor card up at the end stops counting at the end.
   void closeStreamRuns(stream._id as mongoose.Types.ObjectId, endedAt).catch((error) =>

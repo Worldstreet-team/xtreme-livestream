@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, Broadcast, CalendarPlus, Storefront, Warning } from "@/components/icons";
+import { ArrowUpRight, Broadcast, CalendarPlus, Play, Storefront, Warning } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { formatNumber, type Category } from "@/lib/categories";
 import type { RowItem } from "@/lib/discovery";
@@ -23,6 +23,7 @@ import { ThumbnailPicker } from "@/components/app/thumbnail-picker";
 import { Dialog, DialogContent, DialogTrigger, Pill } from "@/components/xtream";
 import { report as healthReport, type HealthWindow } from "@/lib/stream-health";
 import { openStreamReport } from "@/lib/stream-report";
+import { REPLAY_WORDS, type ReplayView } from "@/lib/replays";
 
 /**
  * Your channel — the channel and its numbers in one place (owner,
@@ -66,6 +67,8 @@ interface RecentStream {
   duration: string;
   date: string;
   earningsUsdMinor?: number;
+  /** Its replay, when it was recorded (null: not recorded, or deleted). */
+  replay?: ReplayView | null;
 }
 
 interface DailyView {
@@ -533,6 +536,21 @@ function BroadcastCard({ stream: s }: { stream: RecentStream }) {
             {formatStreamDuration(s.duration)}
           </span>
         )}
+        {s.replay &&
+          (s.replay.status === "ready" ? (
+            // Above the report's cover button: this one opens the replay on the stream's page.
+            <Link
+              href={`/stream/${s.id}`}
+              className="absolute top-2 right-2 z-[2] flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[12px] font-semibold text-white backdrop-blur-sm hover:bg-black/80"
+            >
+              <Play size={11} weight="fill" />
+              {REPLAY_WORDS.ready}
+            </Link>
+          ) : (
+            <span className="pointer-events-none absolute top-2 right-2 z-[2] rounded-full bg-black/65 px-2.5 py-1 text-[12px] font-semibold text-white/80 backdrop-blur-sm">
+              {REPLAY_WORDS[s.replay.status]}
+            </span>
+          ))}
         {(s.thumbnailCandidates ?? 0) > 0 && (
           <Dialog>
             <DialogTrigger asChild>

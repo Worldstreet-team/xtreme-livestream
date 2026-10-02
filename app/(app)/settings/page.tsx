@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
 import { ArrowUpRight, Camera, Check, Copy, Eye, EyeSlash, Plus, Shield, SignOut, Warning, X } from "@/components/icons";
 import { apiFetch } from "@/lib/api-client";
+import { useRecordingEnabled } from "@/lib/replays";
 import { useAuth } from "@/lib/auth-context";
 import { POPULAR_CATEGORIES, formatNumber } from "@/lib/categories";
 import { categoryArt } from "@/lib/category-art";
@@ -705,6 +706,7 @@ function ControlSection() {
 
 function ChatSection() {
   const { user, refreshUser } = useAuth();
+  const recordingEnabled = useRecordingEnabled();
   const [flash, show] = useSavedFlash();
   const [values, setValues] = useState(() => ({
     slowMode: user?.settings.slowMode ?? false,
@@ -746,9 +748,16 @@ function ChatSection() {
                   <div className="py-2">
                     <SwitchField label="Followers-only chat" description="Only your allies can send messages." checked={values.subscriberOnly} onCheckedChange={(v) => set("subscriberOnly", v)} />
                   </div>
-                  <div className="py-2">
-                    <SwitchField label="Record my streams" description="Coming soon — replays aren't available yet." checked={false} disabled />
-                  </div>
+                  {recordingEnabled && (
+                    <div className="py-2">
+                      <SwitchField
+                        label="Record my streams"
+                        description="Keeps a replay on each stream's page, as viewers saw it. The studio asks every time you go live, starting from this."
+                        checked={values.autoRecord}
+                        onCheckedChange={(v) => set("autoRecord", v)}
+                      />
+                    </div>
+                  )}
                 </div>
                 <p className="mt-3 flex items-start gap-2 text-[12px] leading-relaxed text-muted-foreground">
                   <Shield size={14} className="mt-px shrink-0" />

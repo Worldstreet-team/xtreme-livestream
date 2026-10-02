@@ -1212,7 +1212,31 @@ export const createStreamBodySchema = z.object({
    * relayed or paid. Decided when the stream is made.
    */
   practice: z.boolean().default(false),
+  /**
+   * Record this broadcast for a replay. Chosen per stream on go-live and
+   * remembered on the account (`settings.autoRecord`); left out, the
+   * account's last choice stands. Ignored for a practice run, and when the
+   * server has no storage for recordings (GET /recording/enabled).
+   */
+  record: z.boolean().optional(),
 });
+
+/**
+ * A broadcast's replay, as anyone may see it — never the storage keys.
+ * `recording` while the stream is on air, `processing` from the end until
+ * the last file is written (a minute or two), then `ready` or `failed`.
+ * Null when the broadcast wasn't recorded, or its host deleted the replay.
+ */
+export const REPLAY_STATUSES = ["recording", "processing", "ready", "failed"] as const;
+export type ReplayStatus = (typeof REPLAY_STATUSES)[number];
+
+export interface ReplayView {
+  status: ReplayStatus;
+  /** Every part's length together, in ms (0 until they're written). */
+  durationMs: number;
+  /** The files, played one after another: a feed that dropped and came back can make two. */
+  parts: Array<{ url: string; durationMs: number }>;
+}
 
 /**
  * Change a stream's details — only the fields sent. An empty title gives

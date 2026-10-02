@@ -208,6 +208,12 @@ const withClerk = clerkMiddleware(
  * stream and channel links keep rendering their previews.
  */
 export default function middleware(req: NextRequest, evt: NextFetchEvent) {
+  // The recording page (app/record) is opened by LiveKit egress's headless
+  // browser: no account, no cookies, and a page load it waits on. None of
+  // the redirects below — the cookie probe, the hub handshake — may touch
+  // it; its room token is its only key.
+  if (req.nextUrl.pathname.startsWith("/record/")) return NextResponse.next();
+
   // The old host, before anything else: a page asked for there is the same
   // page here. 307, not 308 — browsers keep a permanent redirect for good,
   // and this one is meant to be taken down. Not /api: a tab still open on the

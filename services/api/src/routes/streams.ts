@@ -32,6 +32,7 @@ import {
 } from "../stream-service.js";
 import { cardMoment, recordMoment } from "../analytics.js";
 import { putScene } from "../scene-put.js";
+import { deleteReplay, recordingOf, replayView } from "../recording.js";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -282,9 +283,16 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         },
       );
 
-      const { scheduledStreamId, scene, ...body } = request.body;
+      const { scheduledStreamId, scene, record: recordChoice, ...body } = request.body;
       // A practice run (practice.ts): decided here and never changed.
       const practice = body.practice === true;
+      // Record it? The go-live switch, remembered on the account for next
+      // time; a client without the switch (an older app) gets the last choice.
+      if (recordChoice !== undefined && recordChoice !== dbUser.settings.autoRecord) {
+        dbUser.settings.autoRecord = recordChoice;
+        await dbUser.save();
+      }
+      const record = config.recordingEnabled && !practice && (recordChoice ?? dbUser.settings.autoRecord) === true;
       const fields = {
         ...body,
         // Going live needs no name: a blank title is the host's default.
@@ -315,6 +323,8 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         rundown: null,
         // Stamps the version the thumbnail URL is cache-busted on.
         thumbnailVersion: body.thumbnail ? Date.now() : 0,
+        // It starts once the feed is in the room (recording.ts).
+        recording: { requested: record, parts: [], deletedAt: null },
         livekitRoomName: roomName,
         status: "live" as const,
         isLive: true,
@@ -397,6 +407,7 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
             livekitRoomName: roomName,
             startedAt: stream.startedAt,
             practice,
+            recording: record,
           },
           livekitToken,
           livekitUrl: config.LIVEKIT_URL,
@@ -611,7 +622,44 @@ export const streamRoutes: FastifyPluginAsync = async (fastify) => {
         "username displayName avatar bio followers isLive verified brand.accent brand.lowerThird brand.font brand.logoVersion brand.set settings.stageRequests",
       );
 
-      return { success: true, data: { stream: stream.toJSON() } };
+      // The replay as anyone may see it: never the storage keys behind it.
+      const replay = stream.isLive || stream.status === "ended" ? replayView(await recordingOf(stream._id), stream.isLive) : null;
+
+      return { success: true, data: { stream: { ...stream.toJSON(), replay, thumbnailUrl: thumbnailUrlFor(stream) } } };
+    },
+  );
+
+  /** Whether this server records streams at all: the go-live switch and the setting hide when it doesn't. */
+  app.get(
+    "/recording/enabled",
+    { schema: { tags: ["Streams"], summary: "Whether stream recording is available" } },
+    async () => ({ success: true, data: { enabled: config.recordingEnabled } }),
+  );
+
+  /** The host deletes a replay: the files leave storage, for good. */
+  app.delete(
+    "/streams/:id/replay",
+    {
+      schema: {
+        tags: ["Streams"],
+        summary: "Delete a stream's replay",
+        params: streamIdParamsSchema,
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const { dbUser } = await authenticate(request);
+      const stream = await Stream.findById(request.params.id).select("streamerId isLive");
+      if (!stream) throw new ApiError(404, "Stream not found", "STREAM_NOT_FOUND");
+      if (!stream.streamerId.equals(dbUser._id)) throw new ApiError(403, "Not authorized", "FORBIDDEN");
+      const replay = replayView(await recordingOf(stream._id), stream.isLive);
+      if (!replay) throw new ApiError(404, "This broadcast has no replay", "REPLAY_NOT_FOUND");
+      // A file still being written would land after the delete and outlive it.
+      if (replay.status === "recording" || replay.status === "processing") {
+        throw new ApiError(409, "The replay is still being made — try again in a few minutes", "REPLAY_PENDING");
+      }
+      await deleteReplay(stream._id);
+      return { success: true, message: "Replay deleted" };
     },
   );
 

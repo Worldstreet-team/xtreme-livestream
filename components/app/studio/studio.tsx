@@ -136,6 +136,7 @@ import { TickerChips } from "@/components/app/ticker-chips";
 import { MarketSuggestions } from "@/components/app/market-suggestions";
 import { useMarketSuggestions, type MarketQuestionPreset } from "@/lib/market-suggestions";
 import { useAuth } from "@/lib/auth-context";
+import { useRecordingEnabled } from "@/lib/replays";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureVideoFrame, compressImage } from "@/lib/image-utils";
 import { LiveChat } from "@/components/app/live-chat";
@@ -220,7 +221,7 @@ function captureResolution(o: Orientation, saveData = false) {
  * sight and the broadcast rides in a corner (MiniLive) and in the rail.
  */
 export function Studio({ minimized = false }: { minimized?: boolean }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   // Both optional, both remembered: last time's title and category come
   // back prefilled, so going again is one tap. Never crypto by default.
   const [title, setTitle] = useState(() => readLastDetails()?.title ?? "");
@@ -267,6 +268,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
   const [facing, setFacing] = useState<Facing>("user");
   /** Cross-post this broadcast to the WorldSpace feed. Off unless asked. */
   const [postToWorldSpace, setPostToWorldSpace] = useState(false);
+  /** Record this broadcast for a replay: the account's last choice until it's switched here (the API remembers it). */
+  const recordingEnabled = useRecordingEnabled();
+  const [recordChoice, setRecordChoice] = useState<boolean | null>(null);
+  const recordOn = recordChoice ?? user?.settings.autoRecord ?? false;
+  /** This broadcast is being recorded, as the API answered on go-live. */
+  const [recordingOnAir, setRecordingOnAir] = useState(false);
   const [panel, setPanel] = useState<Panel>("chat");
   const [phone, setPhone] = useState(false);
   /** Tablets: the stage on top, the console under it (owner: "the studio in the tab view looks squashed"). */
@@ -1782,7 +1789,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         const res = await apiFetch<{
           success: boolean;
           data: {
-            stream: { id: string; livekitRoomName: string; title?: string };
+            stream: { id: string; livekitRoomName: string; title?: string; recording?: boolean };
             livekitToken: string;
             livekitUrl: string;
             ingress?: { url: string; streamKey: string };
@@ -1800,6 +1807,8 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             // A practice run stays on Xtream, and out of sight.
             practice,
             postToWorldSpace: postToWorldSpace && !practice,
+            // Sent only where recording exists, so a server without it never overwrites the remembered choice.
+            ...(recordingEnabled && !practice ? { record: recordOn } : {}),
             ...(openOnCard ? { scene: { layout: "auto", card: "starting-soon", cardNote: cardNote.trim() } } : {}),
             ...(booking ? { scheduledStreamId: booking.id, notifyFollowers: booking.notifyFollowers } : {}),
           }),
@@ -1810,6 +1819,9 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         noteFollowersTold(createdStreamId, res.data.followersTold);
         setStreamId(createdStreamId);
         setAirTitle(res.data.stream.title ?? null);
+        setRecordingOnAir(res.data.stream.recording === true);
+        // The API remembered a changed choice: Settings shows it too.
+        if (recordingEnabled && !practice && recordOn !== (user?.settings.autoRecord ?? false)) void refreshUser();
         if (res.data.ingress) setIngressInfo(res.data.ingress);
         // Next time starts from here, in this browser.
         saveLastDetails({ title, category });
@@ -1908,6 +1920,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
     // The next stream is real unless they say otherwise again.
     setPractice(false);
     setAirTitle(null);
+    setRecordingOnAir(false);
     setDetailsOpen(false);
     // The mic track went with the room, and the desk with it.
     deskRef.current = null;
@@ -3279,7 +3292,7 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
         id="setup-going-live"
         title="Going live"
         icon={Broadcast}
-        summary={[openOnCard ? "Opens on “Starting soon”" : "Straight to camera", source !== "obs" && saveData ? "Save data" : null, postToWorldSpace ? "Posts to WorldSpace" : "Stays on Xtream"].filter(Boolean).join(" · ")}
+        summary={[openOnCard ? "Opens on “Starting soon”" : "Straight to camera", source !== "obs" && saveData ? "Save data" : null, recordingEnabled && !practice && recordOn ? "Recorded" : null, postToWorldSpace ? "Posts to WorldSpace" : "Stays on Xtream"].filter(Boolean).join(" · ")}
         className="@[620px]:col-span-2"
       >
       <div className="flex flex-col gap-6">
@@ -3305,6 +3318,22 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
             }
             checked={saveData}
             onCheckedChange={setSaveData}
+          />
+        </div>
+      )}
+
+      {/* Keep it: a replay on the stream's page afterwards. A practice run is never recorded. */}
+      {recordingEnabled && !practice && (
+        <div className="border-t border-hairline pt-3">
+          <SwitchField
+            label="Record this stream"
+            description={
+              recordOn
+                ? "The replay stays on this stream's page and your channel, as viewers saw it. Delete it any time from the stream page."
+                : "Nothing is kept once you end. Your next stream starts from whatever you choose here."
+            }
+            checked={recordOn}
+            onCheckedChange={setRecordChoice}
           />
         </div>
       )}
@@ -4719,6 +4748,12 @@ export function Studio({ minimized = false }: { minimized?: boolean }) {
                   <span className="flex h-full items-center gap-1.5 bg-chili px-2.5 text-[12px] font-bold tracking-[0.06em]">
                     <span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-1.5 rounded-full bg-white" /></span>
                     LIVE
+                  </span>
+                )}
+                {recordingOnAir && !practice && (
+                  <span className="flex h-full items-center gap-1 pl-2.5 font-mono text-[11px] font-bold tracking-[0.06em] text-chili-hi" title="This broadcast is being recorded for a replay">
+                    <span className="size-1.5 rounded-full bg-chili" />
+                    REC
                   </span>
                 )}
                 <span className="px-2.5 font-mono text-[12px] font-semibold tabular-nums">{elapsed}</span>
